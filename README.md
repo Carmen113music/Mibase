@@ -10,10 +10,36 @@ Neix de les idees provades a **Riffs**, una app d'Android per gravar idees music
 
 Motor propi escrit en C++; [JUCE](https://juce.com) es fa servir només per als controladors d'àudio i MIDI, els plugins i les finestres.
 
-> Estat: **0.1 — pantalla de diagnòstic**. Serveix per comprovar la targeta, el teclat MIDI i el retard real abans de començar a gravar.
+> Estat: **0.2 — pantalla d'inici i projectes**. Es poden crear i obrir projectes; l'estudi (pistes i gravació) arriba a la 0.3.
 
-## Com es fa servir (0.1)
-Mibase s'obre a la **pantalla de diagnòstic**:
+## Com es fa servir
+
+### Pantalla d'inici
+Mibase s'obre a la **pantalla d'inici**, en tres columnes:
+
+- **Esquerra, les carpetes.** A dalt, els llocs (Escriptori, Documents, Música, Baixades); al mig, l'arbre de carpetes, amb el nombre de projectes que té cada una; a baix, les unitats. Clica una carpeta per triar-la: és on es crearan els projectes nous (es veu a baix de tot). La fletxa obre o tanca una carpeta. «Carpeta nova aquí» en crea una dins la triada. Les carpetes que ja són projectes no surten a l'arbre.
+- **Centre, els projectes recents**, el més recent primer. Un clic el tria; doble clic (o Retorn) l'obre. «Busca un projecte» filtra pel nom i «Només d'aquesta carpeta» mostra només els de la carpeta triada. «Obre un altre projecte…» obre qualsevol fitxer `.mibase`.
+- **Dreta, el projecte triat**: «Obre a l'estudi», quantes pistes i preses té, el tempo i l'**evolució del projecte** (les últimes línies del seu diari). Si el projecte ja no es troba (s'ha mogut o el disc no hi és), ho diu i el pots treure de la llista.
+- **Amplades**: arrossega la ratlla entre dues columnes per fer-les més amples o més estretes (doble clic: mida inicial). Es recorda per a la propera vegada.
+
+### Projecte nou
+«Projecte nou» demana el **nom** (avisa si Windows no l'accepta o si ja hi és), el **tempo**, el **compàs** i amb què comences (de moment, projecte buit; les plantilles arribaran més endavant). A la dreta es veu què es crearà:
+
+```
+<carpeta triada>\
+   <Nom>\
+      <Nom>.mibase     el projecte (text; es desa sol)
+      Evolució.txt     diari del projecte, el més recent a dalt
+      Àudios\          les gravacions: «Guitarra - presa 01.wav», «Veu - presa 03.wav»…
+      Còpies\          còpies automàtiques del fitxer del projecte (les 10 últimes; els àudios no es copien)
+```
+
+Els àudios conserven sempre el seu nom, encara que després canviïs el nom de la pista.
+
+### Barra de dalt
+**Inici**, **Estudi · nom del projecte** (quan n'hi ha un d'obert) i **Diagnòstic**. Al mig, l'estat de la targeta d'àudio (controlador, targeta, freqüència, buffer i, si l'has mesurat, el retard).
+
+### Diagnòstic
 
 1. **Targeta d'àudio**: tria el *Controlador* (ASIO és el més ràpid; amb la Scarlett, «Focusrite USB ASIO»), la *Targeta*, la *Freqüència* i el *Buffer*. Com més petit el buffer, menys retard (però més risc de talls). «Panell del controlador» obre el de la targeta (només ASIO). Els ajustos es desen sols.
 2. **Proves de so**: «Clic de prova» fa sonar un metrònom (el primer temps més agut); el tempo es canvia amb la barra. «So del teclat» fa sonar un so senzill quan toques el teclat MIDI.
@@ -45,14 +71,16 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Estructura
 | Carpeta | Què hi ha |
 |---|---|
-| `motor/` | El motor (ara: clic, so de prova, vúmetres, mesura de latència). Sense interfície: es prova sol. |
+| `motor/` | El motor (ara: clic, so de prova, vúmetres, mesura de latència, projectes al disc). Sense interfície: es prova sol. |
 | `app/` | El programa de Windows (finestres, àudio, MIDI). |
 | `proves/` | Proves automàtiques del motor. |
 | `extern/asiosdk/` | Kit d'ASIO oficial de Steinberg (2.3.4), només les parts necessàries. |
+| `extern/nlohmann/` | Biblioteca JSON (per llegir i desar els projectes). |
 
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.2.0** — Pantalla d'inici: navegador de carpetes, projectes recents (cercador i filtre per carpeta), detalls del projecte amb la seva evolució, columnes d'amplada ajustable. Projecte nou (nom, tempo, compàs) que crea la carpeta, el fitxer `.mibase`, `Evolució.txt`, `Àudios` i `Còpies`. Barra de dalt amb Inici / Estudi / Diagnòstic i l'estat de la targeta. Estudi provisional. Diagnòstic: l'entrada WASAPI només surt amb WASAPI, els talls desconeguts es diuen amb paraules i els canals actius pel nom.
 - **0.1.0** — Pantalla de diagnòstic: triar controlador (ASIO/WASAPI), targeta, freqüència i buffer; clic de prova amb tempo; vúmetres de les entrades; teclats MIDI amb llista de missatges i so de prova; mesura de la latència real d'anada i tornada; estat (càrrega i talls); historial; «Copia el diagnòstic». Compilació automàtica per a Windows amb GitHub Actions.
 - **0.0** — Repositori creat.
 
@@ -60,4 +88,5 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 - Mibase: GPLv3 (fitxer `LICENSE`), perquè fa servir el kit d'ASIO amb llicència GPLv3.
 - JUCE 8 — AGPLv3 / llicència JUCE.
 - ASIO SDK de Steinberg — GPLv3 (`extern/asiosdk/LICENSE.txt`). ASIO és una marca de Steinberg Media Technologies GmbH.
+- nlohmann/json 3.11.3 — MIT.
 - VST 3 SDK de Steinberg (inclòs a JUCE) — MIT. VST és una marca de Steinberg Media Technologies GmbH.

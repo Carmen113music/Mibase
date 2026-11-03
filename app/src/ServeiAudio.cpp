@@ -127,6 +127,32 @@ void ServeiAudio::desaLatencia (int mostres, double ms)
     ajustos->saveIfNeeded();
 }
 
+juce::String ServeiAudio::resumDispositiu()
+{
+    auto* d = gestor.getCurrentAudioDevice();
+    if (d == nullptr)
+        return {};
+
+    auto tipus = d->getTypeName();
+    if (tipus.startsWith ("Windows Audio"))
+        tipus = "WASAPI";
+
+    const double fs = d->getCurrentSampleRate();
+    const auto freq = std::fmod (fs, 1000.0) < 0.5 ? juce::String ((int) (fs / 1000.0)) : juce::String (fs / 1000.0, 1);
+    return tipus + " · "_ca + d->getName() + " · "_ca + freq + " kHz · "_ca
+         + juce::String (d->getCurrentBufferSizeSamples()) + " mostres";
+}
+
+double ServeiAudio::latenciaMsDesada()
+{
+    const auto t = getLatenciaDesada();
+    if (t.isEmpty())
+        return -1.0;
+    // «123 mostres (2,6 ms), …» o «123 mostres (2.6 ms), …»
+    return t.fromFirstOccurrenceOf ("(", false, false).upToFirstOccurrenceOf (" ms", false, false)
+            .replaceCharacter (',', '.').getDoubleValue();
+}
+
 //==============================================================================
 void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades, int numEntrades,
                                                     float* const* sortides, int numSortides, int numMostres,

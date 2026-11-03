@@ -20,6 +20,15 @@ namespace
         l.setFont (juce::FontOptions (14.0f));
     }
 
+    juce::String nomsActius (const juce::StringArray& noms, const juce::BigInteger& actius)
+    {
+        juce::StringArray r;
+        for (int i = 0; i < noms.size(); ++i)
+            if (actius[i])
+                r.add (noms[i]);
+        return r.isEmpty() ? juce::String ("cap") : r.joinIntoString (", ");
+    }
+
     juce::String ms (int mostres, double fs)
     {
         return fs > 0 ? juce::String (1000.0 * mostres / fs, 1) + " ms" : juce::String ("?");
@@ -654,7 +663,7 @@ void PantallaDiagnostic::actualitzaEstat()
              << "Càrrega de l'àudio: "_ca << juce::String (gestor.getCpuUsage() * 100.0, 0) << " %";
 
         const int talls = d->getXRunCount();
-        text << "  ·  Talls: "_ca << (talls >= 0 ? juce::String (talls) : juce::String ("no ho diu"));
+        text << "  ·  Talls: "_ca << (talls >= 0 ? juce::String (talls) : juce::String ("el controlador no ho diu"));
     }
     etEstat.setText (text, juce::dontSendNotification);
 
@@ -729,23 +738,31 @@ juce::String PantallaDiagnostic::textDiagnostic()
         const double fs = d->getCurrentSampleRate();
         t << "Controlador: " << d->getTypeName() << "\n"
           << "Dispositiu: " << d->getName() << "\n"
-          << "Entrada (WASAPI): " << gestor.getAudioDeviceSetup().inputDeviceName << "\n"
-          << "Freqüència: "_ca << fs << " Hz (possibles: ";
+          ;
+        if (d->getTypeName().startsWith ("Windows Audio"))
+            t << "Entrada: " << gestor.getAudioDeviceSetup().inputDeviceName << "\n";
+        t << "Freqüència: "_ca << fs << " Hz (possibles: ";
         juce::StringArray f;
         for (auto x : d->getAvailableSampleRates()) f.add (juce::String ((int) x));
         t << f.joinIntoString (", ") << ")\n"
           << "Buffer: " << d->getCurrentBufferSizeSamples() << " (per defecte " << d->getDefaultBufferSize() << "; possibles: ";
+        const auto buffers = d->getAvailableBufferSizes();
         juce::StringArray b;
-        for (auto x : d->getAvailableBufferSizes()) b.add (juce::String (x));
+        if (buffers.size() > 12)
+            b.add (juce::String (buffers.getFirst()) + " a " + juce::String (buffers.getLast())
+                   + " (" + juce::String (buffers.size()) + " mides)");
+        else
+            for (auto x : buffers) b.add (juce::String (x));
         t << b.joinIntoString (", ") << ")\n"
           << "Bits: " << d->getCurrentBitDepth() << "\n"
-          << "Entrades: " << d->getInputChannelNames().joinIntoString (", ")
-          << "  (actives: " << d->getActiveInputChannels().toString (2) << ")\n"
-          << "Sortides: " << d->getOutputChannelNames().joinIntoString (", ")
-          << "  (actives: " << d->getActiveOutputChannels().toString (2) << ")\n"
+          << "Entrades actives: " << nomsActius (d->getInputChannelNames(), d->getActiveInputChannels())
+          << "  (de " << d->getInputChannelNames().size() << ")\n"
+          << "Sortides actives: " << nomsActius (d->getOutputChannelNames(), d->getActiveOutputChannels())
+          << "  (de " << d->getOutputChannelNames().size() << ")\n"
           << "Retard segons el controlador: entrada " << d->getInputLatencyInSamples() << ", sortida "
           << d->getOutputLatencyInSamples() << " mostres\n"
-          << "Càrrega: "_ca << juce::String (gestor.getCpuUsage() * 100.0, 1) << " %  ·  Talls: "_ca << d->getXRunCount()
+          << "Càrrega: "_ca << juce::String (gestor.getCpuUsage() * 100.0, 1) << " %  ·  Talls: "_ca
+          << (d->getXRunCount() >= 0 ? juce::String (d->getXRunCount()) : juce::String ("el controlador no ho diu"))
           << "  ·  Blocs massa grans: "_ca << servei.motor().blocsMassaGrans.load() << "\n"
           << "Panell del controlador: " << (d->hasControlPanel() ? "sí"_ca : "no") << "\n";
     }

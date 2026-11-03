@@ -6,13 +6,17 @@
 #include "mibase/MesuraLatencia.h"
 #include "mibase/Mesurador.h"
 #include "mibase/MotorDiagnostic.h"
+#include "mibase/ProjecteDisc.h"
 #include "mibase/SinteSenzill.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -241,6 +245,146 @@ int main()
         motor.clicActiu = true;
         motor.processa (eg, 1, sg, 1, 4096);
         comprova (pic (gran, 0, 1000) > 0.1f && totFinit (gran), "bloc gran: el clic sona i no peta");
+    });
+
+
+    prova ("Noms: es validen com a Windows", []
+    {
+        using namespace mibase::disc;
+        comprova (validaNom ("Tornada amb slide").correcte, "nom normal");
+        comprova (validaNom ("Cançó d'estiu · 2").correcte, "accents i punts volats");
+        comprova (! validaNom ("").correcte, "buit");
+        comprova (! validaNom ("   ").correcte, "només espais");
+        comprova (! validaNom ("A/B").correcte, "barra");
+        comprova (! validaNom ("Què?").correcte, "interrogant");
+        comprova (! validaNom ("Final.").correcte, "acaba amb punt");
+        comprova (! validaNom ("Final ").correcte, "acaba amb espai");
+        comprova (! validaNom ("con").correcte && ! validaNom ("COM1.txt").correcte, "noms reservats");
+        comprova (validaNom ("Concert").correcte, "«Concert» sí que val");
+        comprova (netejaNom ("Solo: part 2?") == "Solo_ part 2_", "neteja caràcters");
+        comprova (netejaNom ("  ") == "Pista", "neteja d'un nom buit");
+    });
+
+    prova ("Projecte: es crea amb la seva carpeta, Àudios, Còpies i el diari", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::disc;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+
+        mibase::Projecte p;
+        p.nom = "Tornada amb accents àèéíòóú";
+        p.tempo = 100;
+        p.compasNum = 6; p.compasDen = 8;
+
+        auto r = creaProjecte (arrel, p, "2026-11-03T09:45:00", "03/11/2026 09:45");
+        comprova (r.correcte, "creat (" + r.error + ")");
+        const auto carpeta = carpetaDe (arrel, p.nom);
+        comprova (fs::is_directory (carpeta), "carpeta del projecte");
+        comprova (fs::is_regular_file (carpeta / cami (p.nom + ".mibase")), "fitxer del projecte");
+        comprova (fs::is_directory (carpeta / cami ("Àudios")), "carpeta Àudios");
+        comprova (fs::is_directory (carpeta / cami ("Còpies")), "carpeta Còpies");
+        comprova (esCarpetaDeProjecte (carpeta), "es reconeix com a projecte");
+        comprova (comptaProjectes (arrel) == 1, "la carpeta mare té 1 projecte");
+
+        auto e = llegeixEvolucio (carpeta, 10);
+        comprova (e.size() == 1 && e[0].quan == "03/11/2026 09:45", "diari amb una entrada");
+        comprova (! e.empty() && e[0].text.find ("Projecte creat (buit)") == 0 && e[0].text.find ("6/8") != std::string::npos, "text de creació");
+
+        auto r2 = creaProjecte (arrel, p, "2026-11-03T09:46:00", "03/11/2026 09:46");
+        comprova (! r2.correcte && ! r2.error.empty(), "no trepitja un projecte que ja existeix");
+
+        auto llegit = llegeix (r.fitxer);
+        comprova (llegit.has_value(), "es llegeix");
+        if (llegit)
+        {
+            comprova (llegit->nom == p.nom, "nom amb accents");
+            comprova (llegit->tempo == 100 && llegit->compasNum == 6 && llegit->compasDen == 8, "tempo i compàs");
+            comprova (llegit->creat == "2026-11-03T09:45:00", "data de creació");
+        }
+    });
+
+    prova ("Projecte: desar fa còpies (només 10) i conserva el que no coneix", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::disc;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves2";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+
+        mibase::Projecte p;
+        p.nom = "Còpies";
+        auto r = creaProjecte (arrel, p, "2026-11-03T10:00:00", "03/11/2026 10:00");
+        comprova (r.correcte, "creat");
+
+        // Un camp d'una versió futura.
+        {
+            std::string contingut;
+            { std::ifstream f (r.fitxer); std::ostringstream ss; ss << f.rdbuf(); contingut = ss.str(); }
+            auto pos = contingut.find ("\"nom\"");
+            contingut.insert (pos, "\"campFutur\": 42,\n  ");
+            std::ofstream f (r.fitxer, std::ios::trunc); f << contingut;
+        }
+
+        for (int i = 0; i < 14; ++i)
+        {
+            auto llegit = llegeix (r.fitxer);
+            comprova (llegit.has_value(), "es llegeix " + std::to_string (i));
+            if (! llegit) return;
+            llegit->tempo = 90 + i;
+            char ara[32]; std::snprintf (ara, sizeof (ara), "2026-11-03 10%04d", i);
+            auto d = desa (r.fitxer, *llegit, "2026-11-03T10:00:00", ara);
+            comprova (d.correcte, "desat " + std::to_string (i));
+        }
+
+        int copies = 0;
+        for (auto& e : fs::directory_iterator (r.fitxer.parent_path() / cami ("Còpies")))
+            if (e.path().extension() == ".mibase") ++copies;
+        comprova (copies == 10, "10 còpies (n'hi ha " + std::to_string (copies) + ")");
+
+        auto final = llegeix (r.fitxer);
+        comprova (final && final->tempo == 103, "l'últim tempo desat");
+        comprova (final && final->jsonOriginal.find ("campFutur") != std::string::npos, "conserva el camp desconegut");
+
+        int temporals = 0;
+        for (auto& e : fs::directory_iterator (r.fitxer.parent_path()))
+            if (e.path().extension() == ".tmp") ++temporals;
+        comprova (temporals == 0, "no queden fitxers temporals");
+    });
+
+    prova ("Diari: el més recent a dalt", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::disc;
+        const auto carpeta = fs::temp_directory_path() / "mibase_proves3" / "Diari";
+        fs::remove_all (carpeta.parent_path());
+        fs::create_directories (carpeta);
+
+        afegeixEvolucio (carpeta, "01/11/2026 19:00", "Primer");
+        afegeixEvolucio (carpeta, "02/11/2026 20:00", "Segon");
+        afegeixEvolucio (carpeta, "03/11/2026 21:00", "Tercer · amb punt volat");
+        auto e = llegeixEvolucio (carpeta, 10);
+        comprova (e.size() == 3, "tres entrades");
+        comprova (e.size() == 3 && e[0].text == "Tercer · amb punt volat" && e[2].text == "Primer", "ordre i text");
+        comprova (llegeixEvolucio (carpeta, 2).size() == 2, "es pot limitar");
+    });
+
+    prova ("Preses: «Pista - presa 01.wav», 02, 03…", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::disc;
+        const auto audios = fs::temp_directory_path() / "mibase_proves4";
+        fs::remove_all (audios);
+        fs::create_directories (audios);
+
+        comprova (nomPresa (audios, "Guitarra") == "Guitarra - presa 01.wav", "primera presa");
+        std::ofstream (audios / cami ("Guitarra - presa 01.wav")) << "x";
+        std::ofstream (audios / cami ("Guitarra - presa 07.wav")) << "x";
+        std::ofstream (audios / cami ("Guitarra rítmica - presa 12.wav")) << "x";
+        comprova (nomPresa (audios, "Guitarra") == "Guitarra - presa 08.wav", "la següent a la més alta");
+        comprova (nomPresa (audios, "Guitarra rítmica") == "Guitarra rítmica - presa 13.wav", "una altra pista, amb accent");
+        comprova (nomPresa (audios, "Veu: tornada") == "Veu_ tornada - presa 01.wav", "nom de pista netejat");
     });
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);

@@ -6,7 +6,10 @@ juce_add_gui_app(Mibase
 target_sources(Mibase PRIVATE
     src/Main.cpp
     src/ServeiAudio.cpp
-    src/PantallaDiagnostic.cpp)
+    src/PantallaDiagnostic.cpp
+    src/NavegadorCarpetes.cpp
+    src/FinestraProjecteNou.cpp
+    src/PantallaInici.cpp)
 
 target_compile_definitions(Mibase PRIVATE
     MIBASE_VERSIO="${PROJECT_VERSION}"
