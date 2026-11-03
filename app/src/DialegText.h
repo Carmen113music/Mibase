@@ -10,7 +10,7 @@ public:
     /** valida: retorna un missatge d'error (o buit si el text és bo). */
     DialegText (const juce::String& titolDialeg, const juce::String& explicacio, const juce::String& textBoto,
                 std::function<juce::String (const juce::String&)> validaText,
-                std::function<void (const juce::String&)> enAcceptar)
+                std::function<void (const juce::String&)> enAcceptar, const juce::String& textInicial = {})
         : titol (titolDialeg), subtitol (explicacio), valida (std::move (validaText)), accepta (std::move (enAcceptar)),
           btAccepta (textBoto, std::nullopt, Boto::Estil::Primari)
     {
@@ -20,6 +20,8 @@ public:
         text.setColour (juce::TextEditor::backgroundColourId, tema::fons);
         text.setColour (juce::TextEditor::outlineColourId, tema::linia2);
         text.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+        text.setText (textInicial, false);
+        text.selectAll();
         text.addListener (this);
         addAndMakeVisible (text);
 
@@ -58,7 +60,7 @@ public:
         g.setFont (dibuix::lletra (13.0f));
         g.drawFittedText (subtitol, r.removeFromTop (38), juce::Justification::topLeft, 2, 0.8f);
 
-        g.setColour (error.isNotEmpty() ? juce::Colour (0xffff7a70) : tema::suau);
+        g.setColour (error.isNotEmpty() ? tema::errorText : tema::suau);
         g.setFont (dibuix::lletra (12.5f));
         g.drawText (error, text.getBounds().translated (0, 48).withHeight (20), juce::Justification::centredLeft);
     }
@@ -92,7 +94,7 @@ private:
         const auto t = text.getText();
         error = t.isEmpty() ? juce::String() : valida (t);
         btAccepta.setEnabled (t.isNotEmpty() && error.isEmpty());
-        text.setColour (juce::TextEditor::outlineColourId, error.isNotEmpty() ? tema::accent : tema::linia2);
+        text.setColour (juce::TextEditor::outlineColourId, error.isNotEmpty() ? tema::error : tema::linia2);
         repaint();
     }
 

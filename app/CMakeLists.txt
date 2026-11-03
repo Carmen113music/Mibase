@@ -1,7 +1,8 @@
 juce_add_gui_app(Mibase
     PRODUCT_NAME "Mibase"
     VERSION ${PROJECT_VERSION}
-    COMPANY_NAME "Carmen113music")
+    COMPANY_NAME "Carmen113music"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/recursos/icona.png")
 
 target_sources(Mibase PRIVATE
     src/Main.cpp
@@ -9,7 +10,9 @@ target_sources(Mibase PRIVATE
     src/PantallaDiagnostic.cpp
     src/NavegadorCarpetes.cpp
     src/FinestraProjecteNou.cpp
-    src/PantallaInici.cpp)
+    src/PantallaInici.cpp
+    src/VistesEstudi.cpp
+    src/PantallaEstudi.cpp)
 
 target_compile_definitions(Mibase PRIVATE
     MIBASE_VERSIO="${PROJECT_VERSION}"
@@ -18,7 +21,8 @@ target_compile_definitions(Mibase PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_DIRECTSOUND=0
-    JUCE_WASAPI=1)
+    JUCE_WASAPI=1
+    JUCE_USE_MP3AUDIOFORMAT=1)
 
 if(WIN32)
     # ASIO amb el kit oficial de Steinberg que tenim a extern/asiosdk (GPLv3).
@@ -34,6 +38,7 @@ target_link_libraries(Mibase
     PRIVATE
         mibase_motor
         juce::juce_audio_devices
+        juce::juce_audio_formats
         juce::juce_gui_basics
         juce::juce_data_structures
     PUBLIC

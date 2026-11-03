@@ -42,6 +42,9 @@ namespace mibase
         std::atomic<bool> clicActiu { false };
         std::atomic<bool> sinteActiu { true };
         std::atomic<double> tempoClic { 120.0 };
+        std::atomic<int> soClic { 0 };
+        std::atomic<float> volumClic { 1.0f };
+        std::atomic<int> tempsPerCompasClic { 4 };
 
         /** Vegades que el fil d'àudio ha rebut un bloc més gran del previst. */
         std::atomic<int> blocsMassaGrans { 0 };

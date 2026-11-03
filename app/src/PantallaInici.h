@@ -79,13 +79,15 @@ public:
     void resized() override;
     void visibilityChanged() override { if (isVisible()) refresca(); }
 
+    /** Finestra «Projecte nou» i «Obre un altre projecte» (també des del menú Fitxer). */
+    void obreNou();
+    void obreAltre();
+
 private:
     void ompleTargetes();
     void colocaTargetes();
     void tria (const juce::File& f);
-    void obreNou();
     void tancaNou();
-    void obreAltre();
     InfoProjecte llegeixInfo (const Recents::Entrada& e) const;
 
     juce::PropertiesFile& ajustos;

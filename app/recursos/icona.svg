@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Icona de Mibase: quadrat taronja arrodonit amb una ona (com el logotip de dins del programa). -->
+  <rect x="40" y="40" width="944" height="944" rx="230" fill="#FF8A2A"/>
+  <g stroke="#16161B" stroke-width="78" stroke-linecap="round" fill="none">
+    <path d="M232 512 L232 512.5"/>
+    <path d="M372 382 L372 642"/>
+    <path d="M512 252 L512 772"/>
+    <path d="M652 352 L652 672"/>
+    <path d="M792 452 L792 572"/>
+  </g>
+</svg>

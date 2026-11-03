@@ -7,6 +7,10 @@
 #include "mibase/Mesurador.h"
 #include "mibase/MotorDiagnostic.h"
 #include "mibase/ProjecteDisc.h"
+#include "mibase/Edicio.h"
+#include "mibase/Gravadora.h"
+#include "mibase/MotorEstudi.h"
+#include "mibase/Wav.h"
 #include "mibase/SinteSenzill.h"
 
 #include <algorithm>
@@ -386,6 +390,640 @@ int main()
         comprova (nomPresa (audios, "Guitarra rítmica") == "Guitarra rítmica - presa 13.wav", "una altra pista, amb accent");
         comprova (nomPresa (audios, "Veu: tornada") == "Veu_ tornada - presa 01.wav", "nom de pista netejat");
     });
+
+
+    prova ("Estudi: graella, posició i compassos (−1, 0, 1…)", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120; p.compasNum = 4;
+        comprova (std::abs (segonsPerTemps (p) - 0.5) < 1e-9 && std::abs (segonsPerCompas (p) - 2.0) < 1e-9, "120 bpm 4/4");
+        comprova (std::abs (enganxa (p, 2.9, mibase::Snap::Compas) - 2.0) < 1e-9, "s'enganxa al compàs");
+        comprova (std::abs (enganxa (p, 3.1, mibase::Snap::Compas) - 4.0) < 1e-9, "s'enganxa al compàs següent");
+        comprova (std::abs (enganxa (p, 2.74, mibase::Snap::Temps) - 2.5) < 1e-9, "s'enganxa al temps");
+        comprova (std::abs (enganxa (p, 2.74, mibase::Snap::Lliure) - 2.74) < 1e-9, "lliure no s'enganxa");
+        comprova (textPosicio (p, 0.0) == "-1.1", "l'inici és el compàs −1");
+        comprova (textPosicio (p, 2.0) == "0.1", "després, el compàs 0");
+        comprova (textPosicio (p, 5.5) == "1.4", "compàs 1, temps 4");
+        comprova (textPosicio (p, 4.045, true) == "1.1 +45 ms", "amb mil·lisegons");
+    });
+
+    prova ("Estudi: moure clips amb la bandera, retallar, fades i volum", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        auto& s = afegeixPresa (p, "Àudios/Guitarra - presa 01.wav", "Guitarra", 10.0);
+        const auto idPresa = s.id;
+        afegeixPista (p, "Guitarra", "guitarra");
+        auto& c = afegeixClip (p, 0, idPresa, 2.0);
+        comprova (std::abs (c.iniciVisible() - 2.0) < 1e-9 && std::abs (c.longitud() - 10.0) < 1e-9, "clip sencer");
+
+        // Sense bandera, s'enganxa l'inici; amb bandera, la bandera.
+        mouClipA (p, c, 4.0);
+        comprova (std::abs (c.pos - 4.0) < 1e-9, "mou per l'inici");
+        presa (p, idPresa)->primer = 0.3;
+        comprova (banderaVisible (p, c), "bandera visible");
+        mouClipA (p, c, 6.0);
+        comprova (std::abs (c.pos - 5.7) < 1e-9, "mou per la bandera");
+
+        // Bandera fixa (mode Lliure): l'àudio llisca i la bandera es queda.
+        comprova (mouAmbBanderaFixa (p, c, 5.65, 6.0), "bandera fixa");
+        comprova (std::abs (presa (p, idPresa)->primer - 0.35) < 1e-9, "la bandera ara és 50 ms més tard dins el fitxer");
+        comprova (! mouAmbBanderaFixa (p, c, 20.0, 6.0), "si quedaria fora, no es fa");
+
+        // Retallar (fins i tot més enllà del so: silenci).
+        retallaInici (c, c.pos + 1.0);
+        comprova (std::abs (c.inici - 1.0) < 1e-9, "retall de l'inici");
+        retallaFi (c, c.pos + 12.0);
+        comprova (std::abs (c.fi - 12.0) < 1e-9, "s'allarga més enllà del so");
+        retallaFi (c, c.pos + 0.5);
+        comprova (c.fi > c.inici, "el final no passa mai per davant de l'inici");
+        retallaFi (c, c.pos + 9.0);
+        comprova (! banderaVisible (p, c), "la bandera queda fora si es retalla");
+
+        fadeIn (c, c.iniciVisible() + 0.5);
+        fadeOut (c, c.fiVisible() - 2.0);
+        comprova (std::abs (c.fadeIn - 0.5) < 1e-9 && std::abs (c.fadeOut - 2.0) < 1e-9, "fades");
+        fadeIn (c, c.fiVisible() + 50.0);
+        comprova (c.fadeIn + c.fadeOut <= c.longitud() + 1e-9, "els fades no es trepitgen");
+        guany (c, -40.0);
+        comprova (c.guanyDb == guanyMinDb, "volum mínim −24 dB");
+        guany (c, 3.0);
+        comprova (c.guanyDb == 0.0, "volum màxim 0 dB");
+    });
+
+    prova ("Estudi: duplicar, treure, passar de pista, ordenar pistes", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        const auto id = afegeixPresa (p, "a.wav", "a", 2.0).id;
+        afegeixPista (p, "Guitarra", "guitarra");
+        afegeixPista (p, "Veu", "veu");
+        afegeixClip (p, 0, id, 2.0);
+        auto noves = duplica (p, 0, { 0 });
+        comprova (p.pistes[0].clips.size() == 2 && noves.size() == 1, "duplicat");
+        comprova (std::abs (p.pistes[0].clips[1].iniciVisible() - 4.0) < 1e-9, "la còpia va just a continuació");
+        noves = duplica (p, 0, { 0, 1 });
+        comprova (p.pistes[0].clips.size() == 4 && std::abs (p.pistes[0].clips[2].iniciVisible() - 6.0) < 1e-9, "un grup es duplica sencer");
+
+        auto passats = passaAPista (p, 0, { 3 }, 1);
+        comprova (p.pistes[0].clips.size() == 3 && p.pistes[1].clips.size() == 1 && passats.size() == 1, "passa a una altra pista");
+        comprova (std::abs (p.pistes[1].clips[0].iniciVisible() - 8.0) < 1e-9, "sense moure's en el temps");
+
+        treuClips (p, 0, { 0, 2 });
+        comprova (p.pistes[0].clips.size() == 1 && p.preses.size() == 1, "es treuen clips però no la presa");
+
+        mouPista (p, 1, 0);
+        comprova (p.pistes[0].nom == "Veu", "ordenar pistes");
+        triaGravacio (p, 1);
+        comprova (p.pistes[1].grava && ! p.pistes[0].grava, "gravar a una pista");
+        triaGravacio (p, 0);
+        comprova (p.pistes[0].grava && ! p.pistes[1].grava, "només una pista grava");
+        comprova (nomPistaLliure (p, "Veu") == "Veu 2" && nomPistaLliure (p, "Baix") == "Baix", "noms de pista sense repetir");
+        comprova (std::abs (final (p) - 10.0) < 1e-9 || final (p) > 0.0, "final del projecte");
+    });
+
+    prova ("Estudi: bucle i desfés", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        marcaBucle (p, 5, 2);
+        comprova (p.bucle.de == 2 && p.bucle.a == 6 && p.bucle.actiu, "bucle de 2 a 5 (inclosos)");
+        comprova (std::abs (iniciBucle (p) - 4.0) < 1e-9 && std::abs (fiBucle (p) - 12.0) < 1e-9, "segons del bucle");
+        comprova (compasA (p, 3.9) == 1 && compasA (p, -1.0) == 0, "compàs d'un temps");
+
+        Desfes d;
+        afegeixPista (p, "A", "audio");
+        d.abans (p);
+        afegeixPista (p, "B", "audio");
+        d.abans (p);
+        p.pistes[0].nom = "Canviat";
+        comprova (d.desfes (p) && p.pistes[0].nom == "A" && p.pistes.size() == 2, "desfés 1");
+        comprova (d.desfes (p) && p.pistes.size() == 1, "desfés 2");
+        comprova (! d.desfes (p), "no hi ha més per desfer");
+        comprova (d.refes (p) && p.pistes.size() == 2, "refés");
+        comprova (d.refes (p) && p.pistes[0].nom == "Canviat", "refés 2");
+    });
+
+    prova ("Estudi: es desa i es torna a llegir igual", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::edicio;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves5";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+
+        mibase::Projecte p; p.nom = "Estudi"; p.tempo = 96;
+        auto r = mibase::disc::creaProjecte (arrel, p, "2026-11-03T11:00:00", "03/11/2026 11:00");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        const auto id = afegeixPresa (q, "Àudios/Veu - presa 01.wav", "Veu de prova", 3.25).id;
+        presa (q, id)->primer = 0.4;
+        afegeixPista (q, "Veu", "veu").faderDb = -3.5;
+        auto& c = afegeixClip (q, 0, id, 1.0);
+        c.fadeIn = 0.1; c.guanyDb = -6;
+        q.snap = mibase::Snap::Lliure;
+        marcaBucle (q, 1, 2);
+        comprova (mibase::disc::desa (r.fitxer, q, "2026-11-03T11:01:00", "x", false).correcte, "desat");
+
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l.has_value(), "llegit");
+        if (! l) return;
+        comprova (l->preses.size() == 1 && l->preses[0].nom == "Veu de prova" && l->preses[0].primer == 0.4, "preses");
+        comprova (l->pistes.size() == 1 && l->pistes[0].faderDb == -3.5 && l->pistes[0].tipus == "veu", "pistes");
+        comprova (l->pistes.size() == 1 && l->pistes[0].clips.size() == 1 && l->pistes[0].clips[0].guanyDb == -6
+                  && l->pistes[0].clips[0].fadeIn == 0.1, "clips");
+        comprova (l->snap == mibase::Snap::Lliure && l->bucle.de == 1 && l->bucle.a == 3, "graella i bucle");
+        comprova (l->comptador == q.comptador, "comptador d'identificadors");
+        int copies = 0;
+        for (auto& e : fs::directory_iterator (r.fitxer.parent_path() / mibase::disc::cami ("Còpies"))) { (void) e; ++copies; }
+        comprova (copies == 0, "amb ferCopia = false no es fa còpia");
+    });
+
+
+    prova ("Claqueta: quatre sons, volum i accent", []
+    {
+        for (int so = 0; so < ClicDeProva::numSons; ++so)
+        {
+            ClicDeProva clic;
+            clic.prepara (48000.0);
+            clic.setSo (so);
+            clic.setTempsPerCompas (4);
+            std::vector<float> b (96000, 0.0f);
+            clic.processa (b.data(), (int) b.size());
+            const std::string nom = "so " + std::to_string (so);
+            comprova (totFinit (b), nom + ": valors vàlids");
+            comprova (pic (b, 0, 3000) > 0.05f, nom + ": sona el primer temps");
+            comprova (pic (b, 24000, 27000) > 0.03f, nom + ": sona el segon temps");
+            comprova (pic (b, 0, 3000) > pic (b, 24000, 27000), nom + ": el primer temps és més fort");
+            comprova (pic (b, 0, b.size()) <= 1.0f, nom + ": no satura");
+            comprova (pic (b, 12000, 20000) < 0.001f, nom + ": silenci entre temps");
+
+            ClicDeProva fluix;
+            fluix.prepara (48000.0);
+            fluix.setSo (so);
+            fluix.setVolum (0.5f);
+            std::vector<float> c (3000, 0.0f);
+            fluix.processa (c.data(), (int) c.size());
+            comprova (std::abs (pic (c, 0, c.size()) - 0.5f * pic (b, 0, 3000)) < 0.02f, nom + ": el volum funciona");
+        }
+    });
+
+    prova ("Eines: llapis, tisores, cola i colors de pista", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        const auto id = afegeixPresa (p, "a.wav", "a", 8.0).id;
+        afegeixPista (p, "A", "audio");
+        afegeixPista (p, "B", "audio");
+        comprova (p.pistes[0].color != p.pistes[1].color, "pistes seguides, colors diferents");
+
+        // Llapis.
+        const int f = creaFinestra (p, 1, 4.0, 2.0);
+        comprova (f == 0 && p.pistes[1].clips[0].presa.empty() && std::abs (p.pistes[1].clips[0].iniciVisible() - 2.0) < 1e-9
+                  && std::abs (p.pistes[1].clips[0].longitud() - 2.0) < 1e-9, "finestra buida de 2 a 4");
+
+        // Tisores.
+        auto& c = afegeixClip (p, 0, id, 0.0);
+        c.fadeIn = 0.5; c.fadeOut = 0.5;
+        comprova (! talla (p, 0, 0, 0.0) && ! talla (p, 0, 0, 8.0), "no es talla a les vores");
+        comprova (talla (p, 0, 0, 3.0), "tallat a 3 s");
+        auto& cl = p.pistes[0].clips;
+        comprova (cl.size() == 2 && std::abs (cl[0].fiVisible() - 3.0) < 1e-9 && std::abs (cl[1].iniciVisible() - 3.0) < 1e-9, "dos trossos");
+        comprova (cl[0].fadeIn == 0.5 && cl[0].fadeOut == 0.0 && cl[1].fadeIn == 0.0 && cl[1].fadeOut == 0.5, "els fades queden a fora");
+
+        // Cola: els dos trossos tornen a ser un (sense fitxer nou).
+        auto r = enganxaClips (p, 0, 1, 0);
+        comprova (r.fet && ! r.calConsolidar && cl.size() == 1 && std::abs (cl[0].longitud() - 8.0) < 1e-9, "cola de dos trossos contigus");
+
+        // Amb un forat entre mig, cal un fitxer nou.
+        talla (p, 0, 0, 3.0);
+        cl[1].pos += 1.0;
+        r = enganxaClips (p, 0, 0, 1);
+        comprova (! r.fet && r.calConsolidar && cl.size() == 2, "amb forat, cal consolidar");
+
+        // Preses diferents: cal consolidar.
+        const auto id2 = afegeixPresa (p, "b.wav", "b", 2.0).id;
+        afegeixClip (p, 1, id2, 4.0);
+        r = enganxaClips (p, 1, 0, 1);
+        comprova (r.fet && p.pistes[1].clips.size() == 1, "finestra buida + àudio just al costat: s'ajunten");
+        comprova (std::abs (p.pistes[1].clips[0].iniciVisible() - 2.0) < 1e-9 && std::abs (p.pistes[1].clips[0].fiVisible() - 6.0) < 1e-9,
+                  "l'àudio s'allarga amb silenci");
+
+        // Dues finestres buides.
+        creaFinestra (p, 1, 10.0, 11.0);
+        creaFinestra (p, 1, 13.0, 14.0);
+        r = enganxaClips (p, 1, 1, 2);
+        comprova (r.fet && std::abs (p.pistes[1].clips[1].longitud() - 4.0) < 1e-9, "dues finestres buides en fan una");
+    });
+
+    prova ("Projecte: nova versió i exportar (recopilar) amb només els àudios que calen", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::edicio;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves6";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel / "desti");
+
+        mibase::Projecte p; p.nom = "Cançó";
+        auto r = mibase::disc::creaProjecte (arrel, p, "2026-11-03T12:00:00", "03/11/2026 12:00");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        const auto carpeta = r.fitxer.parent_path();
+        std::ofstream (carpeta / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Usada - presa 01.wav")) << "u";
+        std::ofstream (carpeta / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Vella - presa 01.wav")) << "v";
+        const auto usada = afegeixPresa (q, "Àudios/Usada - presa 01.wav", "usada", 1.0).id;
+        afegeixPresa (q, "Àudios/Vella - presa 01.wav", "vella", 1.0);
+        afegeixPista (q, "Veu", "audio").canals = 2;
+        afegeixClip (q, 0, usada, 0.0).mut = true;
+        q.clicSo = 2; q.clicVolum = 0.7;
+        mibase::disc::desa (r.fitxer, q, "x", "x", false);
+
+        auto v = mibase::disc::novaVersio (r.fitxer, q, "Cançó v2", "2026-11-03T12:01:00", "03/11/2026 12:01");
+        comprova (v.correcte && fs::exists (v.fitxer), "nova versió creada");
+        auto lv = mibase::disc::llegeix (v.fitxer);
+        comprova (lv && lv->nom == "Cançó v2" && lv->pistes.size() == 1, "la versió té el mateix contingut i el nom nou");
+        comprova (! mibase::disc::novaVersio (r.fitxer, q, "Cançó v2", "x", "x").correcte, "no trepitja una versió que ja hi és");
+        comprova (mibase::disc::llegeixEvolucio (carpeta, 1)[0].text.find ("Nova versió") == 0, "s'anota al diari");
+
+        auto e = mibase::disc::recopila (carpeta, q, arrel / "desti", "2026-11-03T12:02:00", "03/11/2026 12:02");
+        comprova (e.correcte && e.avisos.empty(), "recopilat (" + e.error + ")");
+        const auto nova = arrel / "desti" / mibase::disc::cami ("Cançó");
+        comprova (fs::exists (nova / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Usada - presa 01.wav")), "hi ha l'àudio que es fa servir");
+        comprova (! fs::exists (nova / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Vella - presa 01.wav")), "no hi ha l'àudio obsolet");
+        auto le = mibase::disc::llegeix (e.fitxer);
+        comprova (le && le->preses.size() == 1 && le->pistes[0].canals == 2 && le->pistes[0].clips[0].mut, "el projecte recopilat està sanejat i complet");
+        comprova (le && le->clicSo == 2 && std::abs (le->clicVolum - 0.7) < 1e-9, "la claqueta es desa");
+        comprova (! mibase::disc::recopila (carpeta, q, arrel / "desti", "x", "x").correcte, "no trepitja una carpeta que ja hi és");
+    });
+
+
+    // ======================= 0.5: sonar, gravar i exportar =======================
+    using namespace mibase::edicio;
+    namespace fs5 = std::filesystem;
+    const auto arrel5 = fs5::temp_directory_path() / mibase::disc::cami ("mibase-proves-0.5 àèí");
+
+    prova ("0.6: copiar i enganxar (trepitjant i inserint), buidar un tros, moure de pista", [&]
+    {
+        using mibase::edicio::RefClip;
+        Projecte q;
+        q.tempo = 120.0;   // 2 s per compàs
+        afegeixPista (q, "A", "audio");
+        afegeixPista (q, "B", "audio");
+        afegeixPista (q, "C", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 8.0).id;
+        afegeixClip (q, 0, s1, 0.0);           // A: 0..8
+        afegeixClip (q, 1, s1, 2.0).fi = 2.0;  // B: 2..4
+
+        auto r = mibase::edicio::copiaRang (q, 0, 1, 1.0, 3.0);
+        comprova (std::abs (r.durada - 2.0) < 1e-9 && r.clips.size() == 2, "el tros té els dos clips retallats");
+        comprova (std::abs (r.clips[0].second.iniciVisible() - 0.0) < 1e-9 && std::abs (r.clips[0].second.fiVisible() - 2.0) < 1e-9
+                  && std::abs (r.clips[1].second.iniciVisible() - 1.0) < 1e-9 && std::abs (r.clips[1].second.fiVisible() - 2.0) < 1e-9,
+                  "les posicions són relatives al començament del tros");
+
+        auto c = mibase::edicio::copiaClips (q, { { 1, 0 } });
+        comprova (std::abs (c.durada - 2.0) < 1e-9 && c.clips.size() == 1 && c.clips[0].first == 1, "copia el clip sencer amb la seva pista");
+
+        auto q2 = q;
+        auto nous = mibase::edicio::enganxaRetall (q2, c, 5.0, false);
+        comprova (nous.size() == 1 && nous[0].pista == 1 && std::abs (q2.pistes[1].clips[(size_t) nous[0].clip].iniciVisible() - 5.0) < 1e-9,
+                  "enganxa al cursor, a la mateixa pista");
+        nous = mibase::edicio::enganxaRetall (q2, mibase::edicio::copiaRang (q, 0, 0, 4.0, 6.0), 1.0, false);
+        const auto& pa = q2.pistes[0].clips;
+        comprova (pa.size() == 3, "trepitjant: el clip de sota es parteix (" + std::to_string (pa.size()) + ")");
+        bool forat = true;
+        for (size_t k = 0; k + 1 < pa.size(); ++k)
+            if (pa[k].iniciVisible() < 3.0 - 1e-9 && pa[k].fiVisible() > 1.0 + 1e-9) forat = false;
+        comprova (forat, "i sota el tros enganxat no hi queda res");
+
+        auto q3 = q;
+        nous = mibase::edicio::enganxaRetall (q3, c, 2.0, true);
+        comprova (q3.pistes[0].clips.size() == 2 && std::abs (q3.pistes[0].clips[1].iniciVisible() - 4.0) < 1e-9
+                  && std::abs (q3.pistes[0].clips[1].fiVisible() - 10.0) < 1e-9, "inserint: a totes les pistes, el que hi ha després s'aparta");
+        comprova (std::abs (q3.pistes[1].clips[0].iniciVisible() - 4.0) < 1e-9 && std::abs (q3.pistes[1].clips[1].iniciVisible() - 2.0) < 1e-9,
+                  "el clip de B s'aparta i el nou ocupa el seu lloc");
+
+        auto q4 = q;
+        mibase::edicio::buidaRang (q4, 0, 3.0, 5.0);
+        comprova (q4.pistes[0].clips.size() == 2 && std::abs (q4.pistes[0].clips[0].fiVisible() - 3.0) < 1e-9
+                  && std::abs (q4.pistes[0].clips[1].iniciVisible() - 5.0) < 1e-9, "buidar un tros del mig parteix el clip");
+
+        auto q5 = q;
+        auto moguts = mibase::edicio::mouDePista (q5, { { 0, 0 }, { 1, 0 } }, 5);
+        comprova (moguts.size() == 2 && moguts[0].pista + moguts[1].pista == 3 && q5.pistes[0].clips.empty(), "es mou tan avall com es pot (una pista)");
+        auto dup = mibase::edicio::duplicaTriats (q5, moguts);
+        comprova (dup.size() == 2 && q5.pistes[1].clips.size() == 2 && q5.pistes[2].clips.size() == 2, "duplica a cada pista");
+        mibase::edicio::treuTriats (q5, dup);
+        comprova (q5.pistes[1].clips.size() == 1 && q5.pistes[2].clips.size() == 1, "treu de diverses pistes");
+    });
+    fs5::remove_all (arrel5);
+    fs5::create_directories (arrel5);
+
+    auto audioConstant = [] (double fs, double segons, float valor, int canals = 1)
+    {
+        auto a = std::make_shared<AudioPresa>();
+        a->fs = fs;
+        a->canals = canals;
+        a->longitud = (long long) std::llround (fs * segons);
+        for (int c = 0; c < canals; ++c) a->dades[c].assign ((size_t) a->longitud, c == 0 ? valor : -valor);
+        return a;
+    };
+
+    prova ("WAV: escriure i tornar a llegir (24 bits, estèreo, accents al camí)", [&]
+    {
+        EscriptorWav w;
+        const auto f = arrel5 / mibase::disc::cami ("prova ç.wav");
+        comprova (w.obre (f, 2, 44100.0), "s'obre");
+        std::vector<float> d;
+        for (int i = 0; i < 1001; ++i) { d.push_back ((float) i / 1001.0f); d.push_back (-0.25f); }
+        comprova (w.escriu (d.data(), 1001), "s'escriu");
+        comprova (w.tanca(), "es tanca");
+        auto r = llegeixWav (f);
+        comprova (r.correcte && r.canals == 2 && std::abs (r.fs - 44100.0) < 0.5 && r.frames() == 1001, "capçalera correcta");
+        float err = 0.0f;
+        for (size_t i = 0; i < d.size(); ++i) err = std::max (err, std::abs (d[i] - r.mostres[i]));
+        comprova (err < 1.0e-5f, "les mostres hi són (error " + std::to_string (err) + ")");
+    });
+
+    prova ("Pla: silenci, solo, clips sense àudio, canal de la taula", [&]
+    {
+        Projecte q;
+        afegeixPista (q, "A", "audio");
+        afegeixPista (q, "B", "audio");
+        afegeixPista (q, "C", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 1.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        afegeixClip (q, 1, s1, 0.0).mut = true;
+        afegeixClip (q, 2, "res", 0.0);
+        q.pistes[1].solo = true;
+        q.pistes[2].solo = true;
+        q.pistes[2].mut = true;
+        MapaAudios m { { s1, audioConstant (48000.0, 1.0, 0.5f) } };
+        auto pla = construeixPla (q, m);
+        comprova (pla->pistes.size() == 3, "tres pistes");
+        comprova (! pla->pistes[0].sona && pla->pistes[1].sona && ! pla->pistes[2].sona, "solo i silenci");
+        comprova (pla->pistes[0].clips.size() == 1 && pla->pistes[1].clips.empty() && pla->pistes[2].clips.empty(),
+                  "els clips silenciats i sense àudio no hi són");
+        comprova (pla->audios.size() == 1, "l'àudio es guarda una vegada");
+        comprova (slotDePista (q.pistes[0]) != slotDePista (q.pistes[1]), "cada pista el seu canal");
+    });
+
+    prova ("Mesclador: lloc, volum, pan, fade i freqüència diferent", [&]
+    {
+        Projecte q;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 1.0).id;
+        afegeixClip (q, 0, s1, 1.0);
+        q.clic = false;
+        MapaAudios m { { s1, audioConstant (48000.0, 1.0, 0.5f) } };
+
+        auto sona = [&] (const Projecte& pr, double fsSortida, std::vector<float>& L, std::vector<float>& R)
+        {
+            auto pla = construeixPla (pr, m);
+            Mesclador mx;
+            mx.prepara (fsSortida, 512);
+            const int total = (int) (fsSortida * 2.5);
+            L.assign ((size_t) total, 0.0f);
+            R.assign ((size_t) total, 0.0f);
+            for (int p = 0; p < total; p += 512)
+                mx.processa (*pla, p, std::min (512, total - p), L.data() + p, R.data() + p, false, nullptr);
+        };
+
+        std::vector<float> L, R;
+        sona (q, 48000.0, L, R);
+        comprova (pic (L, 0, 48000) == 0.0f, "res abans del clip");
+        comprova (std::abs (L[60000] - 0.5f) < 1.0e-6f && std::abs (R[60000] - 0.5f) < 1.0e-6f, "el clip sona a les dues bandes");
+        comprova (pic (L, 96001, L.size()) == 0.0f, "res després del clip");
+        comprova (std::abs (L[47999]) == 0.0f && std::abs (L[48000] - 0.5f) < 1.0e-6f, "comença a la mostra exacta");
+
+        auto q2 = q;
+        q2.pistes[0].faderDb = -6.0;
+        q2.pistes[0].pan = -1.0;
+        sona (q2, 48000.0, L, R);
+        comprova (std::abs (L[60000] - 0.5f * 0.50119f) < 1.0e-4f, "el fader baixa 6 dB");
+        comprova (pic (R, 0, R.size()) == 0.0f, "tot a l'esquerra: la dreta no sona");
+
+        auto q3 = q;
+        q3.pistes[0].clips[0].fadeIn = 0.5;
+        sona (q3, 48000.0, L, R);
+        comprova (std::abs (L[48000]) < 0.01f && std::abs (L[48000 + 12000] - 0.25f) < 0.01f && std::abs (L[48000 + 30000] - 0.5f) < 1.0e-6f,
+                  "el fade d'entrada puja de 0 al volum");
+
+        sona (q, 44100.0, L, R);
+        comprova (pic (L, 0, 44099) == 0.0f && std::abs (L[44100 + 1000] - 0.5f) < 1.0e-5f && pic (L, 88202, L.size()) == 0.0f,
+                  "un àudio de 48 kHz sona al seu lloc amb la targeta a 44,1 kHz");
+
+        auto q4 = q;
+        q4.pistes[0].canals = 2;
+        m[s1] = audioConstant (48000.0, 1.0, 0.5f, 2);
+        sona (q4, 48000.0, L, R);
+        comprova (std::abs (L[60000] - 0.5f) < 1.0e-6f && std::abs (R[60000] + 0.5f) < 1.0e-6f, "pista estèreo: cada canal al seu costat");
+        q4.pistes[0].canals = 1;
+        sona (q4, 48000.0, L, R);
+        comprova (std::abs (L[60000]) < 1.0e-6f, "pista mono amb àudio estèreo: es barregen els canals");
+    });
+
+    prova ("Clips un damunt de l'altre: sona el de dalt", [&]
+    {
+        Projecte q;
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 4.0).id;
+        const auto s2 = afegeixPresa (q, "Àudios/b.wav", "b", 1.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        afegeixClip (q, 0, s2, 1.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 4.0, 0.25f) }, { s2, audioConstant (48000.0, 1.0, 0.5f) } };
+        auto sona = [&]
+        {
+            auto pla = construeixPla (q, m);
+            Mesclador mx;
+            mx.prepara (48000.0, 1000);
+            std::vector<float> L (48000 * 4, 0.0f), R (48000 * 4, 0.0f);
+            for (int p = 0; p < 48000 * 4; p += 1000)
+                mx.processa (*pla, p, 1000, L.data() + p, R.data() + p, false, nullptr);
+            return L;
+        };
+        auto L = sona();
+        comprova (std::abs (L[24000] - 0.25f) < 1.0e-6f && std::abs (L[72000] - 0.5f) < 1.0e-6f && std::abs (L[120000] - 0.25f) < 1.0e-6f,
+                  "abans i després sona el de sota; al mig, només el de dalt (sense sumar)");
+        q.pistes[0].clips[1].mut = true;
+        L = sona();
+        comprova (std::abs (L[72000] - 0.25f) < 1.0e-6f, "si el de dalt està silenciat, torna a sonar el de sota");
+    });
+
+    prova ("Claqueta enganxada als temps (blocs de mida rara)", [&]
+    {
+        Projecte q;
+        q.tempo = 120.0;
+        q.compasNum = 3;
+        auto pla = construeixPla (q, {});
+        Mesclador mx;
+        mx.prepara (48000.0, 333);
+        const int total = 24000 * 7;
+        std::vector<float> L ((size_t) total, 0.0f), R ((size_t) total, 0.0f);
+        for (int p = 0; p < total; p += 333)
+            mx.processa (*pla, p, std::min (333, total - p), L.data() + p, R.data() + p, true, nullptr);
+        std::vector<int> cops;
+        for (int i = 0; i < total; ++i)
+            if (L[(size_t) i] != 0.0f && (i == 0 || L[(size_t) i - 1] == 0.0f) && (cops.empty() || i - cops.back() > 5000))
+                cops.push_back (i);
+        bool llocs = cops.size() == 7;
+        for (size_t k = 0; llocs && k < cops.size(); ++k)
+            llocs = std::abs (cops[k] - (int) k * 24000) <= 1;
+        comprova (llocs, "set cops, un a cada temps (" + std::to_string (cops.size()) + ")");
+        comprova (pic (L, 0, 2000) > pic (L, 24000, 26000) * 1.2f && pic (L, 72000, 74000) > pic (L, 24000, 26000) * 1.2f,
+                  "el primer temps de cada compàs (de 3) és més fort");
+    });
+
+    prova ("Motor: sona on toca, situa i bucle", [&]
+    {
+        Projecte q;
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 1.0).id;
+        afegeixClip (q, 0, s1, 1.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 1.0, 0.5f) } };
+
+        MotorEstudi motor;
+        motor.prepara (48000.0, 256);
+        motor.publica (construeixPla (q, m));
+        std::vector<float> o0 (256), o1 (256);
+        float* sort[2] { o0.data(), o1.data() };
+        auto bloc = [&]
+        {
+            std::fill (o0.begin(), o0.end(), 0.0f);
+            std::fill (o1.begin(), o1.end(), 0.0f);
+            motor.processa (nullptr, 0, sort, 2, 256);
+        };
+
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat && pic (o0, 0, 256) == 0.0f, "aturat no sona");
+        motor.reprodueix (1.0);
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Sonant && std::abs (o0[0] - 0.5f) < 1.0e-6f, "comença a sonar al punt demanat");
+        comprova (std::abs (motor.getPosicio() - (1.0 + 256.0 / 48000.0)) < 1.0e-9, "la posició avança");
+        motor.situa (3.0);
+        bloc();
+        comprova (pic (o0, 0, 256) == 0.0f && motor.getPosicio() > 3.0, "situa salta");
+        comprova (motor.vuSortida (0).llegeixIReinicia() > 0.4f, "el vúmetre de la sortida s'ha mogut");
+        motor.atura();
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat, "s'atura");
+
+        // Bucle del compàs 0 (de 0 a 2 s a 120 bpm, 4/4).
+        q.bucle = { true, true, 0, 1 };
+        motor.publica (construeixPla (q, m));
+        motor.reprodueix (1.5);
+        for (int i = 0; i < 400; ++i) bloc();   // uns 2,1 s
+        comprova (motor.getPosicio() < 2.0 && motor.getPosicio() >= 0.0, "amb el bucle encès torna a començar");
+        motor.atura();
+        bloc();
+        for (int i = 0; i < 10; ++i) { motor.publica (construeixPla (q, m)); motor.recull(); }
+        bloc();
+        motor.recull();
+        comprova (true, "publicar i recollir molts plans no peta");
+    });
+
+    prova ("Gravar: compte d'entrada, entrada triada i fitxer", [&]
+    {
+        Projecte q;
+        q.clic = true;
+        auto pla = construeixPla (q, {});
+        MotorEstudi motor;
+        motor.prepara (48000.0, 480);
+        motor.setMapaEntrades ({ 0, 1 });
+        motor.publica (std::move (pla));
+
+        const auto f = arrel5 / mibase::disc::cami ("Guitarra - presa 01.wav");
+        comprova (motor.gravadora().comenca (f, 1, 48000.0), "la gravadora s'engega");
+        motor.grava (0.0, 0.5, 1, 1);
+
+        std::vector<float> e0 (480, 0.9f), e1 (480), o0 (480), o1 (480);
+        const float* ent[2] { e0.data(), e1.data() };
+        float* sort[2] { o0.data(), o1.data() };
+        long long n = 0;
+        bool comptava = false, gravava = false;
+        for (int b = 0; b < 100; ++b)   // 1 s
+        {
+            for (int i = 0; i < 480; ++i) e1[(size_t) i] = (float) ((n + i) % 1000) / 1000.0f - 0.5f;
+            std::fill (o0.begin(), o0.end(), 0.0f);
+            motor.processa (ent, 2, sort, 2, 480);
+            n += 480;
+            if (b == 10) comptava = motor.getEstat() == MotorEstudi::Estat::Comptant;
+            if (b == 80) gravava = motor.getEstat() == MotorEstudi::Estat::Gravant;
+        }
+        comprova (comptava && gravava, "primer compta i després grava");
+        comprova (motor.vuEntrada (1).llegeixIReinicia() > 0.4f, "el vúmetre de l'entrada 2 es mou");
+        motor.atura();
+        motor.processa (ent, 2, sort, 2, 480);
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat, "s'atura");
+        const auto r = motor.gravadora().acaba();
+        comprova (r.correcte && r.frames == 48000 && r.perdudes == 0, "s'ha gravat 1 s sencer (" + std::to_string (r.frames) + ")");
+        auto w = llegeixWav (f);
+        bool igual = w.correcte && w.frames() == 48000;
+        for (long long i = 0; igual && i < 48000; ++i)
+            igual = std::abs (w.mostres[(size_t) i] - ((float) (i % 1000) / 1000.0f - 0.5f)) < 1.0e-5f;
+        comprova (igual, "el fitxer té exactament el que entrava per l'entrada 2");
+    });
+
+    prova ("Gravació a la pista: bandera, finestra i retard", [&]
+    {
+        Projecte q;
+        afegeixPista (q, "Guitarra", "audio");
+        const int c = mibase::edicio::afegeixGravacio (q, 0, "Àudios/Guitarra - presa 01.wav", "Guitarra - presa 01", 6.0, 2.0, 4.0, 0.010);
+        comprova (c == 0 && q.preses.size() == 1, "s'afegeix la presa i el clip");
+        const auto& k = q.pistes[0].clips[0];
+        comprova (std::abs (k.pos - 1.990) < 1.0e-9 && std::abs (k.iniciVisible() - 4.0) < 1.0e-9 && std::abs (k.fiVisible() - 7.990) < 1.0e-9,
+                  "es mou enrere el retard i la finestra comença al cursor");
+        comprova (std::abs (q.preses[0].primer - 2.010) < 1.0e-9, "la bandera és al cursor");
+        comprova (mibase::edicio::afegeixGravacio (q, 0, "x.wav", "x", 1.5, 2.0, 4.0, 0.0) == -1 && q.preses.size() == 1,
+                  "si s'atura durant el compte, no queda res");
+    });
+
+    prova ("Exportar la mescla", [&]
+    {
+        Projecte q;
+        afegeixPista (q, "A", "audio");
+        afegeixPista (q, "B", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 1.0).id;
+        afegeixClip (q, 0, s1, 2.0);
+        afegeixClip (q, 1, s1, 2.5);
+        q.pistes[1].pan = 1.0;
+        auto tros = trosPerExportar (q);
+        comprova (std::abs (tros.first - 2.0) < 1.0e-9 && std::abs (tros.second - 3.5) < 1.0e-9, "del primer clip al darrer");
+        q.pistes[1].mut = true;
+        comprova (std::abs (trosPerExportar (q).second - 3.0) < 1.0e-9, "les pistes silenciades no compten");
+        q.pistes[1].mut = false;
+
+        MapaAudios m { { s1, audioConstant (48000.0, 1.0, 0.25f) } };
+        std::string error;
+        const auto f = arrel5 / mibase::disc::cami ("Cançó - mescla.wav");
+        comprova (exportaMescla (*construeixPla (q, m), 48000.0, tros.first, tros.second, f, error), "s'exporta (" + error + ")");
+        auto w = llegeixWav (f);
+        comprova (w.correcte && w.canals == 2 && w.frames() == 72000, "estèreo i de la llargada justa");
+        comprova (w.correcte && std::abs (w.mostres[2 * 12000] - 0.25f) < 1.0e-4f && std::abs (w.mostres[2 * 12000 + 1] - 0.25f) < 1.0e-4f,
+                  "al principi només sona A (al mig)");
+        comprova (w.correcte && std::abs (w.mostres[2 * 36000] - 0.25f) < 1.0e-4f && std::abs (w.mostres[2 * 36000 + 1] - 0.5f) < 1.0e-4f,
+                  "després s'hi suma B (a la dreta)");
+        q.bucle = { true, true, 1, 2 };
+        comprova (std::abs (trosPerExportar (q).first - 2.0) < 1.0e-9 && std::abs (trosPerExportar (q).second - 4.0) < 1.0e-9, "amb el bucle encès, el bucle");
+    });
+
+    prova ("Projecte al disc: pan, entrada i volum de sortida", [&]
+    {
+        Projecte nou;
+        nou.nom = "Pan";
+        auto r = mibase::disc::creaProjecte (arrel5, nou, "x", "x");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        afegeixPista (q, "A", "audio");
+        q.pistes[0].pan = -0.4;
+        q.pistes[0].entrada = 1;
+        q.masterDb = -3.0;
+        q.pistes[0].rgb = 0xff112233;
+        mibase::disc::desa (r.fitxer, q, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && std::abs (l->pistes[0].pan + 0.4) < 1.0e-9 && l->pistes[0].entrada == 1 && std::abs (l->masterDb + 3.0) < 1.0e-9
+                  && l->pistes[0].rgb == 0xff112233,
+                  "es desen i es llegeixen");
+    });
+    fs5::remove_all (arrel5);
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
