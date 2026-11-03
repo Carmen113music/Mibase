@@ -3,6 +3,7 @@
 #include "DialegText.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
+#include "PanellColor.h"
 #include "ServeiAudio.h"
 #include "VistesEstudi.h"
 
@@ -84,6 +85,15 @@ private:
 
     void duplica();
     void treu();
+    void copia (bool retalla);
+    void enganxa();
+    void canviaModeRang (bool rang);
+    void canviaInsereix (bool ins);
+    void silenciaTriat();
+    void zoomA (double a, double b, int pistaDe, int pistaFins);
+    void zoomTot();
+    void zoomTriat();
+    void triaColor();
     void desfes (bool refer);
 
     juce::PropertiesFile& ajustos;
@@ -98,6 +108,9 @@ private:
     Boto btClicMenu { {}, dibuix::Icona::FletxaAvall, Boto::Estil::Secundari };
     Boto btTempo { "120 bpm · 4/4"_ca, std::nullopt, Boto::Estil::Secundari };
     Segmentat snap { { "Compàs"_ca, "Temps", "Lliure" } };
+    Boto btRequadre { {}, dibuix::Icona::Requadre, Boto::Estil::Tecla };
+    Boto btInsereix { {}, dibuix::Icona::Insereix, Boto::Estil::Tecla };
+    BotoColor btColor;
     Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Secundari };
     Boto btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Secundari };
     juce::Rectangle<int> zonaBarra, zonaEines, zonaInfo;

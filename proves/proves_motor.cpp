@@ -659,6 +659,60 @@ int main()
     using namespace mibase::edicio;
     namespace fs5 = std::filesystem;
     const auto arrel5 = fs5::temp_directory_path() / mibase::disc::cami ("mibase-proves-0.5 àèí");
+
+    prova ("0.6: copiar i enganxar (trepitjant i inserint), buidar un tros, moure de pista", [&]
+    {
+        using mibase::edicio::RefClip;
+        Projecte q;
+        q.tempo = 120.0;   // 2 s per compàs
+        afegeixPista (q, "A", "audio");
+        afegeixPista (q, "B", "audio");
+        afegeixPista (q, "C", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 8.0).id;
+        afegeixClip (q, 0, s1, 0.0);           // A: 0..8
+        afegeixClip (q, 1, s1, 2.0).fi = 2.0;  // B: 2..4
+
+        auto r = mibase::edicio::copiaRang (q, 0, 1, 1.0, 3.0);
+        comprova (std::abs (r.durada - 2.0) < 1e-9 && r.clips.size() == 2, "el tros té els dos clips retallats");
+        comprova (std::abs (r.clips[0].second.iniciVisible() - 0.0) < 1e-9 && std::abs (r.clips[0].second.fiVisible() - 2.0) < 1e-9
+                  && std::abs (r.clips[1].second.iniciVisible() - 1.0) < 1e-9 && std::abs (r.clips[1].second.fiVisible() - 2.0) < 1e-9,
+                  "les posicions són relatives al començament del tros");
+
+        auto c = mibase::edicio::copiaClips (q, { { 1, 0 } });
+        comprova (std::abs (c.durada - 2.0) < 1e-9 && c.clips.size() == 1 && c.clips[0].first == 1, "copia el clip sencer amb la seva pista");
+
+        auto q2 = q;
+        auto nous = mibase::edicio::enganxaRetall (q2, c, 5.0, false);
+        comprova (nous.size() == 1 && nous[0].pista == 1 && std::abs (q2.pistes[1].clips[(size_t) nous[0].clip].iniciVisible() - 5.0) < 1e-9,
+                  "enganxa al cursor, a la mateixa pista");
+        nous = mibase::edicio::enganxaRetall (q2, mibase::edicio::copiaRang (q, 0, 0, 4.0, 6.0), 1.0, false);
+        const auto& pa = q2.pistes[0].clips;
+        comprova (pa.size() == 3, "trepitjant: el clip de sota es parteix (" + std::to_string (pa.size()) + ")");
+        bool forat = true;
+        for (size_t k = 0; k + 1 < pa.size(); ++k)
+            if (pa[k].iniciVisible() < 3.0 - 1e-9 && pa[k].fiVisible() > 1.0 + 1e-9) forat = false;
+        comprova (forat, "i sota el tros enganxat no hi queda res");
+
+        auto q3 = q;
+        nous = mibase::edicio::enganxaRetall (q3, c, 2.0, true);
+        comprova (q3.pistes[0].clips.size() == 2 && std::abs (q3.pistes[0].clips[1].iniciVisible() - 4.0) < 1e-9
+                  && std::abs (q3.pistes[0].clips[1].fiVisible() - 10.0) < 1e-9, "inserint: a totes les pistes, el que hi ha després s'aparta");
+        comprova (std::abs (q3.pistes[1].clips[0].iniciVisible() - 4.0) < 1e-9 && std::abs (q3.pistes[1].clips[1].iniciVisible() - 2.0) < 1e-9,
+                  "el clip de B s'aparta i el nou ocupa el seu lloc");
+
+        auto q4 = q;
+        mibase::edicio::buidaRang (q4, 0, 3.0, 5.0);
+        comprova (q4.pistes[0].clips.size() == 2 && std::abs (q4.pistes[0].clips[0].fiVisible() - 3.0) < 1e-9
+                  && std::abs (q4.pistes[0].clips[1].iniciVisible() - 5.0) < 1e-9, "buidar un tros del mig parteix el clip");
+
+        auto q5 = q;
+        auto moguts = mibase::edicio::mouDePista (q5, { { 0, 0 }, { 1, 0 } }, 5);
+        comprova (moguts.size() == 2 && moguts[0].pista + moguts[1].pista == 3 && q5.pistes[0].clips.empty(), "es mou tan avall com es pot (una pista)");
+        auto dup = mibase::edicio::duplicaTriats (q5, moguts);
+        comprova (dup.size() == 2 && q5.pistes[1].clips.size() == 2 && q5.pistes[2].clips.size() == 2, "duplica a cada pista");
+        mibase::edicio::treuTriats (q5, dup);
+        comprova (q5.pistes[1].clips.size() == 1 && q5.pistes[2].clips.size() == 1, "treu de diverses pistes");
+    });
     fs5::remove_all (arrel5);
     fs5::create_directories (arrel5);
 
@@ -962,9 +1016,11 @@ int main()
         q.pistes[0].pan = -0.4;
         q.pistes[0].entrada = 1;
         q.masterDb = -3.0;
+        q.pistes[0].rgb = 0xff112233;
         mibase::disc::desa (r.fitxer, q, "x", "x", false);
         auto l = mibase::disc::llegeix (r.fitxer);
-        comprova (l && std::abs (l->pistes[0].pan + 0.4) < 1.0e-9 && l->pistes[0].entrada == 1 && std::abs (l->masterDb + 3.0) < 1.0e-9,
+        comprova (l && std::abs (l->pistes[0].pan + 0.4) < 1.0e-9 && l->pistes[0].entrada == 1 && std::abs (l->masterDb + 3.0) < 1.0e-9
+                  && l->pistes[0].rgb == 0xff112233,
                   "es desen i es llegeixen");
     });
     fs5::remove_all (arrel5);

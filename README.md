@@ -10,7 +10,7 @@ Neix de les idees provades a **Riffs**, una app d'Android per gravar idees music
 
 Motor propi escrit en C++; [JUCE](https://juce.com) es fa servir només per als controladors d'àudio i MIDI, els plugins i les finestres.
 
-> Estat: **0.5 — sona i grava**: reproducció de les pistes, gravació amb compte d'entrada i retard corregit, vúmetres, panorama i exportació de la mescla.
+> Estat: **0.6 — editar com a casa**: sona i grava, i ara amb requadre de selecció, copiar i enganxar (trepitjant o inserint), colors i dreceres de teclat.
 
 ## Com es fa servir
 
@@ -47,19 +47,24 @@ Els àudios conserven sempre el seu nom, encara que després canviïs el nom de 
 ### Estudi
 D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Taula de mescles* i, a sota, la pista triada: panorama, fader amb vúmetre, M, S i gravar), **Pistes** (amb un vúmetre petit a cada una), la **línia de temps** i el **panell** del clip triat. Arrossega la ratlla entre dues seccions per fer-les més amples o més estretes (doble clic: mida inicial); es recorda.
 
-- **Barra d'eines**: la **caixa d'eines** (tecles 1 a 6):
-  1. **Fletxa**: tria i mou. Amb un sol clip triat, les cantonades de baix retallen, les de dalt fan els fades i el punt del mig canvia el volum del clip.
+- **Barra d'eines**: la **caixa d'eines** (tecles 1 a 6; botó dret en un lloc buit = fletxa):
+  1. **Fletxa**: tria i mou (també clips de pistes diferents: Ctrl+clic n'afegeix o en treu). **Clicar en un lloc buit** treu la selecció; **arrossegar en un lloc buit** fa un **requadre**. Amb un sol clip triat, les cantonades de baix retallen, les de dalt fan els fades i el punt del mig canvia el volum del clip.
   2. **Llapis**: clica i arrossega per fer una finestra nova; si no arrossegues, la fa d'un compàs.
   3. **Goma**: clica (o passa per sobre) per esborrar clips.
   4. **Tisores**: talla el clip on cliques (segons la graella).
   5. **Cola**: clica un clip i arrossega fins al del costat: en fa una sola finestra. Si són trossos seguits del mateix àudio, s'ajunten sense tocar res; si són preses diferents o hi ha un forat, es crea un àudio nou amb tot (els originals no es toquen).
   6. **X**: silencia o torna a fer sonar un clip.
+- **Requadre** (botó al costat de Compàs / Temps / Lliure): apagat, tria **els clips sencers** que toca; encès, tria **només el tros que queda dins** (enganxat a la graella), encara que els clips en sobresurtin. Supr buida aquest tros.
+- **Copiar i enganxar**: Ctrl+C copia (els clips sencers o només el tros), Ctrl+X retalla, **Ctrl+V enganxa al capçal**, a les mateixes pistes, amb el començament del que has copiat al capçal. El botó del costat (o la tecla **Insert**) tria com s'enganxa: apagat **trepitja** el que hi ha; encès **insereix**: tot el que hi ha després del capçal, a totes les pistes, s'aparta.
+- **Color**: el quadret de color de la barra pinta els clips triats o, si no n'hi ha, la pista. Colors preparats o la roda (to i saturació) amb la barra de lluminositat.
+- **Clips trepitjats**: on un clip queda damunt d'un altre es veu ratllat (i sona el de dalt).
 - **Claqueta**: la tecla l'encén i l'apaga; la fletxeta obre el volum (0 a 150 %), el so (Digital, Fusta, Analògic, Campana) i «Escolta-la» per sentir-la al tempo del projecte. Al costat, el tempo i el compàs (clica per canviar el tempo), la graella **Compàs / Temps / Lliure**, Desfés i Refés. A la dreta, el text d'informació.
 - **Pista nova**: «+ Pista nova» → Àudio mono o estèreo (instrument, bateria, acords i bus d'efectes vindran després). Cada pista nova agafa un color diferent; amb el botó dret sobre el nom es canvia el color, mono/estèreo, l'**entrada per gravar** (E1, E2… o E1-2 en estèreo; surt al costat de M S gravar), el nom o s'esborra. També pots **arrossegar fitxers d'àudio** des de l'Explorador.
 - **Ona**: es dibuixa plena, com una ona analògica. Amb molt de zoom es veuen les mostres i la línia del zero.
 - **Clips un damunt de l'altre**: sona només el de dalt (el darrer que hi has posat, per exemple una presa nova). Si el silencies amb la X, torna a sonar el de sota.
 - **Ratolí**: roda = amunt i avall; Maj+roda = de costat (mai abans del començament); **Ctrl+roda = zoom del temps**, a partir del punt on tens el ratolí, que queda centrat a la pantalla; Alt+roda = alçada de les pistes (mai tan petites que no es vegin M, S i gravar).
-- **Teclat**: Espai = reprodueix / atura; R = grava; Supr = treure clips; Ctrl+D = duplicar; Ctrl+Z / Ctrl+Y = desfer / refer; Ctrl+S = desar; Ctrl+I = importar; 1–6 = eines; Esc = res triat i fletxa; Inici = al principi.
+- **Capçal**: es mou clicant (o arrossegant) la **regla**; clicar les pistes ja no el mou.
+- **Teclat**: Espai = reprodueix / atura; R = grava; **Z** = tot el projecte a la pantalla; **Maj+Z** = el que hi ha triat; **M** = silencia el triat (o la pista); **Q / W / E** = graella Compàs / Temps / Lliure; Ctrl+C / Ctrl+X / Ctrl+V; Insert = enganxar inserint o trepitjant; Supr = treure clips; Ctrl+D = duplicar; Ctrl+Z / Ctrl+Y = desfer / refer; Ctrl+S = desar; Ctrl+I = importar; 1–6 = eines; Esc = res triat i fletxa; Inici = al principi.
 - **Faders i panorama**: arrossega amunt i avall; amb **Maj**, deu vegades més fi (per posar, per exemple, -0,2 dB). Doble clic: 0 dB (o el panorama al mig). Els vúmetres tenen la mateixa escala que el fader; si la pista té el botó de gravar encès, també mostren el que entra per la targeta.
 - **Taula de mescles**: una tira per pista amb els llocs per als **inserts** (efectes) i els **enviaments** a busos (arribaran més endavant), el **panorama**, M, S, gravar, el fader amb vúmetre i l'entrada; i, fixa a la dreta, la **Sortida** (volum general i vúmetre).
 - Tot es desa sol (i una còpia del projecte a `Còpies`, com a molt cada 10 minuts).
@@ -106,6 +111,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.6.0** — Requadre de selecció (clips sencers o només el tros de dins) i selecció de diverses pistes. Copiar, retallar i enganxar al capçal, trepitjant o inserint (Insert). Clicar en un lloc buit treu la selecció; el capçal només es mou a la regla. Botó dret en un lloc buit = fletxa. Color de clips i pistes (preparats i roda). Clips trepitjats ratllats. Tecles Z, Maj+Z, M, Q, W, E.
 - **0.5.0** — Sona i grava. Reproducció de totes les pistes (volum, panorama, silenci, solo, fades, volum de clip, bucle) amb la claqueta enganxada als temps; el clip de dalt tapa els de sota. Gravació a la pista amb el botó vermell, amb un compàs de compte, l'entrada triada per pista i el retard de la targeta corregit; el fitxer s'escriu al disc des d'un fil a part (el so no s'atura mai a esperar el disc). Vúmetres a les pistes, a la columna esquerra i a la taula de mescles. Panorama. Sortida amb volum general. Exportar la mescla (WAV). Faders sense imant al 0 dB i amb Maj per afinar; capçal de fader ample amb ratlletes. Taula de mescles amb llocs per a inserts i enviaments. Sense la columna de volums (ja hi ha el fader a l'esquerra). El transport només surt dins d'un projecte. No es pot desplaçar abans del començament.
 - **0.4.0** — Menú Fitxer (desar, nova versió, nou, obrir, tancar, importar, exportar el projecte, sortir). Transport fix a la dreta amb pantalla de posició. Caixa d'eines: fletxa, llapis, goma, tisores, cola i X. Claqueta amb volum i quatre sons (es pot escoltar). Columna esquerra amb taula de treball / de mescles i el fader de la pista triada; taula de mescles. Ona analògica amb detall fins a les mostres i la línia del zero; zoom centrat. Pistes d'àudio mono o estèreo amb colors. Aspecte d'aparell antic (tecles, pantalla, faders). Alçada mínima de les pistes.
 - **0.3.0** — Estudi: pistes (Guitarra, Veu, Àudio) amb M/S/gravar, faders, ordenar i canviar el nom; importar àudio (botó o arrossegant fitxers) a `Àudios`; clips amb moure (en el temps o de pista), retallar, fades, volum, bandera del primer temps (fixa en mode Lliure), duplicar i treure; graella Compàs/Temps/Lliure; regla amb bucle; zoom i alçada amb la roda; Desfés/Refés; tot es desa sol. Seccions d'amplada ajustable. Tema més clar i accent taronja. Icona pròpia. Arreglat el separador de la pantalla d'inici que no redibuixava bé.

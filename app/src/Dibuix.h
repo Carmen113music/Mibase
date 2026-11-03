@@ -10,7 +10,7 @@ namespace dibuix
 {
     enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa,
                        Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
-                       Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes };
+                       Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -134,6 +134,15 @@ namespace dibuix
             case Icona::Mescla:   // tres faders
                 p.startNewSubPath (6, 4); p.lineTo (6, 20); p.startNewSubPath (12, 4); p.lineTo (12, 20); p.startNewSubPath (18, 4); p.lineTo (18, 20);
                 p.addRectangle (4.0f, 13.0f, 4.0f, 3.0f); p.addRectangle (10.0f, 7.0f, 4.0f, 3.0f); p.addRectangle (16.0f, 11.0f, 4.0f, 3.0f);
+                break;
+            case Icona::Requadre:   // un rectangle petit que sobresurt d'un de més gran
+                p.addRectangle (3.0f, 7.0f, 13.0f, 13.0f);
+                p.addRectangle (10.0f, 3.0f, 11.0f, 9.0f);
+                break;
+            case Icona::Insereix:   // el que hi ha s'aparta cap a la dreta
+                p.startNewSubPath (6, 4); p.lineTo (6, 20);
+                p.startNewSubPath (9, 12); p.lineTo (20, 12);
+                p.startNewSubPath (16, 8); p.lineTo (20, 12); p.lineTo (16, 16);
                 break;
             case Icona::Pistes:   // carrils amb clips
                 p.addRoundedRectangle (3.0f, 5.0f, 10.0f, 5.0f, 1.0f); p.addRoundedRectangle (9.0f, 14.0f, 12.0f, 5.0f, 1.0f);

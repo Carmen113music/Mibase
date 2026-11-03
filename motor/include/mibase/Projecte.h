@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@ namespace mibase
         double fi = 0.0;
         double fadeIn = 0.0, fadeOut = 0.0;
         double guanyDb = 0.0;    // de -24 a 0
+        std::uint32_t rgb = 0;   // color propi (0xAARRGGBB); 0 = el de la pista
 
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }
@@ -42,6 +44,7 @@ namespace mibase
         std::string tipus = "audio";   // audio (més endavant: instrument, midi, bateria, acords, bus)
         int canals = 1;                 // 1 mono, 2 estèreo
         int color = 0;                  // índex de la paleta de colors de pista
+        std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6

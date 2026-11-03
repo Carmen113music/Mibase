@@ -304,9 +304,9 @@ VistaPistes::Lloc VistaPistes::llocA (juce::Point<int> p) const
     if (estat.eina == Eina::Fletxa)
     {
         // Manetes del clip triat (només si n'hi ha un).
-        if (fila == estat.pistaTriada && estat.clipsTriats.size() == 1)
+        if (estat.triats.size() == 1 && estat.triats[0].pista == fila)
         {
-            const int ci = estat.clipsTriats[0];
+            const int ci = estat.triats[0].clip;
             if (ci >= 0 && ci < (int) t.clips.size())
             {
                 const auto& c = t.clips[(size_t) ci];
@@ -479,9 +479,9 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
     if (r.getRight() < -40.0f || r.getX() > (float) getWidth() + 40.0f) return;
 
     const bool triat = estat.clipTriat (pista, indexClip);
-    const bool manetes = triat && estat.clipsTriats.size() == 1 && estat.eina == Eina::Fletxa;
+    const bool manetes = triat && estat.triats.size() == 1 && estat.eina == Eina::Fletxa;
     const bool actiu = sona (p, t) && ! c.mut;
-    const auto color = actiu ? EstatEstudi::colorPista (t) : tema::suau;
+    const auto color = actiu ? estat.colorClip (pista, c) : tema::suau;
     const float rad = 6.0f;
     const auto* s = ed::presa (p, c.presa);
 
@@ -627,8 +627,56 @@ void VistaPistes::paint (juce::Graphics& g)
     for (int i = 0; i < estat.numPistes(); ++i)
     {
         const auto& t = estat.projecte.pistes[(size_t) i];
-        for (int k = 0; k < (int) t.clips.size(); ++k) if (! estat.clipTriat (i, k)) pintaClip (g, i, k, t.clips[(size_t) k]);
-        for (int k = 0; k < (int) t.clips.size(); ++k) if (estat.clipTriat (i, k)) pintaClip (g, i, k, t.clips[(size_t) k]);
+        // En ordre: el de més amunt de la llista és el que sona i es dibuixa a sobre.
+        for (int k = 0; k < (int) t.clips.size(); ++k) pintaClip (g, i, k, t.clips[(size_t) k]);
+
+        // On dos clips es trepitgen: ratllat.
+        for (int a = 0; a < (int) t.clips.size(); ++a)
+            for (int b = a + 1; b < (int) t.clips.size(); ++b)
+            {
+                const double ta = juce::jmax (t.clips[(size_t) a].iniciVisible(), t.clips[(size_t) b].iniciVisible());
+                const double tb = juce::jmin (t.clips[(size_t) a].fiVisible(), t.clips[(size_t) b].fiVisible());
+                if (tb - ta <= 1.0e-6) continue;
+                auto r = juce::Rectangle<float> (estat.x (ta), (float) estat.yPista (i) + 5.0f, estat.x (tb) - estat.x (ta), (float) estat.altPista - 10.0f);
+                if (r.getRight() < 0.0f || r.getX() > w) continue;
+                juce::Graphics::ScopedSaveState guarda (g);
+                g.reduceClipRegion (r.toNearestInt());
+                g.setColour (juce::Colours::black.withAlpha (0.18f));
+                g.fillRect (r);
+                g.setColour (juce::Colours::white.withAlpha (0.28f));
+                for (float x = r.getX() - r.getHeight(); x < r.getRight(); x += 7.0f)
+                    g.drawLine (x, r.getBottom(), x + r.getHeight(), r.getY(), 1.2f);
+                g.setColour (juce::Colours::white.withAlpha (0.6f));
+                g.fillRect (r.getX(), r.getY(), 1.0f, r.getHeight());
+                g.fillRect (r.getRight() - 1.0f, r.getY(), 1.0f, r.getHeight());
+            }
+    }
+
+    // Tros triat (requadre en mode «només el que queda dins»).
+    if (estat.rang.actiu)
+    {
+        const auto& rg = estat.rang;
+        auto r = juce::Rectangle<float> (estat.x (rg.t0), (float) estat.yPista (rg.pistaDe), estat.x (rg.t1) - estat.x (rg.t0),
+                                         (float) ((rg.pistaFins - rg.pistaDe + 1) * estat.altPista));
+        g.setColour (tema::accent.withAlpha (0.16f));
+        g.fillRect (r);
+        g.setColour (tema::accent);
+        g.drawRect (r, 1.5f);
+    }
+
+    // Requadre mentre s'arrossega.
+    if (mode == Mode::Requadre && puntRequadre != inici)
+    {
+        const auto r = juce::Rectangle<int> (inici, puntRequadre).toFloat();
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRect (r);
+        juce::Path p;
+        p.addRectangle (r);
+        juce::Path discontinu;
+        const float guions[] = { 4.0f, 3.0f };
+        juce::PathStrokeType (1.0f).createDashedStroke (discontinu, p, guions, 2);
+        g.setColour (tema::text.withAlpha (0.8f));
+        g.fillPath (discontinu);
     }
 
     // Llapis: la finestra que es crearà.
@@ -746,39 +794,44 @@ void VistaPistes::menuClip (int pista, int clip, double t)
 {
     const auto& clip0 = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];
     const auto* s = ed::presa (estat.projecte, clip0.presa);
-    const bool unic = estat.clipsTriats.size() == 1;
+    const bool unic = estat.triats.size() == 1;
+    const bool molts = estat.triats.size() > 1;
 
     juce::PopupMenu m;
-    m.addItem (1, estat.clipsTriats.size() > 1 ? "Duplica els clips   (Ctrl+D)" : "Duplica   (Ctrl+D)");
-    m.addItem (2, estat.clipsTriats.size() > 1 ? "Treu els clips   (Supr)" : "Treu   (Supr)");
-    m.addItem (6, clip0.mut ? "Torna a fer-lo sonar" : "Silencia'l   (eina X)");
+    m.addItem (8, "Copia   (Ctrl+C)");
+    m.addItem (1, molts ? "Duplica els clips   (Ctrl+D)" : "Duplica   (Ctrl+D)");
+    m.addItem (2, molts ? "Treu els clips   (Supr)" : "Treu   (Supr)");
+    m.addItem (6, clip0.mut ? "Torna a fer sonar   (M)" : "Silencia   (M)");
     m.addItem (7, "Talla aquí   (tisores)"_ca, unic && t > clip0.iniciVisible() && t < clip0.fiVisible());
     m.addSeparator();
     m.addItem (3, "Posa la bandera del primer temps aquí"_ca, unic && s != nullptr);
     m.addItem (4, "Treu la bandera", unic && s != nullptr && s->primer >= 0.0);
     m.addSeparator();
     m.addItem (5, "Treu els fades i el volum del clip", unic);
+    m.addItem (9, "Treu el color propi", clip0.rgb != 0);
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista, clip, t] (int r)
     {
         if (r == 0 || pista >= estat.numPistes() || clip >= (int) estat.projecte.pistes[(size_t) pista].clips.size()) return;
+        if (r == 8) { estat.portaretalls = ed::copiaClips (estat.projecte, estat.triats); estat.info = "Copiat"; estat.avisa(); return; }
         comencaCanvi();
         restaura();
         auto& c = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];
         switch (r)
         {
-            case 1: estat.clipsTriats = ed::duplica (estat.projecte, pista, estat.clipsTriats); break;
-            case 2: ed::treuClips (estat.projecte, pista, estat.clipsTriats); estat.clipsTriats.clear(); break;
+            case 1: estat.triats = ed::duplicaTriats (estat.projecte, estat.triats); break;
+            case 2: ed::treuTriats (estat.projecte, estat.triats); estat.capTriat(); break;
             case 3: ed::posaBandera (estat.projecte, c, t); break;
             case 4: ed::posaBandera (estat.projecte, c, -1.0); break;
             case 5: c.fadeIn = c.fadeOut = 0.0; c.guanyDb = 0.0; break;
             case 6:
             {
                 const bool nou = ! c.mut;
-                for (int i : estat.clipsTriats) estat.projecte.pistes[(size_t) pista].clips[(size_t) i].mut = nou;
+                for (auto& ref : estat.triats) if (auto* k = estat.clip (ref)) k->mut = nou;
                 break;
             }
-            case 7: ed::talla (estat.projecte, pista, clip, tEina (t)); estat.clipsTriats.clear(); break;
+            case 7: ed::talla (estat.projecte, pista, clip, tEina (t)); estat.capTriat(); break;
+            case 9: for (auto& ref : estat.triats) if (auto* k = estat.clip (ref)) k->rgb = 0; break;
             default: break;
         }
         acabaCanvi();
@@ -805,25 +858,17 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
         {
             if (! estat.clipTriat (lloc0.pista, lloc0.clip))
             {
-                estat.pistaTriada = lloc0.pista;
-                estat.clipsTriats = { lloc0.clip };
+                estat.triaClip (lloc0.pista, lloc0.clip);
                 estat.avisa();
             }
             menuClip (lloc0.pista, lloc0.clip, t0);
         }
-        else if (lloc0.pista >= 0)
+        else
         {
-            estat.pistaTriada = lloc0.pista;
-            estat.clipsTriats.clear();
+            // Botó dret en un lloc buit: torna a la fletxa.
+            estat.eina = Eina::Fletxa;
+            estat.info = "Fletxa";
             estat.avisa();
-            const int fila = lloc0.pista;
-            const double on = tEina (t0);
-            juce::PopupMenu m;
-            m.addItem (1, "Importa àudio aquí…"_ca);
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, fila, on] (int r)
-            {
-                if (r == 1 && onDemanaImportar) onDemanaImportar (fila, on);
-            });
         }
         return;
     }
@@ -837,7 +882,7 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
         case Eina::Llapis:
             if (lloc0.pista < 0) return;
             estat.pistaTriada = lloc0.pista;
-            estat.clipsTriats.clear();
+            estat.capTriat();
             mode = Mode::Llapis;
             t0 = tLlapis = tEina (t0);
             estat.avisa();
@@ -856,14 +901,13 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
             if (! ed::talla (estat.projecte, lloc0.pista, lloc0.clip, tEina (t0)))
                 canviFet = false;
             estat.pistaTriada = lloc0.pista;
-            estat.clipsTriats.clear();
+            estat.capTriat();
             acabaCanvi();
             return;
 
         case Eina::Cola:
             if (lloc0.clip < 0) return;
-            estat.pistaTriada = lloc0.pista;
-            estat.clipsTriats = { lloc0.clip };
+            estat.triaClip (lloc0.pista, lloc0.clip);
             mode = Mode::Cola;
             puntCola = inici;
             estat.info = "Arrossega fins al clip que vols enganxar-hi";
@@ -886,16 +930,23 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
 
 void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
 {
-    if (lloc0.pista < 0)
+    // Lloc buit: es treu la selecció i, si s'arrossega, es fa un requadre (el capçal només es mou a la regla).
+    if (lloc0.pista < 0 || (lloc0.clip < 0 && lloc0.maneta == Maneta::Cap))
     {
-        estat.clipsTriats.clear();
-        mode = Mode::Capcal;
-        estat.mouCapcal (tEina (t0));
+        if (! e.mods.isCommandDown() && ! e.mods.isShiftDown())
+            estat.capTriat();
+        else
+            estat.rang.actiu = false;
+        if (lloc0.pista >= 0) estat.pistaTriada = lloc0.pista;
+        triatsOriginals = estat.triats;
+        mode = Mode::Requadre;
+        puntRequadre = inici;
         estat.avisa();
         return;
     }
 
     auto& t = estat.projecte.pistes[(size_t) lloc0.pista];
+    estat.rang.actiu = false;
 
     if (lloc0.maneta != Maneta::Cap)
     {
@@ -910,65 +961,87 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
             case Maneta::Guany:       mode = Mode::Guany; guany0 = c.guanyDb; break;
             case Maneta::Bandera:
                 mode = Mode::Bandera;
-                estat.pistaTriada = lloc0.pista;
-                if (! estat.clipTriat (lloc0.pista, lloc0.clip)) estat.clipsTriats = { lloc0.clip };
+                if (! estat.clipTriat (lloc0.pista, lloc0.clip)) estat.triaClip (lloc0.pista, lloc0.clip);
                 break;
             case Maneta::Cap: break;
         }
         return;
     }
 
-    if (lloc0.clip >= 0)
+    const ed::RefClip aquest { lloc0.pista, lloc0.clip };
+    if (e.mods.isCommandDown())
     {
-        if (e.mods.isCommandDown())
+        auto& v = estat.triats;
+        auto it = std::find (v.begin(), v.end(), aquest);
+        if (it != v.end()) v.erase (it); else v.push_back (aquest);
+        estat.pistaTriada = lloc0.pista;
+    }
+    else if (e.mods.isShiftDown() && ! estat.triats.empty() && estat.triats.back().pista == lloc0.pista)
+    {
+        // Maj: tots els de la pista entre l'últim triat i aquest.
+        const double a = t.clips[(size_t) estat.triats.back().clip].iniciVisible();
+        const double b = t.clips[(size_t) lloc0.clip].iniciVisible();
+        for (int k = 0; k < (int) t.clips.size(); ++k)
         {
-            if (estat.pistaTriada != lloc0.pista) { estat.pistaTriada = lloc0.pista; estat.clipsTriats = { lloc0.clip }; }
-            else
-            {
-                auto& v = estat.clipsTriats;
-                auto it = std::find (v.begin(), v.end(), lloc0.clip);
-                if (it != v.end()) v.erase (it); else v.push_back (lloc0.clip);
-            }
+            const double x = t.clips[(size_t) k].iniciVisible();
+            if (x >= juce::jmin (a, b) - 1e-9 && x <= juce::jmax (a, b) + 1e-9 && ! estat.clipTriat (lloc0.pista, k))
+                estat.triats.push_back ({ lloc0.pista, k });
         }
-        else if (e.mods.isShiftDown() && estat.pistaTriada == lloc0.pista && ! estat.clipsTriats.empty())
-        {
-            const double a = t.clips[(size_t) estat.clipsTriats[0]].iniciVisible();
-            const double b = t.clips[(size_t) lloc0.clip].iniciVisible();
-            estat.clipsTriats.clear();
-            for (int k = 0; k < (int) t.clips.size(); ++k)
-            {
-                const double x = t.clips[(size_t) k].iniciVisible();
-                if (x >= juce::jmin (a, b) - 1e-9 && x <= juce::jmax (a, b) + 1e-9)
-                    estat.clipsTriats.push_back (k);
-            }
-        }
-        else if (! estat.clipTriat (lloc0.pista, lloc0.clip))
-        {
-            estat.pistaTriada = lloc0.pista;
-            estat.clipsTriats = { lloc0.clip };
-        }
+    }
+    else if (! estat.clipTriat (lloc0.pista, lloc0.clip))
+        estat.triaClip (lloc0.pista, lloc0.clip);
+    else
+        estat.pistaTriada = lloc0.pista;
 
-        if (! estat.clipTriat (lloc0.pista, lloc0.clip))
-        {
-            estat.avisa();
-            return;
-        }
-
-        const auto& c = t.clips[(size_t) lloc0.clip];
-        punt0 = ed::puntSnap (estat.projecte, c);
-        bandera0 = ed::banderaVisible (estat.projecte, c) ? c.pos + ed::presa (estat.projecte, c.presa)->primer : -1.0;
-        comencaCanvi();
-        triatsOriginals = estat.clipsTriats;
-        mode = Mode::Decidint;
+    if (! estat.clipTriat (lloc0.pista, lloc0.clip))
+    {
         estat.avisa();
         return;
     }
 
-    estat.pistaTriada = lloc0.pista;
-    estat.clipsTriats.clear();
-    mode = Mode::Capcal;
-    estat.mouCapcal (tEina (t0));
+    const auto& c = t.clips[(size_t) lloc0.clip];
+    punt0 = ed::puntSnap (estat.projecte, c);
+    bandera0 = ed::banderaVisible (estat.projecte, c) ? c.pos + ed::presa (estat.projecte, c.presa)->primer : -1.0;
+    comencaCanvi();
+    triatsOriginals = estat.triats;
+    mode = Mode::Decidint;
     estat.avisa();
+}
+
+void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
+{
+    puntRequadre = fins;
+    const auto r = juce::Rectangle<int> (inici, fins);
+    const double ta = estat.t ((float) r.getX()), tb = estat.t ((float) r.getRight());
+    const int pa = juce::jmax (0, estat.pistaA (r.getY())), pb = juce::jmin (estat.numPistes() - 1, estat.pistaA (r.getBottom()));
+
+    estat.triats = afegeix ? triatsOriginals : std::vector<ed::RefClip>();
+    estat.rang.actiu = false;
+    if (pb < pa || tb <= ta) return;
+
+    if (estat.modeRang)
+    {
+        // Només el que queda dins (enganxat a la graella, si n'hi ha).
+        auto& g = estat.rang;
+        g.actiu = true;
+        g.t0 = juce::jmax (0.0, tEina (ta));
+        g.t1 = tEina (tb);
+        if (g.t1 <= g.t0) g.t1 = g.t0 + ed::segonsPerTemps (estat.projecte);
+        g.pistaDe = pa;
+        g.pistaFins = pb;
+        estat.info = "Tros: "_ca + posicio (estat.projecte, g.t0) + " a " + posicio (estat.projecte, g.t1)
+                   + " · " + juce::String (pb - pa + 1) + (pb == pa ? " pista" : " pistes");
+        return;
+    }
+
+    for (int i = pa; i <= pb; ++i)
+    {
+        const auto& clips = estat.projecte.pistes[(size_t) i].clips;
+        for (int k = 0; k < (int) clips.size(); ++k)
+            if (clips[(size_t) k].fiVisible() > ta && clips[(size_t) k].iniciVisible() < tb && ! estat.clipTriat (i, k))
+                estat.triats.push_back ({ i, k });
+    }
+    estat.info = juce::String (estat.triats.size()) + (estat.triats.size() == 1 ? " clip triat" : " clips triats");
 }
 
 void VistaPistes::mouseDrag (const juce::MouseEvent& e)
@@ -982,8 +1055,9 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
         case Mode::Res:
             return;
 
-        case Mode::Capcal:
-            estat.mouCapcal (tEina (t));
+        case Mode::Requadre:
+            if (e.getDistanceFromDragStart() < 4) return;
+            actualitzaRequadre (e.getPosition(), e.mods.isCommandDown() || e.mods.isShiftDown());
             estat.avisa();
             return;
 
@@ -1001,7 +1075,7 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
             {
                 ed::treuClips (p, l.pista, { l.clip });
                 canviFet = true;
-                estat.clipsTriats.clear();
+                estat.capTriat();
                 estat.info = "Esborrat";
                 estat.avisa();
             }
@@ -1025,14 +1099,14 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
         case Mode::MouTemps:
         {
             restaura();
-            auto& clips = p.pistes[(size_t) estat.pistaTriada].clips;
-            const auto& copia = copiaInici.pistes[(size_t) estat.pistaTriada].clips;
+            estat.triats = triatsOriginals;
             const double dt = t - t0;
 
-            if (p.snap == Snap::Lliure && estat.clipsTriats.size() == 1 && bandera0 >= 0.0)
+            if (p.snap == Snap::Lliure && estat.triats.size() == 1 && bandera0 >= 0.0)
             {
-                auto& c = clips[(size_t) estat.clipsTriats[0]];
-                const double posNova = copia[(size_t) estat.clipsTriats[0]].pos + dt;
+                const auto ref = estat.triats[0];
+                auto& c = *estat.clip (ref);
+                const double posNova = copiaInici.pistes[(size_t) ref.pista].clips[(size_t) ref.clip].pos + dt;
                 if (ed::mouAmbBanderaFixa (p, c, posNova, bandera0))
                     estat.info = "Bandera fixa · àudio "_ca + (dt >= 0 ? "+" : "") + ms (dt);
                 else
@@ -1046,10 +1120,12 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
                 double desti = ed::enganxa (p, punt0 + dt, p.snap);
                 double delta = desti - punt0;
                 double minInici = 1e300;
-                for (int i : estat.clipsTriats) minInici = juce::jmin (minInici, copia[(size_t) i].iniciVisible());
+                for (auto& ref : estat.triats)
+                    minInici = juce::jmin (minInici, copiaInici.pistes[(size_t) ref.pista].clips[(size_t) ref.clip].iniciVisible());
                 if (minInici + delta < 0.0) { delta = -minInici; desti = punt0 + delta; }
-                for (int i : estat.clipsTriats) clips[(size_t) i].pos = copia[(size_t) i].pos + delta;
-                estat.info = (estat.clipsTriats.size() > 1 ? juce::String (estat.clipsTriats.size()) + " clips · "_ca : juce::String())
+                for (auto& ref : estat.triats)
+                    estat.clip (ref)->pos = copiaInici.pistes[(size_t) ref.pista].clips[(size_t) ref.clip].pos + delta;
+                estat.info = (estat.triats.size() > 1 ? juce::String (estat.triats.size()) + " clips · "_ca : juce::String())
                            + "Compàs "_ca + posicio (p, desti, p.snap == Snap::Lliure);
             }
             estat.avisa();
@@ -1059,20 +1135,13 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
         case Mode::MouPista:
         {
             restaura();
-            const int de = lloc0.pista;
-            const int a = juce::jlimit (0, estat.numPistes() - 1, de + (int) std::round ((double) (e.y - inici.y) / estat.altPista));
-            if (a != de)
-            {
-                estat.clipsTriats = ed::passaAPista (p, de, triatsOriginals, a);
-                estat.pistaTriada = a;
-            }
-            else
-            {
-                estat.clipsTriats = triatsOriginals;
-                estat.pistaTriada = de;
-                canviFet = false;
-            }
-            estat.info = "Pista: "_ca + dibuix::utf8 (p.pistes[(size_t) estat.pistaTriada].nom);
+            const int d = (int) std::round ((double) (e.y - inici.y) / estat.altPista);
+            estat.triats = ed::mouDePista (p, triatsOriginals, d);
+            if (estat.triats == triatsOriginals) canviFet = false;
+            int nova = lloc0.pista;
+            for (auto& ref : estat.triats) if (ref.pista >= 0) nova = ref.pista;
+            estat.pistaTriada = d == 0 ? lloc0.pista : nova;
+            estat.info = "Pista: "_ca + dibuix::utf8 (p.pistes[(size_t) juce::jlimit (0, estat.numPistes() - 1, estat.pistaTriada)].nom);
             estat.avisa();
             return;
         }
@@ -1116,7 +1185,7 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
                     if (const auto* s = ed::presa (p, c.presa))
                         estat.info = "Bandera: "_ca + posicio (p, c.pos + s->primer, true);
                     break;
-                case Mode::Res: case Mode::Capcal: case Mode::Decidint: case Mode::MouTemps: case Mode::MouPista:
+                case Mode::Res: case Mode::Requadre: case Mode::Decidint: case Mode::MouTemps: case Mode::MouPista:
                 case Mode::Llapis: case Mode::Goma: case Mode::Cola:
                     break;
             }
@@ -1134,8 +1203,14 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
     {
         case Mode::Decidint:
             if (! e.mods.isCommandDown() && ! e.mods.isShiftDown())
-                estat.clipsTriats = { lloc0.clip };
+                estat.triaClip (lloc0.pista, lloc0.clip);
             canviFet = false;
+            estat.avisa();
+            break;
+
+        case Mode::Requadre:
+            if (estat.triats.size() == 1) estat.pistaTriada = estat.triats[0].pista;
+            if (! estat.rang.actiu && estat.triats.empty()) estat.info.clear();
             estat.avisa();
             break;
 
@@ -1146,8 +1221,7 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             double a = juce::jmin (t0, tLlapis), b = juce::jmax (t0, tLlapis);
             if (b - a < 1e-6) b = a + ed::segonsPerCompas (estat.projecte);   // sense arrossegar: un compàs
             const int nou = ed::creaFinestra (estat.projecte, lloc0.pista, a, b);
-            estat.pistaTriada = lloc0.pista;
-            estat.clipsTriats = { nou };
+            estat.triaClip (lloc0.pista, nou);
             acabaCanvi();
             break;
         }
@@ -1167,7 +1241,7 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
                 const auto r = ed::enganxaClips (estat.projecte, lloc0.pista, lloc0.clip, l.clip);
                 if (r.fet)
                 {
-                    estat.clipsTriats = { r.clip };
+                    estat.triaClip (lloc0.pista, r.clip);
                     acabaCanvi();
                 }
                 else
@@ -1183,7 +1257,6 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
         }
 
         case Mode::Res:
-        case Mode::Capcal:
             break;
 
         case Mode::MouTemps: case Mode::MouPista: case Mode::RetallInici: case Mode::RetallFi:
@@ -1343,11 +1416,11 @@ void Capcaleres::menu (int pista)
         {
             evolucio = "Pista esborrada: «"_ca + dibuix::utf8 (tt.nom) + "»"_ca;
             ed::esborraPista (estat.projecte, pista);
-            estat.clipsTriats.clear();
+            estat.capTriat();
         }
         else if (r == 3) tt.canals = tt.canals == 2 ? 1 : 2;
         else if (r >= 40) tt.entrada = r - 40;
-        else if (r >= 20) tt.color = r - 20;
+        else if (r >= 20) { tt.color = r - 20; tt.rgb = 0; }
         acabaCanvi (evolucio);
     });
 }
@@ -1364,7 +1437,7 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
     }
     if (fila < 0 || fila >= estat.numPistes()) return;
 
-    if (estat.pistaTriada != fila) estat.clipsTriats.clear();
+    if (estat.pistaTriada != fila) estat.capTriat();
     estat.pistaTriada = fila;
 
     if (e.mods.isPopupMenu())
@@ -1766,7 +1839,7 @@ void TaulaMescles::mouseDown (const juce::MouseEvent& e)
     tira = i;
     if (i >= 0)
     {
-        if (estat.pistaTriada != i) estat.clipsTriats.clear();
+        if (estat.pistaTriada != i) estat.capTriat();
         estat.pistaTriada = i;
     }
 
@@ -1873,7 +1946,7 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
 
 void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    const bool hiHaClips = estat.pista (estat.pistaTriada) != nullptr && ! estat.clipsTriats.empty();
+    const bool hiHaClips = ! estat.triats.empty() || estat.rang.actiu;
     btDuplica.setVisible (hiHaClips);
     btTreu.setVisible (hiHaClips);
     repaint();
@@ -1924,29 +1997,31 @@ void PanellPista::paint (juce::Graphics& g)
     }
     else
     {
-        g.setColour (estat.clipsTriats.size() > 1 ? tema::textMig : tema::suau);
+        g.setColour (estat.triats.size() > 1 || estat.rang.actiu ? tema::textMig : tema::suau);
         g.setFont (dibuix::lletra (12.5f));
-        g.drawFittedText (estat.clipsTriats.size() > 1 ? juce::String (estat.clipsTriats.size()) + " clips triats"
+        g.drawFittedText (estat.rang.actiu ? "Tros triat: "_ca + posicio (p, estat.rang.t0) + " a " + posicio (p, estat.rang.t1) + ", "
+                                             + juce::String (estat.rang.pistaFins - estat.rang.pistaDe + 1) + " pistes.\nCtrl+C copia només aquest tros."_ca
+                          : estat.triats.size() > 1 ? juce::String (estat.triats.size()) + " clips triats"
                                                        : "Clica un clip (amb la fletxa) per veure'n les dades."_ca,
-                          info.removeFromTop (40), juce::Justification::topLeft, 2);
+                          info.removeFromTop (60), juce::Justification::topLeft, 3);
     }
 
     r.removeFromTop (290);
     dibuix::pintaEtiquetaSeccio (g, "Eines", r.removeFromTop (20));
     const char* linies[] = {
-        "Fletxa (1): tria i mou. Cantonades de baix: retallar; de dalt: fades; punt del mig: volum.",
+        "Fletxa (1): tria i mou. Arrossega en un lloc buit per fer un requadre. Cantonades: retallar i fades; punt del mig: volum.",
         "Llapis (2): clica i arrossega per fer una finestra; sense arrossegar, d'un compàs.",
-        "Goma (3): clica o passa per sobre dels clips per esborrar-los.",
-        "Tisores (4): talla el clip on cliques (segons la graella).",
-        "Cola (5): clica un clip i arrossega fins al del costat: en fa una sola finestra.",
-        "X (6): silencia o torna a fer sonar un clip.",
+        "Goma (3) · Tisores (4) · Cola (5): clica un clip i arrossega fins al del costat · Silenci (6).",
+        "M: silencia el triat. Ctrl+C / Ctrl+X / Ctrl+V: copia, retalla i enganxa al capçal. Insert: enganxar inserint o trepitjant.",
+        "Z: tot el projecte a la pantalla · Maj+Z: el que hi ha triat. Q / W / E: graella Compàs / Temps / Lliure.",
+        "Botó dret en un lloc buit: fletxa. El capçal es mou clicant la regla.",
         "Roda: amunt i avall · Maj: de costat · Ctrl: zoom · Alt: alçada.",
     };
     g.setFont (dibuix::lletra (12.0f));
     for (auto* l : linies)
     {
-        if (r.getHeight() < 34) break;
+        if (r.getHeight() < 46) break;
         g.setColour (tema::suau);
-        g.drawFittedText (juce::String::fromUTF8 (l), r.removeFromTop (34), juce::Justification::topLeft, 2, 0.9f);
+        g.drawFittedText (juce::String::fromUTF8 (l), r.removeFromTop (46), juce::Justification::topLeft, 3, 0.9f);
     }
 }

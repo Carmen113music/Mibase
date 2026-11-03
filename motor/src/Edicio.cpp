@@ -1,5 +1,7 @@
 #include "mibase/Edicio.h"
 
+#include <map>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -184,6 +186,166 @@ namespace mibase::edicio
         clips[(size_t) clip] = a;
         clips.insert (clips.begin() + clip + 1, b);
         return true;
+    }
+
+    namespace
+    {
+        /** Retalla la finestra del clip a [a, b) (absolut). Retorna false si no en queda res. */
+        bool retallaA (Clip& c, double a, double b)
+        {
+            const double ini = std::max (c.inici, a - c.pos), fi = std::min (c.fi, b - c.pos);
+            if (fi - ini < longitudMinima) return false;
+            if (ini > c.inici + 1e-12) c.fadeIn = 0.0;
+            if (fi < c.fi - 1e-12) c.fadeOut = 0.0;
+            c.inici = ini;
+            c.fi = fi;
+            c.fadeIn = std::min (c.fadeIn, c.longitud());
+            c.fadeOut = std::min (c.fadeOut, c.longitud() - c.fadeIn);
+            return true;
+        }
+
+        std::map<int, std::vector<int>> perPista (const std::vector<RefClip>& triats)
+        {
+            std::map<int, std::vector<int>> m;
+            for (auto& r : triats) m[r.pista].push_back (r.clip);
+            return m;
+        }
+    }
+
+    Retall copiaClips (const Projecte& p, const std::vector<RefClip>& triats)
+    {
+        Retall r;
+        double a = 1e300, b = -1e300;
+        for (auto& t : triats)
+        {
+            if (t.pista < 0 || t.pista >= (int) p.pistes.size()) continue;
+            const auto& clips = p.pistes[(size_t) t.pista].clips;
+            if (t.clip < 0 || t.clip >= (int) clips.size()) continue;
+            r.clips.push_back ({ t.pista, clips[(size_t) t.clip] });
+            a = std::min (a, clips[(size_t) t.clip].iniciVisible());
+            b = std::max (b, clips[(size_t) t.clip].fiVisible());
+        }
+        if (r.clips.empty()) return {};
+        // L'ordre de la pista es manté (el de dalt continua a dalt).
+        std::stable_sort (r.clips.begin(), r.clips.end(), [] (auto& x, auto& y) { return x.first < y.first; });
+        for (auto& c : r.clips) c.second.pos -= a;
+        r.durada = b - a;
+        return r;
+    }
+
+    Retall copiaRang (const Projecte& p, int pistaDe, int pistaFins, double t0, double t1)
+    {
+        Retall r;
+        if (t1 <= t0) return r;
+        r.durada = t1 - t0;
+        for (int i = std::max (0, pistaDe); i <= std::min (pistaFins, (int) p.pistes.size() - 1); ++i)
+            for (auto c : p.pistes[(size_t) i].clips)
+                if (retallaA (c, t0, t1))
+                {
+                    c.pos -= t0;
+                    r.clips.push_back ({ i, c });
+                }
+        if (r.clips.empty()) r.durada = 0.0;
+        return r;
+    }
+
+    void buidaRang (Projecte& p, int pista, double t0, double t1)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size() || t1 <= t0) return;
+        auto& clips = p.pistes[(size_t) pista].clips;
+        std::vector<Clip> nous;
+        for (auto& c : clips)
+        {
+            if (c.fiVisible() <= t0 || c.iniciVisible() >= t1) { nous.push_back (c); continue; }
+            auto esquerra = c, dreta = c;
+            if (retallaA (esquerra, c.iniciVisible(), t0)) nous.push_back (esquerra);
+            if (retallaA (dreta, t1, c.fiVisible())) nous.push_back (dreta);
+        }
+        clips = std::move (nous);
+    }
+
+    void insereixEspai (Projecte& p, double t, double durada)
+    {
+        if (durada <= 0.0) return;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+        {
+            auto& clips = p.pistes[(size_t) i].clips;
+            for (int k = 0; k < (int) clips.size(); ++k)
+                if (clips[(size_t) k].iniciVisible() < t - 1e-9 && clips[(size_t) k].fiVisible() > t + 1e-9)
+                    talla (p, i, k, t);   // el tros de la dreta queda just després i es mourà
+            for (auto& c : clips)
+                if (c.iniciVisible() >= t - 1e-9)
+                    c.pos += durada;
+        }
+        if (p.bucle.marcat)
+        {
+            const double spc = segonsPerCompas (p);
+            if (iniciBucle (p) >= t - 1e-9)
+            {
+                const int n = (int) std::lround (durada / spc);
+                if (std::abs (n * spc - durada) < 1e-6) { p.bucle.de += n; p.bucle.a += n; }
+            }
+        }
+    }
+
+    std::vector<RefClip> enganxaRetall (Projecte& p, const Retall& r, double on, bool insereix)
+    {
+        std::vector<RefClip> nous;
+        if (r.buit()) return nous;
+        if (insereix) insereixEspai (p, on, r.durada);
+        else
+            for (auto& [pista, c] : r.clips)
+                buidaRang (p, pista, on + c.iniciVisible(), on + c.fiVisible());
+        for (auto& [pista, c] : r.clips)
+        {
+            if (pista < 0 || pista >= (int) p.pistes.size()) continue;
+            auto c2 = c;
+            c2.pos += on;
+            auto& clips = p.pistes[(size_t) pista].clips;
+            clips.push_back (c2);
+            nous.push_back ({ pista, (int) clips.size() - 1 });
+        }
+        return nous;
+    }
+
+    std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats)
+    {
+        std::vector<RefClip> nous;
+        for (auto& [pista, idx] : perPista (triats))
+            for (int k : duplica (p, pista, idx))
+                nous.push_back ({ pista, k });
+        return nous;
+    }
+
+    void treuTriats (Projecte& p, const std::vector<RefClip>& triats)
+    {
+        for (auto& [pista, idx] : perPista (triats))
+            treuClips (p, pista, idx);
+    }
+
+    std::vector<RefClip> mouDePista (Projecte& p, const std::vector<RefClip>& triats, int d)
+    {
+        const int n = (int) p.pistes.size();
+        int minP = n, maxP = -1;
+        for (auto& r : triats) { minP = std::min (minP, r.pista); maxP = std::max (maxP, r.pista); }
+        if (maxP < 0) return triats;
+        d = std::clamp (d, -minP, n - 1 - maxP);
+        if (d == 0) return triats;
+
+        std::vector<std::pair<int, Clip>> moguts;
+        for (auto& [pista, idx] : perPista (triats))
+            for (int k : idx)
+                if (k >= 0 && k < (int) p.pistes[(size_t) pista].clips.size())
+                    moguts.push_back ({ pista + d, p.pistes[(size_t) pista].clips[(size_t) k] });
+        treuTriats (p, triats);
+        std::vector<RefClip> nous;
+        for (auto& [pista, c] : moguts)
+        {
+            auto& clips = p.pistes[(size_t) pista].clips;
+            clips.push_back (c);
+            nous.push_back ({ pista, (int) clips.size() - 1 });
+        }
+        return nous;
     }
 
     ResultatCola enganxaClips (Projecte& p, int pista, int ia, int ib)

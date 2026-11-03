@@ -81,6 +81,38 @@ namespace mibase::edicio
     /** Passa clips a una altra pista sense moure'ls en el temps. Retorna els nous índexs. */
     std::vector<int> passaAPista (Projecte& p, int de, std::vector<int> clips, int a);
 
+    // ---- Selecció de diverses pistes, copiar i enganxar ----
+    struct RefClip
+    {
+        int pista = -1, clip = -1;
+        bool operator== (const RefClip&) const = default;
+    };
+
+    /** Tros copiat: cada clip amb la seva pista i la posició relativa al començament del tros. */
+    struct Retall
+    {
+        double durada = 0.0;
+        std::vector<std::pair<int, Clip>> clips;
+        bool buit() const noexcept { return clips.empty(); }
+    };
+
+    /** Copia clips sencers. El tros comença on comença el primer. */
+    Retall copiaClips (const Projecte& p, const std::vector<RefClip>& triats);
+    /** Copia només el que queda dins [t0, t1) de les pistes [pistaDe, pistaFins] (els clips es retallen). */
+    Retall copiaRang (const Projecte& p, int pistaDe, int pistaFins, double t0, double t1);
+    /** Deixa buit [t0, t1) a la pista: treu, retalla o parteix els clips que hi toquen. */
+    void buidaRang (Projecte& p, int pista, double t0, double t1);
+    /** Aparta tot el que hi ha a partir de «t», a totes les pistes, «durada» segons (els clips que hi passen es parteixen). */
+    void insereixEspai (Projecte& p, double t, double durada);
+    /** Enganxa el tros amb el començament a «on», a les mateixes pistes. «insereix»: aparta el que hi ha;
+        si no, trepitja (el que hi havia sota els clips nous es treu). Retorna els clips nous. */
+    std::vector<RefClip> enganxaRetall (Projecte& p, const Retall& r, double on, bool insereix);
+
+    std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats);
+    void treuTriats (Projecte& p, const std::vector<RefClip>& triats);
+    /** Mou els clips «d» pistes amunt o avall (sense moure'ls en el temps; si no hi caben, tan lluny com es pugui). */
+    std::vector<RefClip> mouDePista (Projecte& p, const std::vector<RefClip>& triats, int d);
+
     /** Llapis: finestra buida a la pista, de «de» a «a». Retorna l'índex del clip nou. */
     int creaFinestra (Projecte& p, int pista, double de, double a);
 

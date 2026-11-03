@@ -287,6 +287,7 @@ namespace mibase::disc
                 t.color = std::clamp (e.value ("color", (int) p.pistes.size() % 8), 0, 7);
                 t.pan = std::clamp (e.value ("pan", 0.0), -1.0, 1.0);
                 t.entrada = std::clamp (e.value ("entrada", 0), 0, 63);
+                t.rgb = e.value ("rgb", (std::uint32_t) 0);
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -301,6 +302,7 @@ namespace mibase::disc
                         c.fadeOut = k.value ("fadeOut", 0.0);
                         c.guanyDb = k.value ("guanyDb", 0.0);
                         c.mut = k.value ("mut", false);
+                        c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
                         t.clips.push_back (c);
                     }
@@ -376,10 +378,11 @@ namespace mibase::disc
             json clips = json::array();
             for (auto& c : t.clips)
                 clips.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
-                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut } });
+                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
+                                   { "rgb", c.rgb } });
             pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
                                 { "mut", t.mut }, { "solo", t.solo },
-                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada },
+                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
                                 { "clips", clips } });
         }
         j["pistes"] = pistes;

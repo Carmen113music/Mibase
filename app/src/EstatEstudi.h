@@ -71,8 +71,23 @@ public:
     double capcal = 0.0;         // segons
 
     // Triat.
-    int pistaTriada = -1;
-    std::vector<int> clipsTriats;   // índexs dins la pista triada
+    int pistaTriada = -1;                              // la pista de la columna esquerra
+    std::vector<mibase::edicio::RefClip> triats;       // clips triats (poden ser de pistes diferents)
+
+    /** Tros triat amb el requadre en mode «només el que queda dins». */
+    struct Rang
+    {
+        bool actiu = false;
+        double t0 = 0.0, t1 = 0.0;
+        int pistaDe = 0, pistaFins = 0;
+    } rang;
+
+    // Botons de la barra d'eines.
+    bool modeRang = false;     // requadre: false = clips sencers; true = només el que queda dins
+    bool insereix = false;     // enganxar: false = trepitja; true = aparta el que hi ha (tecla Insert)
+
+    /** El que s'ha copiat (Ctrl+C). */
+    mibase::edicio::Retall portaretalls;
 
     /** Text d'informació de dalt (el valor del que s'arrossega). */
     juce::String info;
@@ -148,15 +163,27 @@ public:
 
     bool clipTriat (int p, int c) const
     {
-        return p == pistaTriada && std::find (clipsTriats.begin(), clipsTriats.end(), c) != clipsTriats.end();
+        return std::find (triats.begin(), triats.end(), mibase::edicio::RefClip { p, c }) != triats.end();
     }
 
-    mibase::Clip* clipUnicTriat()
+    mibase::Clip* clip (mibase::edicio::RefClip r)
     {
-        auto* t = pista (pistaTriada);
-        if (t == nullptr || clipsTriats.size() != 1 || clipsTriats[0] < 0 || clipsTriats[0] >= (int) t->clips.size())
-            return nullptr;
-        return &t->clips[(size_t) clipsTriats[0]];
+        auto* t = pista (r.pista);
+        if (t == nullptr || r.clip < 0 || r.clip >= (int) t->clips.size()) return nullptr;
+        return &t->clips[(size_t) r.clip];
+    }
+
+    mibase::Clip* clipUnicTriat() { return triats.size() == 1 ? clip (triats[0]) : nullptr; }
+
+    /** Tria un sol clip (i la seva pista). */
+    void triaClip (int p, int c) { triats = { { p, c } }; pistaTriada = p; rang.actiu = false; }
+    void capTriat() { triats.clear(); rang.actiu = false; }
+
+    /** Color d'un clip: el seu, si en té; si no, el de la pista. */
+    juce::Colour colorClip (int p, const mibase::Clip& c) const
+    {
+        if (c.rgb != 0) return juce::Colour (c.rgb);
+        return (p >= 0 && p < numPistes()) ? colorPista (projecte.pistes[(size_t) p]) : colorPista (0);
     }
 
     /** Paleta de colors de les pistes (8). */
@@ -165,7 +192,7 @@ public:
         static const juce::uint32 colors[] = { 0xfff5c445, 0xff59d0d6, 0xffb18cff, 0xff7fd67a, 0xff6fa8ff, 0xffff8fc4, 0xffe8a87c, 0xffc9b8a6 };
         return juce::Colour (colors[(size_t) juce::jlimit (0, 7, i)]);
     }
-    static juce::Colour colorPista (const mibase::Pista& t) { return colorPista (t.color); }
+    static juce::Colour colorPista (const mibase::Pista& t) { return t.rgb != 0 ? juce::Colour (t.rgb) : colorPista (t.color); }
 
     static juce::String nomColor (int i)
     {
@@ -188,9 +215,7 @@ public:
     void netejaSeleccio()
     {
         if (pistaTriada >= numPistes()) pistaTriada = numPistes() - 1;
-        auto* t = pista (pistaTriada);
-        const int n = t ? (int) t->clips.size() : 0;
-        clipsTriats.erase (std::remove_if (clipsTriats.begin(), clipsTriats.end(), [n] (int c) { return c < 0 || c >= n; }), clipsTriats.end());
+        triats.erase (std::remove_if (triats.begin(), triats.end(), [this] (mibase::edicio::RefClip r) { return clip (r) == nullptr; }), triats.end());
     }
 
     // ---- Fader: 0 dB a tres quarts del recorregut; de −60 (silenci) a +6 dB ----

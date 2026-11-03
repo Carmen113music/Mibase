@@ -162,8 +162,17 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         addAndMakeVisible (b);
     }
 
-    for (auto* b : { &btClic, &btClicMenu, &btTempo, &btDesfes, &btRefes })
+    for (auto* b : { &btClic, &btClicMenu, &btTempo, &btDesfes, &btRefes, &btRequadre, &btInsereix })
         addAndMakeVisible (b);
+    addAndMakeVisible (btColor);
+    estat.modeRang = ajustos.getBoolValue ("estudi.modeRang", false);
+    estat.insereix = ajustos.getBoolValue ("estudi.insereix", false);
+    btRequadre.setLlum (vintage::ledTaronja);
+    btRequadre.onClick = [this] { canviaModeRang (! estat.modeRang); };
+    btInsereix.setLlum (vintage::ledTaronja);
+    btInsereix.onClick = [this] { canviaInsereix (! estat.insereix); };
+    btColor.setTooltip ("Color dels clips triats o, si no n'hi ha, de la pista"_ca);
+    btColor.onClick = [this] { triaColor(); };
     addAndMakeVisible (snap);
 
     btClic.setLlum (vintage::ledGroc);
@@ -285,6 +294,18 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
     const auto& p = estat.projecte;
     btTempo.setButtonText (juce::String ((int) std::round (p.tempo)) + " bpm · "_ca + juce::String (p.compasNum) + "/" + juce::String (p.compasDen));
     btClic.setToggleState (p.clic, juce::dontSendNotification);
+    btRequadre.setToggleState (estat.modeRang, juce::dontSendNotification);
+    btRequadre.setTooltip (estat.modeRang ? "Requadre: tria només el que queda dins (encès). Clica per triar clips sencers."_ca
+                                          : "Requadre: tria els clips sencers que toca (apagat). Clica per triar només el que queda dins."_ca);
+    btInsereix.setToggleState (estat.insereix, juce::dontSendNotification);
+    btInsereix.setTooltip (estat.insereix ? "Enganxar inserint: aparta el que hi ha després del capçal (encès). Tecla Insert."_ca
+                                          : "Enganxar trepitjant el que hi ha (apagat). Clica o Insert per inserir."_ca);
+    if (! estat.triats.empty())
+    {
+        if (auto* c = estat.clip (estat.triats[0])) btColor.setColor (estat.colorClip (estat.triats[0].pista, *c));
+    }
+    else if (auto* t = estat.pista (estat.pistaTriada))
+        btColor.setColor (EstatEstudi::colorPista (*t));
     btDesfes.setEnabled (estat.desfes.potDesfer());
     btRefes.setEnabled (estat.desfes.potRefer());
     for (int i = 0; i < eines.size(); ++i)
@@ -302,7 +323,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 void PantallaEstudi::triaEina (Eina e)
 {
     estat.eina = e;
-    if (e != Eina::Fletxa && estat.clipsTriats.size() > 1) estat.clipsTriats.clear();
+    if (e != Eina::Fletxa && (estat.triats.size() > 1 || estat.rang.actiu)) estat.capTriat();
     estat.avisa();
 }
 
@@ -408,6 +429,12 @@ void PantallaEstudi::resized()
     btTempo.setBounds (b.removeFromLeft (btTempo.ampladaIdeal() + 10));
     b.removeFromLeft (16);
     snap.setBounds (b.removeFromLeft (snap.ampladaIdeal() + 10));
+    b.removeFromLeft (4);
+    btRequadre.setBounds (b.removeFromLeft (40));
+    b.removeFromLeft (3);
+    btInsereix.setBounds (b.removeFromLeft (40));
+    b.removeFromLeft (16);
+    btColor.setBounds (b.removeFromLeft (44));
     b.removeFromLeft (16);
     btDesfes.setBounds (b.removeFromLeft (40));
     b.removeFromLeft (3);
@@ -667,8 +694,7 @@ void PantallaEstudi::acabaGravacio()
 
     estat.desfes.abans (copia);
     carregaOna (estat.projecte.preses.back());
-    estat.pistaTriada = pista;
-    estat.clipsTriats = { clip };
+    estat.triaClip (pista, clip);
     const auto retard = juce::String (gravacio.retard * 1000.0, 1).replaceCharacter ('.', ',') + " ms";
     estat.info = "Gravat: "_ca + fitxer.getFileName() + " (retard corregit: " + retard + (gravacio.retardMesurat ? ", mesurat)" : ", el que diu la targeta)");
     historial.afegeix ("Gravada la presa «"_ca + fitxer.getFileName() + "» (" + juce::String ((double) r.frames / fs, 1) + " s, retard corregit "
@@ -825,7 +851,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
     auto& t = ed::afegeixPista (estat.projecte, nom, tipus.toStdString());
     t.canals = canals;
     estat.pistaTriada = estat.numPistes() - 1;
-    estat.clipsTriats.clear();
+    estat.capTriat();
     estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» ("_ca + (canals == 2 ? "estèreo" : "mono") + ")"_ca);
 }
 
@@ -1097,7 +1123,7 @@ void PantallaEstudi::importa (const juce::StringArray& fitxers, int pista, doubl
     {
         estat.desfes.abans (copia);
         estat.pistaTriada = ultimaPista;
-        estat.clipsTriats.clear();
+        estat.capTriat();
         estat.canviat();
         historial.afegeix ("Importats "_ca + juce::String (fets) + " fitxers d'àudio.");
     }
@@ -1199,8 +1225,7 @@ void PantallaEstudi::consolida (int pista, int ia, int ib)
     ed::treuClips (estat.projecte, pista, { ia, ib });
     ed::afegeixClip (estat.projecte, pista, idPresa, ini);
     carregaOna (*ed::presa (estat.projecte, idPresa));
-    estat.pistaTriada = pista;
-    estat.clipsTriats = { (int) estat.projecte.pistes[(size_t) pista].clips.size() - 1 };
+    estat.triaClip (pista, (int) estat.projecte.pistes[(size_t) pista].clips.size() - 1);
     estat.info = "Enganxats en un fitxer nou: "_ca + nomDesti;
     estat.canviat ("Enganxats dos clips a «"_ca + dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom) + "» en un fitxer nou ("_ca + nomDesti + ")");
 }
@@ -1208,19 +1233,166 @@ void PantallaEstudi::consolida (int pista, int ia, int ib)
 //==============================================================================
 void PantallaEstudi::duplica()
 {
-    if (estat.pista (estat.pistaTriada) == nullptr || estat.clipsTriats.empty()) return;
+    if (estat.triats.empty()) return;
     estat.desfes.abans (estat.projecte);
-    estat.clipsTriats = ed::duplica (estat.projecte, estat.pistaTriada, estat.clipsTriats);
+    estat.triats = ed::duplicaTriats (estat.projecte, estat.triats);
     estat.canviat();
 }
 
 void PantallaEstudi::treu()
 {
-    if (estat.pista (estat.pistaTriada) == nullptr || estat.clipsTriats.empty()) return;
+    if (estat.rang.actiu)
+    {
+        // Buida el tros triat.
+        estat.desfes.abans (estat.projecte);
+        for (int i = estat.rang.pistaDe; i <= estat.rang.pistaFins; ++i)
+            ed::buidaRang (estat.projecte, i, estat.rang.t0, estat.rang.t1);
+        estat.info = "Tros buidat";
+        estat.capTriat();
+        estat.canviat();
+        return;
+    }
+    if (estat.triats.empty()) return;
     estat.desfes.abans (estat.projecte);
-    ed::treuClips (estat.projecte, estat.pistaTriada, estat.clipsTriats);
-    estat.clipsTriats.clear();
+    ed::treuTriats (estat.projecte, estat.triats);
+    estat.capTriat();
     estat.canviat();
+}
+
+void PantallaEstudi::copia (bool retalla)
+{
+    if (estat.rang.actiu)
+        estat.portaretalls = ed::copiaRang (estat.projecte, estat.rang.pistaDe, estat.rang.pistaFins, estat.rang.t0, estat.rang.t1);
+    else if (! estat.triats.empty())
+        estat.portaretalls = ed::copiaClips (estat.projecte, estat.triats);
+    else
+    {
+        estat.info = "No hi ha res triat per copiar";
+        estat.avisa();
+        return;
+    }
+    const auto n = (int) estat.portaretalls.clips.size();
+    estat.info = (retalla ? "Retallat: "_ca : "Copiat: "_ca) + juce::String (n) + (n == 1 ? " clip" : " clips")
+               + " · Ctrl+V l'enganxa al capçal"_ca;
+    if (retalla) treu();
+    else estat.avisa();
+}
+
+void PantallaEstudi::enganxa()
+{
+    if (estat.portaretalls.buit())
+    {
+        estat.info = "No hi ha res copiat (Ctrl+C)";
+        estat.avisa();
+        return;
+    }
+    estat.desfes.abans (estat.projecte);
+    estat.triats = ed::enganxaRetall (estat.projecte, estat.portaretalls, estat.capcal, estat.insereix);
+    estat.rang.actiu = false;
+    if (! estat.triats.empty()) estat.pistaTriada = estat.triats.back().pista;
+    estat.info = estat.insereix ? "Enganxat inserint: el que hi havia s'ha apartat"_ca : "Enganxat trepitjant el que hi havia"_ca;
+    estat.canviat();
+}
+
+void PantallaEstudi::canviaModeRang (bool rang)
+{
+    estat.modeRang = rang;
+    ajustos.setValue ("estudi.modeRang", rang);
+    estat.info = rang ? "Requadre: només el que queda dins"_ca : "Requadre: clips sencers"_ca;
+    estat.avisa();
+}
+
+void PantallaEstudi::canviaInsereix (bool ins)
+{
+    estat.insereix = ins;
+    ajustos.setValue ("estudi.insereix", ins);
+    estat.info = ins ? "Enganxar: insereix (aparta el que hi ha després del capçal, a totes les pistes)"_ca
+                     : "Enganxar: trepitja el que hi ha"_ca;
+    estat.avisa();
+}
+
+void PantallaEstudi::silenciaTriat()
+{
+    estat.desfes.abans (estat.projecte);
+    if (! estat.triats.empty())
+    {
+        const bool nou = ! estat.clip (estat.triats[0])->mut;
+        for (auto& r : estat.triats) if (auto* c = estat.clip (r)) c->mut = nou;
+        estat.info = nou ? "Silenciat" : "Sonant";
+    }
+    else if (auto* t = estat.pista (estat.pistaTriada))
+    {
+        t->mut = ! t->mut;
+        estat.info = t->mut ? "Pista silenciada" : "Pista sonant";
+    }
+    else return;
+    estat.canviat();
+}
+
+void PantallaEstudi::zoomA (double a, double b, int pistaDe, int pistaFins)
+{
+    if (b <= a || pistes.getWidth() <= 0) return;
+    estat.pxPerSegon = juce::jlimit (2.0, 800000.0, pistes.getWidth() * 0.94 / (b - a));
+    estat.iniciVista = juce::jmax (0.0, a - (pistes.getWidth() * 0.03) / estat.pxPerSegon);
+    const int n = juce::jmax (1, pistaFins - pistaDe + 1);
+    estat.altPista = juce::jlimit (VistaPistes::alcadaMinima, 260, (pistes.getHeight() - 8) / n);
+    estat.desplY = juce::jmax (0, pistaDe * estat.altPista);
+    actualitzaBarres();
+    estat.avisa();
+}
+
+void PantallaEstudi::zoomTot()
+{
+    const double fi = juce::jmax (ed::final (estat.projecte), ed::segonsPerCompas (estat.projecte) * 4.0);
+    zoomA (0.0, fi, 0, estat.numPistes() - 1);
+    estat.info = "Tot el projecte";
+}
+
+void PantallaEstudi::zoomTriat()
+{
+    if (estat.rang.actiu)
+    {
+        zoomA (estat.rang.t0, estat.rang.t1, estat.rang.pistaDe, estat.rang.pistaFins);
+        return;
+    }
+    if (estat.triats.empty()) { estat.info = "No hi ha res triat"; estat.avisa(); return; }
+    double a = 1e300, b = -1e300;
+    int pa = estat.numPistes(), pb = 0;
+    for (auto& r : estat.triats)
+        if (auto* c = estat.clip (r))
+        {
+            a = juce::jmin (a, c->iniciVisible());
+            b = juce::jmax (b, c->fiVisible());
+            pa = juce::jmin (pa, r.pista);
+            pb = juce::jmax (pb, r.pista);
+        }
+    zoomA (a, b, pa, pb);
+}
+
+void PantallaEstudi::triaColor()
+{
+    const bool clips = ! estat.triats.empty();
+    if (! clips && estat.pista (estat.pistaTriada) == nullptr)
+    {
+        estat.info = "Tria una pista o uns clips per pintar-los";
+        estat.avisa();
+        return;
+    }
+    const auto actual = clips ? estat.colorClip (estat.triats[0].pista, *estat.clip (estat.triats[0]))
+                              : EstatEstudi::colorPista (*estat.pista (estat.pistaTriada));
+    const auto que = clips ? (estat.triats.size() == 1 ? juce::String ("el clip triat") : juce::String (estat.triats.size()) + " clips triats")
+                           : "la pista «"_ca + dibuix::utf8 (estat.pista (estat.pistaTriada)->nom) + "»"_ca;
+    auto primer = std::make_shared<bool> (true);
+    auto quins = estat.triats;
+    const int pista = estat.pistaTriada;
+    auto panellColor = std::make_unique<PanellColor> (actual, que, [this, primer, quins, pista, clips] (juce::Colour c)
+    {
+        if (*primer) { estat.desfes.abans (estat.projecte); *primer = false; }   // un sol Desfés per a tota la finestreta
+        if (clips) { for (auto& r : quins) if (auto* k = estat.clip (r)) k->rgb = c.getARGB(); }
+        else if (auto* t = estat.pista (pista)) t->rgb = c.getARGB();
+        estat.canviat();
+    });
+    juce::CallOutBox::launchAsynchronously (std::move (panellColor), btColor.getScreenBounds(), nullptr);
 }
 
 void PantallaEstudi::desfes (bool refer)
@@ -1239,14 +1411,25 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     const auto mods = k.getModifiers();
     const int codi = k.getKeyCode();
 
+    const bool cap = ! mods.isAnyModifierKeyDown();
+    auto lletra = [codi] (char c) { return codi == c || codi == c + 32; };
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { treu(); return true; }
+    if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
+    if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
+    if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
+    if (codi == juce::KeyPress::insertKey) { canviaInsereix (! estat.insereix); return true; }
+    if (cap && lletra ('M')) { silenciaTriat(); return true; }
+    if (! mods.isCommandDown() && ! mods.isAltDown() && lletra ('Z')) { if (mods.isShiftDown()) zoomTriat(); else zoomTot(); return true; }
+    if (cap && lletra ('Q')) { estat.projecte.snap = Snap::Compas; estat.info = "Graella: compàs"_ca; estat.avisa(); calDesar = true; startTimer (700); return true; }
+    if (cap && lletra ('W')) { estat.projecte.snap = Snap::Temps; estat.info = "Graella: temps"; estat.avisa(); calDesar = true; startTimer (700); return true; }
+    if (cap && lletra ('E')) { estat.projecte.snap = Snap::Lliure; estat.info = "Graella: lliure"; estat.avisa(); calDesar = true; startTimer (700); return true; }
     if (mods.isCommandDown() && (codi == 'D' || codi == 'd')) { duplica(); return true; }
     if (mods.isCommandDown() && (codi == 'Z' || codi == 'z')) { desfes (mods.isShiftDown()); return true; }
     if (mods.isCommandDown() && (codi == 'Y' || codi == 'y')) { desfes (true); return true; }
     if (mods.isCommandDown() && (codi == 'S' || codi == 's')) { desaAra(); estat.info = "Desat"; estat.avisa(); return true; }
     if (mods.isCommandDown() && (codi == 'I' || codi == 'i')) { importaDeMenu(); return true; }
     if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '6') { triaEina ((Eina) (codi - '1')); return true; }
-    if (codi == juce::KeyPress::escapeKey) { estat.clipsTriats.clear(); triaEina (Eina::Fletxa); return true; }
+    if (codi == juce::KeyPress::escapeKey) { estat.capTriat(); triaEina (Eina::Fletxa); return true; }
     if (codi == juce::KeyPress::homeKey) { transport (0); return true; }
     if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
     if (! mods.isAnyModifierKeyDown() && (codi == 'R' || codi == 'r')) { if (estat.transport == 0) grava(); else atura(); return true; }

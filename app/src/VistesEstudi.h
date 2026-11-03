@@ -113,7 +113,7 @@ protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override { setMouseCursor (cursor (estat.eina)); repaint(); }
 
 private:
-    enum class Mode { Res, Capcal, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
+    enum class Mode { Res, Requadre, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
                       Llapis, Goma, Cola };
     enum class Maneta { Cap, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera };
 
@@ -127,6 +127,7 @@ private:
     void pintaGraella (juce::Graphics& g);
     void menuClip (int pista, int clip, double t);
     void mouseDownFletxa (const juce::MouseEvent& e);
+    void actualitzaRequadre (juce::Point<int> fins, bool afegeix);
     double tEina (double t) const;   // temps enganxat a la graella per a les eines
 
     Mode mode = Mode::Res;
@@ -134,8 +135,8 @@ private:
     juce::Point<int> inici;
     double t0 = 0.0, punt0 = 0.0, bandera0 = 0.0, guany0 = 0.0, tLlapis = 0.0, tTisores = -1.0;
     int filaDeixar = -2;
-    std::vector<int> triatsOriginals;
-    juce::Point<int> puntCola;
+    std::vector<mibase::edicio::RefClip> triatsOriginals;
+    juce::Point<int> puntCola, puntRequadre;
 };
 
 /** Noms de les pistes, amb M (silenci), S (solo) i el botó de gravar. */
