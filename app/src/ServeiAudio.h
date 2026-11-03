@@ -35,6 +35,15 @@ public:
 
     juce::String getUltimError() const { return ultimError; }
 
+    /** Ajustos del programa (es desen sols). */
+    juce::PropertiesFile& getAjustos() noexcept { return *ajustos; }
+
+    /** «ASIO · Focusrite USB ASIO · 48 kHz · 128 mostres» (o buit si l'àudio és aturat). */
+    juce::String resumDispositiu();
+
+    /** Retard mesurat per a la configuració actual, en ms (o negatiu si no s'ha mesurat). */
+    double latenciaMsDesada();
+
     static juce::String nomCatalaTipus (const juce::String& tipus);
 
 private:

@@ -1,5 +1,5 @@
 #include "Historial.h"
-#include "PantallaDiagnostic.h"
+#include "ComponentPrincipal.h"
 #include "ServeiAudio.h"
 #include "Tema.h"
 
@@ -9,7 +9,7 @@ class FinestraPrincipal : public juce::DocumentWindow
 {
 public:
     FinestraPrincipal()
-        : juce::DocumentWindow ("Mibase " MIBASE_VERSIO " · Diagnòstic"_ca, tema::fons, juce::DocumentWindow::allButtons)
+        : juce::DocumentWindow ("Mibase " MIBASE_VERSIO "", tema::fons, juce::DocumentWindow::allButtons)
     {
         juce::LookAndFeel::setDefaultLookAndFeel (&aspecte);
 
@@ -17,9 +17,9 @@ public:
 
         setUsingNativeTitleBar (true);
         setResizable (true, true);
-        setResizeLimits (1000, 720, 4000, 3000);
-        setContentOwned (new PantallaDiagnostic (*servei, historial), false);
-        centreWithSize (1200, 820);
+        setResizeLimits (1100, 700, 5000, 3000);
+        setContentOwned (new ComponentPrincipal (*servei, historial), false);
+        centreWithSize (1360, 860);
         setVisible (true);
     }
 
