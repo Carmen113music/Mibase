@@ -43,8 +43,8 @@ public:
         recents.afegeix (f);
         historial.afegeix ("Projecte obert: "_ca + f.getFullPathName());
 
-        estudi = std::make_unique<PantallaEstudi> (f, *p);
-        estudi->onInici = [this] { mostra (Capcalera::Pantalla::Inici); };
+        if (estudi) estudi->desaAra();
+        estudi = std::make_unique<PantallaEstudi> (f, *p, servei.getAjustos(), historial);
         addChildComponent (*estudi);
         capcalera.setProjecte (estudi->getNom());
         mostra (Capcalera::Pantalla::Estudi);
@@ -65,12 +65,16 @@ public:
             diagnostic = nullptr;   // atura els seus rellotges quan no es veu
         }
 
+        if (estudi && actual == Capcalera::Pantalla::Estudi && p != Capcalera::Pantalla::Estudi)
+            estudi->desaAra();
+
         actual = p;
         inici.setVisible (p == Capcalera::Pantalla::Inici);
         if (estudi) estudi->setVisible (p == Capcalera::Pantalla::Estudi);
         if (diagnostic) diagnostic->setVisible (p == Capcalera::Pantalla::Diagnostic);
         capcalera.setPantalla (p);
         resized();
+        if (p == Capcalera::Pantalla::Estudi && estudi) estudi->grabKeyboardFocus();
     }
 
     void resized() override

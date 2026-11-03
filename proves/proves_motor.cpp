@@ -7,6 +7,7 @@
 #include "mibase/Mesurador.h"
 #include "mibase/MotorDiagnostic.h"
 #include "mibase/ProjecteDisc.h"
+#include "mibase/Edicio.h"
 #include "mibase/SinteSenzill.h"
 
 #include <algorithm>
@@ -385,6 +386,153 @@ int main()
         comprova (nomPresa (audios, "Guitarra") == "Guitarra - presa 08.wav", "la següent a la més alta");
         comprova (nomPresa (audios, "Guitarra rítmica") == "Guitarra rítmica - presa 13.wav", "una altra pista, amb accent");
         comprova (nomPresa (audios, "Veu: tornada") == "Veu_ tornada - presa 01.wav", "nom de pista netejat");
+    });
+
+
+    prova ("Estudi: graella, posició i compassos (−1, 0, 1…)", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120; p.compasNum = 4;
+        comprova (std::abs (segonsPerTemps (p) - 0.5) < 1e-9 && std::abs (segonsPerCompas (p) - 2.0) < 1e-9, "120 bpm 4/4");
+        comprova (std::abs (enganxa (p, 2.9, mibase::Snap::Compas) - 2.0) < 1e-9, "s'enganxa al compàs");
+        comprova (std::abs (enganxa (p, 3.1, mibase::Snap::Compas) - 4.0) < 1e-9, "s'enganxa al compàs següent");
+        comprova (std::abs (enganxa (p, 2.74, mibase::Snap::Temps) - 2.5) < 1e-9, "s'enganxa al temps");
+        comprova (std::abs (enganxa (p, 2.74, mibase::Snap::Lliure) - 2.74) < 1e-9, "lliure no s'enganxa");
+        comprova (textPosicio (p, 0.0) == "-1.1", "l'inici és el compàs −1");
+        comprova (textPosicio (p, 2.0) == "0.1", "després, el compàs 0");
+        comprova (textPosicio (p, 5.5) == "1.4", "compàs 1, temps 4");
+        comprova (textPosicio (p, 4.045, true) == "1.1 +45 ms", "amb mil·lisegons");
+    });
+
+    prova ("Estudi: moure clips amb la bandera, retallar, fades i volum", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        auto& s = afegeixPresa (p, "Àudios/Guitarra - presa 01.wav", "Guitarra", 10.0);
+        const auto idPresa = s.id;
+        afegeixPista (p, "Guitarra", "guitarra");
+        auto& c = afegeixClip (p, 0, idPresa, 2.0);
+        comprova (std::abs (c.iniciVisible() - 2.0) < 1e-9 && std::abs (c.longitud() - 10.0) < 1e-9, "clip sencer");
+
+        // Sense bandera, s'enganxa l'inici; amb bandera, la bandera.
+        mouClipA (p, c, 4.0);
+        comprova (std::abs (c.pos - 4.0) < 1e-9, "mou per l'inici");
+        presa (p, idPresa)->primer = 0.3;
+        comprova (banderaVisible (p, c), "bandera visible");
+        mouClipA (p, c, 6.0);
+        comprova (std::abs (c.pos - 5.7) < 1e-9, "mou per la bandera");
+
+        // Bandera fixa (mode Lliure): l'àudio llisca i la bandera es queda.
+        comprova (mouAmbBanderaFixa (p, c, 5.65, 6.0), "bandera fixa");
+        comprova (std::abs (presa (p, idPresa)->primer - 0.35) < 1e-9, "la bandera ara és 50 ms més tard dins el fitxer");
+        comprova (! mouAmbBanderaFixa (p, c, 20.0, 6.0), "si quedaria fora, no es fa");
+
+        // Retallar (fins i tot més enllà del so: silenci).
+        retallaInici (c, c.pos + 1.0);
+        comprova (std::abs (c.inici - 1.0) < 1e-9, "retall de l'inici");
+        retallaFi (c, c.pos + 12.0);
+        comprova (std::abs (c.fi - 12.0) < 1e-9, "s'allarga més enllà del so");
+        retallaFi (c, c.pos + 0.5);
+        comprova (c.fi > c.inici, "el final no passa mai per davant de l'inici");
+        retallaFi (c, c.pos + 9.0);
+        comprova (! banderaVisible (p, c), "la bandera queda fora si es retalla");
+
+        fadeIn (c, c.iniciVisible() + 0.5);
+        fadeOut (c, c.fiVisible() - 2.0);
+        comprova (std::abs (c.fadeIn - 0.5) < 1e-9 && std::abs (c.fadeOut - 2.0) < 1e-9, "fades");
+        fadeIn (c, c.fiVisible() + 50.0);
+        comprova (c.fadeIn + c.fadeOut <= c.longitud() + 1e-9, "els fades no es trepitgen");
+        guany (c, -40.0);
+        comprova (c.guanyDb == guanyMinDb, "volum mínim −24 dB");
+        guany (c, 3.0);
+        comprova (c.guanyDb == 0.0, "volum màxim 0 dB");
+    });
+
+    prova ("Estudi: duplicar, treure, passar de pista, ordenar pistes", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        const auto id = afegeixPresa (p, "a.wav", "a", 2.0).id;
+        afegeixPista (p, "Guitarra", "guitarra");
+        afegeixPista (p, "Veu", "veu");
+        afegeixClip (p, 0, id, 2.0);
+        auto noves = duplica (p, 0, { 0 });
+        comprova (p.pistes[0].clips.size() == 2 && noves.size() == 1, "duplicat");
+        comprova (std::abs (p.pistes[0].clips[1].iniciVisible() - 4.0) < 1e-9, "la còpia va just a continuació");
+        noves = duplica (p, 0, { 0, 1 });
+        comprova (p.pistes[0].clips.size() == 4 && std::abs (p.pistes[0].clips[2].iniciVisible() - 6.0) < 1e-9, "un grup es duplica sencer");
+
+        auto passats = passaAPista (p, 0, { 3 }, 1);
+        comprova (p.pistes[0].clips.size() == 3 && p.pistes[1].clips.size() == 1 && passats.size() == 1, "passa a una altra pista");
+        comprova (std::abs (p.pistes[1].clips[0].iniciVisible() - 8.0) < 1e-9, "sense moure's en el temps");
+
+        treuClips (p, 0, { 0, 2 });
+        comprova (p.pistes[0].clips.size() == 1 && p.preses.size() == 1, "es treuen clips però no la presa");
+
+        mouPista (p, 1, 0);
+        comprova (p.pistes[0].nom == "Veu", "ordenar pistes");
+        triaGravacio (p, 1);
+        comprova (p.pistes[1].grava && ! p.pistes[0].grava, "gravar a una pista");
+        triaGravacio (p, 0);
+        comprova (p.pistes[0].grava && ! p.pistes[1].grava, "només una pista grava");
+        comprova (nomPistaLliure (p, "Veu") == "Veu 2" && nomPistaLliure (p, "Baix") == "Baix", "noms de pista sense repetir");
+        comprova (std::abs (final (p) - 10.0) < 1e-9 || final (p) > 0.0, "final del projecte");
+    });
+
+    prova ("Estudi: bucle i desfés", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        marcaBucle (p, 5, 2);
+        comprova (p.bucle.de == 2 && p.bucle.a == 6 && p.bucle.actiu, "bucle de 2 a 5 (inclosos)");
+        comprova (std::abs (iniciBucle (p) - 4.0) < 1e-9 && std::abs (fiBucle (p) - 12.0) < 1e-9, "segons del bucle");
+        comprova (compasA (p, 3.9) == 1 && compasA (p, -1.0) == 0, "compàs d'un temps");
+
+        Desfes d;
+        afegeixPista (p, "A", "audio");
+        d.abans (p);
+        afegeixPista (p, "B", "audio");
+        d.abans (p);
+        p.pistes[0].nom = "Canviat";
+        comprova (d.desfes (p) && p.pistes[0].nom == "A" && p.pistes.size() == 2, "desfés 1");
+        comprova (d.desfes (p) && p.pistes.size() == 1, "desfés 2");
+        comprova (! d.desfes (p), "no hi ha més per desfer");
+        comprova (d.refes (p) && p.pistes.size() == 2, "refés");
+        comprova (d.refes (p) && p.pistes[0].nom == "Canviat", "refés 2");
+    });
+
+    prova ("Estudi: es desa i es torna a llegir igual", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::edicio;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves5";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+
+        mibase::Projecte p; p.nom = "Estudi"; p.tempo = 96;
+        auto r = mibase::disc::creaProjecte (arrel, p, "2026-11-03T11:00:00", "03/11/2026 11:00");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        const auto id = afegeixPresa (q, "Àudios/Veu - presa 01.wav", "Veu de prova", 3.25).id;
+        presa (q, id)->primer = 0.4;
+        afegeixPista (q, "Veu", "veu").faderDb = -3.5;
+        auto& c = afegeixClip (q, 0, id, 1.0);
+        c.fadeIn = 0.1; c.guanyDb = -6;
+        q.snap = mibase::Snap::Lliure;
+        marcaBucle (q, 1, 2);
+        comprova (mibase::disc::desa (r.fitxer, q, "2026-11-03T11:01:00", "x", false).correcte, "desat");
+
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l.has_value(), "llegit");
+        if (! l) return;
+        comprova (l->preses.size() == 1 && l->preses[0].nom == "Veu de prova" && l->preses[0].primer == 0.4, "preses");
+        comprova (l->pistes.size() == 1 && l->pistes[0].faderDb == -3.5 && l->pistes[0].tipus == "veu", "pistes");
+        comprova (l->pistes.size() == 1 && l->pistes[0].clips.size() == 1 && l->pistes[0].clips[0].guanyDb == -6
+                  && l->pistes[0].clips[0].fadeIn == 0.1, "clips");
+        comprova (l->snap == mibase::Snap::Lliure && l->bucle.de == 1 && l->bucle.a == 3, "graella i bucle");
+        comprova (l->comptador == q.comptador, "comptador d'identificadors");
+        int copies = 0;
+        for (auto& e : fs::directory_iterator (r.fitxer.parent_path() / mibase::disc::cami ("Còpies"))) { (void) e; ++copies; }
+        comprova (copies == 0, "amb ferCopia = false no es fa còpia");
     });
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mibase/Projecte.h"
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -18,20 +20,6 @@
     (així el motor no depèn del rellotge i es pot provar). */
 namespace mibase
 {
-    struct Projecte
-    {
-        std::string nom;
-        double tempo = 120.0;
-        int compasNum = 4;
-        int compasDen = 4;
-        std::string plantilla = "buit";
-        std::string creat;       // ISO: 2026-11-03T09:45:00
-        std::string modificat;
-
-        /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */
-        std::string jsonOriginal;
-    };
-
     namespace disc
     {
         inline const char* extensio = ".mibase";
@@ -75,9 +63,10 @@ namespace mibase
         std::optional<Projecte> llegeix (const std::filesystem::path& fitxer, std::string* error = nullptr);
 
         /** Desa el projecte. Si el fitxer ja hi era, abans en guarda una còpia a Còpies (com a molt 10).
-            araPerNom: data per al nom de la còpia, que s'ha de poder ordenar («2026-11-03 094512»). */
+            araPerNom: data per al nom de la còpia, que s'ha de poder ordenar («2026-11-03 094512»).
+            ferCopia: false per no fer còpia aquesta vegada (l'estudi en fa una de tant en tant, no a cada canvi). */
         Resultat desa (const std::filesystem::path& fitxer, Projecte projecte,
-                       const std::string& araIso, const std::string& araPerNom);
+                       const std::string& araIso, const std::string& araPerNom, bool ferCopia = true);
 
         /** Afegeix una línia al diari, a dalt de tot (sota el títol). */
         bool afegeixEvolucio (const std::filesystem::path& carpetaProjecte, const std::string& quan, const std::string& text);

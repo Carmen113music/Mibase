@@ -3,7 +3,8 @@ add_library(mibase_motor STATIC
     src/SinteSenzill.cpp
     src/MesuraLatencia.cpp
     src/MotorDiagnostic.cpp
-    src/ProjecteDisc.cpp)
+    src/ProjecteDisc.cpp
+    src/Edicio.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 # JSON (nlohmann, MIT): només per dins del motor.

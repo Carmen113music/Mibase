@@ -1,0 +1,73 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace mibase
+{
+    /** Graella on s'enganxen els clips. */
+    enum class Snap { Compas = 0, Temps = 1, Lliure = 2 };
+
+    /** Una gravació (un fitxer d'Àudios). Tots els temps, en segons. */
+    struct Presa
+    {
+        std::string id;          // «s1», «s2»…
+        std::string fitxer;      // relatiu a la carpeta del projecte: «Àudios/Guitarra - presa 01.wav»
+        std::string nom;         // el que es mostra (no canvia el nom del fitxer)
+        double durada = 0.0;
+        double primer = -1.0;    // bandera del primer temps, dins el fitxer (negatiu: no en té)
+    };
+
+    /** Un tros d'una presa col·locat a la línia de temps. No toca mai el fitxer. */
+    struct Clip
+    {
+        std::string presa;
+        double pos = 0.0;        // on cau l'inici del FITXER a la línia de temps
+        double inici = 0.0;      // finestra visible dins el fitxer (pot sortir de 0..durada: és silenci)
+        double fi = 0.0;
+        double fadeIn = 0.0, fadeOut = 0.0;
+        double guanyDb = 0.0;    // de -24 a 0
+
+        double iniciVisible() const noexcept { return pos + inici; }
+        double fiVisible() const noexcept    { return pos + fi; }
+        double longitud() const noexcept     { return fi - inici; }
+    };
+
+    struct Pista
+    {
+        std::string id;          // «t1», «t2»…
+        std::string nom;
+        std::string tipus = "audio";   // guitarra, veu, audio
+        std::vector<Clip> clips;
+        bool mut = false, solo = false, grava = false;
+        double faderDb = 0.0;    // de -60 (silenci) a +6
+    };
+
+    /** Bucle per compassos sencers (índexs interns, des de 0): [de, a). */
+    struct Bucle
+    {
+        bool marcat = false, actiu = false;
+        int de = 0, a = 0;
+    };
+
+    struct Projecte
+    {
+        std::string nom;
+        double tempo = 120.0;
+        int compasNum = 4;
+        int compasDen = 4;
+        std::string plantilla = "buit";
+        std::string creat;       // ISO: 2026-11-03T09:45:00
+        std::string modificat;
+
+        std::vector<Presa> preses;
+        std::vector<Pista> pistes;
+        Bucle bucle;
+        Snap snap = Snap::Compas;
+        bool clic = true;
+        int comptador = 0;       // per fer identificadors únics
+
+        /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */
+        std::string jsonOriginal;
+    };
+}

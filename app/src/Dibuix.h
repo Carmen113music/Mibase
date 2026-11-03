@@ -8,7 +8,8 @@
 /** Icones pròpies (dibuixades amb línies) i petites ajudes de dibuix i de camins. */
 namespace dibuix
 {
-    enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa };
+    enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa,
+                       Principi, Grava, Desfes, Refes, Metronom, Importa };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -65,6 +66,30 @@ namespace dibuix
             case Icona::FletxaAvall:
                 p.startNewSubPath (6, 9); p.lineTo (12, 15); p.lineTo (18, 9);
                 break;
+            case Icona::Principi:
+                p.startNewSubPath (6, 5); p.lineTo (6, 19);
+                p.startNewSubPath (19, 5); p.lineTo (9, 12); p.lineTo (19, 19); p.closeSubPath();
+                break;
+            case Icona::Grava:
+                p.addEllipse (6, 6, 12, 12);
+                break;
+            case Icona::Desfes:
+                p.startNewSubPath (9, 5); p.lineTo (4, 10); p.lineTo (9, 15);
+                p.startNewSubPath (4, 10); p.lineTo (14, 10); p.quadraticTo (20, 10, 20, 15); p.quadraticTo (20, 20, 14, 20); p.lineTo (10, 20);
+                break;
+            case Icona::Refes:
+                p.startNewSubPath (15, 5); p.lineTo (20, 10); p.lineTo (15, 15);
+                p.startNewSubPath (20, 10); p.lineTo (10, 10); p.quadraticTo (4, 10, 4, 15); p.quadraticTo (4, 20, 10, 20); p.lineTo (14, 20);
+                break;
+            case Icona::Metronom:
+                p.startNewSubPath (9, 3.5f); p.lineTo (15, 3.5f); p.lineTo (19, 20); p.lineTo (5, 20); p.closeSubPath();
+                p.startNewSubPath (12, 16); p.lineTo (17, 7);
+                break;
+            case Icona::Importa:
+                p.startNewSubPath (12, 3); p.lineTo (12, 14);
+                p.startNewSubPath (7, 9); p.lineTo (12, 14); p.lineTo (17, 9);
+                p.startNewSubPath (4, 15); p.lineTo (4, 20); p.lineTo (20, 20); p.lineTo (20, 15);
+                break;
             case Icona::Casa:
                 p.startNewSubPath (4, 11); p.lineTo (12, 4); p.lineTo (20, 11);
                 p.startNewSubPath (6, 9.5f); p.lineTo (6, 20); p.lineTo (18, 20); p.lineTo (18, 9.5f);
@@ -84,7 +109,7 @@ namespace dibuix
             g.fillPath (p);
         }
         g.setColour (color);
-        if (i == Icona::Play)
+        if (i == Icona::Play || i == Icona::Grava)
             g.fillPath (p);
         else
             g.strokePath (p, juce::PathStrokeType (gruix * r.getWidth() / 24.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));

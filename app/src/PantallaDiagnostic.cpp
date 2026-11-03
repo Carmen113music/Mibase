@@ -95,7 +95,7 @@ void Vumetres::paint (juce::Graphics& g)
 
         const float x = posicioBarra (c.nivell);
         auto ple = barra.withWidth (barra.getWidth() * x);
-        const auto color = c.vermell > 0 ? tema::accent : (aDecibels (c.nivell) > -6.0f ? tema::guitarra : tema::sinte);
+        const auto color = c.vermell > 0 ? tema::error : (aDecibels (c.nivell) > -6.0f ? tema::guitarra : tema::sinte);
         g.setColour (color);
         g.fillRoundedRectangle (ple, 3.0f);
 
@@ -112,7 +112,7 @@ void Vumetres::paint (juce::Graphics& g)
         g.setColour (tema::text);
         g.fillRect (juce::Rectangle<float> (pr - 1.0f, barra.getY(), 2.0f, barra.getHeight()));
 
-        g.setColour (c.vermell > 0 ? tema::accent : tema::suau);
+        g.setColour (c.vermell > 0 ? tema::error : tema::suau);
         g.setFont (juce::FontOptions (12.0f));
         const float db = aDecibels (c.retingut);
         g.drawText (db > -99.0f ? juce::String (db, 1) + " dB" : juce::String ("-∞"_ca),

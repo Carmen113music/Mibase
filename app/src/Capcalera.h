@@ -65,9 +65,9 @@ public:
             g.fillRoundedRectangle (p, p.getHeight() / 2.0f);
             g.setColour (tema::linia);
             g.drawRoundedRectangle (p.reduced (0.5f), p.getHeight() / 2.0f, 1.0f);
-            g.setColour (resum.isEmpty() ? tema::accent : tema::sinte);
+            g.setColour (resum.isEmpty() ? tema::error : tema::sinte);
             g.fillEllipse (p.getX() + 12.0f, p.getCentreY() - 4.0f, 8.0f, 8.0f);
-            g.setColour (juce::Colour (0xffc9c8d1));
+            g.setColour (tema::textMig);
             g.setFont (dibuix::lletra (13.0f));
             g.drawFittedText (resum.isEmpty() ? juce::String ("Àudio aturat: obre el Diagnòstic"_ca) + "" : resum + extra,
                               zonaEstat.withTrimmedLeft (28).withTrimmedRight (12), juce::Justification::centredLeft, 1, 0.8f);

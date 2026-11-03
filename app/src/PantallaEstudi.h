@@ -1,90 +1,86 @@
 #pragma once
 
-#include "Controls.h"
+#include "DialegText.h"
+#include "EstatEstudi.h"
+#include "Historial.h"
+#include "VistesEstudi.h"
 
-#include <mibase/ProjecteDisc.h>
+#include <juce_audio_formats/juce_audio_formats.h>
+#include <juce_data_structures/juce_data_structures.h>
 
-/** Estudi PROVISIONAL (versió 0.2): mostra el projecte obert.
-    L'estudi de debò (pistes, regla, bandera, graella, metrònom, panells ajustables) arriba a la 0.3. */
-class PantallaEstudi : public juce::Component
+/** L'estudi (0.3): pistes i clips com a Riffs, amb seccions d'amplada ajustable.
+    Encara no sona ni grava (arriba a la 0.4): serveix per crear pistes, importar àudio i provar l'edició. */
+class PantallaEstudi : public juce::Component,
+                       private juce::Timer,
+                       private juce::ChangeListener,
+                       private juce::ScrollBar::Listener
 {
 public:
-    PantallaEstudi (const juce::File& f, const mibase::Projecte& p) : fitxer (f), projecte (p)
-    {
-        addAndMakeVisible (btInici);
-        addAndMakeVisible (btCarpeta);
-        btInici.onClick = [this] { if (onInici) onInici(); };
-        btCarpeta.onClick = [this] { fitxer.revealToUser(); };
-        evolucio = mibase::disc::llegeixEvolucio (dibuix::cami (fitxer.getParentDirectory()), 8);
-    }
+    PantallaEstudi (const juce::File& fitxer, const mibase::Projecte& projecte, juce::PropertiesFile& ajustos, Historial& historial);
+    ~PantallaEstudi() override;
 
-    std::function<void()> onInici;
-    const juce::File& getFitxer() const noexcept { return fitxer; }
-    juce::String getNom() const { return dibuix::utf8 (projecte.nom); }
+    const juce::File& getFitxer() const noexcept { return estat.fitxer; }
+    juce::String getNom() const { return dibuix::utf8 (estat.projecte.nom); }
 
-    void paint (juce::Graphics& g) override
-    {
-        g.fillAll (tema::fons);
-        auto r = getLocalBounds().reduced (40, 32);
+    /** Desa ara mateix (per exemple, en sortir de l'estudi). */
+    void desaAra();
 
-        g.setColour (tema::text);
-        g.setFont (dibuix::lletra (28.0f, true));
-        g.drawText (getNom(), r.removeFromTop (40), juce::Justification::centredLeft, true);
-        g.setColour (tema::suau);
-        g.setFont (dibuix::mono (13.0f));
-        g.drawText (juce::String ((int) std::round (projecte.tempo)) + " bpm · "_ca + juce::String (projecte.compasNum) + "/"
-                    + juce::String (projecte.compasDen) + "   ·   "_ca + fitxer.getFullPathName(),
-                    r.removeFromTop (24), juce::Justification::centredLeft, true);
-
-        r.removeFromTop (28);
-        auto caixa = r.removeFromTop (150).withWidth (juce::jmin (r.getWidth(), 760));
-        juce::Path p;
-        p.addRoundedRectangle (caixa.toFloat().reduced (0.5f), 12.0f);
-        juce::Path discontinu;
-        const float guions[] = { 5.0f, 4.0f };
-        juce::PathStrokeType (1.0f).createDashedStroke (discontinu, p, guions, 2);
-        g.setColour (tema::linia2);
-        g.fillPath (discontinu);
-
-        auto t = caixa.reduced (24, 20);
-        g.setColour (tema::text);
-        g.setFont (dibuix::lletra (16.0f, true));
-        g.drawText ("Aquí anirà l'estudi (versió 0.3)"_ca, t.removeFromTop (26), juce::Justification::centredLeft);
-        g.setColour (tema::suau);
-        g.setFont (dibuix::lletra (14.0f));
-        g.drawFittedText ("Pistes i clips com a Riffs, regla amb compassos, bandera del primer temps, graella "
-                          "Compàs/Temps/Lliure, metrònom, i seccions que es poden fer més amples o més estretes "_ca
-                          "arrossegant la vora entre elles."_ca,
-                          t.removeFromTop (60), juce::Justification::topLeft, 3);
-
-        r.removeFromTop (28);
-        dibuix::pintaEtiquetaSeccio (g, "Evolució del projecte"_ca, r.removeFromTop (20));
-        r.removeFromTop (6);
-        for (auto& e : evolucio)
-        {
-            auto fila = r.removeFromTop (26);
-            g.setColour (tema::suau);
-            g.setFont (dibuix::lletra (12.5f));
-            g.drawText (dibuix::utf8 (e.quan), fila.removeFromLeft (130), juce::Justification::centredLeft);
-            g.setColour (tema::text);
-            g.setFont (dibuix::lletra (13.5f));
-            g.drawText (dibuix::utf8 (e.text), fila, juce::Justification::centredLeft, true);
-        }
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds().reduced (40, 32);
-        auto fila = r.removeFromTop (40);
-        btCarpeta.setBounds (fila.removeFromRight (btCarpeta.ampladaIdeal()).reduced (0, 2));
-        fila.removeFromRight (10);
-        btInici.setBounds (fila.removeFromRight (btInici.ampladaIdeal()).reduced (0, 2));
-    }
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    bool keyPressed (const juce::KeyPress& k) override;
 
 private:
-    juce::File fitxer;
-    mibase::Projecte projecte;
-    std::vector<mibase::disc::EntradaEvolucio> evolucio;
-    Boto btInici { "Torna a l'inici"_ca, dibuix::Icona::Casa };
-    Boto btCarpeta { "Mostra la carpeta" };
+    void timerCallback() override { stopTimer(); desaAra(); }
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void scrollBarMoved (juce::ScrollBar* barra, double inici) override;
+
+    void roda (const juce::MouseEvent& e, const juce::MouseWheelDetails& w);
+    void actualitzaBarres();
+    void colocaSeccions();
+
+    void pistaNova (const juce::String& tipus);
+    void canviaNom (int pista);
+    void canviaTempo();
+    void demanaImportar (int pista, double on);
+    void importa (const juce::StringArray& fitxers, int pista, double on);
+    bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);
+    void carregaOna (const mibase::Presa& s);
+    juce::File fitxerPresa (const mibase::Presa& s) const;
+
+    void duplica();
+    void treu();
+    void desfes (bool refer);
+
+    juce::PropertiesFile& ajustos;
+    Historial& historial;
+    EstatEstudi estat;
+    juce::AudioFormatManager formats;
+
+    // Barra de dalt.
+    Boto btPrincipi { {}, dibuix::Icona::Principi, Boto::Estil::Subtil };
+    Boto btPlay { {}, dibuix::Icona::Play, Boto::Estil::Subtil };
+    Boto btGrava { {}, dibuix::Icona::Grava, Boto::Estil::Subtil };
+    Boto btClic { {}, dibuix::Icona::Metronom, Boto::Estil::Subtil };
+    Boto btTempo { "120 bpm · 4/4"_ca, std::nullopt, Boto::Estil::Subtil };
+    Segmentat snap { { "Compàs"_ca, "Temps", "Lliure" } };
+    Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Subtil };
+    Boto btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Subtil };
+    Boto btImporta { "Importa àudio…"_ca, dibuix::Icona::Importa, Boto::Estil::Secundari };
+    juce::Rectangle<int> zonaBarra, zonaPosicio, zonaInfo;
+
+    // Seccions.
+    Capcaleres capcaleres { estat };
+    Faders faders { estat };
+    Regla regla { estat };
+    VistaPistes pistes { estat };
+    PanellPista panell { estat };
+    Divisor divNoms, divFaders, divPanell;
+    juce::ScrollBar barraV { true }, barraH { false };
+    int ampleNoms = 170, ampleFaders = 150, amplePanell = 300, ampleInici = 0;
+    juce::Rectangle<int> zonaTitolNoms, zonaTitolFaders;
+
+    std::unique_ptr<DialegText> dialeg;
+    std::unique_ptr<juce::FileChooser> selector;
+    juce::int64 ultimaCopia = 0;
+    bool calDesar = false;
 };

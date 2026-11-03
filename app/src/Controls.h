@@ -44,14 +44,14 @@ public:
                 colorText = actiu ? tema::fons : tema::suau;
                 break;
             case Estil::Secundari:
-                fons = premut ? tema::linia : (sobre ? juce::Colour (0xff2a2a31) : tema::superficie2);
+                fons = premut ? tema::linia : (sobre ? tema::sobre : tema::superficie2);
                 vora = tema::linia2;
                 colorText = actiu ? tema::text : tema::suau;
                 break;
             case Estil::Subtil:
                 fons = getToggleState() ? tema::linia : (sobre ? tema::superficie2 : juce::Colours::transparentBlack);
                 vora = juce::Colours::transparentBlack;
-                colorText = (getToggleState() || sobre) ? tema::text : juce::Colour (0xffc9c8d1);
+                colorText = (getToggleState() || sobre) ? tema::text : tema::textMig;
                 break;
             case Estil::Discontinu:
                 fons = sobre ? tema::superficie2 : juce::Colours::transparentBlack;
@@ -242,8 +242,13 @@ public:
         g.fillRect (juce::Rectangle<float> (x - (actiu ? 1.0f : 0.5f), 0.0f, actiu ? 2.0f : 1.0f, (float) getHeight()));
     }
 
-    void mouseDown (const juce::MouseEvent&) override             { if (onComenca) onComenca(); }
-    void mouseDrag (const juce::MouseEvent& e) override           { if (onArrossega) onArrossega (e.getDistanceFromDragStartX()); }
+    // Es compta en coordenades de pantalla: el separador es mou mentre l'arrossegues,
+    // i comptar des de dins seu faria que la mida anés i tornés.
+    void mouseDown (const juce::MouseEvent& e) override           { xInici = e.getScreenX(); if (onComenca) onComenca(); }
+    void mouseDrag (const juce::MouseEvent& e) override           { if (onArrossega) onArrossega (e.getScreenX() - xInici); }
     void mouseUp (const juce::MouseEvent&) override               { if (onAcaba) onAcaba(); }
     void mouseDoubleClick (const juce::MouseEvent&) override      { if (onDobleClic) onDobleClic(); }
+
+private:
+    int xInici = 0;
 };

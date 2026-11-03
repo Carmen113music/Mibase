@@ -78,7 +78,7 @@ void FinestraProjecteNou::valida()
         btCrea.setEnabled (true);
     }
 
-    nom.setColour (juce::TextEditor::outlineColourId, error ? tema::accent : tema::linia2);
+    nom.setColour (juce::TextEditor::outlineColourId, error ? tema::error : tema::linia2);
     repaint();
 }
 
@@ -184,7 +184,7 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
         juce::Path forma;
         forma.addRoundedRectangle (panell.toFloat(), 16.0f);
         g.reduceClipRegion (forma);
-        g.setColour (juce::Colour (0xff141417));
+        g.setColour (tema::lateral);
         g.fillRect (columnaDreta);
         g.setColour (tema::linia);
         g.fillRect (columnaDreta.getX(), columnaDreta.getY(), 1, columnaDreta.getHeight());
@@ -201,14 +201,14 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
 
     auto etiqueta = [&] (const juce::String& t, juce::Rectangle<int> r)
     {
-        g.setColour (juce::Colour (0xffc9c8d1));
+        g.setColour (tema::textMig);
         g.setFont (dibuix::lletra (13.0f, true));
         g.drawText (t, r, juce::Justification::topLeft);
     };
 
     etiqueta ("Nom del projecte", nom.getBounds().translated (0, -22).withHeight (20));
 
-    g.setColour (error ? juce::Colour (0xffff7a70) : tema::suau);
+    g.setColour (error ? tema::errorText : tema::suau);
     g.setFont (dibuix::lletra (12.5f));
     g.drawText (avis, nom.getBounds().translated (0, 52).withHeight (20), juce::Justification::centredLeft);
 
@@ -240,7 +240,7 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
     etiqueta ("Comença amb"_ca, zonaPlantilles.withHeight (20));
     {
         auto r = targetaBuit.toFloat();
-        g.setColour (juce::Colour (0xff1e1e23));
+        g.setColour (tema::triat);
         g.fillRoundedRectangle (r, 12.0f);
         g.setColour (tema::accent.withAlpha (0.15f));
         g.drawRoundedRectangle (r.expanded (2.0f), 14.0f, 3.0f);
@@ -269,7 +269,7 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
         g.fillPath (discontinu);
 
         auto t = targetaBuida.reduced (14, 14);
-        g.setColour (juce::Colour (0xffc9c8d1));
+        g.setColour (tema::textMig);
         g.setFont (dibuix::lletra (13.0f, true));
         g.drawText ("Encara no tens plantilles", t.removeFromTop (20), juce::Justification::centredLeft);
         g.setColour (tema::suau);
@@ -291,7 +291,7 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
         { 0, true,  carpeta.getFileName() + "\\", "La carpeta triada a l'esquerra"_ca, tema::suau, {}, false, false },
         { 1, true,  nomProjecte + "\\", "Tot el projecte en una carpeta"_ca, tema::accent, tema::accent.withAlpha (0.18f), true, false },
         { 2, false, nomProjecte + ".mibase", "El projecte: pistes, clips, tempo… Es desa sol."_ca, tema::text, {}, true, false },
-        { 2, false, "Evolució.txt"_ca, "Diari del projecte, el més recent a dalt"_ca, juce::Colour (0xffc9c8d1), {}, false, false },
+        { 2, false, "Evolució.txt"_ca, "Diari del projecte, el més recent a dalt"_ca, tema::textMig, {}, false, false },
         { 2, true,  "Àudios\\"_ca, "Les gravacions, amb el nom de la pista i el número de presa"_ca, tema::guitarra, tema::guitarra.withAlpha (0.15f), false, false },
         { 3, false, "Guitarra - presa 01.wav", "Exemple: la primera gravació a «Guitarra»"_ca, tema::suau, {}, false, true },
         { 3, false, "Veu - presa 03.wav", "Exemple: la tercera presa a «Veu»"_ca, tema::suau, {}, false, true },
@@ -305,7 +305,7 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
         dibuix::pintaIcona (g, el.esCarpeta ? dibuix::Icona::Carpeta : dibuix::Icona::Fitxer,
                             juce::Rectangle<float> ((float) fila.getX(), (float) fila.getY() + 4, 16, 16), el.color, 1.8f, el.ple);
         fila.removeFromLeft (24);
-        g.setColour (el.exemple ? tema::suau : (el.destacat ? tema::text : juce::Colour (0xffc9c8d1)));
+        g.setColour (el.exemple ? tema::suau : (el.destacat ? tema::text : tema::textMig));
         g.setFont (el.exemple ? dibuix::mono (12.5f).italicised() : dibuix::mono (12.5f));
         g.drawText (el.nom, fila.removeFromTop (20), juce::Justification::centredLeft, true);
         g.setColour (tema::suau);

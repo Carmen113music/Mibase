@@ -219,7 +219,7 @@ void NavegadorCarpetes::carpetaNova()
 
 void NavegadorCarpetes::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff141417));
+    g.fillAll (tema::lateral);
 
     auto caixa = zonaCami.toFloat();
     g.setColour (tema::superficie);
@@ -301,7 +301,7 @@ void NavegadorCarpetes::Llista::paint (juce::Graphics& g)
         }
 
         int x = 10 + f.nivell * 16;
-        const auto colorText = (esTriada || esArrel || i == sobre) ? tema::text : juce::Colour (0xffc9c8d1);
+        const auto colorText = (esTriada || esArrel || i == sobre) ? tema::text : tema::textMig;
 
         if (f.tipus == Fila::Tipus::Carpeta)
         {
@@ -325,7 +325,7 @@ void NavegadorCarpetes::Llista::paint (juce::Graphics& g)
             auto pastilla = zonaText.removeFromRight (16 + 7 * n.length()).withSizeKeepingCentre (16 + 7 * n.length(), 18).toFloat();
             g.setColour (tema::linia);
             g.fillRoundedRectangle (pastilla, 9.0f);
-            g.setColour (juce::Colour (0xffc9c8d1));
+            g.setColour (tema::textMig);
             g.setFont (dibuix::lletra (11.5f));
             g.drawText (n, pastilla, juce::Justification::centred);
             zonaText.removeFromRight (6);

@@ -2,8 +2,6 @@
 
 namespace
 {
-    const juce::Colour fonsLateral { 0xff141417 };
-    const juce::Colour textMig     { 0xffc9c8d1 };
 
     juce::String textTempo (const mibase::Projecte& p)
     {
@@ -22,7 +20,7 @@ void TargetaProjecte::paint (juce::Graphics& g)
         g.setColour (tema::accent.withAlpha (0.15f));
         g.drawRoundedRectangle (r.expanded (1.5f), 14.0f, 3.0f);
     }
-    g.setColour (triada ? juce::Colour (0xff1e1e23) : (sobre ? juce::Colour (0xff1c1c21) : tema::superficie));
+    g.setColour (triada ? tema::triat : (sobre ? tema::sobre : tema::superficie));
     g.fillRoundedRectangle (r, 12.0f);
     g.setColour (triada ? tema::accent : (hasKeyboardFocus (false) ? tema::linia2 : tema::linia));
     g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
@@ -35,7 +33,7 @@ void TargetaProjecte::paint (juce::Graphics& g)
     g.fillRoundedRectangle (ona, 8.0f);
     if (! info.existeix)
     {
-        g.setColour (juce::Colour (0xffff7a70));
+        g.setColour (tema::errorText);
         g.setFont (dibuix::lletra (12.0f));
         g.drawText ("No es troba el projecte", ona, juce::Justification::centred);
     }
@@ -77,13 +75,13 @@ void TargetaProjecte::paint (juce::Graphics& g)
         g.fillRoundedRectangle (xip, 6.0f);
         g.setColour (tema::linia2);
         g.fillEllipse (xip.getX() + 8.0f, xip.getCentreY() - 3.5f, 7.0f, 7.0f);
-        g.setColour (textMig);
+        g.setColour (tema::textMig);
         g.setFont (dibuix::lletra (11.5f));
         g.drawText (t, xip.withTrimmedLeft (20.0f), juce::Justification::centredLeft);
     }
 
     c.removeFromTop (8);
-    g.setColour (textMig);
+    g.setColour (tema::textMig);
     g.setFont (dibuix::mono (12.0f));
     g.drawText (info.tempo, c.removeFromTop (18), juce::Justification::centredLeft, true);
 }
@@ -125,7 +123,7 @@ void PanellDetalls::resized()
 
 void PanellDetalls::paint (juce::Graphics& g)
 {
-    g.fillAll (fonsLateral);
+    g.fillAll (tema::lateral);
     auto r = getLocalBounds().reduced (22, 24);
 
     if (! info)
@@ -147,7 +145,7 @@ void PanellDetalls::paint (juce::Graphics& g)
 
     if (! info->existeix)
     {
-        g.setColour (juce::Colour (0xffff7a70));
+        g.setColour (tema::errorText);
         g.setFont (dibuix::lletra (13.0f));
         g.drawFittedText ("No es troba el fitxer del projecte. Potser s'ha mogut, s'ha canviat de nom o és en un disc desconnectat."_ca,
                           zonaStats.withHeight (80), juce::Justification::topLeft, 4);
@@ -231,12 +229,13 @@ PantallaInici::PantallaInici (juce::PropertiesFile& a, Recents& r, Historial& h)
             ajustos.saveIfNeeded();
         };
     }
-    divisorEsq.onComenca = [this] { ampleInici = ampleEsq; };
-    divisorEsq.onArrossega = [this] (int dx) { ampleEsq = juce::jlimit (220, 520, ampleInici + dx); resized(); };
-    divisorEsq.onDobleClic = [this] { ampleEsq = 300; resized(); divisorEsq.onAcaba(); };
-    divisorDre.onComenca = [this] { ampleInici = ampleDre; };
-    divisorDre.onArrossega = [this] (int dx) { ampleDre = juce::jlimit (260, 560, ampleInici - dx); resized(); };
-    divisorDre.onDobleClic = [this] { ampleDre = 340; resized(); divisorDre.onAcaba(); };
+    // En començar, es parteix de l'amplada que es veu (pot ser més petita que la desada si la finestra és estreta).
+    divisorEsq.onComenca = [this] { ampleInici = navegador.getWidth(); ampleDre = detalls.getWidth(); };
+    divisorEsq.onArrossega = [this] (int dx) { ampleEsq = juce::jlimit (220, juce::jmax (220, getWidth() - ampleDre - 560), ampleInici + dx); resized(); repaint(); };
+    divisorEsq.onDobleClic = [this] { ampleEsq = 300; resized(); repaint(); divisorEsq.onAcaba(); };
+    divisorDre.onComenca = [this] { ampleInici = detalls.getWidth(); ampleEsq = navegador.getWidth(); };
+    divisorDre.onArrossega = [this] (int dx) { ampleDre = juce::jlimit (260, juce::jmax (260, getWidth() - ampleEsq - 560), ampleInici - dx); resized(); repaint(); };
+    divisorDre.onDobleClic = [this] { ampleDre = 340; resized(); repaint(); divisorDre.onAcaba(); };
 
     addAndMakeVisible (btAltre);
     btAltre.onClick = [this] { obreAltre(); };
@@ -297,6 +296,7 @@ InfoProjecte PantallaInici::llegeixInfo (const Recents::Entrada& e) const
         {
             i.nom = dibuix::utf8 (p->nom);
             i.tempo = textTempo (*p);
+            i.pistes = (int) p->pistes.size();
         }
         else
         {
@@ -506,7 +506,7 @@ void PantallaInici::paint (juce::Graphics& g)
         juce::PathStrokeType (1.0f).createDashedStroke (discontinu, p, guions, 2);
         g.setColour (tema::linia2);
         g.fillPath (discontinu);
-        g.setColour (textMig);
+        g.setColour (tema::textMig);
         g.setFont (dibuix::lletra (15.0f, true));
         g.drawText (infos.empty() ? juce::String ("Encara no hi ha projectes recents") : juce::String ("Cap projecte coincideix"),
                     z.withTrimmedBottom (z.getHeight() / 2).withTrimmedTop (22), juce::Justification::centred);

@@ -1,4 +1,5 @@
 #include "mibase/ProjecteDisc.h"
+#include "mibase/Edicio.h"
 
 #include <nlohmann/json.hpp>
 
@@ -244,6 +245,71 @@ namespace mibase::disc
         p.plantilla = j.value ("plantilla", std::string ("buit"));
         p.creat = j.value ("creat", std::string());
         p.modificat = j.value ("modificat", std::string());
+        p.comptador = j.value ("comptador", 0);
+        p.clic = j.value ("clic", true);
+        {
+            const auto snap = j.value ("snap", std::string ("compas"));
+            p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
+        }
+
+        if (j.contains ("preses") && j["preses"].is_array())
+        {
+            for (auto& e : j["preses"])
+            {
+                if (! e.is_object()) continue;
+                Presa s;
+                s.id = e.value ("id", std::string());
+                s.fitxer = e.value ("fitxer", std::string());
+                s.nom = e.value ("nom", s.fitxer);
+                s.durada = e.value ("durada", 0.0);
+                s.primer = e.value ("primer", -1.0);
+                if (! s.id.empty()) p.preses.push_back (s);
+            }
+        }
+
+        if (j.contains ("pistes") && j["pistes"].is_array())
+        {
+            for (auto& e : j["pistes"])
+            {
+                if (! e.is_object()) continue;
+                Pista t;
+                t.id = e.value ("id", std::string());
+                t.nom = e.value ("nom", std::string ("Pista"));
+                t.tipus = e.value ("tipus", std::string ("audio"));
+                t.mut = e.value ("mut", false);
+                t.solo = e.value ("solo", false);
+                t.grava = e.value ("grava", false);
+                t.faderDb = e.value ("faderDb", 0.0);
+                if (e.contains ("clips") && e["clips"].is_array())
+                {
+                    for (auto& k : e["clips"])
+                    {
+                        if (! k.is_object()) continue;
+                        Clip c;
+                        c.presa = k.value ("presa", std::string());
+                        c.pos = k.value ("pos", 0.0);
+                        c.inici = k.value ("inici", 0.0);
+                        c.fi = k.value ("fi", c.inici + 1.0);
+                        c.fadeIn = k.value ("fadeIn", 0.0);
+                        c.fadeOut = k.value ("fadeOut", 0.0);
+                        c.guanyDb = k.value ("guanyDb", 0.0);
+                        if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
+                        t.clips.push_back (c);
+                    }
+                }
+                if (t.id.empty()) t.id = "t" + std::to_string (++p.comptador);
+                p.pistes.push_back (t);
+            }
+        }
+
+        if (j.contains ("bucle") && j["bucle"].is_object())
+        {
+            p.bucle.marcat = j["bucle"].value ("marcat", false);
+            p.bucle.actiu = j["bucle"].value ("actiu", false);
+            p.bucle.de = j["bucle"].value ("de", 0);
+            p.bucle.a = j["bucle"].value ("a", 0);
+        }
+
         p.jsonOriginal = contingut;
 
         if (p.tempo < 20.0 || p.tempo > 400.0) p.tempo = 120.0;
@@ -252,7 +318,7 @@ namespace mibase::disc
         return p;
     }
 
-    Resultat desa (const fs::path& fitxer, Projecte p, const std::string& araIso, const std::string& araPerNom)
+    Resultat desa (const fs::path& fitxer, Projecte p, const std::string& araIso, const std::string& araPerNom, bool ferCopia)
     {
         Resultat r;
         r.fitxer = fitxer;
@@ -283,13 +349,32 @@ namespace mibase::disc
         j["plantilla"] = p.plantilla;
         j["creat"] = p.creat;
         j["modificat"] = p.modificat;
-        if (! j.contains ("pistes"))
-            j["pistes"] = json::array();
+        j["snap"] = p.snap == Snap::Temps ? "temps" : p.snap == Snap::Lliure ? "lliure" : "compas";
+        j["clic"] = p.clic;
+        j["comptador"] = p.comptador;
+        j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
+
+        json preses = json::array();
+        for (auto& s : p.preses)
+            preses.push_back ({ { "id", s.id }, { "fitxer", s.fitxer }, { "nom", s.nom }, { "durada", s.durada }, { "primer", s.primer } });
+        j["preses"] = preses;
+
+        json pistes = json::array();
+        for (auto& t : p.pistes)
+        {
+            json clips = json::array();
+            for (auto& c : t.clips)
+                clips.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
+                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb } });
+            pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "mut", t.mut }, { "solo", t.solo },
+                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "clips", clips } });
+        }
+        j["pistes"] = pistes;
 
         std::error_code ec;
 
         // Còpia de l'anterior, si n'hi havia.
-        if (fs::exists (fitxer, ec))
+        if (ferCopia && fs::exists (fitxer, ec))
         {
             const auto copies = fitxer.parent_path() / cami (carpetaCopies);
             fs::create_directories (copies, ec);
