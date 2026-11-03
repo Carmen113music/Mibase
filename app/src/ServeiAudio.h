@@ -1,0 +1,63 @@
+#pragma once
+
+#include "Historial.h"
+
+#include <juce_audio_devices/juce_audio_devices.h>
+#include <juce_data_structures/juce_data_structures.h>
+#include <mibase/MotorDiagnostic.h>
+
+/** Connecta el motor amb la targeta d'àudio i els teclats MIDI (via JUCE),
+    i desa els ajustos entre sessions. */
+class ServeiAudio : private juce::AudioIODeviceCallback,
+                    private juce::MidiInputCallback,
+                    private juce::ChangeListener
+{
+public:
+    explicit ServeiAudio (Historial& historial);
+    ~ServeiAudio() override;
+
+    juce::AudioDeviceManager& dispositius() noexcept { return gestor; }
+    mibase::MotorDiagnostic& motor() noexcept { return motorDiag; }
+
+    /** Activa tots els teclats MIDI connectats i anota els nous a l'historial. */
+    void actualitzaMidi();
+    juce::StringArray getNomsMidi() const;
+
+    /** Missatges MIDI per mostrar a la pantalla (fil de la interfície). */
+    bool treuMidiPerMostrar (mibase::EsdevenimentMidi& e) noexcept { return cuaMostrar.treu (e); }
+
+    /** Desa la configuració de l'àudio. */
+    void desaAjustos();
+
+    /** Latència mesurada desada per a la configuració actual (o buit). */
+    juce::String getLatenciaDesada();
+    void desaLatencia (int mostres, double ms);
+
+    juce::String getUltimError() const { return ultimError; }
+
+    static juce::String nomCatalaTipus (const juce::String& tipus);
+
+private:
+    void audioDeviceIOCallbackWithContext (const float* const* entrades, int numEntrades,
+                                           float* const* sortides, int numSortides, int numMostres,
+                                           const juce::AudioIODeviceCallbackContext&) override;
+    void audioDeviceAboutToStart (juce::AudioIODevice* dispositiu) override;
+    void audioDeviceStopped() override;
+    void audioDeviceError (const juce::String& error) override;
+
+    void handleIncomingMidiMessage (juce::MidiInput* origen, const juce::MidiMessage& m) override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
+    juce::String clauConfiguracio();
+
+    Historial& historial;
+    juce::AudioDeviceManager gestor;
+    mibase::MotorDiagnostic motorDiag;
+    std::unique_ptr<juce::PropertiesFile> ajustos;
+
+    juce::SpinLock midiEntrant;   // només entre fils de MIDI (mai al fil d'àudio)
+    mibase::CuaSenseBloqueig<mibase::EsdevenimentMidi, 512> cuaMostrar;
+    juce::StringArray midiConeguts;
+    juce::String ultimError, ultimaDescripcio;
+    std::shared_ptr<bool> viu = std::make_shared<bool> (true);
+};

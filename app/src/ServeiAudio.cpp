@@ -1,0 +1,196 @@
+#include "ServeiAudio.h"
+
+namespace
+{
+    juce::PropertiesFile::Options opcionsAjustos()
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName = "Mibase";
+        o.folderName = "Mibase";
+        o.filenameSuffix = ".ajustos";
+        o.osxLibrarySubFolder = "Application Support";
+        o.storageFormat = juce::PropertiesFile::storeAsXML;
+        return o;
+    }
+}
+
+ServeiAudio::ServeiAudio (Historial& h) : historial (h)
+{
+    ajustos = std::make_unique<juce::PropertiesFile> (opcionsAjustos());
+
+    // Fins a 8 entrades i 2 sortides. Si hi ha ajustos desats, es fan servir.
+    auto desat = ajustos->getXmlValue ("dispositiu");
+    const auto error = gestor.initialise (8, 2, desat.get(), true);
+
+    if (error.isNotEmpty())
+    {
+        ultimError = error;
+        historial.afegeix ("No s'ha pogut obrir l'àudio: "_ca + error);
+    }
+
+    gestor.addChangeListener (this);
+    gestor.addAudioCallback (this);
+    gestor.addMidiInputDeviceCallback ({}, this);   // tots els teclats activats
+
+    historial.afegeix ("Mibase " MIBASE_VERSIO " en marxa.");
+    actualitzaMidi();
+    changeListenerCallback (nullptr);
+}
+
+ServeiAudio::~ServeiAudio()
+{
+    *viu = false;
+    gestor.removeMidiInputDeviceCallback ({}, this);
+    gestor.removeAudioCallback (this);
+    gestor.removeChangeListener (this);
+    desaAjustos();
+}
+
+juce::String ServeiAudio::nomCatalaTipus (const juce::String& tipus)
+{
+    if (tipus == "ASIO")                             return "ASIO (el més ràpid)"_ca;
+    if (tipus == "Windows Audio")                    return "Windows Audio (compartit)";
+    if (tipus == "Windows Audio (Exclusive Mode)")   return "Windows Audio (exclusiu)";
+    if (tipus == "Windows Audio (Low Latency Mode)") return "Windows Audio (baix retard)";
+    if (tipus == "ALSA")                             return "ALSA (Linux)";
+    return tipus;
+}
+
+void ServeiAudio::actualitzaMidi()
+{
+    for (const auto& d : juce::MidiInput::getAvailableDevices())
+    {
+        if (! gestor.isMidiInputDeviceEnabled (d.identifier))
+            gestor.setMidiInputDeviceEnabled (d.identifier, true);
+
+        if (! midiConeguts.contains (d.identifier))
+        {
+            midiConeguts.add (d.identifier);
+            historial.afegeix ("Teclat MIDI connectat: " + d.name);
+        }
+    }
+
+    // Els que s'han desconnectat.
+    juce::StringArray ara;
+    for (const auto& d : juce::MidiInput::getAvailableDevices())
+        ara.add (d.identifier);
+
+    for (int i = midiConeguts.size(); --i >= 0;)
+    {
+        if (! ara.contains (midiConeguts[i]))
+        {
+            historial.afegeix ("Teclat MIDI desconnectat.");
+            midiConeguts.remove (i);
+        }
+    }
+}
+
+juce::StringArray ServeiAudio::getNomsMidi() const
+{
+    juce::StringArray noms;
+    for (const auto& d : juce::MidiInput::getAvailableDevices())
+        noms.add (d.name);
+    return noms;
+}
+
+void ServeiAudio::desaAjustos()
+{
+    if (auto xml = gestor.createStateXml())
+        ajustos->setValue ("dispositiu", xml.get());
+    ajustos->saveIfNeeded();
+}
+
+juce::String ServeiAudio::clauConfiguracio()
+{
+    auto* d = gestor.getCurrentAudioDevice();
+    if (d == nullptr)
+        return {};
+
+    return "latencia|" + d->getTypeName() + "|" + d->getName() + "|"
+         + juce::String ((int) d->getCurrentSampleRate()) + "|" + juce::String (d->getCurrentBufferSizeSamples());
+}
+
+juce::String ServeiAudio::getLatenciaDesada()
+{
+    const auto clau = clauConfiguracio();
+    return clau.isEmpty() ? juce::String() : ajustos->getValue (clau);
+}
+
+void ServeiAudio::desaLatencia (int mostres, double ms)
+{
+    const auto clau = clauConfiguracio();
+    if (clau.isEmpty())
+        return;
+
+    ajustos->setValue (clau, juce::String (mostres) + " mostres (" + juce::String (ms, 1) + " ms), "
+                                 + juce::Time::getCurrentTime().formatted ("%d/%m/%Y %H:%M"));
+    ajustos->saveIfNeeded();
+}
+
+//==============================================================================
+void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades, int numEntrades,
+                                                    float* const* sortides, int numSortides, int numMostres,
+                                                    const juce::AudioIODeviceCallbackContext&)
+{
+    // Fil d'àudio: només el motor, que no demana memòria ni s'espera mai.
+    motorDiag.processa (entrades, numEntrades, sortides, numSortides, numMostres);
+}
+
+void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
+{
+    motorDiag.prepara (d->getCurrentSampleRate(), d->getCurrentBufferSizeSamples());
+}
+
+void ServeiAudio::audioDeviceStopped()
+{
+    motorDiag.latencia().cancella();
+}
+
+void ServeiAudio::audioDeviceError (const juce::String& error)
+{
+    std::weak_ptr<bool> encaraViu = viu;
+    juce::MessageManager::callAsync ([this, error, encaraViu]
+    {
+        if (auto v = encaraViu.lock(); v == nullptr || ! *v)
+            return;
+        ultimError = error;
+        historial.afegeix ("Error de l'àudio: "_ca + error);
+    });
+}
+
+void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m)
+{
+    if (m.getRawDataSize() > 3 || m.isMidiClock() || m.isActiveSense())
+        return;
+
+    const auto* dades = m.getRawData();
+    mibase::EsdevenimentMidi e;
+    e.estat = dades[0];
+    e.dada1 = m.getRawDataSize() > 1 ? dades[1] : 0;
+    e.dada2 = m.getRawDataSize() > 2 ? dades[2] : 0;
+
+    // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    motorDiag.enviaMidi (e);
+    cuaMostrar.posa (e);
+}
+
+void ServeiAudio::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    auto* d = gestor.getCurrentAudioDevice();
+
+    juce::String descripcio;
+    if (d == nullptr)
+        descripcio = "Àudio aturat (cap dispositiu obert)."_ca;
+    else
+        descripcio = "Àudio: "_ca + nomCatalaTipus (d->getTypeName()) + " · "_ca + d->getName() + " · "_ca
+                   + juce::String ((int) d->getCurrentSampleRate()) + " Hz · buffer "_ca
+                   + juce::String (d->getCurrentBufferSizeSamples());
+
+    if (descripcio != ultimaDescripcio)
+    {
+        ultimaDescripcio = descripcio;
+        historial.afegeix (descripcio);
+        desaAjustos();
+    }
+}

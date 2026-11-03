@@ -1,0 +1,59 @@
+#include "Historial.h"
+#include "PantallaDiagnostic.h"
+#include "ServeiAudio.h"
+#include "Tema.h"
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+class FinestraPrincipal : public juce::DocumentWindow
+{
+public:
+    FinestraPrincipal()
+        : juce::DocumentWindow ("Mibase " MIBASE_VERSIO " · Diagnòstic"_ca, tema::fons, juce::DocumentWindow::allButtons)
+    {
+        juce::LookAndFeel::setDefaultLookAndFeel (&aspecte);
+
+        servei = std::make_unique<ServeiAudio> (historial);
+
+        setUsingNativeTitleBar (true);
+        setResizable (true, true);
+        setResizeLimits (1000, 720, 4000, 3000);
+        setContentOwned (new PantallaDiagnostic (*servei, historial), false);
+        centreWithSize (1200, 820);
+        setVisible (true);
+    }
+
+    ~FinestraPrincipal() override
+    {
+        clearContentComponent();
+        servei = nullptr;
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+    }
+
+    void closeButtonPressed() override
+    {
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+    }
+
+private:
+    tema::Aspecte aspecte;
+    Historial historial;
+    std::unique_ptr<ServeiAudio> servei;
+};
+
+class MibaseApp : public juce::JUCEApplication
+{
+public:
+    const juce::String getApplicationName() override    { return "Mibase"; }
+    const juce::String getApplicationVersion() override { return MIBASE_VERSIO; }
+    bool moreThanOneInstanceAllowed() override          { return false; }
+
+    void initialise (const juce::String&) override { finestra = std::make_unique<FinestraPrincipal>(); }
+    void shutdown() override                       { finestra = nullptr; }
+    void systemRequestedQuit() override            { quit(); }
+
+private:
+    std::unique_ptr<FinestraPrincipal> finestra;
+};
+
+START_JUCE_APPLICATION (MibaseApp)

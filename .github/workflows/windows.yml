@@ -1,0 +1,42 @@
+name: Windows
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - name: Baixa el codi
+        uses: actions/checkout@v4
+
+      - name: Memòria cau de JUCE
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-juce-8.0.15-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-juce-8.0.15-
+
+      - name: Prepara la compilació
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.deps"
+
+      - name: Compila
+        run: cmake --build build --config Release --parallel
+
+      - name: Proves del motor
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Prepara el paquet
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force paquet | Out-Null
+          Copy-Item build/app/Mibase_artefacts/Release/Mibase.exe paquet/
+          Copy-Item README.md, LICENSE paquet/
+          Copy-Item extern/asiosdk/LICENSE.txt paquet/LLICENCIA-ASIO-SDK.txt
+
+      - name: Desa el programa (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mibase-windows
+          path: paquet/
