@@ -20,7 +20,7 @@ ServeiAudio::ServeiAudio (Historial& h) : historial (h)
 
     // Fins a 8 entrades i 2 sortides. Si hi ha ajustos desats, es fan servir.
     auto desat = ajustos->getXmlValue ("dispositiu");
-    const auto error = gestor.initialise (8, 2, desat.get(), true);
+        const auto error = gestor.initialise (8, 2, desat.get(), true);
 
     if (error.isNotEmpty())
     {
@@ -160,11 +160,48 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
 {
     // Fil d'àudio: només el motor, que no demana memòria ni s'espera mai.
     motorDiag.processa (entrades, numEntrades, sortides, numSortides, numMostres);
+    motorEstudi.processa (entrades, numEntrades, sortides, numSortides, numMostres);
 }
 
 void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
 {
     motorDiag.prepara (d->getCurrentSampleRate(), d->getCurrentBufferSizeSamples());
+    motorEstudi.prepara (d->getCurrentSampleRate(), juce::jmax (d->getCurrentBufferSizeSamples(), 2048));
+
+    // Les entrades actives arriben juntes a la crida d'àudio: per a cada entrada, la seva posició.
+    std::vector<int> mapa;
+    const auto actives = d->getActiveInputChannels();
+    int k = 0;
+    for (int e = 0; e < juce::jmax (actives.getHighestBit() + 1, 0) && e < mibase::MotorEstudi::maxEntrades; ++e)
+        mapa.push_back (actives[e] ? k++ : -1);
+    motorEstudi.setMapaEntrades (mapa);
+}
+
+juce::StringArray ServeiAudio::getNomsEntrades()
+{
+    juce::StringArray noms;
+    if (auto* d = gestor.getCurrentAudioDevice())
+    {
+        const auto actives = d->getActiveInputChannels();
+        const auto tots = d->getInputChannelNames();
+        for (int e = 0; e < tots.size() && e < mibase::MotorEstudi::maxEntrades; ++e)
+            noms.add (actives[e] ? tots[e] : juce::String());   // buit: entrada apagada
+    }
+    return noms;
+}
+
+double ServeiAudio::retardGravacio (bool& mesurat)
+{
+    const double ms = latenciaMsDesada();
+    mesurat = ms > 0.0;
+    if (mesurat) return ms / 1000.0;
+    if (auto* d = gestor.getCurrentAudioDevice())
+    {
+        const double fs = d->getCurrentSampleRate();
+        if (fs > 0.0)
+            return (d->getInputLatencyInSamples() + d->getOutputLatencyInSamples()) / fs;
+    }
+    return 0.0;
 }
 
 void ServeiAudio::audioDeviceStopped()

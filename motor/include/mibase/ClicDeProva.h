@@ -21,8 +21,14 @@ namespace mibase
         void setVolum (float v) noexcept { volum = v < 0.0f ? 0.0f : (v > 1.5f ? 1.5f : v); }
         void setTempsPerCompas (int n) noexcept { tempsPerCompas = n < 1 ? 1 : n; }
 
-        /** Suma el clic al buffer (mono). */
+        /** Suma el clic al buffer (mono), amb els temps que es compta sol. */
         void processa (float* sortida, int numMostres) noexcept;
+
+        /** Per al motor de l'estudi, que decideix ell quan sona cada temps:
+            comença un cop ara mateix (el primer temps del compàs, amb accent)… */
+        void dispara (bool ambAccent) noexcept;
+        /** …i suma al buffer només el cop que ja sona (sense comptar temps). */
+        void processaSo (float* sortida, int numMostres) noexcept;
 
     private:
         double fs = 48000.0;
@@ -41,5 +47,6 @@ namespace mibase
         unsigned int soroll = 12345u;
 
         float mostra (double t) noexcept;
+        void sonaUna (float* sortida, int i) noexcept;
     };
 }

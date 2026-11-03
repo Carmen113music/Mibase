@@ -45,8 +45,13 @@ namespace dibuixEstudi
 {
     /** Tecleta petita (M, S, gravar): quan està encesa, la cara agafa el color. */
     void teclaPetita (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& text, bool encesa, juce::Colour color, bool rodona = false);
-    /** Fader vertical amb escala de dB. Retorna el rectangle del carril (per saber on clica el ratolí). */
-    juce::Rectangle<float> faderVertical (juce::Graphics& g, juce::Rectangle<float> r, double db, juce::Colour color, bool actiu);
+    /** Fader vertical amb escala de dB i, si «nivellL» no és negatiu, vúmetres a la dreta (amb la mateixa escala).
+        Retorna el rectangle del carril (per saber on clica el ratolí). */
+    juce::Rectangle<float> faderVertical (juce::Graphics& g, juce::Rectangle<float> r, double db, juce::Colour color, bool actiu,
+                                          float nivellL = -1.0f, float nivellR = -1.0f);
+    /** Dos vúmetres verticals (esquerra i dreta) amb l'escala del fader. */
+    void vumetres (juce::Graphics& g, juce::Rectangle<float> r, float l, float d);
+
     /** Fader horitzontal. */
     void faderHoritzontal (juce::Graphics& g, juce::Rectangle<float> r, double db, juce::Colour color, bool actiu);
     /** Carril d'un fader vertical dins la zona r (el mateix càlcul que faderVertical). */
@@ -157,23 +162,6 @@ private:
     juce::Point<int> inici;
 };
 
-/** Un fader per pista (horitzontal). */
-class Faders : public SeccioEstudi
-{
-public:
-    using SeccioEstudi::SeccioEstudi;
-    void paint (juce::Graphics& g) override;
-    void mouseDown (const juce::MouseEvent& e) override;
-    void mouseDrag (const juce::MouseEvent& e) override;
-    void mouseUp (const juce::MouseEvent& e) override;
-    void mouseDoubleClick (const juce::MouseEvent& e) override;
-
-private:
-    juce::Rectangle<float> rectFader (int pista) const;
-    int pistaFader = -1;
-    float pos0 = 0.0f;
-};
-
 /** Columna de l'esquerra: pestanyes Taula de treball / Taula de mescles i el fader de la pista triada. */
 class ColumnaEsquerra : public SeccioEstudi
 {
@@ -192,12 +180,15 @@ protected:
 private:
     Boto btTreball { "Taula de treball", dibuix::Icona::Pistes, Boto::Estil::Tecla };
     Boto btMescles { "Taula de mescles", dibuix::Icona::Mescla, Boto::Estil::Tecla };
-    juce::Rectangle<int> zonaFader, zonaTecles;
-    float pos0 = 0.0f;
-    bool movent = false;
+    juce::Rectangle<int> zonaNom, zonaPan, zonaFader, zonaLcd, zonaTecles;
+    juce::Rectangle<int> rectPom() const;
+    enum class Arrossega { Res, Fader, Pan };
+    Arrossega movent = Arrossega::Res;
+    float valor0 = 0.0f, ultimaY = 0.0f;   // en arrossegar: valor actual i on era el ratolí (amb Maj, deu vegades més fi)
 };
 
-/** Taula de mescles: una tira per pista, amb fader vertical, M, S i gravar. */
+/** Taula de mescles: una tira per pista (inserts i enviaments, que arribaran més endavant, panorama, M, S, gravar,
+    fader i vúmetre) i, fixa a la dreta, la sortida. */
 class TaulaMescles : public SeccioEstudi
 {
 public:
@@ -209,15 +200,29 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override;
 
-    static constexpr int ampleTira = 96;
+    static constexpr int ampleTira = 100;
+    static constexpr int numInserts = 4, numEnvia = 2;
 
 private:
+    struct Geo
+    {
+        juce::Rectangle<int> nom, etInserts, etEnvia, pan, fader, lcd, numero;
+        std::array<juce::Rectangle<int>, numInserts> inserts;
+        std::array<juce::Rectangle<int>, numEnvia> envia;
+        std::array<juce::Rectangle<int>, 3> tecles;
+    };
+    enum class Zona { Res, Tecla, Pan, Fader, Ranura };
+
+    Geo geo (juce::Rectangle<int> tira, bool master) const;
+    void pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i);   // i < 0: la sortida
+    bool troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla) const;
     juce::Rectangle<int> rectTira (int i) const { return { i * ampleTira - despl, 0, ampleTira, getHeight() }; }
-    juce::Rectangle<int> rectTecla (int i, int quina) const;
-    juce::Rectangle<float> zonaFader (int i) const;
+    juce::Rectangle<int> rectMaster() const { return { getWidth() - ampleTira - 4, 0, ampleTira, getHeight() }; }
     int tiraA (int x) const { return (x + despl) / ampleTira; }
-    int despl = 0, tiraFader = -1;
-    float pos0 = 0.0f;
+
+    int despl = 0, tira = -1;
+    Zona arrossega = Zona::Res;
+    float valor0 = 0.0f, ultimaY = 0.0f;
 };
 
 /** Panell de la dreta: el clip triat i com funcionen les eines. */

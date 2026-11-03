@@ -134,9 +134,13 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     for (auto& presa : estat.projecte.preses)
         carregaOna (presa);
 
+    estat.nomsEntrades = servei.getNomsEntrades();
+    estat.onCapcalMogut = [this] (double t) { if (estat.transport == 1) servei.estudi().situa (t); };
+    rellotge.tic = [this] { tic(); };
+    rellotge.startTimerHz (30);
+
     ampleEsquerra = ajustos.getIntValue ("estudi.ampleEsquerra", 132);
-    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms", 170);
-    ampleFaders = ajustos.getIntValue ("estudi.ampleFaders", 150);
+    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms2", 190);
     amplePanell = ajustos.getIntValue ("estudi.amplePanell", 270);
 
     // Caixa d'eines.
@@ -183,7 +187,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btRefes.onClick = [this] { desfes (true); };
 
     // Seccions.
-    for (auto* sec : std::initializer_list<SeccioEstudi*> { &esquerra, &capcaleres, &faders, &regla, &pistes, &mescles, &panell })
+    for (auto* sec : std::initializer_list<SeccioEstudi*> { &esquerra, &capcaleres, &regla, &pistes, &mescles, &panell })
     {
         addAndMakeVisible (sec);
         sec->onRoda = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { roda (e, w); };
@@ -198,15 +202,14 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
-    for (auto* d : { &divEsquerra, &divNoms, &divFaders, &divPanell })
+    for (auto* d : { &divEsquerra, &divNoms, &divPanell })
     {
         addAndMakeVisible (d);
         d->setTooltip ("Arrossega per fer més ample o més estret. Doble clic: mida inicial."_ca);
         d->onAcaba = [this]
         {
             ajustos.setValue ("estudi.ampleEsquerra", ampleEsquerra);
-            ajustos.setValue ("estudi.ampleNoms", ampleNoms);
-            ajustos.setValue ("estudi.ampleFaders", ampleFaders);
+            ajustos.setValue ("estudi.ampleNoms2", ampleNoms);
             ajustos.setValue ("estudi.amplePanell", amplePanell);
             ajustos.saveIfNeeded();
         };
@@ -216,10 +219,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     divEsquerra.onDobleClic = [this] { ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
     divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (120, ampleInici + dx); colocaSeccions(); };
-    divNoms.onDobleClic = [this] { ampleNoms = 170; colocaSeccions(); divNoms.onAcaba(); };
-    divFaders.onComenca = [this] { ampleInici = faders.getWidth(); };
-    divFaders.onArrossega = [this] (int dx) { ampleFaders = juce::jmax (90, ampleInici + dx); colocaSeccions(); };
-    divFaders.onDobleClic = [this] { ampleFaders = 150; colocaSeccions(); divFaders.onAcaba(); };
+    divNoms.onDobleClic = [this] { ampleNoms = 190; colocaSeccions(); divNoms.onAcaba(); };
     divPanell.onComenca = [this] { ampleInici = panell.getWidth(); };
     divPanell.onArrossega = [this] (int dx) { amplePanell = juce::jmax (200, ampleInici - dx); colocaSeccions(); };
     divPanell.onDobleClic = [this] { amplePanell = 270; colocaSeccions(); divPanell.onAcaba(); };
@@ -239,6 +239,17 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
 PantallaEstudi::~PantallaEstudi()
 {
+    rellotge.stopTimer();
+    auto& motor = servei.estudi();
+    if (estat.transport != 0 || motor.getEstat() != MotorEstudi::Estat::Aturat)
+    {
+        motor.atura();
+        for (int i = 0; i < 50 && motor.getEstat() != MotorEstudi::Estat::Aturat; ++i)
+            juce::Thread::sleep (10);
+    }
+    if (motor.gravadora().activa())
+        acabaGravacio();
+    motor.publica (std::make_unique<Pla>());   // ja no ha de sonar res d'aquest projecte
     previsualitzaClic (false);
     estat.removeChangeListener (this);
     if (calDesar) desaAra();
@@ -285,6 +296,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         colocaSeccions();
     actualitzaBarres();
     repaint (zonaBarra);
+    publicaPla();
 }
 
 void PantallaEstudi::triaEina (Eina e)
@@ -311,7 +323,7 @@ void PantallaEstudi::paint (juce::Graphics& g)
         g.setFont (dibuix::lletra (13.0f));
         const auto text = estat.info.isNotEmpty() ? estat.info
                         : juce::String (estat.numPistes()) + (estat.numPistes() == 1 ? " pista" : " pistes")
-                          + " · Ctrl+roda: zoom · Alt+roda: alçada"_ca;
+                          + " · Espai: play/atura · R: grava · Ctrl+roda: zoom · Alt+roda: alçada"_ca;
         g.drawFittedText (text, zonaInfo, juce::Justification::centredLeft, 1, 0.8f);
     }
 
@@ -325,7 +337,6 @@ void PantallaEstudi::paint (juce::Graphics& g)
             dibuix::pintaEtiquetaSeccio (g, t, r.withTrimmedLeft (14));
         };
         titol (zonaTitolNoms, "Pistes");
-        titol (zonaTitolFaders, "Volum");
     }
 }
 
@@ -334,47 +345,42 @@ void PantallaEstudi::colocaSeccions()
     auto r = getLocalBounds().withTrimmedTop (alcadaBarra);
     const bool m = estat.vistaMescles;
 
-    int esq = ampleEsquerra, noms = ampleNoms, fad = ampleFaders, pan = amplePanell;
-    int sobra = esq + (m ? 0 : noms + fad) + pan + 320 - r.getWidth();
+    int esq = ampleEsquerra, noms = ampleNoms, pan = amplePanell;
+    int sobra = esq + (m ? 0 : noms) + pan + 320 - r.getWidth();
     auto encongeix = [&sobra] (int& v, int minim) { if (sobra > 0) { const int t = juce::jmin (sobra, v - minim); if (t > 0) { v -= t; sobra -= t; } } };
     encongeix (pan, 200);
-    if (! m) { encongeix (fad, 90); encongeix (noms, 120); }
+    if (! m) encongeix (noms, 140);
     encongeix (esq, 110);
 
     esquerra.setBounds (r.removeFromLeft (esq));
     panell.setBounds (r.removeFromRight (pan));
 
     mescles.setVisible (m);
-    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &faders, &regla, &pistes, &barraH, &barraV, &divNoms, &divFaders })
+    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms })
         c->setVisible (! m);
 
     if (m)
     {
         mescles.setBounds (r);
-        zonaTitolNoms = zonaTitolFaders = {};
+        zonaTitolNoms = {};
     }
     else
     {
         auto colNoms = r.removeFromLeft (noms);
-        auto colFaders = r.removeFromLeft (fad);
         auto temps = r;
         zonaTitolNoms = colNoms.removeFromTop (alcadaRegla);
-        zonaTitolFaders = colFaders.removeFromTop (alcadaRegla);
         colNoms.removeFromBottom (gruixBarres);
-        colFaders.removeFromBottom (gruixBarres);
         capcaleres.setBounds (colNoms);
-        faders.setBounds (colFaders);
         regla.setBounds (temps.removeFromTop (alcadaRegla));
         barraH.setBounds (temps.removeFromBottom (gruixBarres).withTrimmedRight (gruixBarres));
         barraV.setBounds (temps.removeFromRight (gruixBarres));
         pistes.setBounds (temps);
         divNoms.setBounds (capcaleres.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
-        divFaders.setBounds (faders.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
     }
 
     divEsquerra.setBounds (esquerra.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
     divPanell.setBounds (panell.getX() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
-    for (auto* d : { &divEsquerra, &divNoms, &divFaders, &divPanell }) d->toFront (false);
+    for (auto* d : { &divEsquerra, &divNoms, &divPanell }) d->toFront (false);
 
     actualitzaBarres();
     repaint();
@@ -418,7 +424,7 @@ void PantallaEstudi::actualitzaBarres()
     if (pistes.getWidth() <= 0) return;
     const double visibles = pistes.getWidth() / estat.pxPerSegon;
     const double total = juce::jmax (ed::final (estat.projecte) + 30.0, estat.iniciVista + visibles, 120.0);
-    barraH.setRangeLimits (juce::jmin (0.0, estat.iniciVista), total, juce::dontSendNotification);
+    barraH.setRangeLimits (0.0, total, juce::dontSendNotification);
     barraH.setCurrentRange (estat.iniciVista, visibles, juce::dontSendNotification);
 
     const int contingut = (estat.numPistes() + 1) * estat.altPista + 60;
@@ -430,7 +436,7 @@ void PantallaEstudi::actualitzaBarres()
 
 void PantallaEstudi::scrollBarMoved (juce::ScrollBar* barra, double inici)
 {
-    if (barra == &barraH) estat.iniciVista = inici;
+    if (barra == &barraH) estat.iniciVista = juce::jmax (0.0, inici);
     else estat.desplY = juce::jmax (0, (int) inici);
     estat.avisa();
 }
@@ -451,7 +457,7 @@ void PantallaEstudi::roda (const juce::MouseEvent& e, const juce::MouseWheelDeta
         tempsZoom = ara;
         estat.pxPerSegon = juce::jlimit (2.0, 800000.0, estat.pxPerSegon * (d > 0.0f ? 1.35 : 1.0 / 1.35));   // cada pas de roda, el mateix
         const double meitat = (pistes.getWidth() / 2.0) / estat.pxPerSegon;
-        estat.iniciVista = juce::jmax (-meitat, anclaZoom - meitat);
+        estat.iniciVista = juce::jmax (0.0, anclaZoom - meitat);   // mai abans del començament
     }
     else if (e.mods.isAltDown())
     {
@@ -459,7 +465,7 @@ void PantallaEstudi::roda (const juce::MouseEvent& e, const juce::MouseWheelDeta
     }
     else if (e.mods.isShiftDown() || std::abs (w.deltaX) > std::abs (w.deltaY))
     {
-        estat.iniciVista = juce::jmax (-(pistes.getWidth() / 2.0) / estat.pxPerSegon, estat.iniciVista - d * 300.0 / estat.pxPerSegon);
+        estat.iniciVista = juce::jmax (0.0, estat.iniciVista - d * 300.0 / estat.pxPerSegon);
     }
     else
     {
@@ -502,19 +508,305 @@ void PantallaEstudi::previsualitzaClic (bool encesa)
 //==============================================================================
 void PantallaEstudi::transport (int accio)
 {
+    if (accio == 3) { atura(); return; }
+    if (accio == 4) { if (estat.transport == 0) reprodueix(); return; }
+    if (accio == 5) { if (estat.transport == 0) grava(); return; }
+    if (estat.transport >= 2) return;   // mentre es grava, el capçal no es toca
+
     const double compas = ed::segonsPerCompas (estat.projecte);
+    double t = estat.capcal;
     switch (accio)
     {
-        case 0: estat.capcal = 0.0; estat.iniciVista = 0.0; break;
-        case 1: estat.capcal = juce::jmax (0.0, std::ceil (estat.capcal / compas - 1e-6) * compas - compas); break;
-        case 2: estat.capcal = std::floor (estat.capcal / compas + 1e-6) * compas + compas; break;
+        case 0: t = 0.0; estat.iniciVista = 0.0; break;
+        case 1: t = juce::jmax (0.0, std::ceil (t / compas - 1e-6) * compas - compas); break;
+        case 2: t = std::floor (t / compas + 1e-6) * compas + compas; break;
         default: break;
     }
+    estat.mouCapcal (t, true);
     // Que el capçal es vegi.
     const double visibles = pistes.getWidth() / estat.pxPerSegon;
     if (estat.capcal < estat.iniciVista || estat.capcal > estat.iniciVista + visibles * 0.9)
         estat.iniciVista = juce::jmax (0.0, estat.capcal - visibles * 0.25);
     estat.avisa();
+}
+
+//==============================================================================
+void PantallaEstudi::publicaPla()
+{
+    servei.estudi().publica (construeixPla (estat.projecte, audioPreses));
+}
+
+void PantallaEstudi::avisDeTargeta (const juce::String& titol, const juce::String& text)
+{
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, titol, text);
+}
+
+void PantallaEstudi::reprodueix()
+{
+    if (! servei.enMarxa())
+    {
+        avisDeTargeta ("No pot sonar", "La targeta d'àudio està aturada. Obre el Diagnòstic i tria-la."_ca);
+        return;
+    }
+    publicaPla();
+    iniciPlay = estat.capcal;
+    servei.estudi().reprodueix (estat.capcal);
+    estat.transport = 1;
+    estatEsperat = 1;
+    esperantMotor = true;
+    tempsOrdre = juce::Time::currentTimeMillis();
+    estat.avisa();
+}
+
+void PantallaEstudi::atura()
+{
+    if (estat.transport == 0)
+    {
+        // Ja aturat: a l'inici.
+        transport (0);
+        return;
+    }
+    const int abans = estat.transport;
+    servei.estudi().atura();
+    estat.transport = 0;
+    estatEsperat = 0;
+    esperantMotor = true;
+    tempsOrdre = juce::Time::currentTimeMillis();
+    // Torna on havies començat (per tornar-ho a escoltar o a gravar).
+    estat.capcal = abans >= 2 ? gravacio.cursor : iniciPlay;
+    estat.avisa();
+}
+
+void PantallaEstudi::grava()
+{
+    int pista = -1;
+    for (int i = 0; i < estat.numPistes(); ++i)
+        if (estat.projecte.pistes[(size_t) i].grava) pista = i;
+    if (pista < 0)
+    {
+        estat.info = "Per gravar, encén el botó vermell d'una pista"_ca;
+        estat.avisa();
+        return;
+    }
+    if (! servei.enMarxa())
+    {
+        avisDeTargeta ("No es pot gravar", "La targeta d'àudio està aturada. Obre el Diagnòstic i tria-la."_ca);
+        return;
+    }
+
+    const auto& t = estat.projecte.pistes[(size_t) pista];
+    estat.nomsEntrades = servei.getNomsEntrades();
+    const auto& noms = estat.nomsEntrades;
+    const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
+    if (darrera >= noms.size() || noms[t.entrada].isEmpty() || noms[darrera].isEmpty())
+    {
+        avisDeTargeta ("No es pot gravar",
+                       "La pista «"_ca + dibuix::utf8 (t.nom) + "» grava de l'entrada "_ca + EstatEstudi::textEntrada (t).substring (1)
+                       + ", que no està activa.\n\nTria'n una altra (botó dret al nom de la pista → Entrada per gravar) o activa-la al Diagnòstic."_ca);
+        return;
+    }
+
+    auto& motor = servei.estudi();
+    auto carpetaAudios = audios();
+    carpetaAudios.createDirectory();
+    const auto nomFitxer = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), t.nom));
+    gravacio.fitxer = carpetaAudios.getChildFile (nomFitxer);
+    if (! motor.gravadora().comenca (dibuix::cami (gravacio.fitxer), t.canals, motor.getFs()))
+    {
+        avisDeTargeta ("No es pot gravar", "No s'ha pogut crear el fitxer:\n"_ca + gravacio.fitxer.getFullPathName());
+        return;
+    }
+
+    publicaPla();
+    gravacio.pista = pista;
+    gravacio.cursor = estat.capcal;
+    gravacio.desDe = estat.capcal - ed::segonsPerCompas (estat.projecte);   // un compàs de compte
+    gravacio.retard = servei.retardGravacio (gravacio.retardMesurat);
+    motor.grava (gravacio.desDe, gravacio.cursor, t.entrada, t.canals);
+    estat.cursorGravacio = gravacio.cursor;
+    estat.transport = 2;
+    estatEsperat = 2;
+    esperantMotor = true;
+    tempsOrdre = juce::Time::currentTimeMillis();
+    estat.info = "Compte d'entrada…"_ca;
+    estat.avisa();
+}
+
+void PantallaEstudi::acabaGravacio()
+{
+    auto& motor = servei.estudi();
+    const auto r = motor.gravadora().acaba();
+    const double fs = motor.getFs();
+    const auto fitxer = gravacio.fitxer;
+    const int pista = gravacio.pista;
+    gravacio.pista = -1;
+    if (estat.pista (pista) == nullptr)
+    {
+        fitxer.deleteFile();
+        return;
+    }
+    if (! r.correcte)
+    {
+        fitxer.deleteFile();
+        avisDeTargeta ("La gravació ha fallat", "No s'ha pogut escriure l'àudio al disc."_ca);
+        return;
+    }
+
+    const auto copia = estat.projecte;
+    const auto nomPista = dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom);
+    const auto rel = (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + fitxer.getFileName()).toStdString();
+    const int clip = ed::afegeixGravacio (estat.projecte, pista, rel, fitxer.getFileNameWithoutExtension().toStdString(),
+                                          (double) r.frames / fs, gravacio.desDe, gravacio.cursor, gravacio.retard);
+    if (clip < 0)
+    {
+        fitxer.deleteFile();
+        estat.info = "No s'ha gravat res (s'ha aturat durant el compte)"_ca;
+        estat.avisa();
+        return;
+    }
+
+    estat.desfes.abans (copia);
+    carregaOna (estat.projecte.preses.back());
+    estat.pistaTriada = pista;
+    estat.clipsTriats = { clip };
+    const auto retard = juce::String (gravacio.retard * 1000.0, 1).replaceCharacter ('.', ',') + " ms";
+    estat.info = "Gravat: "_ca + fitxer.getFileName() + " (retard corregit: " + retard + (gravacio.retardMesurat ? ", mesurat)" : ", el que diu la targeta)");
+    historial.afegeix ("Gravada la presa «"_ca + fitxer.getFileName() + "» (" + juce::String ((double) r.frames / fs, 1) + " s, retard corregit "
+                       + retard + ")");
+    estat.canviat ("Gravada «"_ca + fitxer.getFileName() + "» a la pista «"_ca + nomPista + "»"_ca);
+    if (r.perdudes > 0)
+        avisDeTargeta ("Compte: s'han perdut mostres",
+                       "El disc no ha anat prou de pressa i s'han perdut "_ca + juce::String (r.perdudes) + " mostres de la gravació.");
+}
+
+void PantallaEstudi::tic()
+{
+    auto& motor = servei.estudi();
+    motor.recull();
+
+    // Estat del motor.
+    const int ara = (int) motor.getEstat();
+    if (esperantMotor)
+    {
+        const bool fet = estatEsperat == 0 ? ara == 0 : ara != 0;
+        if (fet) esperantMotor = false;
+        else if (juce::Time::currentTimeMillis() - tempsOrdre > 1500)
+        {
+            esperantMotor = false;
+            if (estatEsperat != 0)
+            {
+                estat.transport = 0;
+                avisDeTargeta ("La targeta no respon", "S'ha demanat sonar però la targeta d'àudio no ha respost. Mira el Diagnòstic."_ca);
+            }
+            estat.avisa();
+        }
+    }
+    else if (ara != estat.transport)
+    {
+        if (ara == 3 && estat.transport == 2) estat.info = "Gravant…"_ca;
+        if (ara == 0 && estat.transport == 1) estat.capcal = iniciPlay;   // la targeta s'ha aturat sola
+        estat.transport = ara;
+        estat.avisa();
+    }
+    if (estat.transport == 0 && ! esperantMotor && motor.gravadora().activa())
+        acabaGravacio();
+
+    // Capçal: mentre sona, el del motor (i la vista el segueix).
+    const float xAbans = estat.x (estat.capcal);
+    if (estat.transport != 0 && ! esperantMotor)
+    {
+        estat.capcal = motor.getPosicio();
+        const double visibles = pistes.getWidth() / estat.pxPerSegon;
+        if (estat.capcal > estat.iniciVista + visibles * 0.95 || estat.capcal < estat.iniciVista)
+        {
+            estat.iniciVista = juce::jmax (0.0, estat.capcal - visibles * 0.05);
+            actualitzaBarres();
+            estat.avisa();
+        }
+        else
+        {
+            const float xAra = estat.x (estat.capcal);
+            const int x0 = (int) juce::jmin (xAbans, xAra) - 6, x1 = (int) juce::jmax (xAbans, xAra) + 6;
+            if (estat.transport == 3) pistes.repaint();
+            else pistes.repaint (x0, 0, x1 - x0, pistes.getHeight());
+            regla.repaint (x0, 0, x1 - x0, regla.getHeight());
+        }
+    }
+
+    // Vúmetres: el pic de cada canal, amb caiguda suau.
+    auto cau = [] (float& v, float nou) { v = juce::jmax (nou, v * 0.82f); if (v < 1.0e-4f) v = 0.0f; };
+    bool canvi = false;
+    for (int i = 0; i < maxSlots * 2; ++i)
+    {
+        const float abans = estat.nivells[(size_t) i];
+        cau (estat.nivells[(size_t) i], motor.vuPista (i / 2, i % 2).llegeixIReinicia());
+        canvi = canvi || std::abs (abans - estat.nivells[(size_t) i]) > 1.0e-6f;
+    }
+    for (int e = 0; e < 32; ++e)
+    {
+        const float abans = estat.nivellsEntrada[(size_t) e];
+        cau (estat.nivellsEntrada[(size_t) e], motor.vuEntrada (e).llegeixIReinicia());
+        canvi = canvi || std::abs (abans - estat.nivellsEntrada[(size_t) e]) > 1.0e-6f;
+    }
+    for (int c = 0; c < 2; ++c)
+    {
+        const float abans = estat.nivellsSortida[(size_t) c];
+        cau (estat.nivellsSortida[(size_t) c], motor.vuSortida (c).llegeixIReinicia());
+        canvi = canvi || std::abs (abans - estat.nivellsSortida[(size_t) c]) > 1.0e-6f;
+    }
+    if (canvi)
+    {
+        if (capcaleres.isVisible()) capcaleres.repaint (capcaleres.getWidth() - 20, 0, 20, capcaleres.getHeight());
+        esquerra.repaint();
+        if (mescles.isVisible()) mescles.repaint();
+    }
+
+    // De tant en tant, les entrades de la targeta (per si s'ha canviat al Diagnòstic).
+    static int comptador = 0;
+    if (++comptador % 30 == 0)
+    {
+        auto noms = servei.getNomsEntrades();
+        if (noms != estat.nomsEntrades) { estat.nomsEntrades = noms; capcaleres.repaint(); }
+    }
+}
+
+void PantallaEstudi::exportaMescla()
+{
+    desaAra();
+    const auto tros = trosPerExportar (estat.projecte);
+    if (tros.second <= tros.first)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Exporta la mescla", "No hi ha res que soni per exportar."_ca);
+        return;
+    }
+    const auto proposta = estat.carpeta.getChildFile (dibuix::utf8 (estat.projecte.nom) + " - mescla.wav");
+    selector = std::make_unique<juce::FileChooser> ("Exporta la mescla (WAV estèreo, 24 bits)"_ca, proposta, "*.wav");
+    selector->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                               | juce::FileBrowserComponent::warnAboutOverwriting,
+                           [this, tros] (const juce::FileChooser& fc)
+    {
+        auto desti = fc.getResult();
+        if (desti == juce::File()) return;
+        if (! desti.hasFileExtension ("wav")) desti = desti.withFileExtension ("wav");
+        const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+        std::string error;
+        juce::MouseCursor::showWaitCursor();
+        const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses), fs, tros.first, tros.second, dibuix::cami (desti), error);
+        juce::MouseCursor::hideWaitCursor();
+        if (! fet)
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut exportar", dibuix::utf8 (error));
+            return;
+        }
+        const auto que = estat.projecte.bucle.marcat && estat.projecte.bucle.actiu ? juce::String ("el bucle") : juce::String ("del primer al darrer clip");
+        disc::afegeixEvolucio (dibuix::cami (estat.carpeta), dibuix::araText().toStdString(),
+                               ("Mescla exportada a " + desti.getFullPathName()).toStdString());
+        historial.afegeix ("Mescla exportada a "_ca + desti.getFullPathName());
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Mescla exportada",
+            "S'ha desat "_ca + que + " (" + juce::String (tros.second - tros.first, 1).replaceCharacter ('.', ',') + " s) a:\n" + desti.getFullPathName()
+            + "\n\nSona tal com ho sents (volums, panorama, silencis i solos), sense la claqueta."_ca);
+        desti.revealToUser();
+    });
 }
 
 std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
@@ -670,6 +962,7 @@ void PantallaEstudi::carregaOna (const Presa& s)
     if (ona->lector == nullptr || ona->lector->sampleRate <= 0.0)
     {
         estat.ones.erase (s.id);
+        audioPreses.erase (s.id);
         return;
     }
 
@@ -681,6 +974,14 @@ void PantallaEstudi::carregaOna (const Presa& s)
     ona->mins.assign (blocs, 0.0f);
     ona->maxs.assign (blocs, 0.0f);
 
+    // L'àudio sencer a la memòria (per sonar) i, alhora, l'ona per dibuixar.
+    auto audio = std::make_shared<AudioPresa>();
+    audio->fs = lector.sampleRate;
+    audio->canals = lector.numChannels > 1 ? 2 : 1;
+    audio->longitud = ona->longitud;
+    for (int c = 0; c < audio->canals; ++c)
+        audio->dades[c].assign ((size_t) audio->longitud, 0.0f);
+
     const int tros = OnaPresa::bloc * 512;
     juce::AudioBuffer<float> buffer ((int) juce::jmax (1u, lector.numChannels), tros);
     const float factor = 1.0f / (float) buffer.getNumChannels();
@@ -688,6 +989,8 @@ void PantallaEstudi::carregaOna (const Presa& s)
     {
         const int n = (int) juce::jmin ((juce::int64) tros, ona->longitud - pos);
         lector.read (&buffer, 0, n, pos, true, true);
+        for (int c = 0; c < audio->canals; ++c)
+            std::copy (buffer.getReadPointer (c), buffer.getReadPointer (c) + n, audio->dades[c].data() + pos);
         for (int i = 0; i < n; ++i)
         {
             float v = 0.0f;
@@ -699,6 +1002,7 @@ void PantallaEstudi::carregaOna (const Presa& s)
         }
     }
     estat.ones[s.id] = std::move (ona);
+    audioPreses[s.id] = std::move (audio);
 }
 
 bool PantallaEstudi::importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error)
@@ -944,11 +1248,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '6') { triaEina ((Eina) (codi - '1')); return true; }
     if (codi == juce::KeyPress::escapeKey) { estat.clipsTriats.clear(); triaEina (Eina::Fletxa); return true; }
     if (codi == juce::KeyPress::homeKey) { transport (0); return true; }
-    if (codi == juce::KeyPress::spaceKey)
-    {
-        estat.info = "Reproduir arriba a la versió 0.5"_ca;
-        estat.avisa();
-        return true;
-    }
+    if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
+    if (! mods.isAnyModifierKeyDown() && (codi == 'R' || codi == 'r')) { if (estat.transport == 0) grava(); else atura(); return true; }
     return false;
 }

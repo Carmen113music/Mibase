@@ -20,9 +20,9 @@ namespace
         return ! t.mut && (! hiHaSolo || t.solo);
     }
 
-    void pintaCapcal (juce::Graphics& g, float x, float alt)
+    void pintaCapcal (juce::Graphics& g, float x, float alt, int transport = 0)
     {
-        g.setColour (tema::text);
+        g.setColour (transport >= 2 ? vintage::ledVermell : (transport == 1 ? vintage::ledVerd : tema::text));
         g.fillRect (juce::Rectangle<float> (x - 0.75f, 0.0f, 1.5f, alt));
     }
 
@@ -68,17 +68,28 @@ void dibuixEstudi::teclaPetita (juce::Graphics& g, juce::Rectangle<int> r, const
 
 juce::Rectangle<float> dibuixEstudi::carrilVertical (juce::Rectangle<float> r)
 {
-    return { r.getCentreX() + 6.0f - 3.0f, r.getY() + 14.0f, 6.0f, juce::jmax (20.0f, r.getHeight() - 28.0f) };
+    return { r.getX() + 41.0f, r.getY() + 16.0f, 6.0f, juce::jmax (20.0f, r.getHeight() - 32.0f) };
 }
 
-juce::Rectangle<float> dibuixEstudi::faderVertical (juce::Graphics& g, juce::Rectangle<float> r, double db, juce::Colour color, bool actiu)
+void dibuixEstudi::vumetres (juce::Graphics& g, juce::Rectangle<float> r, float l, float d)
+{
+    const auto pos = [] (double db) { return EstatEstudi::posFader (db); };
+    const float ample = juce::jmax (3.0f, (r.getWidth() - 2.0f) / 2.0f);
+    vintage::vumetre (g, r.withWidth (ample), l, pos);
+    vintage::vumetre (g, r.withTrimmedLeft (r.getWidth() - ample), d, pos);
+}
+
+juce::Rectangle<float> dibuixEstudi::faderVertical (juce::Graphics& g, juce::Rectangle<float> r, double db, juce::Colour color, bool actiu,
+                                                    float nivellL, float nivellR)
 {
     const auto carril = carrilVertical (r);
     vintage::ranura (g, carril);
     vintage::escalaVertical (g, carril, carril.getX() - 34.0f, [] (double d) { return EstatEstudi::posFader (d); });
+    if (nivellL >= 0.0f)
+        vumetres (g, juce::Rectangle<float> (r.getRight() - 13.0f, carril.getY(), 12.0f, carril.getHeight()), nivellL, nivellR);
     const float pos = EstatEstudi::posFader (db);
     const float y = carril.getBottom() - carril.getHeight() * pos;
-    vintage::capFader (g, juce::Rectangle<float> (carril.getCentreX() - 15.0f, y - 9.0f, 30.0f, 18.0f), color, true, actiu);
+    vintage::capFader (g, juce::Rectangle<float> (carril.getCentreX() - 17.0f, y - 13.0f, 34.0f, 26.0f), color, true, actiu);
     return carril;
 }
 
@@ -177,7 +188,7 @@ void Regla::mouseDown (const juce::MouseEvent& e)
             }
             else if (r == 3)
             {
-                estat.capcal = 0.0;
+                estat.mouCapcal (0.0, true);
                 estat.avisa();
             }
         });
@@ -210,7 +221,7 @@ void Regla::mouseUp (const juce::MouseEvent& e)
         return;
     }
     canviFet = false;
-    estat.capcal = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), Snap::Temps));
+    estat.mouCapcal (ed::enganxa (estat.projecte, estat.t ((float) e.x), Snap::Temps), true);
     estat.avisa();
 }
 
@@ -663,7 +674,24 @@ void VistaPistes::paint (juce::Graphics& g)
         g.fillRect (0, estat.yPista (fila), getWidth(), fila < estat.numPistes() ? estat.altPista : 44);
     }
 
-    pintaCapcal (g, estat.x (estat.capcal), h);
+    // Gravant: la zona que s'està gravant, a la pista amb el botó encès.
+    if (estat.transport == 3 && estat.capcal > estat.cursorGravacio)
+    {
+        for (int i = 0; i < estat.numPistes(); ++i)
+        {
+            if (! estat.projecte.pistes[(size_t) i].grava) continue;
+            auto r = juce::Rectangle<float> (estat.x (estat.cursorGravacio), (float) estat.yPista (i) + 5.0f,
+                                             estat.x (estat.capcal) - estat.x (estat.cursorGravacio), (float) estat.altPista - 10.0f);
+            g.setColour (vintage::ledVermell.withAlpha (0.18f));
+            g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (vintage::ledVermell.withAlpha (0.8f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.5f);
+            g.setFont (dibuix::lletra (12.0f, true));
+            g.drawText ("Gravant", r.reduced (10.0f, 4.0f), juce::Justification::topLeft, false);
+        }
+    }
+
+    pintaCapcal (g, estat.x (estat.capcal), h, estat.transport);
 }
 
 void VistaPistes::mouseMove (const juce::MouseEvent& e)
@@ -862,7 +890,7 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
     {
         estat.clipsTriats.clear();
         mode = Mode::Capcal;
-        estat.capcal = tEina (t0);
+        estat.mouCapcal (tEina (t0));
         estat.avisa();
         return;
     }
@@ -939,7 +967,7 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
     estat.pistaTriada = lloc0.pista;
     estat.clipsTriats.clear();
     mode = Mode::Capcal;
-    estat.capcal = tEina (t0);
+    estat.mouCapcal (tEina (t0));
     estat.avisa();
 }
 
@@ -955,7 +983,7 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
             return;
 
         case Mode::Capcal:
-            estat.capcal = tEina (t);
+            estat.mouCapcal (tEina (t));
             estat.avisa();
             return;
 
@@ -1229,7 +1257,7 @@ void Capcaleres::paint (juce::Graphics& g)
         g.setColour (sona (p, t) ? EstatEstudi::colorPista (t) : tema::suau);
         g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
 
-        auto text = r.withTrimmedLeft (14).withTrimmedRight (8).withTrimmedTop (7);
+        auto text = r.withTrimmedLeft (14).withTrimmedRight (22).withTrimmedTop (7);
         auto fila = text.removeFromTop (20);
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
@@ -1242,13 +1270,18 @@ void Capcaleres::paint (juce::Graphics& g)
         dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 2), {}, t.grava, vintage::ledVermell, true);
 
-        const auto zonaCanals = juce::Rectangle<int> (rectTecla (i, 2).getRight() + 8, rectTecla (i, 2).getY(), 60, 24);
-        if (zonaCanals.getRight() < getWidth() - 4)
+        const auto zonaCanals = juce::Rectangle<int> (rectTecla (i, 2).getRight() + 8, rectTecla (i, 2).getY(), getWidth() - rectTecla (i, 2).getRight() - 30, 24);
+        if (zonaCanals.getWidth() > 30)
         {
-            g.setColour (tema::suau);
+            g.setColour (t.grava ? vintage::ledVermell.withAlpha (0.85f) : tema::suau);
             g.setFont (dibuix::lletra (11.0f));
-            g.drawText (textCanals (t), zonaCanals, juce::Justification::centredLeft);
+            g.drawFittedText (textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t), zonaCanals,
+                              juce::Justification::centredLeft, 1, 0.8f);
         }
+
+        // Vúmetre de la pista (si té el botó de gravar encès, també el que entra).
+        dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
+                                estat.nivell (i, 0), estat.nivell (i, t.canals == 2 ? 1 : 0));
 
         g.setColour (tema::linia.withAlpha (0.6f));
         g.fillRect (0, r.getBottom() - 1, getWidth(), 1);
@@ -1279,10 +1312,23 @@ void Capcaleres::menu (int pista)
     for (int c = 0; c < ed::colorsPista; ++c)
         colors.addColouredItem (20 + c, EstatEstudi::nomColor (c), EstatEstudi::colorPista (c), true, t.color == c);
 
+    juce::PopupMenu entrades;
+    const auto& noms = estat.nomsEntrades;
+    for (int e = 0; e + (t.canals == 2 ? 1 : 0) < noms.size(); ++e)
+    {
+        const bool activa = noms[e].isNotEmpty() && (t.canals == 1 || noms[e + 1].isNotEmpty());
+        const auto text = t.canals == 2 ? juce::String (e + 1) + "-" + juce::String (e + 2) + "  (" + noms[e] + " + " + noms[e + 1] + ")"
+                                        : juce::String (e + 1) + "  (" + noms[e] + ")";
+        entrades.addItem (40 + e, activa ? text : juce::String (e + 1) + "  (apagada al Diagnòstic)"_ca, activa, t.entrada == e);
+    }
+    if (noms.isEmpty())
+        entrades.addItem (39, "La targeta no té entrades (o està aturada)", false);
+
     juce::PopupMenu m;
     m.addItem (1, "Canvia el nom…"_ca);
     m.addSubMenu ("Color", colors);
     m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
+    m.addSubMenu ("Entrada per gravar", entrades);
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista] (int r)
@@ -1300,6 +1346,7 @@ void Capcaleres::menu (int pista)
             estat.clipsTriats.clear();
         }
         else if (r == 3) tt.canals = tt.canals == 2 ? 1 : 2;
+        else if (r >= 40) tt.entrada = r - 40;
         else if (r >= 20) tt.color = r - 20;
         acabaCanvi (evolucio);
     });
@@ -1376,83 +1423,6 @@ void Capcaleres::mouseDoubleClick (const juce::MouseEvent& e)
 }
 
 //==============================================================================
-// Faders (horitzontals, un per pista)
-//==============================================================================
-juce::Rectangle<float> Faders::rectFader (int pista) const
-{
-    const float y = (float) estat.yPista (pista);
-    const float mig = y + (float) estat.altPista * 0.5f + 8.0f;
-    return { 16.0f, mig - 12.0f, juce::jmax (30.0f, (float) getWidth() - 32.0f), 24.0f };
-}
-
-void Faders::paint (juce::Graphics& g)
-{
-    g.fillAll (tema::lateral);
-    const auto& p = estat.projecte;
-    for (int i = 0; i < estat.numPistes(); ++i)
-    {
-        const auto& t = p.pistes[(size_t) i];
-        const int y = estat.yPista (i);
-        if (y > getHeight() || y + estat.altPista < 0) continue;
-        if (i == estat.pistaTriada)
-        {
-            g.setColour (tema::triat);
-            g.fillRect (0, y, getWidth(), estat.altPista);
-        }
-        const auto r = rectFader (i);
-        g.setColour (tema::suau);
-        g.setFont (dibuix::mono (11.5f));
-        g.drawText (EstatEstudi::textDb (t.faderDb), juce::Rectangle<float> (r.getX(), (float) y + 7.0f, r.getWidth(), 16.0f),
-                    juce::Justification::centredLeft);
-        dibuixEstudi::faderHoritzontal (g, r, t.faderDb, EstatEstudi::colorPista (t), sona (p, t));
-        g.setColour (tema::linia.withAlpha (0.6f));
-        g.fillRect (0, y + estat.altPista - 1, getWidth(), 1);
-    }
-    g.setColour (tema::linia);
-    g.fillRect (getWidth() - 1, 0, 1, getHeight());
-}
-
-void Faders::mouseDown (const juce::MouseEvent& e)
-{
-    const int fila = estat.pistaA (e.y);
-    pistaFader = (fila >= 0 && fila < estat.numPistes()) ? fila : -1;
-    if (pistaFader < 0) return;
-    if (estat.pistaTriada != fila) estat.clipsTriats.clear();
-    estat.pistaTriada = fila;
-    pos0 = EstatEstudi::posFader (estat.projecte.pistes[(size_t) fila].faderDb);
-    comencaCanvi();
-    estat.avisa();
-}
-
-void Faders::mouseDrag (const juce::MouseEvent& e)
-{
-    if (pistaFader < 0) return;
-    restaura();
-    auto& t = estat.projecte.pistes[(size_t) pistaFader];
-    double db = EstatEstudi::dbFader (pos0 + (float) e.getDistanceFromDragStartX() / rectFader (pistaFader).getWidth());
-    if (std::abs (db) < 0.6) db = 0.0;
-    t.faderDb = db;
-    estat.info = "Volum de «"_ca + dibuix::utf8 (t.nom) + "»: "_ca + EstatEstudi::textDb (db);
-    estat.avisa();
-}
-
-void Faders::mouseUp (const juce::MouseEvent&)
-{
-    if (pistaFader >= 0) acabaCanvi();
-    pistaFader = -1;
-}
-
-void Faders::mouseDoubleClick (const juce::MouseEvent& e)
-{
-    const int fila = estat.pistaA (e.y);
-    if (fila < 0 || fila >= estat.numPistes()) return;
-    comencaCanvi();
-    restaura();
-    estat.projecte.pistes[(size_t) fila].faderDb = 0.0;
-    acabaCanvi();
-}
-
-//==============================================================================
 // ColumnaEsquerra
 //==============================================================================
 ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
@@ -1482,9 +1452,10 @@ void ColumnaEsquerra::resized()
     r.removeFromTop (6);
     btMescles.setBounds (r.removeFromTop (44));
     r.removeFromTop (16);
-    r.removeFromTop (44);   // nom de la pista
+    zonaNom = r.removeFromTop (44);
+    zonaPan = r.removeFromTop (52);
     zonaTecles = r.removeFromBottom (30);
-    r.removeFromBottom (26);   // valor
+    zonaLcd = r.removeFromBottom (30);
     zonaFader = r;
 }
 
@@ -1494,8 +1465,11 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
     g.setColour (tema::linia);
     g.fillRect (getWidth() - 1, 0, 1, getHeight());
 
+    // A la taula de mescles, cada pista ja té la seva tira: aquí només hi ha les pestanyes.
+    if (estat.vistaMescles) return;
+
     auto* t = estat.pista (estat.pistaTriada);
-    auto cap = juce::Rectangle<int> (10, btMescles.getBottom() + 14, getWidth() - 20, 40);
+    auto cap = zonaNom.withTrimmedLeft (2);
     if (t == nullptr)
     {
         g.setColour (tema::suau);
@@ -1514,10 +1488,21 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
     g.drawText ("Pista " + juce::String (estat.pistaTriada + 1) + " · "_ca + textCanals (*t), cap.withTrimmedLeft (10).withTrimmedTop (20),
                 juce::Justification::centredLeft, true);
 
-    dibuixEstudi::faderVertical (g, zonaFader.toFloat(), t->faderDb, EstatEstudi::colorPista (*t), sona (estat.projecte, *t));
+    const bool actiu = sona (estat.projecte, *t);
+    const auto color = EstatEstudi::colorPista (*t);
+    vintage::pom (g, rectPom().toFloat(), (float) t->pan, color, actiu);
+    g.setColour (tema::suau);
+    g.setFont (dibuix::lletra (10.5f, true));
+    auto text = zonaPan.withTrimmedLeft (rectPom().getRight() - zonaPan.getX() + 8);
+    g.drawText ("PAN", text.removeFromTop (zonaPan.getHeight() / 2), juce::Justification::bottomLeft);
+    g.setColour (tema::textMig);
+    g.setFont (dibuix::mono (12.0f));
+    g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
 
-    vintage::lcd (g, juce::Rectangle<float> ((float) zonaFader.getX() + 6.0f, (float) zonaFader.getBottom() + 2.0f, (float) zonaFader.getWidth() - 12.0f, 22.0f),
-                  EstatEstudi::textDb (t->faderDb), {});
+    dibuixEstudi::faderVertical (g, zonaFader.toFloat(), t->faderDb, color, actiu,
+                                 estat.nivell (estat.pistaTriada, 0), estat.nivell (estat.pistaTriada, t->canals == 2 ? 1 : 0));
+
+    vintage::lcd (g, zonaLcd.reduced (2, 3).toFloat(), EstatEstudi::textDb (t->faderDb), {});
 
     const int ample = 28, sep = 4;
     auto tecles = zonaTecles.withSizeKeepingCentre (ample * 3 + sep * 2, 26);
@@ -1528,10 +1513,16 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
     dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), {}, t->grava, vintage::ledVermell, true);
 }
 
+juce::Rectangle<int> ColumnaEsquerra::rectPom() const
+{
+    return zonaPan.withWidth (44).withSizeKeepingCentre (44, 44).withX (zonaPan.getX() + 4);
+}
+
 void ColumnaEsquerra::mouseDown (const juce::MouseEvent& e)
 {
+    movent = Arrossega::Res;
     auto* t = estat.pista (estat.pistaTriada);
-    if (t == nullptr) return;
+    if (t == nullptr || estat.vistaMescles) return;
 
     auto tecles = zonaTecles.withSizeKeepingCentre (28 * 3 + 8, 26);
     for (int i = 0; i < 3; ++i)
@@ -1549,132 +1540,259 @@ void ColumnaEsquerra::mouseDown (const juce::MouseEvent& e)
         }
     }
 
-    movent = zonaFader.contains (e.getPosition());
-    if (! movent) return;
-    pos0 = EstatEstudi::posFader (t->faderDb);
+    if (zonaPan.contains (e.getPosition()))
+    {
+        movent = Arrossega::Pan;
+        valor0 = (float) t->pan;
+    }
+    else if (zonaFader.contains (e.getPosition()))
+    {
+        movent = Arrossega::Fader;
+        valor0 = EstatEstudi::posFader (t->faderDb);
+    }
+    else return;
+    ultimaY = e.position.y;
     comencaCanvi();
 }
 
 void ColumnaEsquerra::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! movent) return;
+    if (movent == Arrossega::Res) return;
     restaura();
     auto* t = estat.pista (estat.pistaTriada);
     if (t == nullptr) return;
-    const auto carril = dibuixEstudi::carrilVertical (zonaFader.toFloat());
-    double db = EstatEstudi::dbFader (pos0 - (float) e.getDistanceFromDragStartY() / carril.getHeight());
-    if (std::abs (db) < 0.6) db = 0.0;
-    t->faderDb = db;
-    estat.info = "Volum de «"_ca + dibuix::utf8 (t->nom) + "»: "_ca + EstatEstudi::textDb (db);
+    const float dy = e.position.y - ultimaY;
+    ultimaY = e.position.y;
+    if (movent == Arrossega::Pan)
+    {
+        valor0 = juce::jlimit (-1.0f, 1.0f, valor0 - dy / (e.mods.isShiftDown() ? 1500.0f : 150.0f));
+        t->pan = std::abs (valor0) < 0.005f ? 0.0 : (double) valor0;
+        estat.info = "Panorama de «"_ca + dibuix::utf8 (t->nom) + "»: "_ca + EstatEstudi::textPan (t->pan);
+    }
+    else
+    {
+        const auto carril = dibuixEstudi::carrilVertical (zonaFader.toFloat());
+        valor0 = juce::jlimit (0.0f, 1.0f, valor0 - dy / carril.getHeight() * (e.mods.isShiftDown() ? 0.1f : 1.0f));
+        t->faderDb = EstatEstudi::dbFader (valor0);
+        estat.info = "Volum de «"_ca + dibuix::utf8 (t->nom) + "»: "_ca + EstatEstudi::textDb (t->faderDb) + "  (Maj: més fi; doble clic: 0 dB)";
+    }
     estat.avisa();
 }
 
 void ColumnaEsquerra::mouseUp (const juce::MouseEvent&)
 {
-    if (movent) acabaCanvi();
-    movent = false;
+    if (movent != Arrossega::Res) acabaCanvi();
+    movent = Arrossega::Res;
 }
 
 void ColumnaEsquerra::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (estat.pista (estat.pistaTriada) == nullptr || ! zonaFader.contains (e.getPosition())) return;
+    if (estat.pista (estat.pistaTriada) == nullptr || estat.vistaMescles) return;
+    const bool pan = zonaPan.contains (e.getPosition());
+    if (! pan && ! zonaFader.contains (e.getPosition())) return;
     comencaCanvi();
     restaura();
-    estat.pista (estat.pistaTriada)->faderDb = 0.0;
+    if (pan) estat.pista (estat.pistaTriada)->pan = 0.0;
+    else estat.pista (estat.pistaTriada)->faderDb = 0.0;
     acabaCanvi();
 }
 
 //==============================================================================
 // TaulaMescles
 //==============================================================================
-juce::Rectangle<int> TaulaMescles::rectTecla (int i, int quina) const
+TaulaMescles::Geo TaulaMescles::geo (juce::Rectangle<int> r, bool master) const
 {
-    auto r = rectTira (i);
-    const int ample = 26, sep = 3;
-    const int x0 = r.getCentreX() - (ample * 3 + sep * 2) / 2;
-    return { x0 + quina * (ample + sep), 46, ample, 24 };
+    Geo g;
+    const int x = r.getX() + 6, w = r.getWidth() - 12;
+    g.nom = { x, 14, w, 24 };
+    int y = 44;
+    g.etInserts = { x, y, w, 12 };
+    y += 14;
+    for (int k = 0; k < numInserts; ++k) { g.inserts[(size_t) k] = { x, y, w, 18 }; y += 21; }
+    y += 4;
+    if (! master)
+    {
+        g.etEnvia = { x, y, w, 12 };
+        y += 14;
+        for (int k = 0; k < numEnvia; ++k) { g.envia[(size_t) k] = { x, y, w, 18 }; y += 21; }
+        y += 4;
+        g.pan = { x, y, w, 46 };
+        y += 50;
+        const int ample = 26, sep = 3;
+        const int x0 = r.getCentreX() - (ample * 3 + sep * 2) / 2;
+        for (int k = 0; k < 3; ++k) g.tecles[(size_t) k] = { x0 + k * (ample + sep), y, ample, 24 };
+        y += 30;
+    }
+    else
+        y = 44 + 14 + numInserts * 21 + 4 + 14 + numEnvia * 21 + 4 + 50 + 30;   // alineat amb les altres tires
+    const int alt = juce::jlimit (90, 280, getHeight() - y - 30 - 26);
+    g.fader = { r.getX() + 4, y, r.getWidth() - 8, alt };
+    g.lcd = { x + 2, g.fader.getBottom() + 4, w - 4, 26 };
+    g.numero = { r.getX(), g.lcd.getBottom() + 4, r.getWidth(), 18 };
+    return g;
 }
 
-juce::Rectangle<float> TaulaMescles::zonaFader (int i) const
+void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
 {
-    auto r = rectTira (i);
-    return juce::Rectangle<int> (r.getX() + 6, 82, r.getWidth() - 12, juce::jmax (80, getHeight() - 82 - 64)).toFloat();
+    const bool master = i < 0;
+    const auto& p = estat.projecte;
+    const auto* t = master ? nullptr : &p.pistes[(size_t) i];
+    const auto color = master ? tema::accent : EstatEstudi::colorPista (*t);
+    const auto ge = geo (r, master);
+
+    vintage::panell (g, r.reduced (2, 0).toFloat(), 6.0f);
+    if (! master && i == estat.pistaTriada)
+    {
+        g.setColour (tema::accent.withAlpha (0.6f));
+        g.drawRoundedRectangle (r.reduced (2, 0).toFloat().reduced (0.5f), 6.0f, 1.5f);
+    }
+    g.setColour (color);
+    g.fillRect (r.getX() + 8, 8, r.getWidth() - 16, 3);
+    g.setColour (tema::text);
+    g.setFont (dibuix::lletra (12.0f, true));
+    g.drawFittedText (master ? juce::String ("Sortida") : dibuix::utf8 (t->nom), ge.nom, juce::Justification::centred, 1, 0.75f);
+
+    auto etiqueta = [&] (juce::Rectangle<int> z, const juce::String& text)
+    {
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (9.5f, true));
+        g.drawText (text, z, juce::Justification::centredLeft);
+    };
+    auto ranura = [&] (juce::Rectangle<int> z)
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (z.toFloat(), 3.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.04f));
+        g.fillRect (z.getX() + 3, z.getBottom() - 1, z.getWidth() - 6, 1);
+        g.setColour (tema::linia2);
+        g.setFont (dibuix::lletra (10.5f));
+        g.drawText (juce::String::fromUTF8 ("—"), z, juce::Justification::centred);
+    };
+    etiqueta (ge.etInserts, "INSERTS");
+    for (auto& z : ge.inserts) ranura (z);
+
+    if (! master)
+    {
+        etiqueta (ge.etEnvia, "ENVIAMENTS");
+        for (auto& z : ge.envia) ranura (z);
+
+        const bool actiu = sona (p, *t);
+        auto pomR = ge.pan.withWidth (44).withX (ge.pan.getX());
+        vintage::pom (g, pomR.toFloat(), (float) t->pan, color, actiu);
+        auto text = ge.pan.withTrimmedLeft (48);
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (9.5f, true));
+        g.drawText ("PAN", text.removeFromTop (ge.pan.getHeight() / 2), juce::Justification::bottomLeft);
+        g.setColour (tema::textMig);
+        g.setFont (dibuix::mono (11.5f));
+        g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
+
+        dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", t->mut, vintage::ledBlau);
+        dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
+        dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
+
+        dibuixEstudi::faderVertical (g, ge.fader.toFloat(), t->faderDb, color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
+        vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
+        g.setColour (tema::suau);
+        g.setFont (dibuix::mono (12.0f));
+        g.drawText (juce::String (i + 1) + "  " + EstatEstudi::textEntrada (*t), ge.numero, juce::Justification::centred);
+    }
+    else
+    {
+        dibuixEstudi::faderVertical (g, ge.fader.toFloat(), p.masterDb, color, true, estat.nivellsSortida[0], estat.nivellsSortida[1]);
+        vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (p.masterDb), {});
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (11.0f));
+        g.drawText ("L  R", ge.numero, juce::Justification::centred);
+    }
 }
 
 void TaulaMescles::paint (juce::Graphics& g)
 {
     g.fillAll (tema::fons);
-    const auto& p = estat.projecte;
+    pintaTira (g, rectMaster(), -1);
 
     if (estat.numPistes() == 0)
     {
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (14.0f));
-        g.drawText ("Encara no hi ha pistes. Crea'n una a la taula de treball.", getLocalBounds().reduced (20), juce::Justification::topLeft);
+        g.drawText ("Encara no hi ha pistes. Crea'n una a la taula de treball.", getLocalBounds().withRight (rectMaster().getX()).reduced (20),
+                    juce::Justification::topLeft);
         return;
     }
 
+    juce::Graphics::ScopedSaveState guarda (g);
+    g.reduceClipRegion (0, 0, rectMaster().getX() - 6, getHeight());
     for (int i = 0; i < estat.numPistes(); ++i)
     {
         auto r = rectTira (i);
         if (r.getRight() < 0 || r.getX() > getWidth()) continue;
-        const auto& t = p.pistes[(size_t) i];
-        const auto color = EstatEstudi::colorPista (t);
-
-        vintage::panell (g, r.reduced (2, 0).toFloat(), 6.0f);
-        if (i == estat.pistaTriada)
-        {
-            g.setColour (tema::accent.withAlpha (0.6f));
-            g.drawRoundedRectangle (r.reduced (2, 0).toFloat().reduced (0.5f), 6.0f, 1.5f);
-        }
-        g.setColour (color);
-        g.fillRect (r.getX() + 8, 8, r.getWidth() - 16, 3);
-        g.setColour (tema::text);
-        g.setFont (dibuix::lletra (12.0f, true));
-        g.drawFittedText (dibuix::utf8 (t.nom), juce::Rectangle<int> (r.getX() + 6, 16, r.getWidth() - 12, 24), juce::Justification::centred, 1, 0.75f);
-
-        dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", t.mut, vintage::ledBlau);
-        dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
-        dibuixEstudi::teclaPetita (g, rectTecla (i, 2), {}, t.grava, vintage::ledVermell, true);
-
-        const auto zf = zonaFader (i);
-        dibuixEstudi::faderVertical (g, zf, t.faderDb, color, sona (p, t));
-
-        vintage::lcd (g, juce::Rectangle<float> ((float) r.getX() + 8.0f, zf.getBottom() + 6.0f, (float) r.getWidth() - 16.0f, 22.0f),
-                      EstatEstudi::textDb (t.faderDb), {});
-        g.setColour (tema::suau);
-        g.setFont (dibuix::mono (12.0f));
-        g.drawText (juce::String (i + 1), juce::Rectangle<int> (r.getX(), getHeight() - 26, r.getWidth(), 20), juce::Justification::centred);
+        pintaTira (g, r, i);
     }
+}
+
+bool TaulaMescles::troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla) const
+{
+    tecla = -1;
+    zona = Zona::Res;
+    juce::Rectangle<int> r;
+    if (rectMaster().contains (p)) { quina = -1; r = rectMaster(); }
+    else
+    {
+        quina = tiraA (p.x);
+        if (quina < 0 || quina >= estat.numPistes() || p.x >= rectMaster().getX() - 6) return false;
+        r = rectTira (quina);
+    }
+    const auto ge = geo (r, quina < 0);
+    if (quina >= 0)
+        for (int k = 0; k < 3; ++k)
+            if (ge.tecles[(size_t) k].contains (p)) { zona = Zona::Tecla; tecla = k; return true; }
+    if (quina >= 0 && ge.pan.contains (p)) zona = Zona::Pan;
+    else if (ge.fader.contains (p)) zona = Zona::Fader;
+    else
+    {
+        for (auto& z : ge.inserts) if (z.contains (p)) zona = Zona::Ranura;
+        if (quina >= 0) for (auto& z : ge.envia) if (z.contains (p)) zona = Zona::Ranura;
+    }
+    return true;
 }
 
 void TaulaMescles::mouseDown (const juce::MouseEvent& e)
 {
-    const int i = tiraA (e.x);
-    tiraFader = -1;
-    if (i < 0 || i >= estat.numPistes()) return;
-    if (estat.pistaTriada != i) estat.clipsTriats.clear();
-    estat.pistaTriada = i;
-
-    for (int k = 0; k < 3; ++k)
+    int i = -1, k = -1;
+    Zona z;
+    arrossega = Zona::Res;
+    if (! troba (e.getPosition(), i, z, k)) return;
+    tira = i;
+    if (i >= 0)
     {
-        if (rectTecla (i, k).contains (e.getPosition()))
-        {
-            comencaCanvi();
-            restaura();
-            auto& t = estat.projecte.pistes[(size_t) i];
-            if (k == 0) t.mut = ! t.mut;
-            else if (k == 1) t.solo = ! t.solo;
-            else ed::triaGravacio (estat.projecte, i);
-            acabaCanvi();
-            return;
-        }
+        if (estat.pistaTriada != i) estat.clipsTriats.clear();
+        estat.pistaTriada = i;
     }
 
-    if (zonaFader (i).contains (e.position))
+    if (z == Zona::Tecla)
     {
-        tiraFader = i;
-        pos0 = EstatEstudi::posFader (estat.projecte.pistes[(size_t) i].faderDb);
+        comencaCanvi();
+        restaura();
+        auto& t = estat.projecte.pistes[(size_t) i];
+        if (k == 0) t.mut = ! t.mut;
+        else if (k == 1) t.solo = ! t.solo;
+        else ed::triaGravacio (estat.projecte, i);
+        acabaCanvi();
+        return;
+    }
+    if (z == Zona::Ranura)
+    {
+        estat.info = "Els efectes (inserts) i els enviaments a busos arriben més endavant."_ca;
+        estat.avisa();
+        return;
+    }
+    if (z == Zona::Pan || z == Zona::Fader)
+    {
+        arrossega = z;
+        if (z == Zona::Pan) valor0 = (float) estat.projecte.pistes[(size_t) i].pan;
+        else valor0 = EstatEstudi::posFader (i < 0 ? estat.projecte.masterDb : estat.projecte.pistes[(size_t) i].faderDb);
+        ultimaY = e.position.y;
         comencaCanvi();
     }
     estat.avisa();
@@ -1682,37 +1800,62 @@ void TaulaMescles::mouseDown (const juce::MouseEvent& e)
 
 void TaulaMescles::mouseDrag (const juce::MouseEvent& e)
 {
-    if (tiraFader < 0) return;
+    if (arrossega == Zona::Res) return;
     restaura();
-    auto& t = estat.projecte.pistes[(size_t) tiraFader];
-    const auto carril = dibuixEstudi::carrilVertical (zonaFader (tiraFader));
-    double db = EstatEstudi::dbFader (pos0 - (float) e.getDistanceFromDragStartY() / carril.getHeight());
-    if (std::abs (db) < 0.6) db = 0.0;
-    t.faderDb = db;
-    estat.info = "Volum de «"_ca + dibuix::utf8 (t.nom) + "»: "_ca + EstatEstudi::textDb (db);
+    const bool fi = e.mods.isShiftDown();
+    const float dy = e.position.y - ultimaY;
+    ultimaY = e.position.y;
+    if (arrossega == Zona::Pan && tira >= 0)
+    {
+        auto& t = estat.projecte.pistes[(size_t) tira];
+        valor0 = juce::jlimit (-1.0f, 1.0f, valor0 - dy / (fi ? 1500.0f : 150.0f));
+        t.pan = std::abs (valor0) < 0.005f ? 0.0 : (double) valor0;
+        estat.info = "Panorama de «"_ca + dibuix::utf8 (t.nom) + "»: "_ca + EstatEstudi::textPan (t.pan);
+    }
+    else if (arrossega == Zona::Fader)
+    {
+        const auto r = tira < 0 ? rectMaster() : rectTira (tira);
+        const auto carril = dibuixEstudi::carrilVertical (geo (r, tira < 0).fader.toFloat());
+        valor0 = juce::jlimit (0.0f, 1.0f, valor0 - dy / carril.getHeight() * (fi ? 0.1f : 1.0f));
+        const double db = EstatEstudi::dbFader (valor0);
+        if (tira < 0)
+        {
+            estat.projecte.masterDb = db;
+            estat.info = "Volum de la sortida: "_ca + EstatEstudi::textDb (db);
+        }
+        else
+        {
+            auto& t = estat.projecte.pistes[(size_t) tira];
+            t.faderDb = db;
+            estat.info = "Volum de «"_ca + dibuix::utf8 (t.nom) + "»: "_ca + EstatEstudi::textDb (db) + "  (Maj: més fi; doble clic: 0 dB)";
+        }
+    }
     estat.avisa();
 }
 
 void TaulaMescles::mouseUp (const juce::MouseEvent&)
 {
-    if (tiraFader >= 0) acabaCanvi();
-    tiraFader = -1;
+    if (arrossega != Zona::Res) acabaCanvi();
+    arrossega = Zona::Res;
 }
 
 void TaulaMescles::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    const int i = tiraA (e.x);
-    if (i < 0 || i >= estat.numPistes() || ! zonaFader (i).contains (e.position)) return;
+    int i = -1, k = -1;
+    Zona z;
+    if (! troba (e.getPosition(), i, z, k) || (z != Zona::Pan && z != Zona::Fader)) return;
     comencaCanvi();
     restaura();
-    estat.projecte.pistes[(size_t) i].faderDb = 0.0;
+    if (i < 0) estat.projecte.masterDb = 0.0;
+    else if (z == Zona::Pan) estat.projecte.pistes[(size_t) i].pan = 0.0;
+    else estat.projecte.pistes[(size_t) i].faderDb = 0.0;
     acabaCanvi();
 }
 
 void TaulaMescles::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
 {
     const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
-    const int maxim = juce::jmax (0, estat.numPistes() * ampleTira - getWidth());
+    const int maxim = juce::jmax (0, estat.numPistes() * ampleTira - (rectMaster().getX() - 6));
     despl = juce::jlimit (0, maxim, despl - juce::roundToInt (d * 200.0f));
     repaint();
 }

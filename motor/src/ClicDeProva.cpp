@@ -66,44 +66,57 @@ namespace mibase
         }
     }
 
+    void ClicDeProva::dispara (bool ambAccent) noexcept
+    {
+        accent = ambAccent;
+        posicioClic = 0;
+        fase = fase2 = 0.0;
+        switch (so)
+        {
+            case 1:  freq1 = accent ? 1400.0 : 1100.0; freq2 = accent ? 2150.0 : 1700.0; break;
+            case 2:  freq1 = accent ? 1250.0 : 900.0;  freq2 = 0.0; break;
+            case 3:  freq1 = accent ? 675.0 : 540.0;   freq2 = accent ? 1000.0 : 800.0; break;
+            default: freq1 = accent ? 2000.0 : 1400.0; freq2 = 0.0; break;
+        }
+        amplitud = accent ? 0.5f : 0.35f;
+    }
+
+    void ClicDeProva::sonaUna (float* sortida, int i) noexcept
+    {
+        if (posicioClic < 0)
+            return;
+        const double t = (double) posicioClic / fs;
+        double f1 = freq1;
+        if (so == 2) f1 *= 1.0 - 0.25 * std::min (1.0, t / 0.03);   // baixa de to
+        sortida[i] += amplitud * volum * mostra (t);
+        const double dosPi = 2.0 * std::numbers::pi;
+        fase += dosPi * f1 / fs;
+        fase2 += dosPi * freq2 / fs;
+        if (++posicioClic >= durada)
+            posicioClic = -1;
+    }
+
+    void ClicDeProva::processaSo (float* sortida, int numMostres) noexcept
+    {
+        for (int i = 0; i < numMostres && posicioClic >= 0; ++i)
+            sonaUna (sortida, i);
+    }
+
     void ClicDeProva::processa (float* sortida, int numMostres) noexcept
     {
         const auto mostresPerTemps = (long long) std::llround (fs * 60.0 / tempo);
-        const double dosPi = 2.0 * std::numbers::pi;
 
         for (int i = 0; i < numMostres; ++i)
         {
             if (mostresFinsAlTemps <= 0)
             {
-                accent = (temps == 0);
-                posicioClic = 0;
-                fase = fase2 = 0.0;
-                switch (so)
-                {
-                    case 1:  freq1 = accent ? 1400.0 : 1100.0; freq2 = accent ? 2150.0 : 1700.0; break;
-                    case 2:  freq1 = accent ? 1250.0 : 900.0;  freq2 = 0.0; break;
-                    case 3:  freq1 = accent ? 675.0 : 540.0;   freq2 = accent ? 1000.0 : 800.0; break;
-                    default: freq1 = accent ? 2000.0 : 1400.0; freq2 = 0.0; break;
-                }
-                amplitud = accent ? 0.5f : 0.35f;
+                dispara (temps == 0);
                 temps = (temps + 1) % tempsPerCompas;
                 mostresFinsAlTemps = mostresPerTemps;
             }
 
             --mostresFinsAlTemps;
-
-            if (posicioClic >= 0)
-            {
-                const double t = (double) posicioClic / fs;
-                double f1 = freq1;
-                if (so == 2) f1 *= 1.0 - 0.25 * std::min (1.0, t / 0.03);   // baixa de to
-                sortida[i] += amplitud * volum * mostra (t);
-                fase += dosPi * f1 / fs;
-                fase2 += dosPi * freq2 / fs;
-
-                if (++posicioClic >= durada)
-                    posicioClic = -1;
-            }
+            sonaUna (sortida, i);
         }
     }
 }

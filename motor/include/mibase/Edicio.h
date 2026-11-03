@@ -42,6 +42,12 @@ namespace mibase::edicio
     Presa& afegeixPresa (Projecte& p, const std::string& fitxer, const std::string& nom, double durada);
     /** Clip sencer d'una presa a la pista, amb l'inici visible a «on». */
     Clip& afegeixClip (Projecte& p, int pista, const std::string& idPresa, double on);
+    /** Una gravació nova a la pista. El fitxer comença a «iniciFitxer» (amb el compte d'entrada inclòs);
+        «cursor» és on es va prémer gravar: hi va la bandera i l'inici de la finestra. «latencia» és el retard
+        d'anada i tornada de la targeta: el que es grava arriba aquest temps tard i per això es mou enrere.
+        Retorna l'índex del clip nou, o -1 si no ha quedat res després del cursor (no s'hi afegeix res). */
+    int afegeixGravacio (Projecte& p, int pista, const std::string& fitxer, const std::string& nom, double durada,
+                         double iniciFitxer, double cursor, double latencia);
     void esborraPista (Projecte& p, int pista);
     /** Color de pista menys fet servir (la paleta té «colorsPista» colors). */
     constexpr int colorsPista = 8;

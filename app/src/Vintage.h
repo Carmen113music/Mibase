@@ -144,37 +144,133 @@ namespace vintage
 
         const auto a = actiu ? juce::Colour (0xffe6e6ea) : juce::Colour (0xff9a9aa2);
         const auto b = actiu ? juce::Colour (0xff8c8c95) : juce::Colour (0xff5c5c63);
+
         if (vertical)
         {
-            juce::ColourGradient grad (a, r.getX(), r.getY(), b, r.getX(), r.getBottom(), false);
-            grad.addColour (0.5, actiu ? juce::Colour (0xffb9b9c1) : juce::Colour (0xff76767e));
+            // Capçal ample de taula de mescles: vores altes i una corba al mig per posar-hi el dit, amb ratlletes.
+            const float vora = juce::jmax (3.0f, r.getHeight() * 0.17f);
+            const auto clar = actiu ? juce::Colour (0xffd4d4da) : juce::Colour (0xff8a8a92);
+            const auto mig = actiu ? juce::Colour (0xff6c6c75) : juce::Colour (0xff4a4a51);
+            const auto fosc = actiu ? juce::Colour (0xff3f3f46) : juce::Colour (0xff303036);
+            juce::ColourGradient grad (clar, 0.0f, r.getY(), clar.darker (0.15f), 0.0f, r.getBottom(), false);
+            grad.addColour (vora / r.getHeight(), mig);
+            grad.addColour (0.5, fosc);
+            grad.addColour (1.0 - vora / r.getHeight(), mig);
             g.setGradientFill (grad);
+            g.fillRoundedRectangle (r, 3.0f);
+
+            // Les vores de dalt i de baix, més altes i brillants.
+            g.setColour (juce::Colours::white.withAlpha (actiu ? 0.35f : 0.15f));
+            g.fillRect (r.getX() + 2.0f, r.getY() + 1.0f, r.getWidth() - 4.0f, 1.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.35f));
+            g.fillRect (r.getX() + 1.0f, r.getY() + vora, r.getWidth() - 2.0f, 1.0f);
+            g.fillRect (r.getX() + 1.0f, r.getBottom() - vora - 1.0f, r.getWidth() - 2.0f, 1.0f);
+
+            // Ratlletes d'agafar (dins la corba).
+            for (float y = r.getY() + vora + 3.0f; y < r.getBottom() - vora - 2.0f; y += 3.0f)
+            {
+                if (std::abs (y - r.getCentreY()) < 2.5f) continue;
+                g.setColour (juce::Colours::black.withAlpha (0.35f));
+                g.fillRect (r.getX() + 4.0f, y, r.getWidth() - 8.0f, 1.0f);
+                g.setColour (juce::Colours::white.withAlpha (actiu ? 0.10f : 0.05f));
+                g.fillRect (r.getX() + 4.0f, y + 1.0f, r.getWidth() - 8.0f, 1.0f);
+            }
+
+            // Ombra dels costats (sembla de volum).
+            juce::ColourGradient costats (juce::Colours::black.withAlpha (0.28f), r.getX(), 0.0f, juce::Colours::black.withAlpha (0.28f), r.getRight(), 0.0f, false);
+            costats.addColour (0.2, juce::Colours::transparentBlack);
+            costats.addColour (0.8, juce::Colours::transparentBlack);
+            g.setGradientFill (costats);
+            g.fillRoundedRectangle (r, 3.0f);
+
+            g.setColour (juce::Colours::black.withAlpha (0.7f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+
+            // Línia del color de la pista.
+            g.setColour (color);
+            g.fillRect (r.getX() + 2.0f, r.getCentreY() - 1.0f, r.getWidth() - 4.0f, 2.0f);
+            return;
         }
-        else
-        {
-            juce::ColourGradient grad (a, r.getX(), r.getY(), b, r.getRight(), r.getY(), false);
-            grad.addColour (0.5, actiu ? juce::Colour (0xffb9b9c1) : juce::Colour (0xff76767e));
-            g.setGradientFill (grad);
-        }
+
+        juce::ColourGradient grad (a, r.getX(), r.getY(), b, r.getRight(), r.getY(), false);
+        grad.addColour (0.5, actiu ? juce::Colour (0xffb9b9c1) : juce::Colour (0xff76767e));
+        g.setGradientFill (grad);
         g.fillRoundedRectangle (r, 3.0f);
         g.setColour (juce::Colours::black.withAlpha (0.6f));
         g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
 
         // Ratlles d'agafar.
         g.setColour (juce::Colours::black.withAlpha (0.3f));
-        if (vertical)
+        for (float dx : { -5.0f, -3.0f, 3.0f, 5.0f })
+            g.fillRect (r.getCentreX() + dx, r.getY() + 3.0f, 1.0f, r.getHeight() - 6.0f);
+        g.setColour (color);
+        g.fillRect (r.getCentreX() - 1.0f, r.getY() + 2.0f, 2.0f, r.getHeight() - 4.0f);
+    }
+
+    /** Pom rodó (panorama): «valor» de -1 a 1; al mig, apuntant amunt. */
+    inline void pom (juce::Graphics& g, juce::Rectangle<float> r, float valor, juce::Colour color, bool actiu = true)
+    {
+        auto c = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), r.getHeight()), juce::jmin (r.getWidth(), r.getHeight()));
+        const auto centre = c.getCentre();
+        const float radi = c.getWidth() * 0.5f;
+        const float inici = juce::MathConstants<float>::pi * -0.75f;
+        const float ang = valor * juce::MathConstants<float>::pi * 0.75f;
+
+        // Arc de fons i arc des del mig fins al valor.
+        juce::Path fons;
+        fons.addCentredArc (centre.x, centre.y, radi - 1.5f, radi - 1.5f, 0.0f, inici, -inici, true);
+        g.setColour (juce::Colour (0xff09090b));
+        g.strokePath (fons, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (std::abs (valor) > 0.01f)
         {
-            for (float dy : { -5.0f, -3.0f, 3.0f, 5.0f })
-                g.fillRect (r.getX() + 3.0f, r.getCentreY() + dy, r.getWidth() - 6.0f, 1.0f);
-            g.setColour (color);
-            g.fillRect (r.getX() + 2.0f, r.getCentreY() - 1.0f, r.getWidth() - 4.0f, 2.0f);
+            juce::Path arc;
+            arc.addCentredArc (centre.x, centre.y, radi - 1.5f, radi - 1.5f, 0.0f, juce::jmin (0.0f, ang), juce::jmax (0.0f, ang), true);
+            g.setColour (actiu ? color : color.withAlpha (0.4f));
+            g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
-        else
+
+        // El pom.
+        auto cos = c.reduced (5.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.fillEllipse (cos.translated (0.0f, 1.5f));
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4c4c56), cos.getX(), cos.getY(), juce::Colour (0xff23232a), cos.getX(), cos.getBottom(), false));
+        g.fillEllipse (cos);
+        g.setColour (juce::Colours::white.withAlpha (0.12f));
+        g.drawEllipse (cos.reduced (0.5f), 1.0f);
+        // Estries de la vora.
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        for (int i = 0; i < 16; ++i)
         {
-            for (float dx : { -5.0f, -3.0f, 3.0f, 5.0f })
-                g.fillRect (r.getCentreX() + dx, r.getY() + 3.0f, 1.0f, r.getHeight() - 6.0f);
-            g.setColour (color);
-            g.fillRect (r.getCentreX() - 1.0f, r.getY() + 2.0f, 2.0f, r.getHeight() - 4.0f);
+            const float a2 = (float) i / 16.0f * juce::MathConstants<float>::twoPi;
+            const auto p1 = centre.getPointOnCircumference (cos.getWidth() * 0.5f - 0.5f, a2);
+            const auto p2 = centre.getPointOnCircumference (cos.getWidth() * 0.5f - 2.5f, a2);
+            g.drawLine ({ p1, p2 }, 1.0f);
+        }
+        // Indicador.
+        const auto p1 = centre.getPointOnCircumference (cos.getWidth() * 0.12f, ang);
+        const auto p2 = centre.getPointOnCircumference (cos.getWidth() * 0.5f - 2.0f, ang);
+        g.setColour (actiu ? juce::Colour (0xffeeeef2) : tema::suau);
+        g.drawLine ({ p1, p2 }, 2.0f);
+    }
+
+    /** Vúmetre vertical de LEDs (verd, groc i vermell). «posicio» converteix dB a 0..1 (la mateixa escala que el fader).
+        «nivell»: pic lineal (0..1, o més si satura). */
+    template <typename Pos>
+    inline void vumetre (juce::Graphics& g, juce::Rectangle<float> r, float nivell, Pos posicio)
+    {
+        g.setColour (juce::Colour (0xff09090b));
+        g.fillRoundedRectangle (r, 2.0f);
+        auto dins = r.reduced (1.5f);
+        const double db = nivell > 1.0e-6f ? 20.0 * std::log10 ((double) nivell) : -100.0;
+        const float fins = dins.getBottom() - dins.getHeight() * juce::jlimit (0.0f, 1.0f, (float) posicio (juce::jmin (db, 6.0)));
+        const float yGroc = dins.getBottom() - dins.getHeight() * (float) posicio (-12.0);
+        const float yVermell = dins.getBottom() - dins.getHeight() * (float) posicio (-1.0);
+        for (float y = dins.getBottom() - 2.0f; y >= dins.getY(); y -= 3.0f)
+        {
+            const auto color = y < yVermell ? ledVermell : (y < yGroc ? ledGroc : ledVerd);
+            const bool encès = y >= fins && db > -99.0;
+            g.setColour (encès ? color : color.withMultipliedBrightness (0.18f).withMultipliedSaturation (0.5f));
+            g.fillRect (dins.getX(), y, dins.getWidth(), 2.0f);
         }
     }
 

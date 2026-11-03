@@ -26,9 +26,9 @@ public:
             { &btPrincipi, Transport::Principi, "Al principi (Inici)" },
             { &btRebobina, Transport::Rebobina, "Enrere un compàs" },
             { &btEndavant, Transport::Endavant, "Endavant un compàs" },
-            { &btAtura,    Transport::Atura,    "Atura" },
-            { &btPlay,     Transport::Play,     "Reprodueix (arriba a la versió 0.5)" },
-            { &btGrava,    Transport::Grava,    "Grava (arriba a la versió 0.5)" },
+            { &btAtura,    Transport::Atura,    "Atura i torna on havies començat (si ja està aturat: al principi)" },
+            { &btPlay,     Transport::Play,     "Reprodueix (Espai)" },
+            { &btGrava,    Transport::Grava,    "Grava a la pista amb el botó vermell encès, amb un compàs de compte (R)" },
         };
         for (auto& t : tecles)
         {
@@ -44,7 +44,7 @@ public:
 
         setProjecte ({});
         actualitza();
-        startTimerHz (15);
+        startTimerHz (30);
     }
 
     std::function<void (Pantalla)> onPantalla;
@@ -52,9 +52,13 @@ public:
     std::function<void (Transport)> onTransport;
     /** Posició per a la pantalla: {gran, petit}. Buit: cap projecte obert. */
     std::function<std::pair<juce::String, juce::String>()> onPosicio;
+    /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
+    std::function<int()> onEstatTransport;
 
     void setPantalla (Pantalla p)
     {
+        pantalla = p;
+        posaTransport();
         btInici.setToggleState (p == Pantalla::Inici, juce::dontSendNotification);
         btEstudi.setToggleState (p == Pantalla::Estudi, juce::dontSendNotification);
         btDiag.setToggleState (p == Pantalla::Diagnostic, juce::dontSendNotification);
@@ -66,10 +70,8 @@ public:
     {
         btEstudi.setButtonText (nom.isEmpty() ? juce::String ("Estudi") : "Estudi · "_ca + nom);
         btEstudi.setVisible (nom.isNotEmpty());
-        for (auto* b : { &btPrincipi, &btRebobina, &btEndavant, &btAtura })
-            b->setEnabled (nom.isNotEmpty());
-        btPlay.setEnabled (false);    // 0.5
-        btGrava.setEnabled (false);   // 0.5
+        hiHaProjecte = nom.isNotEmpty();
+        posaTransport();
         resized();
         repaint();
     }
@@ -100,7 +102,8 @@ public:
                               zonaEstat.withTrimmedLeft (28).withTrimmedRight (12), juce::Justification::centredLeft, 1, 0.75f);
         }
 
-        // Marc del transport i pantalla de posició.
+        // Marc del transport i pantalla de posició (només dins d'un projecte).
+        if (! transportVisible) return;
         auto marc = zonaTransport.toFloat().expanded (6.0f, 5.0f);
         g.setColour (juce::Colours::black.withAlpha (0.4f));
         g.fillRoundedRectangle (marc, 8.0f);
@@ -115,7 +118,11 @@ public:
         auto r = getLocalBounds().reduced (12, 9);
         r.removeFromLeft (156);
 
-        // Dreta, fix: transport i pantalla (mai es mou ni queda tapat).
+        // Dreta, fix: transport i pantalla (mai es mou ni queda tapat). Només dins d'un projecte.
+        if (! transportVisible)
+            zonaLcd = zonaTransport = {};
+        else
+        {
         zonaLcd = r.removeFromRight (156);
         r.removeFromRight (8);
         const int tecla = 42;
@@ -130,6 +137,7 @@ public:
         }
         zonaLcd = zonaLcd.withY (zonaTransport.getY() - 2).withHeight (zonaTransport.getHeight() + 4);
         r.removeFromRight (18);
+        }
 
         // Esquerra: Fitxer i pestanyes.
         btFitxer.setBounds (r.removeFromLeft (btFitxer.ampladaIdeal()));
@@ -150,9 +158,18 @@ public:
 private:
     void timerCallback() override { actualitza(); }
 
+    void posaTransport()
+    {
+        transportVisible = hiHaProjecte && pantalla != Pantalla::Inici;
+        for (auto* b : { &btPrincipi, &btRebobina, &btEndavant, &btAtura, &btPlay, &btGrava })
+            b->setVisible (transportVisible);
+        resized();
+        repaint();
+    }
+
     void actualitza()
     {
-        if (++comptador % 15 == 0 || comptador == 1)
+        if (++comptador % 30 == 0 || comptador == 1)
         {
             auto nou = servei.resumDispositiu();
             const double ms = servei.latenciaMsDesada();
@@ -164,6 +181,11 @@ private:
                 repaint (zonaEstat);
             }
         }
+
+        // Llums del play i del gravar (durant el compte d'entrada, el gravar fa pampallugues).
+        const int t = onEstatTransport ? onEstatTransport() : 0;
+        btPlay.setToggleState (t == 1, juce::dontSendNotification);
+        btGrava.setToggleState (t == 3 || (t == 2 && (comptador / 4) % 2 == 0), juce::dontSendNotification);
 
         auto p = onPosicio ? onPosicio() : std::pair<juce::String, juce::String>();
         if (p != posicio)
@@ -190,4 +212,6 @@ private:
     juce::String resum, extra;
     std::pair<juce::String, juce::String> posicio;
     int comptador = 0;
+    Pantalla pantalla = Pantalla::Inici;
+    bool hiHaProjecte = false, transportVisible = false;
 };

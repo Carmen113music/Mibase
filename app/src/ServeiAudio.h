@@ -5,6 +5,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>
 #include <mibase/MotorDiagnostic.h>
+#include <mibase/MotorEstudi.h>
 
 /** Connecta el motor amb la targeta d'àudio i els teclats MIDI (via JUCE),
     i desa els ajustos entre sessions. */
@@ -18,6 +19,16 @@ public:
 
     juce::AudioDeviceManager& dispositius() noexcept { return gestor; }
     mibase::MotorDiagnostic& motor() noexcept { return motorDiag; }
+    /** El motor de l'estudi: fa sonar el projecte i grava. */
+    mibase::MotorEstudi& estudi() noexcept { return motorEstudi; }
+
+    /** Hi ha la targeta en marxa? */
+    bool enMarxa() { return gestor.getCurrentAudioDevice() != nullptr && gestor.getCurrentAudioDevice()->isPlaying(); }
+    /** Noms de les entrades de la targeta («Entrada 1», «Input 2»…). */
+    juce::StringArray getNomsEntrades();
+    /** Retard d'anada i tornada per alinear les gravacions, en segons: el mesurat si n'hi ha; si no, el que diu la targeta.
+        «mesurat» diu d'on surt. */
+    double retardGravacio (bool& mesurat);
 
     /** Activa tots els teclats MIDI connectats i anota els nous a l'historial. */
     void actualitzaMidi();
@@ -62,6 +73,7 @@ private:
     Historial& historial;
     juce::AudioDeviceManager gestor;
     mibase::MotorDiagnostic motorDiag;
+    mibase::MotorEstudi motorEstudi;
     std::unique_ptr<juce::PropertiesFile> ajustos;
 
     juce::SpinLock midiEntrant;   // només entre fils de MIDI (mai al fil d'àudio)

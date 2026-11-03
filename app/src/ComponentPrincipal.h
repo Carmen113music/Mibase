@@ -20,9 +20,9 @@ public:
         capcalera.onFitxer = [this] (juce::Component& on) { menuFitxer (on); };
         capcalera.onTransport = [this] (Capcalera::Transport t)
         {
-            if (estudi && (int) t <= (int) Capcalera::Transport::Atura)
-                estudi->transport ((int) t);
+            if (estudi) estudi->transport ((int) t);
         };
+        capcalera.onEstatTransport = [this] { return estudi ? estudi->estatTransport() : 0; };
         capcalera.onPosicio = [this]
         {
             return estudi ? estudi->textPosicio() : std::pair<juce::String, juce::String>();
@@ -121,7 +121,7 @@ private:
         m.addSeparator();
         m.addItem (6, "Importa àudio…   (Ctrl+I)"_ca, hiHaProjecte);
         m.addItem (7, "Exporta el projecte (carpeta per a un altre ordinador)…"_ca, hiHaProjecte);
-        m.addItem (8, "Exporta la mescla (WAV, MP3…)  · arriba a la 0.5"_ca, false);
+        m.addItem (8, "Exporta la mescla (WAV)…"_ca, hiHaProjecte);
         m.addSeparator();
         m.addItem (9, "Surt");
 
@@ -136,6 +136,7 @@ private:
                 case 5: tancaEstudi(); mostra (Capcalera::Pantalla::Inici); break;
                 case 6: if (estudi) { mostra (Capcalera::Pantalla::Estudi); estudi->importaDeMenu(); } break;
                 case 7: if (estudi) estudi->exportaProjecte(); break;
+                case 8: if (estudi) estudi->exportaMescla(); break;
                 case 9: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
                 default: break;
             }

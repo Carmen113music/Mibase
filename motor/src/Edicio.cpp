@@ -114,6 +114,28 @@ namespace mibase::edicio
         return clips.back();
     }
 
+    int afegeixGravacio (Projecte& p, int pista, const std::string& fitxer, const std::string& nom, double durada,
+                         double iniciFitxer, double cursor, double latencia)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size())
+            return -1;
+        const double pos = iniciFitxer - std::max (0.0, latencia);
+        const double inici = std::max (0.0, cursor - pos);
+        if (durada - inici < longitudMinima)
+            return -1;
+
+        auto& s = afegeixPresa (p, fitxer, nom, durada);
+        s.primer = inici;
+        Clip c;
+        c.presa = s.id;
+        c.pos = pos;
+        c.inici = inici;
+        c.fi = durada;
+        auto& clips = p.pistes[(size_t) pista].clips;
+        clips.push_back (c);
+        return (int) clips.size() - 1;
+    }
+
     int colorLliure (const Projecte& p)
     {
         int usos[colorsPista] = {};

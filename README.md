@@ -10,7 +10,7 @@ Neix de les idees provades a **Riffs**, una app d'Android per gravar idees music
 
 Motor propi escrit en C++; [JUCE](https://juce.com) es fa servir només per als controladors d'àudio i MIDI, els plugins i les finestres.
 
-> Estat: **0.4 — interfície de l'estudi**: menú Fitxer, transport, caixa d'eines, taula de mescles i aspecte d'aparell antic. Encara no sona ni grava (arriba a la 0.5).
+> Estat: **0.5 — sona i grava**: reproducció de les pistes, gravació amb compte d'entrada i retard corregit, vúmetres, panorama i exportació de la mescla.
 
 ## Com es fa servir
 
@@ -36,13 +36,16 @@ Mibase s'obre a la **pantalla d'inici**, en tres columnes:
 
 Els àudios conserven sempre el seu nom, encara que després canviïs el nom de la pista.
 
-### Barra de dalt (a totes les pantalles)
-- **Fitxer**: Desa (Ctrl+S) · Nova versió a partir d'aquí (com una branca: una còpia del projecte a la mateixa carpeta, que comparteix els àudios) · Projecte nou · Obre un projecte · Tanca el projecte · Importa àudio (Ctrl+I) · Exporta el projecte (una carpeta amb el projecte i **només** els àudios que fa servir, per obrir-lo en un altre ordinador) · Exporta la mescla (arriba a la 0.5) · Surt.
+### Barra de dalt
+- **Fitxer**: Desa (Ctrl+S) · Nova versió a partir d'aquí (com una branca: una còpia del projecte a la mateixa carpeta, que comparteix els àudios) · Projecte nou · Obre un projecte · Tanca el projecte · Importa àudio (Ctrl+I) · Exporta el projecte (una carpeta amb el projecte i **només** els àudios que fa servir, per obrir-lo en un altre ordinador) · Exporta la mescla (un WAV estèreo de 24 bits amb el que sona: el bucle, si és encès; si no, del primer clip al darrer; sense la claqueta) · Surt.
 - **Inici · Estudi · Diagnòstic**, i l'estat de la targeta d'àudio.
-- **Transport**, fix a la dreta (mai es mou ni queda tapat): al principi, enrere un compàs, endavant un compàs, atura, reprodueix (verd) i grava (vermell); reproduir i gravar arriben a la 0.5. Al costat, la **pantalla** amb el compàs i el temps.
+- **Transport**, fix a la dreta quan hi ha un projecte obert (no a la pantalla d'inici): al principi, enrere un compàs, endavant un compàs, atura, reprodueix (verd) i grava (vermell). Al costat, la **pantalla** amb el compàs i el temps.
+  - **Reprodueix** (o Espai) des del capçal. Mentre sona, clicar la regla fa saltar la música; si el bucle és encès, el repeteix.
+  - **Atura** (o Espai) torna on havies començat, per tornar-ho a escoltar o gravar. Si ja està aturat, va al principi.
+  - **Grava** (o R) a la pista que té el **botó vermell** encès: sona **un compàs de compte** amb la claqueta (encara que estigui apagada) i comença a gravar al capçal. La presa nova («Pista - presa NN.wav») queda amb la bandera al primer temps, i el que has tocat durant el compte hi és (pots allargar el clip cap a l'esquerra). Es corregeix sol el **retard de la targeta**: el que has mesurat al Diagnòstic o, si no l'has mesurat, el que diu el controlador.
 
 ### Estudi
-D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Taula de mescles* i, a sota, el fader de la pista triada amb M, S i gravar), **Pistes**, **Volum**, la **línia de temps** i el **panell** del clip triat. Arrossega la ratlla entre dues seccions per fer-les més amples o més estretes (doble clic: mida inicial); es recorda.
+D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Taula de mescles* i, a sota, la pista triada: panorama, fader amb vúmetre, M, S i gravar), **Pistes** (amb un vúmetre petit a cada una), la **línia de temps** i el **panell** del clip triat. Arrossega la ratlla entre dues seccions per fer-les més amples o més estretes (doble clic: mida inicial); es recorda.
 
 - **Barra d'eines**: la **caixa d'eines** (tecles 1 a 6):
   1. **Fletxa**: tria i mou. Amb un sol clip triat, les cantonades de baix retallen, les de dalt fan els fades i el punt del mig canvia el volum del clip.
@@ -52,11 +55,13 @@ D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Tau
   5. **Cola**: clica un clip i arrossega fins al del costat: en fa una sola finestra. Si són trossos seguits del mateix àudio, s'ajunten sense tocar res; si són preses diferents o hi ha un forat, es crea un àudio nou amb tot (els originals no es toquen).
   6. **X**: silencia o torna a fer sonar un clip.
 - **Claqueta**: la tecla l'encén i l'apaga; la fletxeta obre el volum (0 a 150 %), el so (Digital, Fusta, Analògic, Campana) i «Escolta-la» per sentir-la al tempo del projecte. Al costat, el tempo i el compàs (clica per canviar el tempo), la graella **Compàs / Temps / Lliure**, Desfés i Refés. A la dreta, el text d'informació.
-- **Pista nova**: «+ Pista nova» → Àudio mono o estèreo (instrument, bateria, acords i bus d'efectes vindran després). Cada pista nova agafa un color diferent; amb el botó dret sobre el nom es canvia el color, mono/estèreo, el nom o s'esborra. També pots **arrossegar fitxers d'àudio** des de l'Explorador.
+- **Pista nova**: «+ Pista nova» → Àudio mono o estèreo (instrument, bateria, acords i bus d'efectes vindran després). Cada pista nova agafa un color diferent; amb el botó dret sobre el nom es canvia el color, mono/estèreo, l'**entrada per gravar** (E1, E2… o E1-2 en estèreo; surt al costat de M S gravar), el nom o s'esborra. També pots **arrossegar fitxers d'àudio** des de l'Explorador.
 - **Ona**: es dibuixa plena, com una ona analògica. Amb molt de zoom es veuen les mostres i la línia del zero.
-- **Ratolí**: roda = amunt i avall; Maj+roda = de costat; **Ctrl+roda = zoom del temps**, a partir del punt on tens el ratolí, que queda centrat a la pantalla; Alt+roda = alçada de les pistes (mai tan petites que no es vegin M, S i gravar).
-- **Teclat**: Supr = treure clips; Ctrl+D = duplicar; Ctrl+Z / Ctrl+Y = desfer / refer; Ctrl+S = desar; Ctrl+I = importar; 1–6 = eines; Esc = res triat i fletxa; Inici = al principi.
-- **Taula de mescles**: una tira per pista amb M, S, gravar i un fader gran amb l'escala en dB (doble clic: 0 dB).
+- **Clips un damunt de l'altre**: sona només el de dalt (el darrer que hi has posat, per exemple una presa nova). Si el silencies amb la X, torna a sonar el de sota.
+- **Ratolí**: roda = amunt i avall; Maj+roda = de costat (mai abans del començament); **Ctrl+roda = zoom del temps**, a partir del punt on tens el ratolí, que queda centrat a la pantalla; Alt+roda = alçada de les pistes (mai tan petites que no es vegin M, S i gravar).
+- **Teclat**: Espai = reprodueix / atura; R = grava; Supr = treure clips; Ctrl+D = duplicar; Ctrl+Z / Ctrl+Y = desfer / refer; Ctrl+S = desar; Ctrl+I = importar; 1–6 = eines; Esc = res triat i fletxa; Inici = al principi.
+- **Faders i panorama**: arrossega amunt i avall; amb **Maj**, deu vegades més fi (per posar, per exemple, -0,2 dB). Doble clic: 0 dB (o el panorama al mig). Els vúmetres tenen la mateixa escala que el fader; si la pista té el botó de gravar encès, també mostren el que entra per la targeta.
+- **Taula de mescles**: una tira per pista amb els llocs per als **inserts** (efectes) i els **enviaments** a busos (arribaran més endavant), el **panorama**, M, S, gravar, el fader amb vúmetre i l'entrada; i, fixa a la dreta, la **Sortida** (volum general i vúmetre).
 - Tot es desa sol (i una còpia del projecte a `Còpies`, com a molt cada 10 minuts).
 
 ### Diagnòstic
@@ -92,7 +97,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Estructura
 | Carpeta | Què hi ha |
 |---|---|
-| `motor/` | El motor (ara: clic, so de prova, vúmetres, mesura de latència, projectes al disc, edició de l'estudi). Sense interfície: es prova sol. |
+| `motor/` | El motor (clic, vúmetres, mesura de latència, projectes al disc, edició, i el motor de l'estudi: mescla, gravació i WAV). Sense interfície: es prova sol. |
 | `app/` | El programa de Windows (finestres, àudio, MIDI). La icona és a `app/recursos/`. |
 | `proves/` | Proves automàtiques del motor. |
 | `extern/asiosdk/` | Kit d'ASIO oficial de Steinberg (2.3.4), només les parts necessàries. |
@@ -101,6 +106,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.5.0** — Sona i grava. Reproducció de totes les pistes (volum, panorama, silenci, solo, fades, volum de clip, bucle) amb la claqueta enganxada als temps; el clip de dalt tapa els de sota. Gravació a la pista amb el botó vermell, amb un compàs de compte, l'entrada triada per pista i el retard de la targeta corregit; el fitxer s'escriu al disc des d'un fil a part (el so no s'atura mai a esperar el disc). Vúmetres a les pistes, a la columna esquerra i a la taula de mescles. Panorama. Sortida amb volum general. Exportar la mescla (WAV). Faders sense imant al 0 dB i amb Maj per afinar; capçal de fader ample amb ratlletes. Taula de mescles amb llocs per a inserts i enviaments. Sense la columna de volums (ja hi ha el fader a l'esquerra). El transport només surt dins d'un projecte. No es pot desplaçar abans del començament.
 - **0.4.0** — Menú Fitxer (desar, nova versió, nou, obrir, tancar, importar, exportar el projecte, sortir). Transport fix a la dreta amb pantalla de posició. Caixa d'eines: fletxa, llapis, goma, tisores, cola i X. Claqueta amb volum i quatre sons (es pot escoltar). Columna esquerra amb taula de treball / de mescles i el fader de la pista triada; taula de mescles. Ona analògica amb detall fins a les mostres i la línia del zero; zoom centrat. Pistes d'àudio mono o estèreo amb colors. Aspecte d'aparell antic (tecles, pantalla, faders). Alçada mínima de les pistes.
 - **0.3.0** — Estudi: pistes (Guitarra, Veu, Àudio) amb M/S/gravar, faders, ordenar i canviar el nom; importar àudio (botó o arrossegant fitxers) a `Àudios`; clips amb moure (en el temps o de pista), retallar, fades, volum, bandera del primer temps (fixa en mode Lliure), duplicar i treure; graella Compàs/Temps/Lliure; regla amb bucle; zoom i alçada amb la roda; Desfés/Refés; tot es desa sol. Seccions d'amplada ajustable. Tema més clar i accent taronja. Icona pròpia. Arreglat el separador de la pantalla d'inici que no redibuixava bé.
 - **0.2.0** — Pantalla d'inici: navegador de carpetes, projectes recents (cercador i filtre per carpeta), detalls del projecte amb la seva evolució, columnes d'amplada ajustable. Projecte nou (nom, tempo, compàs) que crea la carpeta, el fitxer `.mibase`, `Evolució.txt`, `Àudios` i `Còpies`. Barra de dalt amb Inici / Estudi / Diagnòstic i l'estat de la targeta. Estudi provisional. Diagnòstic: l'entrada WASAPI només surt amb WASAPI, els talls desconeguts es diuen amb paraules i els canals actius pel nom.

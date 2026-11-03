@@ -249,6 +249,7 @@ namespace mibase::disc
         p.clic = j.value ("clic", true);
         p.clicVolum = std::clamp (j.value ("clicVolum", 1.0), 0.0, 1.5);
         p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
+        p.masterDb = std::clamp (j.value ("masterDb", 0.0), -60.0, 6.0);
         {
             const auto snap = j.value ("snap", std::string ("compas"));
             p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
@@ -284,6 +285,8 @@ namespace mibase::disc
                 t.faderDb = e.value ("faderDb", 0.0);
                 t.canals = std::clamp (e.value ("canals", 1), 1, 2);
                 t.color = std::clamp (e.value ("color", (int) p.pistes.size() % 8), 0, 7);
+                t.pan = std::clamp (e.value ("pan", 0.0), -1.0, 1.0);
+                t.entrada = std::clamp (e.value ("entrada", 0), 0, 63);
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -358,6 +361,7 @@ namespace mibase::disc
         j["clic"] = p.clic;
         j["clicVolum"] = p.clicVolum;
         j["clicSo"] = p.clicSo;
+        j["masterDb"] = p.masterDb;
         j["comptador"] = p.comptador;
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 
@@ -375,7 +379,8 @@ namespace mibase::disc
                                    { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut } });
             pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
                                 { "mut", t.mut }, { "solo", t.solo },
-                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "clips", clips } });
+                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada },
+                                { "clips", clips } });
         }
         j["pistes"] = pistes;
 

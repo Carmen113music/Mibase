@@ -45,6 +45,8 @@ namespace mibase
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6
+        double pan = 0.0;        // de -1 (tot a l'esquerra) a +1 (tot a la dreta)
+        int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
     };
 
     /** Bucle per compassos sencers (índexs interns, des de 0): [de, a). */
@@ -71,6 +73,7 @@ namespace mibase
         bool clic = true;
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
+        double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
         int comptador = 0;       // per fer identificadors únics
 
         /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */

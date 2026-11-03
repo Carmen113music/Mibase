@@ -5,7 +5,9 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <map>
 #include <memory>
+#include <array>
 #include <mibase/Edicio.h>
+#include <mibase/MotorEstudi.h>
 
 /** L'ona d'una presa: mínims i màxims per blocs de 256 mostres (per dibuixar-la de lluny)
     i el fitxer obert per llegir les mostres de debò quan s'hi fa molt de zoom. Tot en mono (mitjana dels canals). */
@@ -83,6 +85,54 @@ public:
 
     /** Taula de treball (pistes) o taula de mescles. */
     bool vistaMescles = false;
+
+    // ---- Transport (la pantalla ho copia del motor unes 30 vegades per segon) ----
+    int transport = 0;               // 0 aturat, 1 sonant, 2 comptant, 3 gravant
+    double cursorGravacio = 0.0;     // on s'ha premut gravar
+    /** El capçal s'ha mogut a mà (per fer saltar el que sona). */
+    std::function<void (double)> onCapcalMogut;
+
+    /** Mou el capçal. Mentre sona, només ho fa la regla («sempre»): clicar els clips no fa saltar la música. */
+    void mouCapcal (double t, bool sempre = false)
+    {
+        if (transport != 0 && ! sempre) return;
+        capcal = juce::jmax (0.0, t);
+        if (onCapcalMogut) onCapcalMogut (capcal);
+    }
+
+    // ---- Vúmetres (0..1, amb la caiguda suau ja feta) ----
+    std::array<float, mibase::maxSlots * 2> nivells {};
+    std::array<float, 32> nivellsEntrada {};
+    std::array<float, 2> nivellsSortida {};
+    juce::StringArray nomsEntrades;   // de la targeta (buit: entrada apagada)
+
+    /** Nivell d'una pista: el que sona i, si té el botó de gravar encès, el que entra per la targeta. */
+    float nivell (int pista, int canal) const
+    {
+        if (pista < 0 || pista >= numPistes()) return 0.0f;
+        const auto& t = projecte.pistes[(size_t) pista];
+        float v = nivells[(size_t) (mibase::slotDePista (t) * 2 + (canal & 1))];
+        if (t.grava)
+        {
+            const int e = juce::jlimit (0, 31, t.entrada + (t.canals == 2 ? (canal & 1) : 0));
+            v = juce::jmax (v, nivellsEntrada[(size_t) e]);
+        }
+        return v;
+    }
+
+    /** «E1» o «E1-2»: d'on grava la pista. */
+    static juce::String textEntrada (const mibase::Pista& t)
+    {
+        return "E" + juce::String (t.entrada + 1) + (t.canals == 2 ? "-" + juce::String (t.entrada + 2) : juce::String());
+    }
+
+    /** «C», «E 40», «D 25». */
+    static juce::String textPan (double pan)
+    {
+        const int v = juce::roundToInt (pan * 100.0);
+        if (v == 0) return "C";
+        return (v < 0 ? "E " : "D ") + juce::String (std::abs (v));
+    }
 
     /** Demana desar (el fa la pantalla, una mica després) i, si n'hi ha, anota una línia al diari. */
     std::function<void (const juce::String& evolucio)> onCanviat;

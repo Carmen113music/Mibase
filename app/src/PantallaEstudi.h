@@ -11,7 +11,7 @@
 
 /** L'estudi: barra d'eines, columna de l'esquerra (taula de treball / de mescles i fader de la pista triada),
     pistes i clips, i el panell de la dreta. Totes les seccions tenen l'amplada ajustable.
-    Encara no sona ni grava (arriba a la 0.5). */
+    Fa sonar el projecte i grava a la pista que té el botó de gravar encès (amb el motor de l'estudi). */
 class PantallaEstudi : public juce::Component,
                        private juce::Timer,
                        private juce::ChangeListener,
@@ -35,7 +35,10 @@ public:
     void novaVersio();
     void importaDeMenu();
     void exportaProjecte();
-    void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura
+    void exportaMescla();
+    void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura, 4 play, 5 grava
+    /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
+    int estatTransport() const noexcept { return estat.transport; }
     std::pair<juce::String, juce::String> textPosicio() const;
 
     void paint (juce::Graphics& g) override;
@@ -44,6 +47,20 @@ public:
 
 private:
     void timerCallback() override { stopTimer(); desaAra(); }
+
+    /** Rellotge del transport i dels vúmetres (unes 30 vegades per segon). */
+    struct Rellotge : juce::Timer
+    {
+        std::function<void()> tic;
+        void timerCallback() override { if (tic) tic(); }
+    };
+    void tic();
+    void publicaPla();
+    void reprodueix();
+    void atura();
+    void grava();
+    void acabaGravacio();
+    void avisDeTargeta (const juce::String& titol, const juce::String& text);
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void scrollBarMoved (juce::ScrollBar* barra, double inici) override;
 
@@ -88,15 +105,29 @@ private:
     // Seccions.
     ColumnaEsquerra esquerra { estat };
     Capcaleres capcaleres { estat };
-    Faders faders { estat };
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
     PanellPista panell { estat };
-    Divisor divEsquerra, divNoms, divFaders, divPanell;
+    Divisor divEsquerra, divNoms, divPanell;
     juce::ScrollBar barraV { true }, barraH { false };
-    int ampleEsquerra = 132, ampleNoms = 170, ampleFaders = 150, amplePanell = 270, ampleInici = 0;
-    juce::Rectangle<int> zonaTitolNoms, zonaTitolFaders;
+    int ampleEsquerra = 132, ampleNoms = 190, amplePanell = 270, ampleInici = 0;
+    juce::Rectangle<int> zonaTitolNoms;
+
+    // So i gravació.
+    mibase::MapaAudios audioPreses;          // les preses a la memòria, per sonar
+    Rellotge rellotge;
+    double iniciPlay = 0.0;
+    bool esperantMotor = false;         // s'ha enviat una ordre i el fil d'àudio encara no l'ha feta
+    int estatEsperat = 0;
+    juce::int64 tempsOrdre = 0;
+    struct Gravacio
+    {
+        int pista = -1;
+        juce::File fitxer;
+        double desDe = 0.0, cursor = 0.0, retard = 0.0;
+        bool retardMesurat = false;
+    } gravacio;
 
     std::unique_ptr<DialegText> dialeg;
     std::unique_ptr<juce::FileChooser> selector;
