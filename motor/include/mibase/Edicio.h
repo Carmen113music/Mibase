@@ -43,6 +43,9 @@ namespace mibase::edicio
     /** Clip sencer d'una presa a la pista, amb l'inici visible a «on». */
     Clip& afegeixClip (Projecte& p, int pista, const std::string& idPresa, double on);
     void esborraPista (Projecte& p, int pista);
+    /** Color de pista menys fet servir (la paleta té «colorsPista» colors). */
+    constexpr int colorsPista = 8;
+    int colorLliure (const Projecte& p);
     void mouPista (Projecte& p, int de, int a);
     /** Només una pista pot tenir el botó de gravar encès. */
     void triaGravacio (Projecte& p, int pista);
@@ -71,6 +74,23 @@ namespace mibase::edicio
 
     /** Passa clips a una altra pista sense moure'ls en el temps. Retorna els nous índexs. */
     std::vector<int> passaAPista (Projecte& p, int de, std::vector<int> clips, int a);
+
+    /** Llapis: finestra buida a la pista, de «de» a «a». Retorna l'índex del clip nou. */
+    int creaFinestra (Projecte& p, int pista, double de, double a);
+
+    /** Tisores: talla el clip a «t» (absolut). Retorna false si «t» no cau prou dins el clip. */
+    bool talla (Projecte& p, int pista, int clip, double t);
+
+    struct ResultatCola
+    {
+        bool fet = false;            // s'han ajuntat (clip = el que queda)
+        bool calConsolidar = false;  // no es poden ajuntar sense fer un fitxer nou
+        int clip = -1;
+    };
+
+    /** Cola: ajunta dos clips d'una pista en una sola finestra, si es pot fer sense crear un fitxer nou
+        (trossos contigus del mateix àudio al seu lloc, o finestres buides). Si no, diu que cal consolidar. */
+    ResultatCola enganxaClips (Projecte& p, int pista, int a, int b);
 
     /** Posa (o treu, amb un valor negatiu) la bandera de la presa d'un clip, en temps absolut. */
     void posaBandera (Projecte& p, const Clip& c, double abs);

@@ -18,10 +18,12 @@ namespace mibase
         double primer = -1.0;    // bandera del primer temps, dins el fitxer (negatiu: no en té)
     };
 
-    /** Un tros d'una presa col·locat a la línia de temps. No toca mai el fitxer. */
+    /** Un tros d'una presa col·locat a la línia de temps (una «finestra»). No toca mai el fitxer.
+        Sense presa (presa buida) és una finestra buida, feta amb el llapis. */
     struct Clip
     {
         std::string presa;
+        bool mut = false;        // silenciat amb l'eina X
         double pos = 0.0;        // on cau l'inici del FITXER a la línia de temps
         double inici = 0.0;      // finestra visible dins el fitxer (pot sortir de 0..durada: és silenci)
         double fi = 0.0;
@@ -37,7 +39,9 @@ namespace mibase
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // guitarra, veu, audio
+        std::string tipus = "audio";   // audio (més endavant: instrument, midi, bateria, acords, bus)
+        int canals = 1;                 // 1 mono, 2 estèreo
+        int color = 0;                  // índex de la paleta de colors de pista
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6
@@ -65,6 +69,8 @@ namespace mibase
         Bucle bucle;
         Snap snap = Snap::Compas;
         bool clic = true;
+        double clicVolum = 1.0;  // 0 a 1,5
+        int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
         int comptador = 0;       // per fer identificadors únics
 
         /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */

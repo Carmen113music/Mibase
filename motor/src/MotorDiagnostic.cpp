@@ -62,6 +62,9 @@ namespace mibase
                     if (! clicSonava)
                         clic.reinicia();
                     clic.setTempo (tempoClic.load (std::memory_order_relaxed));
+                    clic.setSo (soClic.load (std::memory_order_relaxed));
+                    clic.setVolum (volumClic.load (std::memory_order_relaxed));
+                    clic.setTempsPerCompas (tempsPerCompasClic.load (std::memory_order_relaxed));
                     clic.processa (m, n);
                 }
                 clicSonava = clicAra;

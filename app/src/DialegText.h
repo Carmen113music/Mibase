@@ -10,7 +10,7 @@ public:
     /** valida: retorna un missatge d'error (o buit si el text és bo). */
     DialegText (const juce::String& titolDialeg, const juce::String& explicacio, const juce::String& textBoto,
                 std::function<juce::String (const juce::String&)> validaText,
-                std::function<void (const juce::String&)> enAcceptar)
+                std::function<void (const juce::String&)> enAcceptar, const juce::String& textInicial = {})
         : titol (titolDialeg), subtitol (explicacio), valida (std::move (validaText)), accepta (std::move (enAcceptar)),
           btAccepta (textBoto, std::nullopt, Boto::Estil::Primari)
     {
@@ -20,6 +20,8 @@ public:
         text.setColour (juce::TextEditor::backgroundColourId, tema::fons);
         text.setColour (juce::TextEditor::outlineColourId, tema::linia2);
         text.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+        text.setText (textInicial, false);
+        text.selectAll();
         text.addListener (this);
         addAndMakeVisible (text);
 

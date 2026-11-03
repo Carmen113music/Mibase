@@ -247,6 +247,8 @@ namespace mibase::disc
         p.modificat = j.value ("modificat", std::string());
         p.comptador = j.value ("comptador", 0);
         p.clic = j.value ("clic", true);
+        p.clicVolum = std::clamp (j.value ("clicVolum", 1.0), 0.0, 1.5);
+        p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
         {
             const auto snap = j.value ("snap", std::string ("compas"));
             p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
@@ -280,6 +282,8 @@ namespace mibase::disc
                 t.solo = e.value ("solo", false);
                 t.grava = e.value ("grava", false);
                 t.faderDb = e.value ("faderDb", 0.0);
+                t.canals = std::clamp (e.value ("canals", 1), 1, 2);
+                t.color = std::clamp (e.value ("color", (int) p.pistes.size() % 8), 0, 7);
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -293,6 +297,7 @@ namespace mibase::disc
                         c.fadeIn = k.value ("fadeIn", 0.0);
                         c.fadeOut = k.value ("fadeOut", 0.0);
                         c.guanyDb = k.value ("guanyDb", 0.0);
+                        c.mut = k.value ("mut", false);
                         if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
                         t.clips.push_back (c);
                     }
@@ -351,6 +356,8 @@ namespace mibase::disc
         j["modificat"] = p.modificat;
         j["snap"] = p.snap == Snap::Temps ? "temps" : p.snap == Snap::Lliure ? "lliure" : "compas";
         j["clic"] = p.clic;
+        j["clicVolum"] = p.clicVolum;
+        j["clicSo"] = p.clicSo;
         j["comptador"] = p.comptador;
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 
@@ -365,8 +372,9 @@ namespace mibase::disc
             json clips = json::array();
             for (auto& c : t.clips)
                 clips.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
-                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb } });
-            pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "mut", t.mut }, { "solo", t.solo },
+                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut } });
+            pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
+                                { "mut", t.mut }, { "solo", t.solo },
                                 { "grava", t.grava }, { "faderDb", t.faderDb }, { "clips", clips } });
         }
         j["pistes"] = pistes;
@@ -530,5 +538,92 @@ namespace mibase::disc
             if (e.is_directory (ec) && esCarpetaDeProjecte (e.path()))
                 ++n;
         return n;
+    }
+
+    fs::path camiRelatiu (const fs::path& carpetaProjecte, const std::string& relatiu)
+    {
+        auto r = carpetaProjecte;
+        std::string tros;
+        for (char c : relatiu)
+        {
+            if (c == '/' || c == '\\')
+            {
+                if (! tros.empty()) r /= cami (tros);
+                tros.clear();
+            }
+            else tros += c;
+        }
+        if (! tros.empty()) r /= cami (tros);
+        return r;
+    }
+
+    Resultat novaVersio (const fs::path& fitxerActual, const Projecte& projecte, const std::string& nomNou,
+                         const std::string& araIso, const std::string& araText)
+    {
+        Resultat r;
+        const auto v = validaNom (nomNou);
+        if (! v.correcte) { r.error = v.missatge; return r; }
+
+        const auto carpeta = fitxerActual.parent_path();
+        const auto desti = carpeta / cami (nomNou + extensio);
+        std::error_code ec;
+        if (fs::exists (desti, ec)) { r.error = "Ja hi ha una versió que es diu «" + nomNou + "»."; return r; }
+
+        Projecte q = projecte;
+        q.nom = nomNou;
+        q.creat = araIso;
+        auto d = desa (desti, q, araIso, araIso, false);
+        if (! d.correcte) return d;
+
+        afegeixEvolucio (carpeta, araText, "Nova versió «" + nomNou + "» a partir de «" + projecte.nom + "»");
+        r.correcte = true;
+        r.fitxer = desti;
+        return r;
+    }
+
+    Resultat recopila (const fs::path& carpetaProjecte, const Projecte& projecte, const fs::path& destiMare,
+                       const std::string& araIso, const std::string& araText)
+    {
+        Resultat r;
+        std::error_code ec;
+        if (! fs::is_directory (destiMare, ec)) { r.error = "La carpeta de destí no existeix."; return r; }
+
+        const auto carpeta = carpetaDe (destiMare, projecte.nom);
+        if (fs::exists (carpeta, ec)) { r.error = "En aquest lloc ja hi ha una carpeta que es diu «" + projecte.nom + "»."; return r; }
+        if (! fs::create_directory (carpeta, ec) || ec) { r.error = "No s'ha pogut crear la carpeta."; return r; }
+        fs::create_directory (carpeta / cami (carpetaAudios), ec);
+        fs::create_directory (carpeta / cami (carpetaCopies), ec);
+
+        // Només les preses que fa servir algun clip.
+        std::vector<std::string> usades;
+        for (auto& t : projecte.pistes)
+            for (auto& c : t.clips)
+                if (! c.presa.empty() && std::find (usades.begin(), usades.end(), c.presa) == usades.end())
+                    usades.push_back (c.presa);
+
+        Projecte q = projecte;
+        q.preses.clear();
+        int copiats = 0;
+        for (auto& s : projecte.preses)
+        {
+            if (std::find (usades.begin(), usades.end(), s.id) == usades.end()) continue;
+            q.preses.push_back (s);
+            const auto origen = camiRelatiu (carpetaProjecte, s.fitxer);
+            const auto desti = camiRelatiu (carpeta, s.fitxer);
+            fs::create_directories (desti.parent_path(), ec);
+            if (fs::copy_file (origen, desti, fs::copy_options::overwrite_existing, ec) && ! ec) ++copiats;
+            else r.avisos.push_back ("No s'ha trobat «" + s.fitxer + "»");
+        }
+
+        const auto fitxer = carpeta / cami (projecte.nom + extensio);
+        auto d = desa (fitxer, q, araIso, araIso, false);
+        if (! d.correcte) return d;
+
+        fs::copy_file (carpetaProjecte / cami (fitxerEvolucio), carpeta / cami (fitxerEvolucio), fs::copy_options::overwrite_existing, ec);
+        afegeixEvolucio (carpeta, araText, "Projecte recopilat: " + std::to_string (copiats) + " àudios, des de " + text (carpetaProjecte));
+
+        r.correcte = true;
+        r.fitxer = fitxer;
+        return r;
     }
 }

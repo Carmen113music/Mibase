@@ -9,7 +9,8 @@
 namespace dibuix
 {
     enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa,
-                       Principi, Grava, Desfes, Refes, Metronom, Importa };
+                       Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
+                       Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -90,6 +91,54 @@ namespace dibuix
                 p.startNewSubPath (7, 9); p.lineTo (12, 14); p.lineTo (17, 9);
                 p.startNewSubPath (4, 15); p.lineTo (4, 20); p.lineTo (20, 20); p.lineTo (20, 15);
                 break;
+            case Icona::Rebobina:
+                p.startNewSubPath (12, 6); p.lineTo (4, 12); p.lineTo (12, 18); p.closeSubPath();
+                p.startNewSubPath (20, 6); p.lineTo (12, 12); p.lineTo (20, 18); p.closeSubPath();
+                break;
+            case Icona::Endavant:
+                p.startNewSubPath (4, 6); p.lineTo (12, 12); p.lineTo (4, 18); p.closeSubPath();
+                p.startNewSubPath (12, 6); p.lineTo (20, 12); p.lineTo (12, 18); p.closeSubPath();
+                break;
+            case Icona::Atura:
+                p.addRectangle (6.5f, 6.5f, 11.0f, 11.0f);
+                break;
+            case Icona::Fletxa2:   // punter del ratolí
+                p.startNewSubPath (6, 3); p.lineTo (6, 19); p.lineTo (10, 15); p.lineTo (13, 21); p.lineTo (15.5f, 20);
+                p.lineTo (12.5f, 14); p.lineTo (18, 14); p.closeSubPath();
+                break;
+            case Icona::Llapis:
+                p.startNewSubPath (4, 20); p.lineTo (5, 15.5f); p.lineTo (15.5f, 5); p.lineTo (19, 8.5f); p.lineTo (8.5f, 19); p.closeSubPath();
+                p.startNewSubPath (13, 7.5f); p.lineTo (16.5f, 11);
+                break;
+            case Icona::Goma:
+                p.startNewSubPath (9, 20); p.lineTo (4, 15); p.lineTo (13, 6); p.lineTo (20, 13); p.lineTo (13, 20); p.closeSubPath();
+                p.startNewSubPath (8.5f, 10.5f); p.lineTo (15.5f, 17.5f);
+                p.startNewSubPath (13, 20); p.lineTo (20, 20);
+                break;
+            case Icona::Tisores:
+                p.addEllipse (3.5f, 14.5f, 6, 6); p.addEllipse (14.5f, 14.5f, 6, 6);
+                p.startNewSubPath (8.5f, 15.5f); p.lineTo (17, 3);
+                p.startNewSubPath (15.5f, 15.5f); p.lineTo (7, 3);
+                break;
+            case Icona::Cola:   // pot de cola
+                p.startNewSubPath (7, 9); p.lineTo (17, 9); p.lineTo (18, 21); p.lineTo (6, 21); p.closeSubPath();
+                p.startNewSubPath (10, 9); p.lineTo (10.5f, 5); p.lineTo (13.5f, 5); p.lineTo (14, 9);
+                p.startNewSubPath (12, 5); p.lineTo (12, 2.5f);
+                p.startNewSubPath (9, 14); p.lineTo (15, 14);
+                break;
+            case Icona::Silenci:   // X
+                p.startNewSubPath (6, 6); p.lineTo (18, 18);
+                p.startNewSubPath (18, 6); p.lineTo (6, 18);
+                p.addRoundedRectangle (3.0f, 3.0f, 18.0f, 18.0f, 3.0f);
+                break;
+            case Icona::Mescla:   // tres faders
+                p.startNewSubPath (6, 4); p.lineTo (6, 20); p.startNewSubPath (12, 4); p.lineTo (12, 20); p.startNewSubPath (18, 4); p.lineTo (18, 20);
+                p.addRectangle (4.0f, 13.0f, 4.0f, 3.0f); p.addRectangle (10.0f, 7.0f, 4.0f, 3.0f); p.addRectangle (16.0f, 11.0f, 4.0f, 3.0f);
+                break;
+            case Icona::Pistes:   // carrils amb clips
+                p.addRoundedRectangle (3.0f, 5.0f, 10.0f, 5.0f, 1.0f); p.addRoundedRectangle (9.0f, 14.0f, 12.0f, 5.0f, 1.0f);
+                p.startNewSubPath (3, 12); p.lineTo (21, 12);
+                break;
             case Icona::Casa:
                 p.startNewSubPath (4, 11); p.lineTo (12, 4); p.lineTo (20, 11);
                 p.startNewSubPath (6, 9.5f); p.lineTo (6, 20); p.lineTo (18, 20); p.lineTo (18, 9.5f);
@@ -109,7 +158,7 @@ namespace dibuix
             g.fillPath (p);
         }
         g.setColour (color);
-        if (i == Icona::Play || i == Icona::Grava)
+        if (i == Icona::Play || i == Icona::Grava || i == Icona::Rebobina || i == Icona::Endavant || i == Icona::Atura)
             g.fillPath (p);
         else
             g.strokePath (p, juce::PathStrokeType (gruix * r.getWidth() / 24.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));

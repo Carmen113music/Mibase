@@ -2,8 +2,55 @@
 
 #include "Dibuix.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <map>
+#include <memory>
 #include <mibase/Edicio.h>
+
+/** L'ona d'una presa: mínims i màxims per blocs de 256 mostres (per dibuixar-la de lluny)
+    i el fitxer obert per llegir les mostres de debò quan s'hi fa molt de zoom. Tot en mono (mitjana dels canals). */
+struct OnaPresa
+{
+    static constexpr int bloc = 256;
+    double sr = 48000.0;
+    juce::int64 longitud = 0;
+    int canals = 1;
+    std::vector<float> mins, maxs;
+    std::unique_ptr<juce::AudioFormatReader> lector;
+
+    /** Mostres [ini, ini + n) en mono. Retorna nullptr si no es poden llegir. */
+    const float* mostres (juce::int64 ini, int n)
+    {
+        if (lector == nullptr || n <= 0) return nullptr;
+        if (ini >= memIni && ini + n <= memIni + memLen)
+            return memoria.data() + (ini - memIni);
+
+        const juce::int64 marge = juce::jmax (4096, n / 2);
+        memIni = juce::jmax ((juce::int64) 0, ini - marge);
+        memLen = (int) juce::jmin (longitud - memIni, (juce::int64) n + 2 * marge);
+        if (memLen <= 0) return nullptr;
+
+        juce::AudioBuffer<float> b ((int) juce::jmax (1u, lector->numChannels), memLen);
+        lector->read (&b, 0, memLen, memIni, true, true);
+        memoria.assign ((size_t) memLen, 0.0f);
+        const float factor = 1.0f / (float) b.getNumChannels();
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        {
+            const float* d = b.getReadPointer (ch);
+            for (int i = 0; i < memLen; ++i) memoria[(size_t) i] += d[i] * factor;
+        }
+        if (ini + n > memIni + memLen) return nullptr;
+        return memoria.data() + (ini - memIni);
+    }
+
+private:
+    std::vector<float> memoria;
+    juce::int64 memIni = -1;
+    int memLen = 0;
+};
+
+/** Eines de la caixa d'eines de l'estudi. */
+enum class Eina { Fletxa = 0, Llapis, Goma, Tisores, Cola, Silenci };
 
 /** Tot el que comparteixen les seccions de l'estudi: el projecte, el que hi ha triat i com es mira
     (zoom, desplaçament, alçada de les pistes, capçal). Quan alguna cosa canvia, avisa totes les seccions. */
@@ -28,8 +75,14 @@ public:
     /** Text d'informació de dalt (el valor del que s'arrossega). */
     juce::String info;
 
-    /** Ones de les preses (pic cada 10 ms). */
-    std::map<std::string, std::vector<float>> ones;
+    /** Ones de les preses. */
+    std::map<std::string, std::shared_ptr<OnaPresa>> ones;
+
+    /** Eina triada a la caixa d'eines. */
+    Eina eina = Eina::Fletxa;
+
+    /** Taula de treball (pistes) o taula de mescles. */
+    bool vistaMescles = false;
 
     /** Demana desar (el fa la pantalla, una mica després) i, si n'hi ha, anota una línia al diari. */
     std::function<void (const juce::String& evolucio)> onCanviat;
@@ -56,18 +109,18 @@ public:
         return &t->clips[(size_t) clipsTriats[0]];
     }
 
-    static juce::Colour colorTipus (const std::string& tipus)
+    /** Paleta de colors de les pistes (8). */
+    static juce::Colour colorPista (int i)
     {
-        if (tipus == "guitarra") return tema::guitarra;
-        if (tipus == "veu")      return tema::veu;
-        return tema::audio;
+        static const juce::uint32 colors[] = { 0xfff5c445, 0xff59d0d6, 0xffb18cff, 0xff7fd67a, 0xff6fa8ff, 0xffff8fc4, 0xffe8a87c, 0xffc9b8a6 };
+        return juce::Colour (colors[(size_t) juce::jlimit (0, 7, i)]);
     }
+    static juce::Colour colorPista (const mibase::Pista& t) { return colorPista (t.color); }
 
-    static juce::String nomTipus (const std::string& tipus)
+    static juce::String nomColor (int i)
     {
-        if (tipus == "guitarra") return "Guitarra";
-        if (tipus == "veu")      return "Veu";
-        return juce::String::fromUTF8 ("Àudio");
+        static const char* noms[] = { "Groc", "Turquesa", "Lila", "Verd", "Blau", "Rosa", "Préssec", "Sorra" };
+        return juce::String::fromUTF8 (noms[juce::jlimit (0, 7, i)]);
     }
 
     /** Les seccions es tornen a dibuixar. */

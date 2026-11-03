@@ -535,6 +535,122 @@ int main()
         comprova (copies == 0, "amb ferCopia = false no es fa còpia");
     });
 
+
+    prova ("Claqueta: quatre sons, volum i accent", []
+    {
+        for (int so = 0; so < ClicDeProva::numSons; ++so)
+        {
+            ClicDeProva clic;
+            clic.prepara (48000.0);
+            clic.setSo (so);
+            clic.setTempsPerCompas (4);
+            std::vector<float> b (96000, 0.0f);
+            clic.processa (b.data(), (int) b.size());
+            const std::string nom = "so " + std::to_string (so);
+            comprova (totFinit (b), nom + ": valors vàlids");
+            comprova (pic (b, 0, 3000) > 0.05f, nom + ": sona el primer temps");
+            comprova (pic (b, 24000, 27000) > 0.03f, nom + ": sona el segon temps");
+            comprova (pic (b, 0, 3000) > pic (b, 24000, 27000), nom + ": el primer temps és més fort");
+            comprova (pic (b, 0, b.size()) <= 1.0f, nom + ": no satura");
+            comprova (pic (b, 12000, 20000) < 0.001f, nom + ": silenci entre temps");
+
+            ClicDeProva fluix;
+            fluix.prepara (48000.0);
+            fluix.setSo (so);
+            fluix.setVolum (0.5f);
+            std::vector<float> c (3000, 0.0f);
+            fluix.processa (c.data(), (int) c.size());
+            comprova (std::abs (pic (c, 0, c.size()) - 0.5f * pic (b, 0, 3000)) < 0.02f, nom + ": el volum funciona");
+        }
+    });
+
+    prova ("Eines: llapis, tisores, cola i colors de pista", []
+    {
+        using namespace mibase::edicio;
+        mibase::Projecte p; p.tempo = 120;
+        const auto id = afegeixPresa (p, "a.wav", "a", 8.0).id;
+        afegeixPista (p, "A", "audio");
+        afegeixPista (p, "B", "audio");
+        comprova (p.pistes[0].color != p.pistes[1].color, "pistes seguides, colors diferents");
+
+        // Llapis.
+        const int f = creaFinestra (p, 1, 4.0, 2.0);
+        comprova (f == 0 && p.pistes[1].clips[0].presa.empty() && std::abs (p.pistes[1].clips[0].iniciVisible() - 2.0) < 1e-9
+                  && std::abs (p.pistes[1].clips[0].longitud() - 2.0) < 1e-9, "finestra buida de 2 a 4");
+
+        // Tisores.
+        auto& c = afegeixClip (p, 0, id, 0.0);
+        c.fadeIn = 0.5; c.fadeOut = 0.5;
+        comprova (! talla (p, 0, 0, 0.0) && ! talla (p, 0, 0, 8.0), "no es talla a les vores");
+        comprova (talla (p, 0, 0, 3.0), "tallat a 3 s");
+        auto& cl = p.pistes[0].clips;
+        comprova (cl.size() == 2 && std::abs (cl[0].fiVisible() - 3.0) < 1e-9 && std::abs (cl[1].iniciVisible() - 3.0) < 1e-9, "dos trossos");
+        comprova (cl[0].fadeIn == 0.5 && cl[0].fadeOut == 0.0 && cl[1].fadeIn == 0.0 && cl[1].fadeOut == 0.5, "els fades queden a fora");
+
+        // Cola: els dos trossos tornen a ser un (sense fitxer nou).
+        auto r = enganxaClips (p, 0, 1, 0);
+        comprova (r.fet && ! r.calConsolidar && cl.size() == 1 && std::abs (cl[0].longitud() - 8.0) < 1e-9, "cola de dos trossos contigus");
+
+        // Amb un forat entre mig, cal un fitxer nou.
+        talla (p, 0, 0, 3.0);
+        cl[1].pos += 1.0;
+        r = enganxaClips (p, 0, 0, 1);
+        comprova (! r.fet && r.calConsolidar && cl.size() == 2, "amb forat, cal consolidar");
+
+        // Preses diferents: cal consolidar.
+        const auto id2 = afegeixPresa (p, "b.wav", "b", 2.0).id;
+        afegeixClip (p, 1, id2, 4.0);
+        r = enganxaClips (p, 1, 0, 1);
+        comprova (r.fet && p.pistes[1].clips.size() == 1, "finestra buida + àudio just al costat: s'ajunten");
+        comprova (std::abs (p.pistes[1].clips[0].iniciVisible() - 2.0) < 1e-9 && std::abs (p.pistes[1].clips[0].fiVisible() - 6.0) < 1e-9,
+                  "l'àudio s'allarga amb silenci");
+
+        // Dues finestres buides.
+        creaFinestra (p, 1, 10.0, 11.0);
+        creaFinestra (p, 1, 13.0, 14.0);
+        r = enganxaClips (p, 1, 1, 2);
+        comprova (r.fet && std::abs (p.pistes[1].clips[1].longitud() - 4.0) < 1e-9, "dues finestres buides en fan una");
+    });
+
+    prova ("Projecte: nova versió i exportar (recopilar) amb només els àudios que calen", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::edicio;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves6";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel / "desti");
+
+        mibase::Projecte p; p.nom = "Cançó";
+        auto r = mibase::disc::creaProjecte (arrel, p, "2026-11-03T12:00:00", "03/11/2026 12:00");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        const auto carpeta = r.fitxer.parent_path();
+        std::ofstream (carpeta / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Usada - presa 01.wav")) << "u";
+        std::ofstream (carpeta / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Vella - presa 01.wav")) << "v";
+        const auto usada = afegeixPresa (q, "Àudios/Usada - presa 01.wav", "usada", 1.0).id;
+        afegeixPresa (q, "Àudios/Vella - presa 01.wav", "vella", 1.0);
+        afegeixPista (q, "Veu", "audio").canals = 2;
+        afegeixClip (q, 0, usada, 0.0).mut = true;
+        q.clicSo = 2; q.clicVolum = 0.7;
+        mibase::disc::desa (r.fitxer, q, "x", "x", false);
+
+        auto v = mibase::disc::novaVersio (r.fitxer, q, "Cançó v2", "2026-11-03T12:01:00", "03/11/2026 12:01");
+        comprova (v.correcte && fs::exists (v.fitxer), "nova versió creada");
+        auto lv = mibase::disc::llegeix (v.fitxer);
+        comprova (lv && lv->nom == "Cançó v2" && lv->pistes.size() == 1, "la versió té el mateix contingut i el nom nou");
+        comprova (! mibase::disc::novaVersio (r.fitxer, q, "Cançó v2", "x", "x").correcte, "no trepitja una versió que ja hi és");
+        comprova (mibase::disc::llegeixEvolucio (carpeta, 1)[0].text.find ("Nova versió") == 0, "s'anota al diari");
+
+        auto e = mibase::disc::recopila (carpeta, q, arrel / "desti", "2026-11-03T12:02:00", "03/11/2026 12:02");
+        comprova (e.correcte && e.avisos.empty(), "recopilat (" + e.error + ")");
+        const auto nova = arrel / "desti" / mibase::disc::cami ("Cançó");
+        comprova (fs::exists (nova / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Usada - presa 01.wav")), "hi ha l'àudio que es fa servir");
+        comprova (! fs::exists (nova / mibase::disc::cami ("Àudios") / mibase::disc::cami ("Vella - presa 01.wav")), "no hi ha l'àudio obsolet");
+        auto le = mibase::disc::llegeix (e.fitxer);
+        comprova (le && le->preses.size() == 1 && le->pistes[0].canals == 2 && le->pistes[0].clips[0].mut, "el projecte recopilat està sanejat i complet");
+        comprova (le && le->clicSo == 2 && std::abs (le->clicVolum - 0.7) < 1e-9, "la claqueta es desa");
+        comprova (! mibase::disc::recopila (carpeta, q, arrel / "desti", "x", "x").correcte, "no trepitja una carpeta que ja hi és");
+    });
+
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
 }

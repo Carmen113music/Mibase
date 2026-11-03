@@ -70,7 +70,7 @@ namespace mibase::edicio
     double puntSnap (const Projecte& p, const Clip& c)
     {
         if (banderaVisible (p, c))
-            return c.pos + presa (p, c.presa)->primer;
+            return c.pos + presa (p, c.presa)->primer;   // banderaVisible ja comprova que la presa existeix
         return c.iniciVisible();
     }
 
@@ -85,6 +85,7 @@ namespace mibase::edicio
         t.id = idNou (p, 't');
         t.nom = nom;
         t.tipus = tipus;
+        t.color = colorLliure (p);
         p.pistes.push_back (t);
         return p.pistes.back();
     }
@@ -111,6 +112,117 @@ namespace mibase::edicio
         auto& clips = p.pistes[(size_t) pista].clips;
         clips.push_back (c);
         return clips.back();
+    }
+
+    int colorLliure (const Projecte& p)
+    {
+        int usos[colorsPista] = {};
+        for (auto& t : p.pistes)
+            if (t.color >= 0 && t.color < colorsPista) ++usos[t.color];
+        int millor = 0;
+        for (int i = 1; i < colorsPista; ++i)
+            if (usos[i] < usos[millor]) millor = i;
+        // En empat, el següent a l'última pista (perquè les pistes seguides tinguin colors diferents).
+        if (! p.pistes.empty())
+        {
+            const int seguent = (p.pistes.back().color + 1) % colorsPista;
+            if (usos[seguent] == usos[millor]) millor = seguent;
+        }
+        return millor;
+    }
+
+    int creaFinestra (Projecte& p, int pista, double de, double a)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
+        Clip c;
+        c.pos = std::max (0.0, std::min (de, a));
+        c.inici = 0.0;
+        c.fi = std::max (longitudMinima, std::abs (a - de));
+        auto& clips = p.pistes[(size_t) pista].clips;
+        clips.push_back (c);
+        return (int) clips.size() - 1;
+    }
+
+    bool talla (Projecte& p, int pista, int clip, double t)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return false;
+        auto& clips = p.pistes[(size_t) pista].clips;
+        if (clip < 0 || clip >= (int) clips.size()) return false;
+
+        auto a = clips[(size_t) clip];
+        if (t <= a.iniciVisible() + longitudMinima || t >= a.fiVisible() - longitudMinima) return false;
+
+        auto b = a;
+        a.fi = t - a.pos;
+        b.inici = t - b.pos;
+        a.fadeOut = 0.0;
+        b.fadeIn = 0.0;
+        a.fadeIn = std::min (a.fadeIn, a.longitud());
+        b.fadeOut = std::min (b.fadeOut, b.longitud());
+        clips[(size_t) clip] = a;
+        clips.insert (clips.begin() + clip + 1, b);
+        return true;
+    }
+
+    ResultatCola enganxaClips (Projecte& p, int pista, int ia, int ib)
+    {
+        ResultatCola r;
+        if (pista < 0 || pista >= (int) p.pistes.size() || ia == ib) return r;
+        auto& clips = p.pistes[(size_t) pista].clips;
+        if (ia < 0 || ib < 0 || ia >= (int) clips.size() || ib >= (int) clips.size()) return r;
+
+        if (clips[(size_t) ib].iniciVisible() < clips[(size_t) ia].iniciVisible()) std::swap (ia, ib);
+        const auto a = clips[(size_t) ia];
+        const auto b = clips[(size_t) ib];
+        const double ini = std::min (a.iniciVisible(), b.iniciVisible());
+        const double fi = std::max (a.fiVisible(), b.fiVisible());
+
+        Clip resultat;
+        bool simple = false;
+
+        if (a.presa.empty() && b.presa.empty())
+        {
+            resultat = a;
+            resultat.pos = ini; resultat.inici = 0.0; resultat.fi = fi - ini;
+            simple = true;
+        }
+        else if (a.presa.empty() != b.presa.empty())
+        {
+            // Una finestra buida i un àudio: la finestra de l'àudio s'allarga (la part nova és silenci).
+            resultat = a.presa.empty() ? b : a;
+            const double inici = ini - resultat.pos, final = fi - resultat.pos;
+            // Només es pot si no es destapa àudio amagat on hi havia la finestra buida (ha de quedar silenci).
+            const auto* s = presa (p, resultat.presa);
+            const bool descobreix = s != nullptr && ((inici < resultat.inici && resultat.inici > 0.0)
+                                                    || (final > resultat.fi && resultat.fi < s->durada));
+            if (! descobreix)
+            {
+                resultat.inici = inici; resultat.fi = final;
+                if (a.presa.empty()) resultat.fadeIn = 0.0; else resultat.fadeOut = 0.0;
+                simple = true;
+            }
+        }
+        else if (a.presa == b.presa && std::abs (a.pos - b.pos) < 1e-6 && std::abs (a.guanyDb - b.guanyDb) < 1e-6
+                 && a.mut == b.mut && std::abs (a.fiVisible() - b.iniciVisible()) < 0.001
+                 && a.fadeOut <= 0.0 && b.fadeIn <= 0.0)
+        {
+            resultat = a;
+            resultat.fi = b.fi;
+            resultat.fadeOut = b.fadeOut;
+            simple = true;
+        }
+
+        if (! simple)
+        {
+            r.calConsolidar = true;
+            return r;
+        }
+
+        clips[(size_t) ia] = resultat;
+        clips.erase (clips.begin() + ib);
+        r.fet = true;
+        r.clip = ib < ia ? ia - 1 : ia;
+        return r;
     }
 
     void esborraPista (Projecte& p, int pista)

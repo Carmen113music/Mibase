@@ -50,6 +50,7 @@ namespace mibase
             bool correcte = false;
             std::string error;
             std::filesystem::path fitxer;   // el .mibase
+            std::vector<std::string> avisos;   // coses que no han anat del tot bé però no l'aturen
         };
 
         /** Carpeta del projecte (mare/nom). */
@@ -67,6 +68,19 @@ namespace mibase
             ferCopia: false per no fer còpia aquesta vegada (l'estudi en fa una de tant en tant, no a cada canvi). */
         Resultat desa (const std::filesystem::path& fitxer, Projecte projecte,
                        const std::string& araIso, const std::string& araPerNom, bool ferCopia = true);
+
+        /** Camí d'un fitxer relatiu al projecte («Àudios/x.wav»). */
+        std::filesystem::path camiRelatiu (const std::filesystem::path& carpetaProjecte, const std::string& relatiu);
+
+        /** Nova versió a partir d'aquí (com una branca): un altre .mibase a la mateixa carpeta,
+            que comparteix els àudios i el diari. */
+        Resultat novaVersio (const std::filesystem::path& fitxerActual, const Projecte& projecte, const std::string& nomNou,
+                             const std::string& araIso, const std::string& araText);
+
+        /** Exporta el projecte: una carpeta nova dins «destiMare» amb el projecte i NOMÉS els àudios que fa servir,
+            preparada per obrir-la en un altre ordinador. */
+        Resultat recopila (const std::filesystem::path& carpetaProjecte, const Projecte& projecte,
+                           const std::filesystem::path& destiMare, const std::string& araIso, const std::string& araText);
 
         /** Afegeix una línia al diari, a dalt de tot (sota el títol). */
         bool afegeixEvolucio (const std::filesystem::path& carpetaProjecte, const std::string& quan, const std::string& text);
