@@ -64,33 +64,99 @@ namespace mibase::pads
 
     namespace
     {
-        std::string dominant (const Tonalitat& t)
+        constexpr int blanques[7] = { 0, 2, 4, 5, 7, 9, 11 };
+        constexpr int negres[5] = { 1, 3, 6, 8, 10 };
+
+        std::string acord (int to, const char* sufix) { return harmonia::nomTo (((to % 12) + 12) % 12) + sufix; }
+
+        bool esMajor (const Tonalitat& t) { return harmonia::aEscala (t.to + 4, t); }
+
+        /** Els 7 acords de la tonalitat (si l'escala en té menys, els de la major o menor). */
+        std::vector<std::string> diatonics (const Tonalitat& t)
         {
-            const int v = (t.to + 7) % 12;
-            return harmonia::nomTo (v) + "7";
+            std::vector<std::string> r;
+            for (auto& a : harmonia::acordsDeTonalitat (t, false)) r.push_back (a.nom);
+            if (r.size() < 7)
+            {
+                r.clear();
+                for (auto& a : harmonia::acordsDeTonalitat ({ t.to, esMajor (t) ? 0 : 1 }, false)) r.push_back (a.nom);
+            }
+            r.resize (7);
+            return r;
+        }
+
+        std::vector<std::string> color (const Tonalitat& t)
+        {
+            const int to = t.to;
+            if (esMajor (t))
+                return { acord (to + 7, "7"), acord (to + 2, "m7"), acord (to + 5, "m"), acord (to + 8, ""), acord (to + 10, "") };
+            return { acord (to + 7, "7"), acord (to, "m7"), acord (to + 5, ""), acord (to + 7, ""), acord (to + 1, "") };
+        }
+
+        /** Mateix acord (mateixes notes), escrit com sigui. */
+        bool igual (const std::string& a, const std::string& b)
+        {
+            const auto x = harmonia::llegeixAcord (a), y = harmonia::llegeixAcord (b);
+            return ! x.buit() && x == y;
         }
     }
 
     std::vector<std::string> padsDeTonalitat (const Tonalitat& t)
     {
-        std::vector<std::string> r;
-        for (auto& a : harmonia::acordsDeTonalitat (t, false)) r.push_back (a.nom);
-        r.push_back (dominant (t));
-        for (auto& a : harmonia::acordsDeTonalitat (t, true)) r.push_back (a.nom);
-        r.push_back (harmonia::nomTo (t.to) + (harmonia::aEscala (t.to + 4, t) ? "add9" : "m9"));
-        r.resize (numPads);
+        std::vector<std::string> r (numPads);
+        const auto d = diatonics (t);
+        const auto c = color (t);
+        for (int i = 0; i < 7; ++i) r[(size_t) blanques[i]] = d[(size_t) i];
+        for (int i = 0; i < 5; ++i) r[(size_t) negres[i]] = c[(size_t) i];
         return r;
     }
 
     std::vector<std::string> padsDePreset (int i)
     {
         const auto& p = presets()[(size_t) std::clamp (i, 0, (int) presets().size() - 1)];
-        std::vector<std::string> r;
-        for (auto* a : p.acords) r.push_back (a);
         const Tonalitat t { p.to, p.escala };
-        for (auto& a : harmonia::acordsDeTonalitat (t, true)) r.push_back (a.nom);
-        r.push_back (dominant (t));
-        r.resize (numPads);
+        std::vector<std::string> usats;
+        auto nou = [&usats] (const std::string& a)
+        {
+            for (auto& u : usats) if (igual (u, a)) return false;
+            return ! a.empty();
+        };
+        // Blanques: la seqüència (sense repetir) i, si hi ha lloc, la tonalitat.
+        std::vector<std::string> b, sobrants;
+        for (auto* a : p.acords)
+            if (nou (a)) { usats.push_back (a); (b.size() < 7 ? b : sobrants).push_back (a); }
+        const auto diat = diatonics (t), col = color (t);
+        const auto setenes = [&t]
+        {
+            std::vector<std::string> r;
+            for (auto& a : harmonia::acordsDeTonalitat (t, true)) r.push_back (a.nom);
+            return r;
+        }();
+        for (const std::vector<std::string>* llista : { &diat, &col, &setenes })
+            for (auto& a : *llista)
+                if (b.size() < 7 && nou (a)) { usats.push_back (a); b.push_back (a); }
+        // Negres: el que no ha cabut de la seqüència, els acords de color i, si cal, les setenes.
+        std::vector<std::string> n = sobrants;
+        for (const std::vector<std::string>* llista : { &col, &setenes, &diat })
+            for (auto& a : *llista)
+                if (n.size() < 5 && nou (a)) { usats.push_back (a); n.push_back (a); }
+        b.resize (7); n.resize (5);
+        std::vector<std::string> r (numPads);
+        for (int k = 0; k < 7; ++k) r[(size_t) blanques[k]] = b[(size_t) k];
+        for (int k = 0; k < 5; ++k) r[(size_t) negres[k]] = n[(size_t) k];
+        return r;
+    }
+
+    std::vector<std::string> adapta (const std::vector<std::string>& v, const std::string& preset)
+    {
+        if ((int) v.size() == numPads || v.empty()) return v;
+        for (int i = 0; i < (int) presets().size(); ++i)
+            if (preset == presets()[(size_t) i].titol) return padsDePreset (i);
+        if (preset == "Acords de la tonalitat") return {};
+        // Pads fets a mà: els 12 primers, en l'ordre de les tecles (blanques i després negres).
+        std::vector<std::string> r (numPads);
+        for (int k = 0; k < 12 && k < (int) v.size(); ++k)
+            r[(size_t) (k < 7 ? blanques[k] : negres[k - 7])] = v[(size_t) k];
         return r;
     }
 }
