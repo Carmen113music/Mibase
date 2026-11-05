@@ -298,6 +298,7 @@ namespace mibase::disc
                     for (auto& x : e["pads"]) t.pads.push_back (x.is_string() ? x.get<std::string>() : std::string());
                 t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
+                t.carpeta = e.value ("carpeta", std::string());
                 if (t.tipus == "midi") t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
@@ -352,6 +353,15 @@ namespace mibase::disc
             }
         }
 
+        if (j.contains ("carpetes") && j["carpetes"].is_array())
+            for (auto& e : j["carpetes"])
+                if (e.is_object())
+                    p.carpetes.push_back ({ e.value ("id", std::string()), e.value ("nom", std::string()),
+                                            e.value ("plegada", false), e.value ("amagada", false) });
+        for (auto& t : p.pistes)   // una carpeta que ja no hi és: la pista queda fora
+            if (! t.carpeta.empty()
+                && std::none_of (p.carpetes.begin(), p.carpetes.end(), [&t] (const Carpeta& c) { return c.id == t.carpeta; }))
+                t.carpeta.clear();
         if (j.contains ("bucle") && j["bucle"].is_object())
         {
             p.bucle.marcat = j["bucle"].value ("marcat", false);
@@ -436,6 +446,12 @@ namespace mibase::disc
                                { "mode", p.modeEscala == ModeEscala::Assistit ? "assistit" : p.modeEscala == ModeEscala::Bloquejat ? "bloquejat" : "visual" },
                                { "acord", p.ressaltaAcord }, { "canvis", canvis } };
         }
+        {
+            json carpetes = json::array();
+            for (auto& c : p.carpetes)
+                carpetes.push_back ({ { "id", c.id }, { "nom", c.nom }, { "plegada", c.plegada }, { "amagada", c.amagada } });
+            j["carpetes"] = carpetes;
+        }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 
         json preses = json::array();
@@ -470,6 +486,7 @@ namespace mibase::disc
                            { "clips", clips } };
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
+            if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             pistes.push_back (pista);
         }

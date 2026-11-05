@@ -451,6 +451,79 @@ namespace mibase::edicio
         p.pistes.insert (p.pistes.begin() + a, t);
     }
 
+    Carpeta* carpeta (Projecte& p, const std::string& id)
+    {
+        for (auto& c : p.carpetes) if (c.id == id && ! id.empty()) return &c;
+        return nullptr;
+    }
+
+    std::string creaCarpeta (Projecte& p, const std::string& nom, const std::vector<int>& pistes)
+    {
+        Carpeta c;
+        c.id = idNou (p, 'f');
+        c.nom = nom;
+        p.carpetes.push_back (c);
+        // Per ordre: la primera on és; la resta, seguides darrere seu.
+        std::vector<std::string> ids;
+        for (int i : pistes) if (i >= 0 && i < (int) p.pistes.size()) ids.push_back (p.pistes[(size_t) i].id);
+        std::vector<std::pair<int, std::string>> ordre;
+        for (auto& id : ids)
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) ordre.push_back ({ i, id });
+        std::sort (ordre.begin(), ordre.end());
+        for (auto& [i0, id] : ordre)
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) { posaACarpeta (p, i, c.id); break; }
+        return c.id;
+    }
+
+    int posaACarpeta (Projecte& p, int pista, const std::string& id)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return pista;
+        if (! id.empty() && carpeta (p, id) == nullptr) return pista;
+        auto& t = p.pistes[(size_t) pista];
+        if (t.carpeta == id) return pista;
+        t.carpeta = id;
+        if (id.empty()) return pista;
+        int ultima = -1;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (i != pista && p.pistes[(size_t) i].carpeta == id) ultima = i;
+        if (ultima < 0) return pista;                      // la primera: es queda on és
+        const int desti = ultima < pista ? ultima + 1 : ultima;
+        mouPista (p, pista, desti);
+        return desti;
+    }
+
+    void esborraCarpeta (Projecte& p, const std::string& id)
+    {
+        for (auto& t : p.pistes) if (t.carpeta == id) t.carpeta.clear();
+        p.carpetes.erase (std::remove_if (p.carpetes.begin(), p.carpetes.end(), [&id] (const Carpeta& c) { return c.id == id; }),
+                          p.carpetes.end());
+    }
+
+    std::vector<int> pistesDeCarpeta (const Projecte& p, const std::string& id)
+    {
+        std::vector<int> r;
+        for (int i = 0; i < (int) p.pistes.size(); ++i) if (! id.empty() && p.pistes[(size_t) i].carpeta == id) r.push_back (i);
+        return r;
+    }
+
+    std::vector<int> filesVisibles (const Projecte& p)
+    {
+        std::vector<int> r (p.pistes.size(), 1);
+        for (auto& c : p.carpetes)
+        {
+            if (! c.plegada && ! c.amagada) continue;
+            bool primera = true;
+            for (int i : pistesDeCarpeta (p, c.id))
+            {
+                r[(size_t) i] = (c.amagada || ! primera) ? 0 : 2;
+                primera = false;
+            }
+        }
+        return r;
+    }
+
     void triaGravacio (Projecte& p, int pista)
     {
         for (int i = 0; i < (int) p.pistes.size(); ++i)

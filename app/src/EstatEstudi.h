@@ -68,6 +68,7 @@ public:
     double iniciVista = 0.0;     // segons a la vora esquerra
     int desplY = 0;              // píxels
     int altPista = 76;
+    mutable std::vector<int> files;   // cau de edicio::filesVisibles
     double capcal = 0.0;         // segons
 
     // Triat.
@@ -220,8 +221,58 @@ public:
     float x (double t) const noexcept         { return (float) ((t - iniciVista) * pxPerSegon); }
     double t (float px) const noexcept        { return iniciVista + (double) px / pxPerSegon; }
     int numPistes() const noexcept            { return (int) projecte.pistes.size(); }
-    int yPista (int i) const noexcept         { return i * altPista - desplY; }
-    int pistaA (int y) const noexcept         { return (int) std::floor ((double) (y + desplY) / altPista); }
+    // Files de la taula de treball (0.11): amb carpetes plegades o amagades, algunes pistes no es veuen (alçada 0)
+    // i la primera d'una carpeta plegada és la fila de la carpeta.
+    int modeFila (int i) const noexcept
+    {
+        if (i < 0 || i >= numPistes()) return 1;
+        if (files.size() != projecte.pistes.size()) files = mibase::edicio::filesVisibles (projecte);
+        return files[(size_t) i];
+    }
+    int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista; }
+    bool filaCarpeta (int i) const noexcept   { return modeFila (i) == 2; }
+    int yPista (int i) const noexcept
+    {
+        int y = 0;
+        for (int k = 0; k < juce::jmin (i, numPistes()); ++k) y += altDe (k);
+        if (i > numPistes()) y += (i - numPistes()) * altPista;
+        return y - desplY;
+    }
+    int pistaA (int y) const noexcept
+    {
+        const int yy = y + desplY;
+        if (yy < 0) return (int) std::floor ((double) yy / altPista);
+        int acc = 0;
+        for (int i = 0; i < numPistes(); ++i)
+        {
+            const int h = altDe (i);
+            if (h > 0 && yy < acc + h) return i;
+            acc += h;
+        }
+        return numPistes() + (yy - acc) / altPista;
+    }
+    /** Alçada de totes les files visibles. */
+    int altTotal() const noexcept             { return yPista (numPistes()) + desplY; }
+    /** Torna a calcular quines pistes es veuen (després de canviar carpetes). */
+    void recalculaFiles() { files = mibase::edicio::filesVisibles (projecte); }
+
+    /** Pistes triades amb Ctrl o Maj (per ids; la pistaTriada n'és la principal). */
+    std::vector<std::string> pistesTriades;
+    bool pistaEsTriada (int i) const
+    {
+        if (i == pistaTriada) return true;
+        if (i < 0 || i >= numPistes()) return false;
+        return std::find (pistesTriades.begin(), pistesTriades.end(), projecte.pistes[(size_t) i].id) != pistesTriades.end();
+    }
+    /** Índexs de les pistes triades (la principal inclosa), en ordre. */
+    std::vector<int> indexsTriades() const
+    {
+        std::vector<int> r;
+        for (int i = 0; i < numPistes(); ++i) if (pistaEsTriada (i)) r.push_back (i);
+        return r;
+    }
+    /** Mostra el panell de carpetes a l'esquerra dels noms de pista. */
+    bool panellCarpetes = false;
 
     mibase::Pista* pista (int i) { return (i >= 0 && i < numPistes()) ? &projecte.pistes[(size_t) i] : nullptr; }
 
@@ -265,7 +316,7 @@ public:
     }
 
     /** Les seccions es tornen a dibuixar. */
-    void avisa() { sendSynchronousChangeMessage(); }
+    void avisa() { recalculaFiles(); sendSynchronousChangeMessage(); }
 
     /** Després d'un canvi fet (ja guardat el «com era» a desfes): avisa, desa i anota. */
     void canviat (const juce::String& evolucio = {})
@@ -279,6 +330,9 @@ public:
     void netejaSeleccio()
     {
         if (pistaTriada >= numPistes()) pistaTriada = numPistes() - 1;
+        pistesTriades.erase (std::remove_if (pistesTriades.begin(), pistesTriades.end(), [this] (const std::string& id)
+            { return std::none_of (projecte.pistes.begin(), projecte.pistes.end(), [&id] (const mibase::Pista& t) { return t.id == id; }); }),
+            pistesTriades.end());
         triats.erase (std::remove_if (triats.begin(), triats.end(), [this] (mibase::edicio::RefClip r) { return clip (r) == nullptr; }), triats.end());
     }
 

@@ -1786,6 +1786,44 @@ int main()
         comprova (v.back()[0] == 0xE0, "els altres missatges passen");
     });
 
+    prova ("Carpetes de pistes (0.11)", []
+    {
+        namespace ed = mibase::edicio;
+        Projecte p;
+        for (auto* n : { "Bombo", "Guitarra", "Caixa", "Veu", "Charles" }) ed::afegeixPista (p, n, "audio");
+        const auto nom = [&p] (int i) { return p.pistes[(size_t) i].nom; };
+        const auto id = ed::creaCarpeta (p, "Bateria", { 0, 2, 4 });
+        comprova (p.carpetes.size() == 1 && ed::carpeta (p, id) != nullptr && ed::carpeta (p, id)->nom == "Bateria", "carpeta creada");
+        comprova (nom (0) == "Bombo" && nom (1) == "Caixa" && nom (2) == "Charles" && nom (3) == "Guitarra" && nom (4) == "Veu",
+                  "les pistes de la carpeta queden seguides, en el seu ordre");
+        comprova (ed::pistesDeCarpeta (p, id) == std::vector<int> ({ 0, 1, 2 }), "pistes de la carpeta");
+        const int on = ed::posaACarpeta (p, 4, id);
+        comprova (on == 3 && nom (3) == "Veu" && ed::pistesDeCarpeta (p, id).size() == 4, "posar-ne una altra: va al final de la carpeta");
+        ed::posaACarpeta (p, 3, "");
+        comprova (p.pistes[3].carpeta.empty() && ed::pistesDeCarpeta (p, id).size() == 3, "treure-la de la carpeta");
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 1, 1, 1, 1, 1 }), "oberta: totes visibles");
+        ed::carpeta (p, id)->plegada = true;
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 2, 0, 0, 1, 1 }), "plegada: una fila de carpeta");
+        ed::carpeta (p, id)->amagada = true;
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 0, 0, 0, 1, 1 }), "amagada: no es veu");
+        comprova (ed::posaACarpeta (p, 0, "f999") == 0 && p.pistes[0].carpeta == id, "una carpeta que no existeix: res");
+
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_carpetes";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Carp";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        mibase::disc::desa (r.fitxer, p, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && l->carpetes.size() == 1 && l->carpetes[0].nom == "Bateria" && l->carpetes[0].plegada && l->carpetes[0].amagada
+                  && l->pistes[1].carpeta == id && l->pistes[4].carpeta.empty(), "es desen i es llegeixen");
+        ed::esborraCarpeta (p, id);
+        comprova (p.carpetes.empty() && p.pistes.size() == 5 && p.pistes[0].carpeta.empty(), "esborrar la carpeta no esborra les pistes");
+        fs::remove_all (arrel);
+    });
+
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
 }

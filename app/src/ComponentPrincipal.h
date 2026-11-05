@@ -20,9 +20,11 @@ public:
         capcalera.onFitxer = [this] (juce::Component& on) { menuFitxer (on); };
         capcalera.onTransport = [this] (Capcalera::Transport t)
         {
-            if (estudi) estudi->transport ((int) t);
+            if (estudi && t == Capcalera::Transport::Bucle) estudi->commutaBucle();
+            else if (estudi) estudi->transport ((int) t);
         };
         capcalera.onEstatTransport = [this] { return estudi ? estudi->estatTransport() : 0; };
+        capcalera.onBucleActiu = [this] { return estudi != nullptr && estudi->bucleActiu(); };
         capcalera.onPosicio = [this]
         {
             return estudi ? estudi->textPosicio() : std::pair<juce::String, juce::String>();
@@ -123,6 +125,8 @@ private:
         m.addItem (7, "Exporta el projecte (carpeta per a un altre ordinador)…"_ca, hiHaProjecte);
         m.addItem (8, "Exporta la mescla (WAV)…"_ca, hiHaProjecte);
         m.addSeparator();
+        m.addItem (10, "Preferències (targeta d'àudio, MIDI i latència)…"_ca);
+        m.addSeparator();
         m.addItem (9, "Surt");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&on), [this] (int r)
@@ -138,6 +142,7 @@ private:
                 case 7: if (estudi) estudi->exportaProjecte(); break;
                 case 8: if (estudi) estudi->exportaMescla(); break;
                 case 9: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
+                case 10: mostra (Capcalera::Pantalla::Diagnostic); break;
                 default: break;
             }
         });

@@ -212,6 +212,28 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
+    // Carpetes de pistes (0.11).
+    addChildComponent (carpetes);
+    addChildComponent (divCarpetes);
+    estat.panellCarpetes = ajustos.getBoolValue ("estudi.panellCarpetes", false);
+    ampleCarpetes = juce::jlimit (130, 400, ajustos.getIntValue ("estudi.ampleCarpetes", 190));
+    btCarpetes.setLlum (vintage::ledGroc);
+    btCarpetes.setTooltip ("Carpetes de pistes: mostra o amaga el panell per agrupar les pistes"_ca);
+    btCarpetes.onClick = [this]
+    {
+        estat.panellCarpetes = ! estat.panellCarpetes;
+        ajustos.setValue ("estudi.panellCarpetes", estat.panellCarpetes);
+        colocaSeccions();
+    };
+    addAndMakeVisible (btCarpetes);
+    carpetes.onCarpetaNova = [this] (std::vector<int> v) { demanaNomCarpeta (std::move (v), {}); };
+    carpetes.onCanviaNom = [this] (std::string id) { demanaNomCarpeta ({}, id); };
+    divCarpetes.setTooltip ("Arrossega per fer més ample o més estret. Doble clic: mida inicial."_ca);
+    divCarpetes.onComenca = [this] { ampleInici = carpetes.getWidth(); };
+    divCarpetes.onArrossega = [this] (int dx) { ampleCarpetes = juce::jlimit (130, 400, ampleInici + dx); colocaSeccions(); };
+    divCarpetes.onDobleClic = [this] { ampleCarpetes = 190; colocaSeccions(); divCarpetes.onAcaba(); };
+    divCarpetes.onAcaba = [this] { ajustos.setValue ("estudi.ampleCarpetes", ampleCarpetes); ajustos.saveIfNeeded(); };
+
     for (auto* d : { &divEsquerra, &divNoms, &divPanell })
     {
         addAndMakeVisible (d);
@@ -433,11 +455,14 @@ void PantallaEstudi::colocaSeccions()
 
     const bool ambEditor = estat.pianoRoll && ! m;   // amb un editor obert, la columna esquerra té el panell d'harmonia
     int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
-    int sobra = esq + (m ? 0 : noms) + pan + 320 - r.getWidth();
+    const bool ambCarpetes = estat.panellCarpetes && ! m;
+    int carp = ambCarpetes ? ampleCarpetes : 0;
+    int sobra = esq + (m ? 0 : noms + carp) + pan + 320 - r.getWidth();
     auto encongeix = [&sobra] (int& v, int minim) { if (sobra > 0) { const int t = juce::jmin (sobra, v - minim); if (t > 0) { v -= t; sobra -= t; } } };
     encongeix (pan, 200);
     if (! m) encongeix (noms, 140);
     encongeix (esq, ambEditor ? 230 : 110);
+    if (ambCarpetes) encongeix (carp, 120);
 
     esquerra.setBounds (r.removeFromLeft (esq));
     panell.setBounds (r.removeFromRight (pan));
@@ -458,8 +483,11 @@ void PantallaEstudi::colocaSeccions()
     const int baixSeccions = r.getBottom();
 
     mescles.setVisible (m);
-    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms })
+    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
         c->setVisible (! m);
+    carpetes.setVisible (ambCarpetes);
+    divCarpetes.setVisible (ambCarpetes);
+    btCarpetes.setToggleState (estat.panellCarpetes, juce::dontSendNotification);
 
     if (m)
     {
@@ -468,9 +496,15 @@ void PantallaEstudi::colocaSeccions()
     }
     else
     {
+        if (ambCarpetes)
+        {
+            carpetes.setBounds (r.removeFromLeft (carp).withTrimmedBottom (gruixBarres));
+            divCarpetes.setBounds (carpetes.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
+        }
         auto colNoms = r.removeFromLeft (noms);
         auto temps = r;
         zonaTitolNoms = colNoms.removeFromTop (alcadaRegla);
+        btCarpetes.setBounds (zonaTitolNoms.getRight() - 34, zonaTitolNoms.getY() + 1, 30, zonaTitolNoms.getHeight() - 2);
         colNoms.removeFromBottom (gruixBarres);
         capcaleres.setBounds (colNoms);
         regla.setBounds (temps.removeFromTop (alcadaRegla));
@@ -482,7 +516,7 @@ void PantallaEstudi::colocaSeccions()
 
     divEsquerra.setBounds (esquerra.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
     divPanell.setBounds (panell.getX() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
-    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll }) d->toFront (false);
+    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll, &divCarpetes }) d->toFront (false);
 
     actualitzaBarres();
     repaint();
@@ -535,7 +569,7 @@ void PantallaEstudi::actualitzaBarres()
     barraH.setRangeLimits (0.0, total, juce::dontSendNotification);
     barraH.setCurrentRange (estat.iniciVista, visibles, juce::dontSendNotification);
 
-    const int contingut = (estat.numPistes() + 1) * estat.altPista + 60;
+    const int contingut = estat.altTotal() + estat.altPista + 60;
     const int maxim = juce::jmax (0, contingut - pistes.getHeight());
     if (estat.desplY > maxim) estat.desplY = maxim;
     barraV.setRangeLimits (0.0, juce::jmax (contingut, pistes.getHeight()), juce::dontSendNotification);
@@ -654,7 +688,7 @@ void PantallaEstudi::reprodueix()
 {
     if (! servei.enMarxa())
     {
-        avisDeTargeta ("No pot sonar", "La targeta d'àudio està aturada. Obre el Diagnòstic i tria-la."_ca);
+        avisDeTargeta ("No pot sonar", "La targeta d'àudio està aturada. Obre Fitxer → Preferències i tria-la."_ca);
         return;
     }
     publicaPla();
@@ -700,7 +734,7 @@ void PantallaEstudi::grava()
     }
     if (! servei.enMarxa())
     {
-        avisDeTargeta ("No es pot gravar", "La targeta d'àudio està aturada. Obre el Diagnòstic i tria-la."_ca);
+        avisDeTargeta ("No es pot gravar", "La targeta d'àudio està aturada. Obre Fitxer → Preferències i tria-la."_ca);
         return;
     }
 
@@ -741,7 +775,7 @@ void PantallaEstudi::grava()
     {
         avisDeTargeta ("No es pot gravar",
                        "La pista «"_ca + dibuix::utf8 (t.nom) + "» grava de l'entrada "_ca + EstatEstudi::textEntrada (t).substring (1)
-                       + ", que no està activa.\n\nTria'n una altra (botó dret al nom de la pista → Entrada per gravar) o activa-la al Diagnòstic."_ca);
+                       + ", que no està activa.\n\nTria'n una altra (botó dret al nom de la pista → Entrada per gravar) o activa-la a Fitxer → Preferències."_ca);
         return;
     }
 
@@ -833,7 +867,7 @@ void PantallaEstudi::tic()
             if (estatEsperat != 0)
             {
                 estat.transport = 0;
-                avisDeTargeta ("La targeta no respon", "S'ha demanat sonar però la targeta d'àudio no ha respost. Mira el Diagnòstic."_ca);
+                avisDeTargeta ("La targeta no respon", "S'ha demanat sonar però la targeta d'àudio no ha respost. Mira Fitxer → Preferències."_ca);
             }
             estat.avisa();
         }
@@ -1450,12 +1484,61 @@ void PantallaEstudi::silenciaTriat()
         for (auto& r : estat.triats) if (auto* c = estat.clip (r)) c->mut = nou;
         estat.info = nou ? "Silenciat" : "Sonant";
     }
+    else if (const auto v = estat.indexsTriades(); v.size() > 1)
+    {
+        // Diverses pistes triades (o una carpeta): totes alhora.
+        bool totes = true;
+        for (int i : v) totes &= estat.projecte.pistes[(size_t) i].mut;
+        for (int i : v) estat.projecte.pistes[(size_t) i].mut = ! totes;
+        estat.info = ! totes ? "Pistes silenciades" : "Pistes sonant";
+    }
     else if (auto* t = estat.pista (estat.pistaTriada))
     {
         t->mut = ! t->mut;
         estat.info = t->mut ? "Pista silenciada" : "Pista sonant";
     }
     else return;
+    estat.canviat();
+}
+
+void PantallaEstudi::demanaNomCarpeta (std::vector<int> v, const std::string& idACanviar)
+{
+    auto* existent = ed::carpeta (estat.projecte, idACanviar);
+    const auto inicial = existent != nullptr ? dibuix::utf8 (existent->nom)
+                                             : "Carpeta "_ca + juce::String ((int) estat.projecte.carpetes.size() + 1);
+    dialeg = std::make_unique<DialegText> (existent != nullptr ? "Canvia el nom de la carpeta"_ca : "Carpeta nova"_ca,
+        existent != nullptr ? juce::String() : (v.empty() ? "Després hi podràs arrossegar pistes."_ca
+                                                          : juce::String ((int) v.size()) + (v.size() == 1 ? " pista hi anirà."_ca : " pistes hi aniran."_ca)),
+        existent != nullptr ? "Canvia"_ca : "Crea"_ca,
+        [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom"_ca : juce::String(); },
+        [this, v, idACanviar] (const juce::String& t)
+        {
+            estat.desfes.abans (estat.projecte);
+            const auto nom = t.trim().toStdString();
+            if (auto* c = ed::carpeta (estat.projecte, idACanviar)) c->nom = nom;
+            else
+            {
+                ed::creaCarpeta (estat.projecte, nom, v);
+                estat.panellCarpetes = true;
+                colocaSeccions();
+            }
+            estat.canviat ("Carpeta «"_ca + t.trim() + "»");
+        }, inicial);
+    DialegText::mostra (*this, dialeg);
+}
+
+void PantallaEstudi::commutaBucle()
+{
+    auto& b = estat.projecte.bucle;
+    estat.desfes.abans (estat.projecte);
+    if (! b.marcat)
+    {
+        const int c = ed::compasA (estat.projecte, estat.capcal);
+        ed::marcaBucle (estat.projecte, c, c + 3);
+        estat.projecte.bucle.marcat = estat.projecte.bucle.actiu = true;
+    }
+    else b.actiu = ! b.actiu;
+    estat.info = b.actiu ? "Bucle encès"_ca : "Bucle apagat"_ca;
     estat.canviat();
 }
 
@@ -1466,7 +1549,8 @@ void PantallaEstudi::zoomA (double a, double b, int pistaDe, int pistaFins)
     estat.iniciVista = juce::jmax (0.0, a - (pistes.getWidth() * 0.03) / estat.pxPerSegon);
     const int n = juce::jmax (1, pistaFins - pistaDe + 1);
     estat.altPista = juce::jlimit (VistaPistes::alcadaMinima, 260, (pistes.getHeight() - 8) / n);
-    estat.desplY = juce::jmax (0, pistaDe * estat.altPista);
+    estat.desplY = 0;
+    estat.desplY = juce::jmax (0, estat.yPista (pistaDe));
     actualitzaBarres();
     estat.avisa();
 }
@@ -1549,6 +1633,8 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
     if (codi == juce::KeyPress::insertKey) { canviaInsereix (! estat.insereix); return true; }
     if (cap && lletra ('M')) { silenciaTriat(); return true; }
+    if (mods.isCommandDown() && lletra ('G')) { demanaNomCarpeta (estat.indexsTriades(), {}); return true; }
+    if (cap && lletra ('L')) { commutaBucle(); return true; }
     if (cap && lletra ('P')) { mostraPianoRoll (! estat.pianoRoll); return true; }
     if (! mods.isCommandDown() && ! mods.isAltDown() && lletra ('Z')) { if (mods.isShiftDown()) zoomTriat(); else zoomTot(); return true; }
     if (cap && lletra ('Q')) { estat.projecte.snap = Snap::Compas; estat.info = "Graella: compàs"_ca; estat.avisa(); calDesar = true; startTimer (700); return true; }

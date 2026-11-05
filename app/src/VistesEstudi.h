@@ -115,6 +115,7 @@ protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override { setMouseCursor (cursor (estat.eina)); repaint(); }
 
 private:
+    void pintaFilaCarpeta (juce::Graphics& g, int fila);
     enum class Mode { Res, Requadre, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
                       Llapis, Goma, Cola };
     enum class Maneta { Cap, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera };
