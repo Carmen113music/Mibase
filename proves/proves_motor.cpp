@@ -16,6 +16,7 @@
 #include "mibase/SinteIntern.h"
 #include "mibase/Harmonia.h"
 #include "mibase/PresetsPads.h"
+#include "mibase/TeclatAcords.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1687,14 +1688,132 @@ int main()
         {
             const auto p = pads::padsDePreset (i);
             if ((int) p.size() != pads::numPads) tots = false;
-            for (int k = 0; k < 8; ++k)
-                if (llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
+            for (int k = 0; k < pads::numPads; ++k)
+                if (! p[(size_t) k].empty() && llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
         }
         comprova (tots, "tots els acords dels presets s'entenen");
         const auto c = pads::padsDePreset (0);
-        comprova (c[0] == "G" && c[3] == "Cm" && ! c[8].empty(), "Creep: G … Cm …, i a baix els de la tonalitat");
+        // Creep: G B C Cm G Em Am D → C=G, C#=B, D=C, D#=Cm, E=Em, F=Am, F#=D; la resta, buits.
+        comprova (c.size() == 12 && c[0] == "G" && c[1] == "B" && c[2] == "C" && c[3] == "Cm" && c[4] == "Em" && c[5] == "Am" && c[6] == "D"
+                  && c[7].empty() && c[11].empty(), "Creep: per ordre a partir de la C, sense repetir, la resta buits");
+    });
+
+    prova ("Pads com un piano (0.10): 12, blanques i negres", []
+    {
+        using namespace harmonia;
+        comprova (pads::numPads == 12 && pads::esNegre (1) && pads::esNegre (10) && ! pads::esNegre (4) && ! pads::esNegre (5), "disposició");
         const auto t = pads::padsDeTonalitat ({ 9, 1 });
-        comprova (t[0] == "Am" && t[8] == "Am7" && t.size() == 16, "pads de la tonalitat de La menor");
+        comprova (t.size() == 12 && t[0] == "Am" && t[2] == "Bdim" && t[4] == "C" && t[5] == "Dm" && t[7] == "Em" && t[9] == "F" && t[11] == "G",
+                  "La menor: graus i a vii a les blanques");
+        comprova (t[1] == "E7" && t[6] == "D" && t[10] == "A#", "La menor: negres E7, D, Bb");
+        const auto m = pads::padsDeTonalitat ({ 0, 0 });
+        comprova (m[0] == "C" && m[2] == "Dm" && m[11] == "Bdim" && m[1] == "G7" && m[6] == "Fm" && m[8] == "G#" && m[10] == "A#",
+                  "Do major: C Dm … Bdim; negres G7, Dm7, Fm, Ab, Bb");
+        // Adaptar els 16 de la 0.9.
+        std::vector<std::string> vells (16, "Am");
+        comprova (pads::adapta (vells, "Creep") == pads::padsDePreset (0), "16 pads d'un preset: es refan amb la disposició nova");
+        comprova (pads::adapta (vells, "Acords de la tonalitat").empty(), "16 pads de la tonalitat: tornen a ser de la tonalitat");
+        vells[0] = "F"; vells[7] = "E7";
+        const auto a = pads::adapta (vells, "");
+        comprova (a.size() == 12 && a[0] == "F" && a[1] == "E7", "16 pads fets a mà: es conserven els primers");
+    });
+
+    prova ("Pads: inversions (0.10)", []
+    {
+        using namespace harmonia;
+        auto c = llegeixAcord ("C");
+        comprova (notesPad (c) == std::vector<int> ({ 60, 64, 67 }), "C en posició fonamental");
+        c.inversio = 1;
+        comprova (notesPad (c) == std::vector<int> ({ 64, 67, 72 }) && textPad (c) == "C^1" && nomPad (c) == "C", "1a inversió (E G C)");
+        c.inversio = 2;
+        comprova (notesPad (c) == std::vector<int> ({ 67, 72, 76 }), "2a inversió (G C E)");
+        c.inversio = -1;
+        comprova (notesPad (c) == std::vector<int> ({ 55, 60, 64 }), "-1: la de dalt baixa (G C E, avall)");
+        comprova (llegeixAcord ("Am7^1").inversio == 1 && llegeixAcord ("Am7^1").tensions == T7 && llegeixAcord ("G/B^-2").inversio == -2
+                  && llegeixAcord ("G/B^-2").baix == 11, "llegir «^n»");
+        comprova (llegeixAcord ("C^9").inversio == maxInversio && llegeixAcord ("C^x").buit(), "límits i errors");
+        auto b = llegeixAcord ("C/E^1");
+        comprova (notesPad (b).front() == 52 && notesPad (b).size() == 4, "amb nota greu: la greu continua a baix");
+    });
+
+    prova ("Teclat d'acords (0.10): una tecla, un acord", []
+    {
+        TeclatAcords t;
+        t.setAcord (0, { 60, 64, 67 });      // C
+        t.setAcord (9, { 57, 60, 64 });      // Am
+        std::vector<std::array<int, 3>> v;
+        auto envia = [&v] (std::uint8_t e, std::uint8_t a, std::uint8_t b) { v.push_back ({ e, a, b }); };
+        t.tradueix (0x90, 48, 100, true, envia);   // C3 → C
+        comprova (v.size() == 3 && v[0] == std::array<int, 3> { 0x90, 60, 100 } && v[2][1] == 67, "la tecla C (de qualsevol octava) toca C");
+        v.clear();
+        t.tradueix (0x90, 69, 90, true, envia);    // A4 → Am: C i E ja sonen
+        comprova (v.size() == 1 && v[0][1] == 57, "Am amb C sonant: només s'encén la A");
+        v.clear();
+        t.tradueix (0x80, 48, 0, true, envia);     // amollo C: G s'apaga; C i E no (els manté Am)
+        comprova (v.size() == 1 && v[0] == std::array<int, 3> { 0x80, 67, 0 }, "amollar C: només s'apaga la G");
+        v.clear();
+        t.setAcord (9, { 50, 53, 57 });            // canvio el pad mentre sona
+        t.tradueix (0x80, 69, 0, false, envia);    // i desactivo: s'apaga el que va encendre
+        comprova (v.size() == 3 && t.teclesAmbAcord() == 0, "l'apagada apaga el que es va encendre (encara que el pad hagi canviat)");
+        v.clear();
+        t.tradueix (0x90, 62, 80, false, envia);   // desactivat: passa tal qual
+        t.tradueix (0x80, 62, 0, true, envia);     // i l'apagada també (encara que ara estigui actiu)
+        comprova (v.size() == 2 && v[0][1] == 62 && v[1] == std::array<int, 3> { 0x80, 62, 0 }, "desactivat: les notes passen");
+        v.clear();
+        t.tradueix (0x90, 61, 80, true, envia);    // pad buit (C#): res
+        t.tradueix (0x80, 61, 0, true, envia);
+        comprova (v.empty(), "pad buit: no sona res");
+        t.tradueix (0x91, 60, 70, true, envia);
+        t.tradueix (0x91, 60, 70, true, envia);    // tornada a prémer sense amollar
+        t.tradueix (0x81, 60, 0, true, envia);
+        int enceses = 0, apagades = 0;
+        for (auto& x : v) { if ((x[0] & 0xF0) == 0x90) ++enceses; else if ((x[0] & 0xF0) == 0x80) ++apagades; }
+        comprova (enceses == 6 && apagades == 6 && (v[0][0] & 0x0F) == 1, "prémer dos cops sense amollar: no queda res penjat (i es manté el canal)");
+        v.clear();
+        t.tradueix (0x90, 60, 70, true, envia);
+        t.tradueix (0xB0, 123, 0, true, envia);
+        t.tradueix (0x80, 60, 0, true, envia);
+        comprova (t.teclesAmbAcord() == 0 && v.back()[0] == 0xB0, "«tot apagat» ho buida");
+        t.tradueix (0xE0, 0, 64, true, envia);
+        comprova (v.back()[0] == 0xE0, "els altres missatges passen");
+    });
+
+    prova ("Carpetes de pistes (0.11)", []
+    {
+        namespace ed = mibase::edicio;
+        Projecte p;
+        for (auto* n : { "Bombo", "Guitarra", "Caixa", "Veu", "Charles" }) ed::afegeixPista (p, n, "audio");
+        const auto nom = [&p] (int i) { return p.pistes[(size_t) i].nom; };
+        const auto id = ed::creaCarpeta (p, "Bateria", { 0, 2, 4 });
+        comprova (p.carpetes.size() == 1 && ed::carpeta (p, id) != nullptr && ed::carpeta (p, id)->nom == "Bateria", "carpeta creada");
+        comprova (nom (0) == "Bombo" && nom (1) == "Caixa" && nom (2) == "Charles" && nom (3) == "Guitarra" && nom (4) == "Veu",
+                  "les pistes de la carpeta queden seguides, en el seu ordre");
+        comprova (ed::pistesDeCarpeta (p, id) == std::vector<int> ({ 0, 1, 2 }), "pistes de la carpeta");
+        const int on = ed::posaACarpeta (p, 4, id);
+        comprova (on == 3 && nom (3) == "Veu" && ed::pistesDeCarpeta (p, id).size() == 4, "posar-ne una altra: va al final de la carpeta");
+        ed::posaACarpeta (p, 3, "");
+        comprova (p.pistes[3].carpeta.empty() && ed::pistesDeCarpeta (p, id).size() == 3, "treure-la de la carpeta");
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 1, 1, 1, 1, 1 }), "oberta: totes visibles");
+        ed::carpeta (p, id)->plegada = true;
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 2, 0, 0, 1, 1 }), "plegada: una fila de carpeta");
+        ed::carpeta (p, id)->amagada = true;
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 0, 0, 0, 1, 1 }), "amagada: no es veu");
+        comprova (ed::posaACarpeta (p, 0, "f999") == 0 && p.pistes[0].carpeta == id, "una carpeta que no existeix: res");
+
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_carpetes";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Carp";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        mibase::disc::desa (r.fitxer, p, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && l->carpetes.size() == 1 && l->carpetes[0].nom == "Bateria" && l->carpetes[0].plegada && l->carpetes[0].amagada
+                  && l->pistes[1].carpeta == id && l->pistes[4].carpeta.empty(), "es desen i es llegeixen");
+        ed::esborraCarpeta (p, id);
+        comprova (p.carpetes.empty() && p.pistes.size() == 5 && p.pistes[0].carpeta.empty(), "esborrar la carpeta no esborra les pistes");
+        fs::remove_all (arrel);
     });
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
