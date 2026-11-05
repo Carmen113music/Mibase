@@ -47,7 +47,7 @@ private:
     - (0.8) Segell: un acord del panell d'harmonia es posa amb un clic (EstatEstudi::segell).
     - insereixAcords(): els generadors (arpegis, rasgueigs…) hi afegiran notes MIDI normals.
     - Carril de baix: ara la velocitat; més endavant els controladors (CC1, CC11, CC64, pitch bend…). */
-class PianoRoll : public SeccioEstudi, private juce::ScrollBar::Listener
+class PianoRoll : public SeccioEstudi, public juce::DragAndDropTarget, private juce::ScrollBar::Listener
 {
 public:
     PianoRoll (EstatEstudi& e, int index);
@@ -82,6 +82,20 @@ public:
     void fesAcords (int tipus, bool deTonalitat, int inversio, mibase::harmonia::Voicing v);
     void inverteixTriades (bool amunt);
     void enllacaTriades();
+    int pistaDeLEditor() const { return pistaEditor(); }
+
+    /** Comença a arrossegar un acord (del panell o d'un pad) cap a un Piano Roll: en amollar-lo a la graella, s'hi posa. */
+    static void arrossegaAcord (juce::Component& origen, EstatEstudi& estat, const std::vector<int>& notes, const juce::String& nom,
+                                long long durada, bool enllaca);
+    static constexpr const char* idArrossegaAcord = "mibase-acord";
+
+    // ---- Arrossegar i deixar anar (acords) ----
+    bool isInterestedInDragSource (const SourceDetails& d) override;
+    void itemDragEnter (const SourceDetails& d) override { itemDragMove (d); }
+    void itemDragMove (const SourceDetails& d) override;
+    void itemDragExit (const SourceDetails&) override;
+    void itemDropped (const SourceDetails& d) override;
+    bool shouldDrawDragImageWhenOver() override { return false; }
 
     void setDesenganxat (bool d);
     /** Torna a llegir l'estat (per exemple, quan l'estudi canvia el clip obert). */
@@ -111,8 +125,8 @@ protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
-    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril };
-    enum class Mode { Res, Requadre, Decidint, Mou, DuradaFi, DuradaInici, Dibuixa, Goma, Teclat, Velocitat, LiniaVel, VoraCarril, Regla };
+    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril, Pads };
+    enum class Mode { Res, Requadre, Decidint, Mou, DuradaFi, DuradaInici, Dibuixa, Goma, Teclat, Velocitat, LiniaVel, VoraCarril, Regla, Pad };
     enum class Part { Cos, Inici, Fi };
 
     struct Toc { int nota = -1; Part part = Part::Cos; };
@@ -152,6 +166,21 @@ private:
     std::vector<int> segellA (juce::Point<float> p) const;   // les notes del segell, a l'octava de sota el ratolí
     void posaSegell (juce::Point<float> p, bool mante);
     void vistaCanviada();
+
+    // Chord Pad (a baix, en lloc de les velocitats).
+    bool modePads() const;
+    void canviaModePads (bool pads);
+    std::vector<std::string> padsActuals() const;
+    juce::Rectangle<int> zonaPads() const;     // on hi ha els pads (sota la barra dels pads)
+    juce::Rectangle<int> rectPad (int i) const;
+    int padA (juce::Point<int> p) const;
+    std::vector<int> notesDelPad (int i) const;
+    long long duradaPads() const;
+    void pintaPads (juce::Graphics& g);
+    void menuPresetsPads();
+    void obreEditorPad (int i);
+    void desaPad (int i, const std::string& nom);
+    void actualitzaControlsPads();
     Toc tocA (juce::Point<float> p) const;
     int notaCarrilA (juce::Point<float> p) const;
 
@@ -237,6 +266,16 @@ private:
     Boto btFantasmes { {}, dibuix::Icona::Fantasma, Boto::Estil::Tecla };
     Boto btBloqueja { {}, dibuix::Icona::Cadenat, Boto::Estil::Tecla };
     juce::Point<float> ratoli { -1.0f, -1.0f };   // per dibuixar el segell
+
+    Segmentat selMode { { "Notes", "Chord Pad" } };
+    Boto btPresetPads { "Acords de la tonalitat", std::nullopt, Boto::Estil::Secundari };
+    Boto btLlapisPads { "Edita", dibuix::Icona::Llapis, Boto::Estil::Tecla };
+    CaixaNumero octavaPads { "Octava", 1, 7, 4 };
+    Segmentat voicingPads { { "Tancat", "Obert" } };
+    Segmentat selDuradaPads { { "1 compàs"_ca, "1/2", "1/4" } };
+    Boto btMinimPads { "Mov. mínim"_ca, std::nullopt, Boto::Estil::Tecla };
+    int padPremut = -1, padSobre = -1;
+    std::vector<int> notesPadPremut;
     int octavaPremuda = 0;
     Boto btDesenganxa { {}, dibuix::Icona::Desenganxa, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Secundari };
@@ -247,7 +286,7 @@ private:
 
 /** La zona dels editors: els Piano Rolls apilats, tots de la mateixa alçada i amb la mateixa vista horitzontal.
     És el que va a baix de l'estudi o, desenganxat, a la finestra a part. */
-class ZonaEditors : public juce::Component
+class ZonaEditors : public juce::Component, public juce::DragAndDropContainer
 {
 public:
     ZonaEditors (EstatEstudi& e, std::function<void (PianoRoll&)> configura);
@@ -261,6 +300,12 @@ public:
     void ticTransport() { for (auto* p : llista) p->ticTransport(); }
     void resized() override;
     void paint (juce::Graphics& g) override { g.fillAll (tema::linia2); }
+    /** Si s'ha amollat un acord fora del Piano Roll, es descarta. */
+    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails&) override
+    {
+        if (estat.segell.perArrossegar) { estat.segell = {}; estat.avisa(); }
+        repintaTots();
+    }
 
 private:
     EstatEstudi& estat;

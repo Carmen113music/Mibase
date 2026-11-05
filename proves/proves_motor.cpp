@@ -15,6 +15,7 @@
 #include "mibase/Midi.h"
 #include "mibase/SinteIntern.h"
 #include "mibase/Harmonia.h"
+#include "mibase/PresetsPads.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1642,6 +1643,58 @@ int main()
         comprova (l && l->canvisTonalitat.size() == 1 && l->canvisTonalitat[0].compas == 8 && l->canvisTonalitat[0].tonalitat == Tonalitat { 2, 0 },
                   "els canvis de tonalitat (per a més endavant) es conserven");
         fs::remove_all (arrel);
+    });
+
+
+    // ======================================================================
+    // Pads d'acords (0.9)
+    // ======================================================================
+    prova ("Pads: llegir i escriure noms d'acord", []
+    {
+        using namespace harmonia;
+        auto a = llegeixAcord ("Ebmaj7");
+        comprova (a.arrel == 3 && a.tipus == 0 && a.tensions == TMaj7 && nomPad (a) == "D#maj7", "Ebmaj7 (" + nomPad (a) + ")");
+        comprova (nomPad (llegeixAcord ("C#m7")) == "C#m7", "C#m7");
+        comprova (nomPad (llegeixAcord ("Bb/D")) == "A#/D", "Bb/D amb la D al baix");
+        auto g = llegeixAcord ("G7(b9)");
+        comprova (g.tensions == (T7 | Tb9) && nomPad (g) == "G7/b9", "G7(b9) → G7/b9");
+        comprova (nomPad (llegeixAcord ("F#m7b5")) == "F#m7b5" && nomPad (llegeixAcord ("Dsus4")) == "Dsus4", "m7b5 i sus4");
+        comprova (nomPad (llegeixAcord ("E9")) == "E9" && nomPad (llegeixAcord ("Fmaj7/9")) == "Fmaj9" && nomPad (llegeixAcord ("Cadd9")) == "Cadd9", "novenes");
+        comprova (nomPad (llegeixAcord ("A♭7")) == "G#7", "el bemoll ♭ també");
+        comprova (llegeixAcord ("Hola").buit() && llegeixAcord ("Cxyz").buit() && llegeixAcord ("").buit(), "el que no s'entén, buit");
+        comprova (notesPad (llegeixAcord ("Am")) == std::vector<int> ({ 57, 60, 64 }), "notes d'Am (A3 C4 E4)");
+        comprova (notesPad (llegeixAcord ("C/E")).front() == 52, "C/E: la E al baix");
+        comprova (notesPad (llegeixAcord ("G7/b9")).size() == 5, "G7/b9: 5 notes");
+        comprova (reconeix (notesPad (llegeixAcord ("Dm7"))).nom == "Dm7", "el que sona es reconeix com el mateix acord");
+        // Tots els noms que fa nomPad es tornen a llegir igual.
+        bool tot = true;
+        for (int r = 0; r < 12; ++r)
+            for (int tp = 0; tp < numTipusPad; ++tp)
+                for (unsigned t : { 0u, (unsigned) T7, (unsigned) TMaj7, (unsigned) (T7 | T9), (unsigned) (T7 | Tb9), (unsigned) T13, (unsigned) T9 })
+                {
+                    AcordPad x { r, tp, t, -1 };
+                    if (notesPad (llegeixAcord (nomPad (x))) != notesPad (x)) { tot = false; std::printf ("    %s\n", nomPad (x).c_str()); }
+                }
+        comprova (tot, "anada i tornada dels noms (mateixes notes)");
+    });
+
+    prova ("Pads: els 50 presets", []
+    {
+        using namespace harmonia;
+        comprova (pads::presets().size() == 50, "50 presets");
+        bool tots = true;
+        for (int i = 0; i < (int) pads::presets().size(); ++i)
+        {
+            const auto p = pads::padsDePreset (i);
+            if ((int) p.size() != pads::numPads) tots = false;
+            for (int k = 0; k < 8; ++k)
+                if (llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
+        }
+        comprova (tots, "tots els acords dels presets s'entenen");
+        const auto c = pads::padsDePreset (0);
+        comprova (c[0] == "G" && c[3] == "Cm" && ! c[8].empty(), "Creep: G … Cm …, i a baix els de la tonalitat");
+        const auto t = pads::padsDeTonalitat ({ 9, 1 });
+        comprova (t[0] == "Am" && t[8] == "Am7" && t.size() == 16, "pads de la tonalitat de La menor");
     });
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);

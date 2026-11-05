@@ -81,6 +81,13 @@ namespace mibase
         /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
             més endavant «vst3:<identificador>». */
         std::string instrument;
+        /** Pistes MIDI: quin teclat MIDI la toca (identificador del dispositiu; buit = el que toca la pista triada)
+            i el seu nom (per mostrar-lo encara que ara no estigui connectat). */
+        std::string entradaMidi, entradaMidiNom;
+        /** Pads d'acords (Chord Pad) de la pista: noms d'acord («Am7», «G/B»…; buit = pad buit) i el preset d'on surten.
+            Si no n'hi ha cap, es mostren els acords de la tonalitat. */
+        std::vector<std::string> pads;
+        std::string presetPads;
         int canals = 1;                 // 1 mono, 2 estèreo
         int color = 0;                  // índex de la paleta de colors de pista
         std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta

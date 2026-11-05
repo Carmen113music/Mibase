@@ -93,6 +93,7 @@ public:
         mibase::edicio::RefClip clip;
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
+        bool pads = false;          // a baix, els pads d'acords (Chord Pad) en lloc de les velocitats
     };
     static constexpr int maxEditors = 3;
     std::vector<EditorMidi> editors;
@@ -114,6 +115,7 @@ public:
         long long durada = 0;       // ticks
         bool enllaca = false;       // amb moviment mínim des de l'acord d'abans
         juce::String nom;
+        bool perArrossegar = false; // es posa arrossegant (s'esborra quan s'amolla, caigui on caigui)
         bool actiu() const noexcept { return ! notes.empty(); }
     } segell;
 

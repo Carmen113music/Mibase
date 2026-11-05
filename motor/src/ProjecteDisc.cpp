@@ -290,6 +290,11 @@ namespace mibase::disc
                 t.entrada = std::clamp (e.value ("entrada", 0), 0, 63);
                 t.rgb = e.value ("rgb", (std::uint32_t) 0);
                 t.instrument = e.value ("instrument", std::string());
+                t.entradaMidi = e.value ("entradaMidi", std::string());
+                t.entradaMidiNom = e.value ("entradaMidiNom", std::string());
+                t.presetPads = e.value ("presetPads", std::string());
+                if (e.contains ("pads") && e["pads"].is_array())
+                    for (auto& x : e["pads"]) t.pads.push_back (x.is_string() ? x.get<std::string>() : std::string());
                 if (t.tipus == "midi") t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
@@ -461,6 +466,8 @@ namespace mibase::disc
                            { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
                            { "clips", clips } };
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
+            if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
+            if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             pistes.push_back (pista);
         }
         j["pistes"] = pistes;

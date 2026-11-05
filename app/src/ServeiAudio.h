@@ -33,6 +33,11 @@ public:
     /** Activa tots els teclats MIDI connectats i anota els nous a l'historial. */
     void actualitzaMidi();
     juce::StringArray getNomsMidi() const;
+    juce::Array<juce::MidiDeviceInfo> getTeclatsMidi() const { return juce::MidiInput::getAvailableDevices(); }
+
+    /** Teclats assignats a una pista concreta (identificador → canal de la pista) i, per a la pista triada, quin teclat
+        la toca (buit: qualsevol que no estigui assignat a una altra). Fil de la interfície. */
+    void setMapaTeclats (const std::vector<std::pair<juce::String, int>>& mapa, const juce::String& teclatTriada);
 
     /** Missatges MIDI per mostrar a la pantalla (fil de la interfície). */
     bool treuMidiPerMostrar (mibase::EsdevenimentMidi& e) noexcept { return cuaMostrar.treu (e); }
@@ -76,7 +81,9 @@ private:
     mibase::MotorEstudi motorEstudi;
     std::unique_ptr<juce::PropertiesFile> ajustos;
 
-    juce::SpinLock midiEntrant;   // només entre fils de MIDI (mai al fil d'àudio)
+    juce::SpinLock midiEntrant;   // només entre fils de MIDI i la interfície (mai al fil d'àudio)
+    std::vector<std::pair<juce::String, int>> mapaTeclats;   // protegit per midiEntrant
+    juce::String teclatTriada;
     mibase::CuaSenseBloqueig<mibase::EsdevenimentMidi, 512> cuaMostrar;
     juce::StringArray midiConeguts;
     juce::String ultimError, ultimaDescripcio;

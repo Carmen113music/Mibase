@@ -126,4 +126,42 @@ namespace mibase::harmonia
         «deTonalitat»: el tipus el dona l'escala (Am a la de La menor…); si no, «tipus». Retorna les notes noves. */
     std::vector<int> ferAcords (Clip& c, const std::vector<int>& idx, const Tonalitat& t, int tipus, bool deTonalitat,
                                 int inversio = 0, Voicing v = Voicing::Tancat);
+
+    // ---- Acords dels pads (com l'editor d'acords: fonamental, tipus, tensions i nota greu) ----
+    /** Tensions que es poden afegir (es combinen). */
+    enum Tensio : unsigned
+    {
+        T7 = 1u << 0,       // 7a menor
+        TMaj7 = 1u << 1,    // 7a major (j7)
+        Tb9 = 1u << 2,
+        T9 = 1u << 3,
+        Ts9 = 1u << 4,
+        T11 = 1u << 5,
+        Ts11 = 1u << 6,     // b5 / #11
+        Tb13 = 1u << 7,     // #5 / b13
+        T13 = 1u << 8,      // 6 / 13 (sense 7a és la 6a)
+    };
+    constexpr int numTensions = 9;
+    /** Nom de cada tensió (per als botons): «7», «j7», «b9»… */
+    const char* nomTensio (int i);
+    /** Tipus de base dels pads: 0 maj, 1 min, 2 dim, 3 sus4, 4 sus2, 5 aug. */
+    constexpr int numTipusPad = 6;
+    const char* nomTipusPad (int i);
+
+    struct AcordPad
+    {
+        int arrel = -1;           // 0..11; -1 = pad buit
+        int tipus = 0;
+        unsigned tensions = 0;
+        int baix = -1;            // nota greu (0..11); -1 = la fonamental
+        bool buit() const noexcept { return arrel < 0; }
+        bool operator== (const AcordPad&) const = default;
+    };
+    /** «Am7», «G7/b9», «C/E», «Fmaj9»… (buit: «»). */
+    std::string nomPad (const AcordPad& a);
+    /** Llegeix un nom d'acord («Ebmaj7», «C#m7», «Bb/D», «G7(b9)», «F#m7b5», «Dsus4», «E9»…). Si no s'entén, un pad buit. */
+    AcordPad llegeixAcord (const std::string& text);
+    /** Notes del pad: fonamental a l'octava «octava» (4 = la del C4; les fonamentals de A a B, una octava avall),
+        voicing tancat o obert, i la nota greu (si n'hi ha) per sota. */
+    std::vector<int> notesPad (const AcordPad& a, int octava = 4, Voicing v = Voicing::Tancat);
 }

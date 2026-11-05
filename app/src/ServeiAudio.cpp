@@ -221,7 +221,15 @@ void ServeiAudio::audioDeviceError (const juce::String& error)
     });
 }
 
-void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m)
+void ServeiAudio::setMapaTeclats (const std::vector<std::pair<juce::String, int>>& mapa, const juce::String& triada)
+{
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    if (mapa == mapaTeclats && triada == teclatTriada) return;
+    mapaTeclats = mapa;
+    teclatTriada = triada;
+}
+
+void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce::MidiMessage& m)
 {
     if (m.getRawDataSize() > 3 || m.isMidiClock() || m.isActiveSense())
         return;
@@ -234,8 +242,14 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiM
 
     // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
-    // Si a l'estudi hi ha una pista MIDI triada, el teclat la fa sonar; si no, el so de prova del Diagnòstic.
-    if (! motorEstudi.enviaTeclat (e.estat, e.dada1, e.dada2))
+    // Un teclat assignat a una pista la toca sempre; la resta toquen la pista MIDI triada (si l'accepta).
+    // Si no hi ha cap pista que el vulgui, el so de prova del Diagnòstic.
+    const auto id = origen != nullptr ? origen->getIdentifier() : juce::String();
+    int desti = -2;
+    for (auto& [teclat, slot] : mapaTeclats)
+        if (teclat == id) desti = slot;
+    if (desti == -2 && teclatTriada.isNotEmpty() && teclatTriada != id) desti = -1;
+    if (! motorEstudi.enviaTeclat (e.estat, e.dada1, e.dada2, desti))
         motorDiag.enviaMidi (e);
     cuaMostrar.posa (e);
 }

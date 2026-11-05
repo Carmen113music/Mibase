@@ -141,7 +141,38 @@ private:
 };
 
 /** Botons units on només n'hi ha un de triat (Tots / Només d'aquesta carpeta, 2/4 3/4 4/4 6/8…). */
-class Segmentat : public juce::Component
+/** Botó que, a més de clicar-se, es pot arrossegar (per exemple, un acord cap al Piano Roll).
+    Si s'arrossega, en amollar-lo no fa el clic. */
+class BotoArrossegable : public Boto
+{
+public:
+    using Boto::Boto;
+    std::function<void()> onArrossega;
+
+    void mouseDown (const juce::MouseEvent& e) override { arrossegat = false; Boto::mouseDown (e); }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! arrossegat && e.getDistanceFromDragStart() > 6)
+        {
+            arrossegat = true;
+            if (onArrossega) onArrossega();
+        }
+        Boto::mouseDrag (e);
+    }
+
+protected:
+    using Boto::clicked;
+    void clicked() override
+    {
+        if (arrossegat) { arrossegat = false; return; }
+        Boto::clicked();
+    }
+
+private:
+    bool arrossegat = false;
+};
+
+class Segmentat : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     std::function<void (int)> onCanvi;

@@ -17,6 +17,7 @@
     pistes i clips, i el panell de la dreta. Totes les seccions tenen l'amplada ajustable.
     Fa sonar el projecte i grava a la pista que té el botó de gravar encès (amb el motor de l'estudi). */
 class PantallaEstudi : public juce::Component,
+                       public juce::DragAndDropContainer,
                        private juce::Timer,
                        private juce::ChangeListener,
                        private juce::ScrollBar::Listener
@@ -48,6 +49,11 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& k) override;
+    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails&) override
+    {
+        if (estat.segell.perArrossegar) { estat.segell = {}; estat.avisa(); }
+        zonaEditors.repintaTots();
+    }
 
 private:
     void timerCallback() override { stopTimer(); desaAra(); }
@@ -134,7 +140,7 @@ private:
     PanellPista panell { estat };
     Divisor divEsquerra, divNoms, divPanell;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
-    PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); } };
+    PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;

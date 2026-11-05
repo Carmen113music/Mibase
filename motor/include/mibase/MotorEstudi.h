@@ -199,7 +199,9 @@ namespace mibase
         int getSlotTeclat() const noexcept { return slotTeclat.load (std::memory_order_relaxed); }
         /** Fil del MIDI (un sol productor alhora): un missatge del teclat de fora. Retorna false si no hi ha cap pista que l'esperi.
             Els note-off van sempre a la mateixa pista que el seu note-on, encara que mentrestant s'hagi canviat de pista. */
-        bool enviaTeclat (std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
+        /** «desti»: -2 = la pista del teclat (setSlotTeclat); -1 = cap (al Diagnòstic); >= 0 = aquesta pista (un teclat
+            assignat a una pista concreta). */
+        bool enviaTeclat (std::uint8_t estat, std::uint8_t d1, std::uint8_t d2, int desti = -2) noexcept;
 
         /** Un missatge del teclat gravat (temps en segons de la línia de temps). */
         struct MidiGravat

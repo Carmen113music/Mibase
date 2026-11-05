@@ -507,11 +507,11 @@ namespace mibase
         estat.store ((int) Estat::Aturat, std::memory_order_release);
     }
 
-    bool MotorEstudi::enviaTeclat (std::uint8_t e, std::uint8_t d1, std::uint8_t d2) noexcept
+    bool MotorEstudi::enviaTeclat (std::uint8_t e, std::uint8_t d1, std::uint8_t d2, int desti) noexcept
     {
         // slotNotaTeclat: -1 = no se sap; -2 = l'encesa va anar al Diagnòstic; >= 0 = la pista on va anar.
         const int tipus = e & 0xF0;
-        int slot = slotTeclat.load (std::memory_order_relaxed);
+        int slot = desti == -2 ? slotTeclat.load (std::memory_order_relaxed) : desti;
         if (tipus == 0x80 || (tipus == 0x90 && d2 == 0))
         {
             // L'apagada va on va anar l'encesa (encara que mentrestant s'hagi canviat de pista).

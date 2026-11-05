@@ -347,6 +347,13 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         if (gravacio.midi && gravacio.pista >= 0) { if (auto* t = estat.pista (gravacio.pista)) slot = slotDePista (*t); }
         else if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") slot = slotDePista (*t);
         servei.estudi().setSlotTeclat (slot);
+        // Teclats assignats a pistes concretes; i el de la pista triada (si en té un d'assignat, només aquell la toca).
+        std::vector<std::pair<juce::String, int>> mapa;
+        for (auto& t : estat.projecte.pistes)
+            if (t.tipus == "midi" && ! t.entradaMidi.empty()) mapa.push_back ({ juce::String (t.entradaMidi), slotDePista (t) });
+        juce::String teclatTriada;
+        if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") teclatTriada = juce::String (t->entradaMidi);
+        servei.setMapaTeclats (mapa, teclatTriada);
     }
     {
         const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.vistaMescles;

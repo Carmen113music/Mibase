@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <cmath>
 #include <set>
 
@@ -585,6 +586,208 @@ namespace mibase::harmonia
         std::vector<int> r;
         for (auto& n : noves) { c.notes.push_back (n); r.push_back ((int) c.notes.size() - 1); }
         midi::ordena (c.notes, r);
+        return r;
+    }
+}
+
+//==============================================================================
+// Acords dels pads
+//==============================================================================
+namespace mibase::harmonia
+{
+    namespace
+    {
+        const char* nomsTensio[] = { "7", "j7", "b9", "9", "#9", "11", "b5/#11", "#5/b13", "6/13" };
+        const char* nomsTipusPad[] = { "maj", "min", "dim", "sus4", "sus2", "aug" };
+
+        int notaLletra (char c)
+        {
+            switch (std::toupper ((unsigned char) c))
+            {
+                case 'C': return 0; case 'D': return 2; case 'E': return 4; case 'F': return 5;
+                case 'G': return 7; case 'A': return 9; case 'B': return 11; default: return -1;
+            }
+        }
+
+        /** Llegeix una nota («C», «Eb», «F#») des de «i». Retorna -1 si no n'hi ha. */
+        int llegeixNota (const std::string& s, size_t& i)
+        {
+            if (i >= s.size()) return -1;
+            int n = notaLletra (s[i]);
+            if (n < 0) return -1;
+            ++i;
+            if (i < s.size() && s[i] == '#') { ++n; ++i; }
+            else if (i < s.size() && s[i] == 'b') { --n; ++i; }
+            return pc (n);
+        }
+
+        void substitueix (std::string& s, const std::string& a, const std::string& b)
+        {
+            for (size_t p = s.find (a); p != std::string::npos; p = s.find (a, p + b.size())) s.replace (p, a.size(), b);
+        }
+    }
+
+    const char* nomTensio (int i) { return nomsTensio[std::clamp (i, 0, numTensions - 1)]; }
+    const char* nomTipusPad (int i) { return nomsTipusPad[std::clamp (i, 0, numTipusPad - 1)]; }
+
+    std::string nomPad (const AcordPad& a)
+    {
+        if (a.buit()) return {};
+        const unsigned t = a.tensions;
+        const bool s7 = t & T7, sM7 = t & TMaj7;
+        std::string nom = nomTo (a.arrel);
+        std::string base;
+        unsigned resta = t;
+        auto treu = [&resta] (unsigned b) { resta &= ~b; };
+
+        switch (a.tipus)
+        {
+            case 1: base = "m"; break;
+            case 2: base = "dim"; break;
+            case 3: base = "sus4"; break;
+            case 4: base = "sus2"; break;
+            case 5: base = "aug"; break;
+            default: break;
+        }
+        std::string set;
+        if (a.tipus == 2 && s7 && ! sM7) { base = "m7b5"; treu (T7); }
+        else if (a.tipus == 2 && (t & T13) && ! s7 && ! sM7) { base = "dim7"; treu (T13); }
+        else if (sM7)
+        {
+            treu (TMaj7);
+            if ((t & T9) && ! (t & (Tb9 | Ts9))) { set = "maj9"; treu (T9); }
+            else set = "maj7";
+            if (a.tipus == 1) { base = "m"; set = "(" + set + ")"; }
+        }
+        else if (s7)
+        {
+            treu (T7);
+            if (a.tipus == 2 || a.tipus == 5) set = "7";   // (dim, aug) les tensions van a part
+            else if ((t & T13) && (t & T9)) { set = "13"; treu (T13 | T9); }
+            else if ((t & T11) && (t & T9)) { set = "11"; treu (T11 | T9); }
+            else if (t & T9) { set = "9"; treu (T9); }
+            else set = "7";
+        }
+        else if (t & T13) { set = "6"; treu (T13); }
+        else if ((t & T9) && ! (t & (Tb9 | Ts9))) { set = "add9"; treu (T9); if (a.tipus == 1) set = "(add9)"; }
+
+        // Sus amb setena: «7sus4».
+        if ((a.tipus == 3 || a.tipus == 4) && ! set.empty()) nom += set + base;
+        else nom += base + set;
+
+        for (int k = 0; k < numTensions; ++k)
+            if (resta & (1u << k)) nom += std::string ("/") + (k == 6 ? (s7 || sM7 ? "#11" : "b5") : k == 7 ? (s7 || sM7 ? "b13" : "#5") : nomsTensio[k]);
+        if (a.baix >= 0 && a.baix != a.arrel) nom += "/" + nomTo (a.baix);
+        return nom;
+    }
+
+    AcordPad llegeixAcord (const std::string& text)
+    {
+        AcordPad a;
+        std::string s;
+        for (char c : text) if (c != ' ' && c != '\t') s += c;
+        substitueix (s, "\xE2\x99\xAD", "b");   // ♭
+        substitueix (s, "\xE2\x99\xAF", "#");   // ♯
+        substitueix (s, "\xC2\xB0", "dim");     // °
+        substitueix (s, "\xC3\xB8", "m7b5");    // ø
+        substitueix (s, "(", "/");
+        substitueix (s, ")", "");
+        size_t i = 0;
+        const int arrel = llegeixNota (s, i);
+        if (arrel < 0) return {};
+        std::string resta = s.substr (i);
+
+        // Nota greu: «/X» al final.
+        int baix = -1;
+        if (auto b = resta.rfind ('/'); b != std::string::npos)
+        {
+            size_t j = b + 1;
+            const int n = llegeixNota (resta, j);
+            if (n >= 0 && j == resta.size()) { baix = n; resta = resta.substr (0, b); }
+        }
+
+        struct Sufix { const char* text; int tipus; unsigned t; };
+        static const Sufix base[] = {
+            { "m7b5", 2, T7 }, { "min7", 1, T7 }, { "maj13", 0, TMaj7 | T9 | T13 }, { "maj9", 0, TMaj7 | T9 }, { "maj7", 0, TMaj7 },
+            { "mmaj7", 1, TMaj7 }, { "mMaj7", 1, TMaj7 }, { "dim7", 2, T13 }, { "min", 1, 0 }, { "maj", 0, 0 }, { "M7", 0, TMaj7 },
+            { "m13", 1, T7 | T9 | T13 }, { "m11", 1, T7 | T9 | T11 }, { "m9", 1, T7 | T9 }, { "m7", 1, T7 }, { "m6", 1, T13 },
+            { "madd9", 1, T9 }, { "m", 1, 0 }, { "-", 1, 0 }, { "dim", 2, 0 }, { "aug", 5, 0 }, { "+", 5, 0 },
+            { "sus2", 4, 0 }, { "sus4", 3, 0 }, { "sus", 3, 0 }, { "add9", 0, T9 }, { "add11", 0, T11 },
+            { "13", 0, T7 | T9 | T13 }, { "11", 0, T7 | T9 | T11 }, { "9", 0, T7 | T9 }, { "7", 0, T7 }, { "6", 0, T13 }, { "j7", 0, TMaj7 },
+        };
+        static const Sufix extra[] = {
+            { "sus4", -3, 0 }, { "sus2", -4, 0 }, { "sus", -3, 0 }, { "maj7", 0, TMaj7 }, { "j7", 0, TMaj7 }, { "add9", 0, T9 },
+            { "b9", 0, Tb9 }, { "#9", 0, Ts9 }, { "#11", 0, Ts11 }, { "b5", 0, Ts11 }, { "#5", 0, Tb13 }, { "b13", 0, Tb13 },
+            { "13", 0, T13 }, { "11", 0, T11 }, { "9", 0, T9 }, { "7", 0, T7 }, { "6", 0, T13 },
+        };
+        a.arrel = arrel;
+        a.baix = baix;
+        size_t p = 0;
+        for (const auto& b : base)
+            if (resta.compare (0, std::strlen (b.text), b.text) == 0)
+            {
+                a.tipus = b.tipus;
+                a.tensions = b.t;
+                p = std::strlen (b.text);
+                break;
+            }
+        while (p < resta.size())
+        {
+            if (resta[p] == '/' || resta[p] == ',') { ++p; continue; }
+            bool trobat = false;
+            for (const auto& e : extra)
+                if (resta.compare (p, std::strlen (e.text), e.text) == 0)
+                {
+                    if (e.tipus < 0) a.tipus = -e.tipus;
+                    a.tensions |= e.t;
+                    p += std::strlen (e.text);
+                    trobat = true;
+                    break;
+                }
+            if (! trobat) return {};   // no s'entén
+        }
+        return a;
+    }
+
+    std::vector<int> notesPad (const AcordPad& a, int octava, Voicing v)
+    {
+        if (a.buit()) return {};
+        static const std::vector<int> bases[] = { { 0, 4, 7 }, { 0, 3, 7 }, { 0, 3, 6 }, { 0, 5, 7 }, { 0, 2, 7 }, { 0, 4, 8 } };
+        std::vector<int> iv = bases[std::clamp (a.tipus, 0, numTipusPad - 1)];
+        const unsigned t = a.tensions;
+        const bool setena = t & (T7 | TMaj7);
+        auto canviaQuinta = [&iv] (int nova) { for (auto& x : iv) if (x == 7) x = nova; };
+        if (t & T7) iv.push_back (10);
+        if (t & TMaj7) iv.push_back (11);
+        if (t & Tb9) iv.push_back (13);
+        if (t & T9) iv.push_back (setena ? 14 : 14);
+        if (t & Ts9) iv.push_back (15);
+        if (t & T11) iv.push_back (17);
+        if (t & Ts11) { if (setena) iv.push_back (18); else canviaQuinta (6); }
+        if (t & Tb13) { if (setena) iv.push_back (20); else canviaQuinta (8); }
+        if (t & T13) iv.push_back (setena ? 21 : 9);
+
+        int arrel = 12 * (octava + 1) + a.arrel;
+        if (a.arrel > 7) arrel -= 12;
+        std::vector<int> n;
+        for (int x : iv) n.push_back (arrel + x);
+        std::sort (n.begin(), n.end());
+        n.erase (std::unique (n.begin(), n.end()), n.end());
+        if (v == Voicing::Obert && n.size() >= 3)
+        {
+            n[n.size() - 2] -= 12;
+            std::sort (n.begin(), n.end());
+        }
+        if (a.baix >= 0 && a.baix != a.arrel)
+        {
+            int b = n.front() - 1;
+            while (pc (b) != a.baix) --b;
+            n.insert (n.begin(), b);
+        }
+        std::vector<int> r;
+        for (int x : n) if (x >= 0 && x <= 127) r.push_back (x);
+        std::sort (r.begin(), r.end());
+        r.erase (std::unique (r.begin(), r.end()), r.end());
         return r;
     }
 }

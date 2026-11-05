@@ -1,11 +1,13 @@
 #pragma once
 
+#include <juce_audio_devices/juce_audio_devices.h>
 #include "PianoRoll.h"
 
 #include <mibase/Harmonia.h>
 
 /** Panell de la columna esquerra quan hi ha un editor MIDI obert (en lloc del fader de la pista):
-    tot el que cal per treballar la tonalitat de la cançó.
+    la configuració de la pista (instrument, so, teclat MIDI) i tot el que cal per treballar la tonalitat de la cançó.
+    Cada secció es plega clicant-ne el títol (es recorda).
     - Tonalitat: la detectada (si n'hi ha prou notes) o la triada a mà, l'escala i les seves notes.
     - Mode de l'escala al Piano Roll: Visual, Assistit o Bloquejat; ressaltar l'acord que sona.
     - Acords de la tonalitat: clic = escoltar-lo i posar-lo al Piano Roll amb un altre clic.
@@ -16,7 +18,8 @@
 class PanellHarmonia : public juce::Component, private juce::ChangeListener, private juce::Timer
 {
 public:
-    PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> editorActiu);
+    PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> editorActiu, juce::PropertiesFile& ajustos,
+                    std::function<juce::Array<juce::MidiDeviceInfo>()> teclats);
     ~PanellHarmonia() override;
 
     void resized() override;
