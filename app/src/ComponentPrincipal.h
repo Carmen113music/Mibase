@@ -110,6 +110,33 @@ public:
     void paint (juce::Graphics& g) override { g.fillAll (tema::fons); }
 
 private:
+    /** Preferències (0.12): la pantalla de diagnòstic en una finestra a part, amb el botó de tancar. */
+    struct FinestraPreferencies : juce::DocumentWindow
+    {
+        FinestraPreferencies (ServeiAudio& s, Historial& h, std::function<void()> enTancar)
+            : juce::DocumentWindow ("Preferències · Mibase"_ca, tema::fons, juce::DocumentWindow::closeButton), tanca (std::move (enTancar))
+        {
+            setUsingNativeTitleBar (true);
+            setContentOwned (new PantallaDiagnostic (s, h), false);
+            setResizable (true, true);
+            setResizeLimits (800, 560, 10000, 10000);
+            centreWithSize (1100, 760);
+            setVisible (true);
+        }
+        void closeButtonPressed() override { if (tanca) tanca(); }
+        std::function<void()> tanca;
+    };
+    std::unique_ptr<FinestraPreferencies> preferencies;
+
+    void obrePreferencies()
+    {
+        if (preferencies != nullptr) { preferencies->toFront (true); return; }
+        preferencies = std::make_unique<FinestraPreferencies> (servei, historial, [this]
+        {
+            juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<ComponentPrincipal> (this)] { if (sp) sp->preferencies = nullptr; });
+        });
+    }
+
     void menuFitxer (juce::Component& on)
     {
         const bool hiHaProjecte = estudi != nullptr;
@@ -142,7 +169,7 @@ private:
                 case 7: if (estudi) estudi->exportaProjecte(); break;
                 case 8: if (estudi) estudi->exportaMescla(); break;
                 case 9: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
-                case 10: mostra (Capcalera::Pantalla::Diagnostic); break;
+                case 10: obrePreferencies(); break;
                 default: break;
             }
         });

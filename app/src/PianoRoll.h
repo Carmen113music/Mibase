@@ -199,6 +199,11 @@ private:
     void menuFantasmes();
     std::vector<std::string>* fantasmes();
     void actualitzaFantasmes();
+    void pintaOnaFantasma (juce::Graphics& g, const mibase::Clip& kc, juce::Colour col, double t0, double t1);
+public:
+    /** Posa uns acords als pads de la pista (per ordre, des de la C) i obre el Chord Pad (0.12). */
+    void posaPads (const std::vector<std::string>& acords, const std::string& nom);
+private:
     void quantitza (bool tambeFinal, double forca = 1.0);
     void esborraTriades();
     void duplicaTriades();
@@ -209,6 +214,7 @@ private:
     void allargaTriades (int passos);
     void triaTotes();
     void ajustaVista();
+    void zoomTriades();
     void canviaOctava (int d);
     void aplica (const std::function<void (mibase::Clip&)>& f, const juce::String& info);
     std::vector<int>& triades() { return triadesNotes; }

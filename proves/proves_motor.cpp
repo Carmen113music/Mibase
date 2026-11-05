@@ -1689,21 +1689,13 @@ int main()
             const auto p = pads::padsDePreset (i);
             if ((int) p.size() != pads::numPads) tots = false;
             for (int k = 0; k < pads::numPads; ++k)
-                if (llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
+                if (! p[(size_t) k].empty() && llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
         }
         comprova (tots, "tots els acords dels presets s'entenen");
         const auto c = pads::padsDePreset (0);
-        // Creep: G B C Cm G Em Am D → blanques G B C Cm Em Am D (sense repetir), negres els de color de Sol major.
-        comprova (c.size() == 12 && c[0] == "G" && c[2] == "B" && c[4] == "C" && c[5] == "Cm" && c[7] == "Em" && c[9] == "Am" && c[11] == "D",
-                  "Creep: la seqüència a les blanques, en ordre i sense repetir");
-        comprova (c[1] == "D7", "Creep: a la C#, el V7 (D7)");
-        bool negresPlenes = true;
-        for (int i = 0; i < (int) pads::presets().size(); ++i)
-        {
-            const auto p = pads::padsDePreset (i);
-            for (int k = 0; k < 12; ++k) if (p[(size_t) k].empty()) negresPlenes = false;
-        }
-        comprova (negresPlenes, "cap preset deixa pads buits");
+        // Creep: G B C Cm G Em Am D → C=G, C#=B, D=C, D#=Cm, E=Em, F=Am, F#=D; la resta, buits.
+        comprova (c.size() == 12 && c[0] == "G" && c[1] == "B" && c[2] == "C" && c[3] == "Cm" && c[4] == "Em" && c[5] == "Am" && c[6] == "D"
+                  && c[7].empty() && c[11].empty(), "Creep: per ordre a partir de la C, sense repetir, la resta buits");
     });
 
     prova ("Pads com un piano (0.10): 12, blanques i negres", []

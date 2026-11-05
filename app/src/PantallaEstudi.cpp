@@ -1636,6 +1636,13 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && lletra ('G')) { demanaNomCarpeta (estat.indexsTriades(), {}); return true; }
     if (cap && lletra ('L')) { commutaBucle(); return true; }
     if (cap && lletra ('P')) { mostraPianoRoll (! estat.pianoRoll); return true; }
+    if (! mods.isCommandDown() && ! mods.isAltDown() && lletra ('Z'))
+    {
+        // 0.12: si el ratolí és sobre un Piano Roll, el zoom és el del Piano Roll.
+        auto* sota = juce::Desktop::getInstance().getMainMouseSource().getComponentUnderMouse();
+        auto* pr = sota != nullptr ? (dynamic_cast<PianoRoll*> (sota) != nullptr ? dynamic_cast<PianoRoll*> (sota) : sota->findParentComponentOfClass<PianoRoll>()) : nullptr;
+        if (pr != nullptr) return pr->keyPressed (k);
+    }
     if (! mods.isCommandDown() && ! mods.isAltDown() && lletra ('Z')) { if (mods.isShiftDown()) zoomTriat(); else zoomTot(); return true; }
     if (cap && lletra ('Q')) { estat.projecte.snap = Snap::Compas; estat.info = "Graella: compàs"_ca; estat.avisa(); calDesar = true; startTimer (700); return true; }
     if (cap && lletra ('W')) { estat.projecte.snap = Snap::Temps; estat.info = "Graella: temps"; estat.avisa(); calDesar = true; startTimer (700); return true; }
@@ -1646,7 +1653,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && (codi == 'S' || codi == 's')) { desaAra(); estat.info = "Desat"; estat.avisa(); return true; }
     if (mods.isCommandDown() && (codi == 'I' || codi == 'i')) { importaDeMenu(); return true; }
     if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '6') { triaEina ((Eina) (codi - '1')); return true; }
-    if (codi == juce::KeyPress::escapeKey) { estat.capTriat(); triaEina (Eina::Fletxa); return true; }
+    if (codi == juce::KeyPress::escapeKey) { estat.triantFantasma = -1; estat.capTriat(); triaEina (Eina::Fletxa); return true; }
     if (codi == juce::KeyPress::homeKey) { transport (0); return true; }
     if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
     if (! mods.isAnyModifierKeyDown() && (codi == 'R' || codi == 'r')) { if (estat.transport == 0) grava(); else atura(); return true; }

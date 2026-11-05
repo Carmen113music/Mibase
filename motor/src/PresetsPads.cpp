@@ -113,37 +113,16 @@ namespace mibase::pads
 
     std::vector<std::string> padsDePreset (int i)
     {
+        // 0.12 (en Roger): els acords de la cançó per ordre, a partir de la C (C, C#, D…), sense repetir; la resta, buits.
         const auto& p = presets()[(size_t) std::clamp (i, 0, (int) presets().size() - 1)];
-        const Tonalitat t { p.to, p.escala };
-        std::vector<std::string> usats;
-        auto nou = [&usats] (const std::string& a)
-        {
-            for (auto& u : usats) if (igual (u, a)) return false;
-            return ! a.empty();
-        };
-        // Blanques: la seqüència (sense repetir) i, si hi ha lloc, la tonalitat.
-        std::vector<std::string> b, sobrants;
+        std::vector<std::string> r;
         for (auto* a : p.acords)
-            if (nou (a)) { usats.push_back (a); (b.size() < 7 ? b : sobrants).push_back (a); }
-        const auto diat = diatonics (t), col = color (t);
-        const auto setenes = [&t]
         {
-            std::vector<std::string> r;
-            for (auto& a : harmonia::acordsDeTonalitat (t, true)) r.push_back (a.nom);
-            return r;
-        }();
-        for (const std::vector<std::string>* llista : { &diat, &col, &setenes })
-            for (auto& a : *llista)
-                if (b.size() < 7 && nou (a)) { usats.push_back (a); b.push_back (a); }
-        // Negres: el que no ha cabut de la seqüència, els acords de color i, si cal, les setenes.
-        std::vector<std::string> n = sobrants;
-        for (const std::vector<std::string>* llista : { &col, &setenes, &diat })
-            for (auto& a : *llista)
-                if (n.size() < 5 && nou (a)) { usats.push_back (a); n.push_back (a); }
-        b.resize (7); n.resize (5);
-        std::vector<std::string> r (numPads);
-        for (int k = 0; k < 7; ++k) r[(size_t) blanques[k]] = b[(size_t) k];
-        for (int k = 0; k < 5; ++k) r[(size_t) negres[k]] = n[(size_t) k];
+            bool hiEs = false;
+            for (auto& u : r) if (igual (u, a)) hiEs = true;
+            if (! hiEs && (int) r.size() < numPads) r.push_back (a);
+        }
+        r.resize (numPads);
         return r;
     }
 

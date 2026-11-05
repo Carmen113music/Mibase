@@ -27,8 +27,8 @@ namespace mibase::pads
     };
     const std::vector<Preset>& presets();
 
-    /** Els 12 pads d'un preset: a les blanques, els acords de la seqüència en ordre (sense repetir) i, si en sobra lloc,
-        els de la seva tonalitat; a les negres, els de color de la tonalitat (V7, préstecs…) que no hi siguin. */
+    /** Els 12 pads d'un preset (0.12): els acords de la seqüència per ordre a partir de la C (C, C#, D…), sense repetir;
+        la resta de pads, buits. */
     std::vector<std::string> padsDePreset (int preset);
     /** Els 12 pads «de la tonalitat»: a les blanques, els graus I a vii (C = I, D = ii…); a les negres, acords de color.
         Major: C# V7, D# ii7, F# iv, G# bVI, A# bVII. Menor: C# V7, D# im7, F# IV, G# V, A# bII. */

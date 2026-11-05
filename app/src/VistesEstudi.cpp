@@ -827,6 +827,18 @@ void VistaPistes::paint (juce::Graphics& g)
 
 void VistaPistes::mouseMove (const juce::MouseEvent& e)
 {
+    if (estat.triantFantasma >= 0)
+    {
+        static const juce::MouseCursor cursorFantasma = []
+        {
+            juce::Image im (juce::Image::ARGB, 28, 28, true);
+            juce::Graphics g (im);
+            dibuix::pintaIcona (g, dibuix::Icona::Fantasma, { 2.0f, 2.0f, 24.0f, 24.0f }, vintage::ledBlau, 2.0f, juce::Colours::black.withAlpha (0.5f));
+            return juce::MouseCursor (im, 14, 14);
+        }();
+        setMouseCursor (cursorFantasma);
+        return;
+    }
     const auto l = llocA (e.getPosition());
     const double tt = estat.eina == Eina::Tisores ? tEina (estat.t ((float) e.x)) : -1.0;
     if (l.pista != sobre.pista || l.clip != sobre.clip || l.maneta != sobre.maneta || l.pistaNova != sobre.pistaNova || std::abs (tt - tTisores) > 1e-9)
@@ -850,7 +862,7 @@ void VistaPistes::mouseMove (const juce::MouseEvent& e)
         case Maneta::FadeIn:
         case Maneta::FadeOut:   setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
         case Maneta::Guany:     setMouseCursor (juce::MouseCursor::UpDownResizeCursor); break;
-        case Maneta::Cap:       setMouseCursor (l.clip >= 0 ? juce::MouseCursor::DraggingHandCursor
+        case Maneta::Cap:       setMouseCursor (l.clip >= 0 && estat.clipTriat (l.pista, l.clip) ? juce::MouseCursor::DraggingHandCursor
                                                             : (l.pistaNova ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor)); break;
     }
 }
@@ -933,6 +945,23 @@ void VistaPistes::menuClip (int pista, int clip, double t)
 
 void VistaPistes::mouseDown (const juce::MouseEvent& e)
 {
+    if (estat.triantFantasma >= 0)
+    {
+        // 0.12: el clip clicat es veu (o es deixa de veure) en fantasma al Piano Roll.
+        const auto l = llocA (e.getPosition());
+        const int ei = estat.triantFantasma;
+        estat.triantFantasma = -1;
+        setMouseCursor (cursor (estat.eina));
+        if (l.pista >= 0 && l.clip >= 0 && ei < (int) estat.editors.size())
+        {
+            auto& fs = estat.editors[(size_t) ei].fantasmes;
+            const auto clau = estat.projecte.pistes[(size_t) l.pista].id + "#" + std::to_string (l.clip);
+            if (auto it = std::find (fs.begin(), fs.end(), clau); it != fs.end()) { fs.erase (it); estat.info = "Fantasma tret"; }
+            else { fs.push_back (clau); estat.info = "Clip en fantasma al Piano Roll"; }
+        }
+        estat.avisa();
+        return;
+    }
     grabKeyboardFocus();
     inici = e.getPosition();
     lloc0 = llocA (inici);
@@ -1082,7 +1111,16 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
         }
     }
     else if (! estat.clipTriat (lloc0.pista, lloc0.clip))
+    {
+        // 0.12: un clip que no estava triat només es tria; si s'arrossega, és un requadre (per triar un tros a Temps o Lliure).
+        // Per moure'l, primer s'ha de triar (llavors surt la mà).
         estat.triaClip (lloc0.pista, lloc0.clip);
+        triatsOriginals = {};
+        mode = Mode::Requadre;
+        puntRequadre = inici;
+        estat.avisa();
+        return;
+    }
     else
         estat.pistaTriada = lloc0.pista;
 

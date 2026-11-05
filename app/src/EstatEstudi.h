@@ -271,6 +271,8 @@ public:
         for (int i = 0; i < numPistes(); ++i) if (pistaEsTriada (i)) r.push_back (i);
         return r;
     }
+    /** 0.12: s'està triant un clip de la taula de treball per veure'l en fantasma a l'editor d'aquest índex (-1: no). */
+    int triantFantasma = -1;
     /** Mostra el panell de carpetes a l'esquerra dels noms de pista. */
     bool panellCarpetes = false;
 
