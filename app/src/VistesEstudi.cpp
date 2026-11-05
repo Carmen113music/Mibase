@@ -1553,7 +1553,30 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
 
 void Capcaleres::mouseDrag (const juce::MouseEvent& e)
 {
-    if (arrossegant < 0 || std::abs (e.y - inici.y) < 6) return;
+    if (arrossegant < 0) return;
+    // 0.10: una pista MIDI arrossegada fora dels noms es pot deixar al botó de notes fantasma d'un Piano Roll.
+    if (! getLocalBounds().contains (e.getPosition()) && arrossegant < estat.numPistes()
+        && estat.projecte.pistes[(size_t) arrossegant].tipus == "midi")
+        if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
+        {
+            const auto& t = estat.projecte.pistes[(size_t) arrossegant];
+            const auto nom = dibuix::utf8 (t.nom);
+            juce::Image im (juce::Image::ARGB, 140, 28, true);
+            {
+                juce::Graphics g (im);
+                g.setColour (EstatEstudi::colorPista (t).withAlpha (0.85f));
+                g.fillRoundedRectangle (0.0f, 0.0f, 140.0f, 28.0f, 6.0f);
+                g.setColour (juce::Colours::black);
+                g.setFont (dibuix::lletra (13.0f, true));
+                g.drawText (nom, 6, 0, 128, 28, juce::Justification::centred, true);
+            }
+            arrossegant = desti = -1;
+            estat.info = "Deixa «"_ca + nom + "» al botó de notes fantasma d'un Piano Roll"_ca;
+            estat.avisa();
+            c->startDragging ("mibase-pista:" + juce::String (t.id), this, juce::ScaledImage (im), true);
+            return;
+        }
+    if (std::abs (e.y - inici.y) < 6) return;
     desti = juce::jlimit (0, estat.numPistes() - 1, estat.pistaA (e.y));
     estat.info = "Mou la pista a la posició "_ca + juce::String (desti + 1);
     estat.avisa();

@@ -1,4 +1,5 @@
 #include "mibase/ProjecteDisc.h"
+#include "mibase/PresetsPads.h"
 #include "mibase/Harmonia.h"
 #include "mibase/Edicio.h"
 
@@ -295,6 +296,8 @@ namespace mibase::disc
                 t.presetPads = e.value ("presetPads", std::string());
                 if (e.contains ("pads") && e["pads"].is_array())
                     for (auto& x : e["pads"]) t.pads.push_back (x.is_string() ? x.get<std::string>() : std::string());
+                t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
+                if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 if (t.tipus == "midi") t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {

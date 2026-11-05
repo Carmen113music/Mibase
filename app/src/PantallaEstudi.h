@@ -49,9 +49,10 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& k) override;
-    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails&) override
+    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails& d) override
     {
         if (estat.segell.perArrossegar) { estat.segell = {}; estat.avisa(); }
+        if (d.description.toString().startsWith ("mibase-pista:")) { estat.info.clear(); estat.avisa(); }
         zonaEditors.repintaTots();
     }
 
