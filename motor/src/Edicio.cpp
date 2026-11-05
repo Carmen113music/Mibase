@@ -1,4 +1,5 @@
 #include "mibase/Edicio.h"
+#include "mibase/Midi.h"
 
 #include <map>
 
@@ -162,6 +163,7 @@ namespace mibase::edicio
         c.pos = std::max (0.0, std::min (de, a));
         c.inici = 0.0;
         c.fi = std::max (longitudMinima, std::abs (a - de));
+        c.midi = p.pistes[(size_t) pista].tipus == "midi";   // a una pista MIDI, el llapis fa un clip MIDI buit
         auto& clips = p.pistes[(size_t) pista].clips;
         clips.push_back (c);
         return (int) clips.size() - 1;
@@ -292,13 +294,18 @@ namespace mibase::edicio
     {
         std::vector<RefClip> nous;
         if (r.buit()) return nous;
+        auto potAnar = [&p] (int pista, const Clip& c)
+        {
+            return pista >= 0 && pista < (int) p.pistes.size() && midi::compatible (p.pistes[(size_t) pista], c);
+        };
         if (insereix) insereixEspai (p, on, r.durada);
         else
             for (auto& [pista, c] : r.clips)
-                buidaRang (p, pista, on + c.iniciVisible(), on + c.fiVisible());
+                if (potAnar (pista, c))
+                    buidaRang (p, pista, on + c.iniciVisible(), on + c.fiVisible());
         for (auto& [pista, c] : r.clips)
         {
-            if (pista < 0 || pista >= (int) p.pistes.size()) continue;
+            if (! potAnar (pista, c)) continue;   // un clip MIDI no va a una pista d'àudio (ni al revés)
             auto c2 = c;
             c2.pos += on;
             auto& clips = p.pistes[(size_t) pista].clips;
@@ -330,6 +337,19 @@ namespace mibase::edicio
         for (auto& r : triats) { minP = std::min (minP, r.pista); maxP = std::max (maxP, r.pista); }
         if (maxP < 0) return triats;
         d = std::clamp (d, -minP, n - 1 - maxP);
+        // Només on tots hi poden anar (MIDI amb MIDI, àudio amb àudio): si no, tan lluny com es pugui.
+        auto caben = [&] (int dd)
+        {
+            for (auto& r : triats)
+            {
+                if (r.pista < 0 || r.pista >= n) continue;
+                const auto& clips = p.pistes[(size_t) r.pista].clips;
+                if (r.clip < 0 || r.clip >= (int) clips.size()) continue;
+                if (! midi::compatible (p.pistes[(size_t) (r.pista + dd)], clips[(size_t) r.clip])) return false;
+            }
+            return true;
+        };
+        while (d != 0 && ! caben (d)) d += d > 0 ? -1 : 1;
         if (d == 0) return triats;
 
         std::vector<std::pair<int, Clip>> moguts;
@@ -364,7 +384,13 @@ namespace mibase::edicio
         Clip resultat;
         bool simple = false;
 
-        if (a.presa.empty() && b.presa.empty())
+        if (a.midi || b.midi)
+        {
+            if (a.midi != b.midi) return r;
+            resultat = midi::ajunta (p, a, b);
+            simple = true;
+        }
+        else if (a.presa.empty() && b.presa.empty())
         {
             resultat = a;
             resultat.pos = ini; resultat.inici = 0.0; resultat.fi = fi - ini;
@@ -542,6 +568,9 @@ namespace mibase::edicio
             return clips;
 
         std::sort (clips.begin(), clips.end());
+        for (int i : clips)
+            if (! midi::compatible (p.pistes[(size_t) a], p.pistes[(size_t) de].clips[(size_t) i]))
+                return clips;
         std::vector<Clip> moguts;
         for (int i : clips)
             moguts.push_back (p.pistes[(size_t) de].clips[(size_t) i]);

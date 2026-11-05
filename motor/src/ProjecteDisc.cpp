@@ -1,4 +1,5 @@
 #include "mibase/ProjecteDisc.h"
+#include "mibase/Harmonia.h"
 #include "mibase/Edicio.h"
 
 #include <nlohmann/json.hpp>
@@ -288,6 +289,13 @@ namespace mibase::disc
                 t.pan = std::clamp (e.value ("pan", 0.0), -1.0, 1.0);
                 t.entrada = std::clamp (e.value ("entrada", 0), 0, 63);
                 t.rgb = e.value ("rgb", (std::uint32_t) 0);
+                t.instrument = e.value ("instrument", std::string());
+                t.entradaMidi = e.value ("entradaMidi", std::string());
+                t.entradaMidiNom = e.value ("entradaMidiNom", std::string());
+                t.presetPads = e.value ("presetPads", std::string());
+                if (e.contains ("pads") && e["pads"].is_array())
+                    for (auto& x : e["pads"]) t.pads.push_back (x.is_string() ? x.get<std::string>() : std::string());
+                if (t.tipus == "midi") t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -303,6 +311,35 @@ namespace mibase::disc
                         c.guanyDb = k.value ("guanyDb", 0.0);
                         c.mut = k.value ("mut", false);
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
+                        c.midi = k.value ("midi", false);
+                        // Notes: [inici, durada, to, velocitat, canal] (ticks).
+                        if (k.contains ("notes") && k["notes"].is_array())
+                            for (auto& n : k["notes"])
+                            {
+                                if (! n.is_array() || n.size() < 4) continue;
+                                Nota nota;
+                                if (! n[0].is_number() || ! n[1].is_number() || ! n[2].is_number() || ! n[3].is_number()) continue;
+                                nota.ini = n[0].get<long long>();
+                                nota.dur = std::max (1LL, n[1].get<long long>());
+                                nota.to = std::clamp (n[2].get<int>(), 0, 127);
+                                nota.vel = std::clamp (n[3].get<int>(), 1, 127);
+                                nota.canal = n.size() > 4 && n[4].is_number() ? std::clamp (n[4].get<int>(), 0, 15) : 0;
+                                c.notes.push_back (nota);
+                            }
+                        // Altres esdeveniments: [tick, tipus, número, valor, canal].
+                        if (k.contains ("events") && k["events"].is_array())
+                            for (auto& n : k["events"])
+                            {
+                                if (! n.is_array() || n.size() < 4) continue;
+                                EventMidi ev;
+                                if (! n[0].is_number() || ! n[1].is_number() || ! n[2].is_number() || ! n[3].is_number()) continue;
+                                ev.tick = n[0].get<long long>();
+                                ev.tipus = n[1].get<int>() & 0xF0;
+                                ev.num = n[2].get<int>();
+                                ev.valor = n[3].get<int>();
+                                ev.canal = n.size() > 4 && n[4].is_number() ? std::clamp (n[4].get<int>(), 0, 15) : 0;
+                                c.events.push_back (ev);
+                            }
                         if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
                         t.clips.push_back (c);
                     }
@@ -318,6 +355,27 @@ namespace mibase::disc
             p.bucle.actiu = j["bucle"].value ("actiu", false);
             p.bucle.de = j["bucle"].value ("de", 0);
             p.bucle.a = j["bucle"].value ("a", 0);
+        }
+
+        if (j.contains ("tonalitat") && j["tonalitat"].is_object())
+        {
+            const auto& t = j["tonalitat"];
+            auto llegeixTon = [] (const json& x)
+            {
+                Tonalitat r;
+                r.to = std::clamp (x.value ("to", 0), 0, 11);
+                r.escala = std::max (0, harmonia::escalaPerId (x.value ("escala", std::string ("major"))));
+                return r;
+            };
+            p.tonalitatAuto = t.value ("automatica", true);
+            p.tonalitat = llegeixTon (t);
+            const auto mode = t.value ("mode", std::string ("visual"));
+            p.modeEscala = mode == "assistit" ? ModeEscala::Assistit : mode == "bloquejat" ? ModeEscala::Bloquejat : ModeEscala::Visual;
+            p.ressaltaAcord = t.value ("acord", true);
+            if (t.contains ("canvis") && t["canvis"].is_array())
+                for (auto& c : t["canvis"])
+                    if (c.is_object())
+                        p.canvisTonalitat.push_back ({ c.value ("compas", 0), llegeixTon (c) });
         }
 
         p.jsonOriginal = contingut;
@@ -365,6 +423,16 @@ namespace mibase::disc
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
         j["comptador"] = p.comptador;
+        {
+            json canvis = json::array();
+            for (auto& c : p.canvisTonalitat)
+                canvis.push_back ({ { "compas", c.compas }, { "to", c.tonalitat.to },
+                                    { "escala", harmonia::escales()[(size_t) std::clamp (c.tonalitat.escala, 0, (int) harmonia::escales().size() - 1)].id } });
+            j["tonalitat"] = { { "automatica", p.tonalitatAuto }, { "to", p.tonalitat.to },
+                               { "escala", harmonia::escales()[(size_t) std::clamp (p.tonalitat.escala, 0, (int) harmonia::escales().size() - 1)].id },
+                               { "mode", p.modeEscala == ModeEscala::Assistit ? "assistit" : p.modeEscala == ModeEscala::Bloquejat ? "bloquejat" : "visual" },
+                               { "acord", p.ressaltaAcord }, { "canvis", canvis } };
+        }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 
         json preses = json::array();
@@ -377,13 +445,30 @@ namespace mibase::disc
         {
             json clips = json::array();
             for (auto& c : t.clips)
-                clips.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
-                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
-                                   { "rgb", c.rgb } });
-            pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
-                                { "mut", t.mut }, { "solo", t.solo },
-                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
-                                { "clips", clips } });
+            {
+                json k = { { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
+                           { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
+                           { "rgb", c.rgb } };
+                if (c.midi)
+                {
+                    k["midi"] = true;
+                    json notes = json::array();
+                    for (auto& n : c.notes) notes.push_back (json::array ({ n.ini, n.dur, n.to, n.vel, n.canal }));
+                    k["notes"] = notes;
+                    json events = json::array();
+                    for (auto& e : c.events) events.push_back (json::array ({ e.tick, e.tipus, e.num, e.valor, e.canal }));
+                    k["events"] = events;
+                }
+                clips.push_back (k);
+            }
+            json pista = { { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
+                           { "mut", t.mut }, { "solo", t.solo },
+                           { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
+                           { "clips", clips } };
+            if (! t.instrument.empty()) pista["instrument"] = t.instrument;
+            if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
+            if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
+            pistes.push_back (pista);
         }
         j["pistes"] = pistes;
 

@@ -208,6 +208,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onImporta = [this] (const juce::StringArray& fitxers, int pista, double on) { importa (fitxers, pista, on); };
     pistes.onDemanaImportar = [this] (int pista, double on) { demanaImportar (pista, on); };
     pistes.onConsolida = [this] (int pista, int clipA, int clipB) { consolida (pista, clipA, clipB); };
+    pistes.onObreMidi = [this] (int pista, int clip) { obrePianoRoll (pista, clip); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -218,20 +219,42 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         d->onAcaba = [this]
         {
             ajustos.setValue ("estudi.ampleEsquerra", ampleEsquerra);
+            ajustos.setValue ("estudi.ampleEsquerraEditor", ampleEsquerraEditor);
             ajustos.setValue ("estudi.ampleNoms2", ampleNoms);
             ajustos.setValue ("estudi.amplePanell", amplePanell);
             ajustos.saveIfNeeded();
         };
     }
     divEsquerra.onComenca = [this] { ampleInici = esquerra.getWidth(); };
-    divEsquerra.onArrossega = [this] (int dx) { ampleEsquerra = juce::jlimit (110, 260, ampleInici + dx); colocaSeccions(); };
-    divEsquerra.onDobleClic = [this] { ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
+    divEsquerra.onArrossega = [this] (int dx)
+    {
+        if (esquerra.ambEditor()) ampleEsquerraEditor = juce::jlimit (230, 420, ampleInici + dx);
+        else ampleEsquerra = juce::jlimit (110, 260, ampleInici + dx);
+        colocaSeccions();
+    };
+    divEsquerra.onDobleClic = [this] { if (esquerra.ambEditor()) ampleEsquerraEditor = 270; else ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
     divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (120, ampleInici + dx); colocaSeccions(); };
     divNoms.onDobleClic = [this] { ampleNoms = 190; colocaSeccions(); divNoms.onAcaba(); };
     divPanell.onComenca = [this] { ampleInici = panell.getWidth(); };
     divPanell.onArrossega = [this] (int dx) { amplePanell = juce::jmax (200, ampleInici - dx); colocaSeccions(); };
     divPanell.onDobleClic = [this] { amplePanell = 270; colocaSeccions(); divPanell.onAcaba(); };
+
+    // Piano Roll: a baix (amb un separador per fer-lo més alt) o en una finestra a part.
+    addChildComponent (zonaEditors);
+    esquerra.setPanellEditor (&panellHarmonia);
+    ampleEsquerraEditor = ajustos.getIntValue ("estudi.ampleEsquerraEditor", 270);
+    addChildComponent (divPianoRoll);
+    altPianoRoll = ajustos.getIntValue ("estudi.altPianoRoll", 430);
+    divPianoRoll.setTooltip ("Arrossega per fer el Piano Roll més alt o més baix. Doble clic: mida inicial."_ca);
+    divPianoRoll.onComenca = [this] { altInici = zonaEditors.getHeight(); };
+    divPianoRoll.onArrossega = [this] (int dy)
+    {
+        altPianoRoll = juce::jmax (160, altInici - dy - (juce::jmax (1, zonaEditors.quants()) - 1) * 250);
+        colocaSeccions();
+    };
+    divPianoRoll.onDobleClic = [this] { altPianoRoll = 430; colocaSeccions(); divPianoRoll.onAcaba(); };
+    divPianoRoll.onAcaba = [this] { ajustos.setValue ("estudi.altPianoRoll", altPianoRoll); ajustos.saveIfNeeded(); };
 
     for (auto* b : { &barraV, &barraH })
     {
@@ -249,7 +272,15 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     rellotge.stopTimer();
+    if (finestraPianoRoll != nullptr)
+    {
+        ajustos.setValue ("pianoRoll.finestra", finestraPianoRoll->getWindowStateAsString());
+        finestraPianoRoll->clearContentComponent();
+        finestraPianoRoll.reset();
+    }
     auto& motor = servei.estudi();
+    motor.setSlotTeclat (-1);
+    motor.setSlotGravaMidi (-1);
     if (estat.transport != 0 || motor.getEstat() != MotorEstudi::Estat::Aturat)
     {
         motor.atura();
@@ -258,6 +289,8 @@ PantallaEstudi::~PantallaEstudi()
     }
     if (motor.gravadora().activa())
         acabaGravacio();
+    if (gravacio.midi && gravacio.pista >= 0)
+        acabaGravacioMidi();
     motor.publica (std::make_unique<Pla>());   // ja no ha de sonar res d'aquest projecte
     previsualitzaClic (false);
     estat.removeChangeListener (this);
@@ -291,6 +324,43 @@ void PantallaEstudi::desaAra()
 
 void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    // L'editor que no està bloquejat segueix el clip MIDI triat (primer l'actiu).
+    if (estat.triats.size() == 1)
+        if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi && estat.editorDe (estat.triats[0]) < 0)
+        {
+            if (estat.editors.empty()) estat.editors.push_back ({});
+            int lliure = -1;
+            if (estat.editorActiu < (int) estat.editors.size() && ! estat.editors[(size_t) estat.editorActiu].bloquejat) lliure = estat.editorActiu;
+            for (int i = 0; i < (int) estat.editors.size() && lliure < 0; ++i)
+                if (! estat.editors[(size_t) i].bloquejat) lliure = i;
+            if (lliure >= 0)
+            {
+                estat.editorMostra (lliure, estat.triats[0]);
+                estat.editorActiu = lliure;
+                zonaEditors.sincronitza();
+                if (auto* pr = zonaEditors.editor (lliure)) pr->actualitza();
+            }
+        }
+    // El teclat MIDI de fora toca la pista triada (si és MIDI) o la que grava.
+    {
+        int slot = -1;
+        if (gravacio.midi && gravacio.pista >= 0) { if (auto* t = estat.pista (gravacio.pista)) slot = slotDePista (*t); }
+        else if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") slot = slotDePista (*t);
+        servei.estudi().setSlotTeclat (slot);
+        // Teclats assignats a pistes concretes; i el de la pista triada (si en té un d'assignat, només aquell la toca).
+        std::vector<std::pair<juce::String, int>> mapa;
+        for (auto& t : estat.projecte.pistes)
+            if (t.tipus == "midi" && ! t.entradaMidi.empty()) mapa.push_back ({ juce::String (t.entradaMidi), slotDePista (t) });
+        juce::String teclatTriada;
+        if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") teclatTriada = juce::String (t->entradaMidi);
+        servei.setMapaTeclats (mapa, teclatTriada);
+    }
+    {
+        const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.vistaMescles;
+        if (volVisible != zonaEditors.isVisible() && finestraPianoRoll == nullptr) colocaSeccions();
+        else if (esquerra.ambEditor() != (esquerra.getWidth() == ampleEsquerraEditor)) colocaSeccions();
+    }
+
     const auto& p = estat.projecte;
     btTempo.setButtonText (juce::String ((int) std::round (p.tempo)) + " bpm · "_ca + juce::String (p.compasNum) + "/" + juce::String (p.compasDen));
     btClic.setToggleState (p.clic, juce::dontSendNotification);
@@ -366,15 +436,31 @@ void PantallaEstudi::colocaSeccions()
     auto r = getLocalBounds().withTrimmedTop (alcadaBarra);
     const bool m = estat.vistaMescles;
 
-    int esq = ampleEsquerra, noms = ampleNoms, pan = amplePanell;
+    const bool ambEditor = estat.pianoRoll && ! m;   // amb un editor obert, la columna esquerra té el panell d'harmonia
+    int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
     int sobra = esq + (m ? 0 : noms) + pan + 320 - r.getWidth();
     auto encongeix = [&sobra] (int& v, int minim) { if (sobra > 0) { const int t = juce::jmin (sobra, v - minim); if (t > 0) { v -= t; sobra -= t; } } };
     encongeix (pan, 200);
     if (! m) encongeix (noms, 140);
-    encongeix (esq, 110);
+    encongeix (esq, ambEditor ? 230 : 110);
 
     esquerra.setBounds (r.removeFromLeft (esq));
     panell.setBounds (r.removeFromRight (pan));
+
+    // Piano Roll a baix (si és obert i no és en una finestra a part).
+    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m;
+    divPianoRoll.setVisible (prBaix);
+    if (finestraPianoRoll == nullptr) zonaEditors.setVisible (prBaix);
+    if (prBaix)
+    {
+        // Amb diversos editors, la zona creix (cada un ha de tenir lloc per treballar); les pistes en conserven una mica.
+        const int n = juce::jmax (1, zonaEditors.quants());
+        const int alt = juce::jlimit (160, juce::jmax (160, r.getHeight() - 140), altPianoRoll + (n - 1) * 250);
+        auto zona = r.removeFromBottom (alt);
+        zonaEditors.setBounds (zona.withTrimmedTop (4));
+        divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
+    }
+    const int baixSeccions = r.getBottom();
 
     mescles.setVisible (m);
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms })
@@ -396,12 +482,12 @@ void PantallaEstudi::colocaSeccions()
         barraH.setBounds (temps.removeFromBottom (gruixBarres).withTrimmedRight (gruixBarres));
         barraV.setBounds (temps.removeFromRight (gruixBarres));
         pistes.setBounds (temps);
-        divNoms.setBounds (capcaleres.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
+        divNoms.setBounds (capcaleres.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
     }
 
     divEsquerra.setBounds (esquerra.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
     divPanell.setBounds (panell.getX() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
-    for (auto* d : { &divEsquerra, &divNoms, &divPanell }) d->toFront (false);
+    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll }) d->toFront (false);
 
     actualitzaBarres();
     repaint();
@@ -560,7 +646,8 @@ void PantallaEstudi::transport (int accio)
 //==============================================================================
 void PantallaEstudi::publicaPla()
 {
-    servei.estudi().publica (construeixPla (estat.projecte, audioPreses));
+    instruments.neteja (estat.projecte);
+    servei.estudi().publica (construeixPla (estat.projecte, audioPreses, instruments.proveidor (servei.estudi().getFs(), 2048)));
 }
 
 void PantallaEstudi::avisDeTargeta (const juce::String& titol, const juce::String& text)
@@ -594,6 +681,7 @@ void PantallaEstudi::atura()
         return;
     }
     const int abans = estat.transport;
+    if (gravacio.midi) gravacio.fins = juce::jmax (gravacio.cursor, servei.estudi().getPosicio());   // fins on s'ha gravat
     servei.estudi().atura();
     estat.transport = 0;
     estatEsperat = 0;
@@ -622,6 +710,35 @@ void PantallaEstudi::grava()
     }
 
     const auto& t = estat.projecte.pistes[(size_t) pista];
+    auto& motor = servei.estudi();
+
+    if (t.tipus == "midi")
+    {
+        // Pista MIDI: es grava el que es toca al teclat (no la targeta).
+        publicaPla();
+        gravacio.pista = pista;
+        gravacio.midi = true;
+        gravacio.missatges.clear();
+        gravacio.cursor = estat.capcal;
+        gravacio.desDe = estat.capcal - ed::segonsPerCompas (estat.projecte);
+        gravacio.retard = 0.0;
+        gravacio.fitxer = juce::File();
+        MotorEstudi::MidiGravat buit;
+        while (motor.treuMidiGravat (buit)) {}
+        const int slot = slotDePista (t);
+        motor.setSlotTeclat (slot);
+        motor.setSlotGravaMidi (slot);
+        motor.grava (gravacio.desDe, gravacio.cursor, 0, 1);
+        estat.cursorGravacio = gravacio.cursor;
+        estat.transport = 2;
+        estatEsperat = 2;
+        esperantMotor = true;
+        tempsOrdre = juce::Time::currentTimeMillis();
+        estat.info = "Compte d'entrada… (toca el teclat MIDI)"_ca;
+        estat.avisa();
+        return;
+    }
+
     estat.nomsEntrades = servei.getNomsEntrades();
     const auto& noms = estat.nomsEntrades;
     const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
@@ -633,7 +750,6 @@ void PantallaEstudi::grava()
         return;
     }
 
-    auto& motor = servei.estudi();
     auto carpetaAudios = audios();
     carpetaAudios.createDirectory();
     const auto nomFitxer = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), t.nom));
@@ -736,6 +852,11 @@ void PantallaEstudi::tic()
     }
     if (estat.transport == 0 && ! esperantMotor && motor.gravadora().activa())
         acabaGravacio();
+    if (gravacio.midi && gravacio.pista >= 0)
+    {
+        recullMidiGravat();
+        if (estat.transport == 0 && ! esperantMotor) acabaGravacioMidi();
+    }
 
     // Capçal: mentre sona, el del motor (i la vista el segueix).
     const float xAbans = estat.x (estat.capcal);
@@ -757,6 +878,7 @@ void PantallaEstudi::tic()
             else pistes.repaint (x0, 0, x1 - x0, pistes.getHeight());
             regla.repaint (x0, 0, x1 - x0, regla.getHeight());
         }
+        zonaEditors.ticTransport();
     }
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
@@ -817,7 +939,8 @@ void PantallaEstudi::exportaMescla()
         const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
         std::string error;
         juce::MouseCursor::showWaitCursor();
-        const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses), fs, tros.first, tros.second, dibuix::cami (desti), error);
+        const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses, Instruments::perExportar (fs, 4096)),
+                                                fs, tros.first, tros.second, dibuix::cami (desti), error);
         juce::MouseCursor::hideWaitCursor();
         if (! fet)
         {
@@ -847,6 +970,18 @@ std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
 void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
 {
     estat.desfes.abans (estat.projecte);
+    if (tipus == "midi")
+    {
+        const auto nom = ed::nomPistaLliure (estat.projecte, "Piano");
+        auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
+        t.canals = 2;
+        t.instrument = "intern:piano";
+        estat.pistaTriada = estat.numPistes() - 1;
+        estat.capTriat();
+        estat.info = "Pista d'instrument: fes un clip amb el llapis (2) i dibuixa-hi notes, o grava amb el teclat MIDI"_ca;
+        estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (instrument MIDI)"_ca);
+        return;
+    }
     const auto nom = ed::nomPistaLliure (estat.projecte, (canals == 2 ? juce::String::fromUTF8 ("Àudio estèreo") : juce::String::fromUTF8 ("Àudio")).toStdString());
     auto& t = ed::afegeixPista (estat.projecte, nom, tipus.toStdString());
     t.canals = canals;
@@ -873,7 +1008,7 @@ void PantallaEstudi::canviaNom (int pista)
 
 void PantallaEstudi::canviaTempo()
 {
-    dialeg = std::make_unique<DialegText> ("Tempo", "En bpm (de 30 a 300). Els clips no es mouen."_ca, "Canvia'l"_ca,
+    dialeg = std::make_unique<DialegText> ("Tempo", "En bpm (de 30 a 300). Els clips d'àudio no es mouen; els MIDI segueixen els compassos."_ca, "Canvia'l"_ca,
         [] (const juce::String& t) -> juce::String
         {
             const auto v = t.trim().replaceCharacter (',', '.');
@@ -887,7 +1022,7 @@ void PantallaEstudi::canviaTempo()
             if (std::abs (bpm - estat.projecte.tempo) < 0.001) return;
             estat.desfes.abans (estat.projecte);
             const double abans = estat.projecte.tempo;
-            estat.projecte.tempo = bpm;
+            midi::canviaTempo (estat.projecte, bpm);   // els clips MIDI queden als mateixos compassos
             servei.motor().tempoClic = bpm;
             estat.canviat ("Tempo de "_ca + juce::String (abans, 0) + " a " + juce::String (bpm, 0) + " bpm");
         }, juce::String (estat.projecte.tempo, 0));
@@ -1419,6 +1554,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
     if (codi == juce::KeyPress::insertKey) { canviaInsereix (! estat.insereix); return true; }
     if (cap && lletra ('M')) { silenciaTriat(); return true; }
+    if (cap && lletra ('P')) { mostraPianoRoll (! estat.pianoRoll); return true; }
     if (! mods.isCommandDown() && ! mods.isAltDown() && lletra ('Z')) { if (mods.isShiftDown()) zoomTriat(); else zoomTot(); return true; }
     if (cap && lletra ('Q')) { estat.projecte.snap = Snap::Compas; estat.info = "Graella: compàs"_ca; estat.avisa(); calDesar = true; startTimer (700); return true; }
     if (cap && lletra ('W')) { estat.projecte.snap = Snap::Temps; estat.info = "Graella: temps"; estat.avisa(); calDesar = true; startTimer (700); return true; }
@@ -1434,4 +1570,236 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
     if (! mods.isAnyModifierKeyDown() && (codi == 'R' || codi == 'r')) { if (estat.transport == 0) grava(); else atura(); return true; }
     return false;
+}
+
+//==============================================================================
+// Piano Roll i MIDI
+//==============================================================================
+void PantallaEstudi::configuraEditor (PianoRoll& pr)
+{
+    juce::Component::SafePointer<PianoRoll> sp (&pr);
+    pr.onDirecte = [this] (int pista, std::uint8_t e, std::uint8_t d1, std::uint8_t d2)
+    {
+        if (auto* t = estat.pista (pista)) servei.estudi().enviaDirecte ({ slotDePista (*t), e, d1, d2 });
+    };
+    pr.onDesfes = [this] (bool refer) { desfes (refer); };
+    pr.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
+    pr.onDesenganxa = [this]
+    {
+        const bool desenganxa = finestraPianoRoll == nullptr;
+        ajustos.setValue ("pianoRoll.desenganxat", desenganxa);
+        desenganxaPianoRoll (desenganxa);
+    };
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    pr.onTanca = [jo, sp]
+    {
+        if (sp == nullptr) return;
+        const int i = sp->getIndex();
+        juce::MessageManager::callAsync ([jo, i] { if (jo != nullptr) jo->tancaEditor (i); });   // no es pot esborrar l'editor des de dins seu
+    };
+    pr.onVistaCanviada = [this] { zonaEditors.repintaTots(); };
+    pr.onActiu = [this] { zonaEditors.repintaTots(); esquerra.repaint(); estat.avisa(); };
+}
+
+void PantallaEstudi::tancaEditor (int index)
+{
+    if (index < 0 || index >= (int) estat.editors.size()) return;
+    estat.editors.erase (estat.editors.begin() + index);
+    estat.editorActiu = juce::jlimit (0, juce::jmax (0, (int) estat.editors.size() - 1), estat.editorActiu >= index ? estat.editorActiu - 1 : estat.editorActiu);
+    zonaEditors.sincronitza();
+    if (estat.editors.empty()) mostraPianoRoll (false);
+    else { colocaSeccions(); estat.avisa(); }
+}
+
+void PantallaEstudi::obrePianoRoll (int pista, int clip)
+{
+    auto* c = estat.clip ({ pista, clip });
+    if (c == nullptr || ! c->midi) return;
+    estat.triaClip (pista, clip);
+    int i = estat.editorDe ({ pista, clip });
+    if (i < 0)
+    {
+        // Un editor no bloquejat (primer l'actiu); si tots ho estan, un de nou a sota.
+        if (estat.editorActiu < (int) estat.editors.size() && ! estat.editors[(size_t) estat.editorActiu].bloquejat) i = estat.editorActiu;
+        for (int k = 0; k < (int) estat.editors.size() && i < 0; ++k)
+            if (! estat.editors[(size_t) k].bloquejat) i = k;
+        if (i < 0)
+        {
+            if ((int) estat.editors.size() >= EstatEstudi::maxEditors)
+            {
+                estat.info = "Ja hi ha 3 editors bloquejats: desbloqueja'n un per obrir aquest clip"_ca;
+                estat.avisa();
+                return;
+            }
+            estat.editors.push_back ({});
+            i = (int) estat.editors.size() - 1;
+        }
+        estat.editorMostra (i, { pista, clip });
+    }
+    estat.editorActiu = i;
+    zonaEditors.sincronitza();
+    mostraPianoRoll (true);
+    if (auto* pr = zonaEditors.editor (i))
+    {
+        pr->actualitza();
+        pr->grabKeyboardFocus();
+    }
+    estat.avisa();
+}
+
+void PantallaEstudi::mostraPianoRoll (bool visible)
+{
+    if (visible && estat.editors.empty())
+    {
+        // Un editor (amb el clip MIDI triat, si n'hi ha un).
+        estat.editors.push_back ({});
+        if (estat.triats.size() == 1)
+            if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi) estat.editorMostra (0, estat.triats[0]);
+        estat.editorActiu = 0;
+        zonaEditors.sincronitza();
+    }
+    estat.pianoRoll = visible;
+    if (visible && finestraPianoRoll == nullptr && ajustos.getBoolValue ("pianoRoll.desenganxat", false))
+        desenganxaPianoRoll (true);
+    else if (! visible && finestraPianoRoll != nullptr)
+        desenganxaPianoRoll (false);
+    colocaSeccions();
+    estat.avisa();
+    if (! visible) grabKeyboardFocus();
+}
+
+void PantallaEstudi::desenganxaPianoRoll (bool desenganxa)
+{
+    if (desenganxa)
+    {
+        if (finestraPianoRoll != nullptr) return;
+        removeChildComponent (&zonaEditors);
+        zonaEditors.setVisible (true);
+        zonaEditors.setDesenganxat (true);
+        juce::Component::SafePointer<PantallaEstudi> jo (this);
+        finestraPianoRoll = std::make_unique<FinestraPianoRoll> (zonaEditors, [jo]
+        {
+            // En tancar la finestra, torna a baix (més tard: no es pot esborrar la finestra des de dins seu).
+            juce::MessageManager::callAsync ([jo]
+            {
+                if (jo == nullptr) return;
+                jo->ajustos.setValue ("pianoRoll.desenganxat", false);
+                jo->desenganxaPianoRoll (false);
+            });
+        });
+        const auto estatFinestra = ajustos.getValue ("pianoRoll.finestra");
+        if (estatFinestra.isNotEmpty()) finestraPianoRoll->restoreWindowStateFromString (estatFinestra);
+        estat.pianoRoll = true;
+        historial.afegeix ("Piano Roll en una finestra a part"_ca);
+    }
+    else
+    {
+        if (finestraPianoRoll == nullptr) return;
+        ajustos.setValue ("pianoRoll.finestra", finestraPianoRoll->getWindowStateAsString());
+        finestraPianoRoll->clearContentComponent();
+        finestraPianoRoll.reset();
+        addChildComponent (zonaEditors);
+        zonaEditors.setDesenganxat (false);
+    }
+    ajustos.saveIfNeeded();
+    colocaSeccions();
+    estat.avisa();
+    if (auto* pr = zonaEditors.actiu()) pr->grabKeyboardFocus();
+}
+
+void PantallaEstudi::recullMidiGravat()
+{
+    MotorEstudi::MidiGravat m;
+    while (servei.estudi().treuMidiGravat (m))
+        gravacio.missatges.push_back (m);
+}
+
+void PantallaEstudi::acabaGravacioMidi()
+{
+    auto& motor = servei.estudi();
+    recullMidiGravat();
+    motor.setSlotGravaMidi (-1);
+    const int pista = gravacio.pista;
+    const double cursorRec = gravacio.cursor;
+    double fins = juce::jmax (gravacio.fins, cursorRec);
+    gravacio.pista = -1;
+    gravacio.midi = false;
+    gravacio.fins = 0.0;
+    auto missatges = std::move (gravacio.missatges);
+    gravacio.missatges.clear();
+    estat.info.clear();
+
+    auto* t = estat.pista (pista);
+    if (t == nullptr || t->tipus != "midi") return;
+
+    // Notes: cada encesa amb la seva apagada (les que encara sonaven en aturar, s'acaben on s'ha aturat).
+    const auto& p = estat.projecte;
+    const double spt = midi::segonsPerTick (p);
+    auto tick = [&] (double tt) { return (long long) std::llround ((tt - cursorRec) / spt); };
+    Clip c = midi::clipNou (cursorRec, cursorRec + ed::segonsPerCompas (p));
+    std::array<double, 16 * 128> obertes;
+    std::array<int, 16 * 128> velocitats {};
+    obertes.fill (-1.0);
+    for (auto& m : missatges) fins = juce::jmax (fins, m.t);
+    auto tanca = [&] (int canal, int to, double fi)
+    {
+        const size_t k = (size_t) (canal * 128 + to);
+        if (obertes[k] < 0.0) return;
+        Nota n;
+        n.ini = tick (obertes[k]);
+        n.dur = juce::jmax (1LL, tick (fi) - n.ini);
+        n.to = to;
+        n.vel = juce::jlimit (1, 127, velocitats[k]);
+        n.canal = canal;
+        c.notes.push_back (n);
+        obertes[k] = -1.0;
+    };
+    for (auto& m : missatges)
+    {
+        const int tipus = m.estat & 0xF0, canal = m.estat & 0x0F;
+        if (tipus == 0x90 && m.dada2 > 0)
+        {
+            tanca (canal, m.dada1 & 127, m.t);
+            obertes[(size_t) (canal * 128 + (m.dada1 & 127))] = m.t;
+            velocitats[(size_t) (canal * 128 + (m.dada1 & 127))] = m.dada2;
+        }
+        else if (tipus == 0x80 || tipus == 0x90)
+            tanca (canal, m.dada1 & 127, m.t);
+        else if (tipus == 0xB0 || tipus == 0xE0 || tipus == 0xD0 || tipus == 0xA0 || tipus == 0xC0)
+        {
+            EventMidi e;
+            e.tick = tick (m.t);
+            e.tipus = tipus;
+            e.canal = canal;
+            if (tipus == 0xE0) e.valor = (m.dada1 & 127) | ((m.dada2 & 127) << 7);
+            else if (tipus == 0xD0 || tipus == 0xC0) e.valor = m.dada1;
+            else { e.num = m.dada1; e.valor = m.dada2; }
+            c.events.push_back (e);
+        }
+    }
+    for (int k = 0; k < 16 * 128; ++k)
+        if (obertes[(size_t) k] >= 0.0) tanca (k / 128, k % 128, fins);
+
+    if (c.notes.empty())
+    {
+        estat.info = "No s'ha gravat cap nota"_ca;
+        estat.avisa();
+        return;
+    }
+    std::vector<int> cap;
+    midi::ordena (c.notes, cap);
+    c.fi = juce::jmax (c.fi, fins - cursorRec);
+    midi::encabeix (p, c);
+    c.inici = 0.0;   // el que s'ha tocat durant el compte queda amagat (no s'esborra)
+
+    estat.desfes.abans (estat.projecte);
+    auto& clips = estat.projecte.pistes[(size_t) pista].clips;
+    clips.push_back (c);
+    const int idx = (int) clips.size() - 1;
+    const auto nomPista = dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom);
+    const int quantes = (int) c.notes.size();
+    estat.info = "Gravades "_ca + juce::String (quantes) + (quantes == 1 ? " nota" : " notes") + " a «"_ca + nomPista + "»"_ca;
+    historial.afegeix (estat.info);
+    estat.canviat ("Gravat MIDI ("_ca + juce::String (quantes) + " notes) a la pista «"_ca + nomPista + "»"_ca);
+    obrePianoRoll (pista, idx);
 }

@@ -84,6 +84,8 @@ public:
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova
     std::function<void (int pista, double on)> onDemanaImportar;
+    /** Obre un clip MIDI al Piano Roll (doble clic, o en fer-ne un de nou amb el llapis). */
+    std::function<void (int pista, int clip)> onObreMidi;
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
 
@@ -168,6 +170,9 @@ class ColumnaEsquerra : public SeccioEstudi
 {
 public:
     explicit ColumnaEsquerra (EstatEstudi& e);
+    /** Panell per als editors (el d'harmonia): quan hi ha un editor obert, ocupa el lloc del fader de la pista. */
+    void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
+    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.vistaMescles; }
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -181,6 +186,7 @@ protected:
 private:
     Boto btTreball { "Taula de treball", dibuix::Icona::Pistes, Boto::Estil::Tecla };
     Boto btMescles { "Taula de mescles", dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    juce::Component* panellEditor = nullptr;
     juce::Rectangle<int> zonaNom, zonaPan, zonaFader, zonaLcd, zonaTecles;
     juce::Rectangle<int> rectPom() const;
     enum class Arrossega { Res, Fader, Pan };
