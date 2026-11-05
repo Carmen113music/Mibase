@@ -199,11 +199,21 @@ namespace mibase
             missatge (events[k]);
         }
         if (fet < n) renderitza (L, R, fet, n);
+
+        // Limitador suau: per sota de 0,8 no toca res; per sobre, corba fins a 1 (mai satura de cop).
+        auto suau = [] (float x) noexcept
+        {
+            const float a = std::abs (x);
+            if (a <= 0.8f) return x;
+            const float y = 0.8f + 0.2f * std::tanh ((a - 0.8f) / 0.2f);
+            return x < 0.0f ? -y : y;
+        };
+        for (int i = 0; i < n; ++i) { L[i] = suau (L[i]); R[i] = suau (R[i]); }
     }
 
     void SinteIntern::renderitza (float* L, float* R, int de, int fins) noexcept
     {
-        const float objectiu = volumCC * expressio;
+        const float objectiu = volumCC * expressio * 0.45f;   // marge: els acords grans no saturen
         actives = 0;
         const double dt = 1.0 / fs;
 

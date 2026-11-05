@@ -1,4 +1,5 @@
 #include "mibase/ProjecteDisc.h"
+#include "mibase/Harmonia.h"
 #include "mibase/Edicio.h"
 
 #include <nlohmann/json.hpp>
@@ -351,6 +352,27 @@ namespace mibase::disc
             p.bucle.a = j["bucle"].value ("a", 0);
         }
 
+        if (j.contains ("tonalitat") && j["tonalitat"].is_object())
+        {
+            const auto& t = j["tonalitat"];
+            auto llegeixTon = [] (const json& x)
+            {
+                Tonalitat r;
+                r.to = std::clamp (x.value ("to", 0), 0, 11);
+                r.escala = std::max (0, harmonia::escalaPerId (x.value ("escala", std::string ("major"))));
+                return r;
+            };
+            p.tonalitatAuto = t.value ("automatica", true);
+            p.tonalitat = llegeixTon (t);
+            const auto mode = t.value ("mode", std::string ("visual"));
+            p.modeEscala = mode == "assistit" ? ModeEscala::Assistit : mode == "bloquejat" ? ModeEscala::Bloquejat : ModeEscala::Visual;
+            p.ressaltaAcord = t.value ("acord", true);
+            if (t.contains ("canvis") && t["canvis"].is_array())
+                for (auto& c : t["canvis"])
+                    if (c.is_object())
+                        p.canvisTonalitat.push_back ({ c.value ("compas", 0), llegeixTon (c) });
+        }
+
         p.jsonOriginal = contingut;
 
         if (p.tempo < 20.0 || p.tempo > 400.0) p.tempo = 120.0;
@@ -396,6 +418,16 @@ namespace mibase::disc
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
         j["comptador"] = p.comptador;
+        {
+            json canvis = json::array();
+            for (auto& c : p.canvisTonalitat)
+                canvis.push_back ({ { "compas", c.compas }, { "to", c.tonalitat.to },
+                                    { "escala", harmonia::escales()[(size_t) std::clamp (c.tonalitat.escala, 0, (int) harmonia::escales().size() - 1)].id } });
+            j["tonalitat"] = { { "automatica", p.tonalitatAuto }, { "to", p.tonalitat.to },
+                               { "escala", harmonia::escales()[(size_t) std::clamp (p.tonalitat.escala, 0, (int) harmonia::escales().size() - 1)].id },
+                               { "mode", p.modeEscala == ModeEscala::Assistit ? "assistit" : p.modeEscala == ModeEscala::Bloquejat ? "bloquejat" : "visual" },
+                               { "acord", p.ressaltaAcord }, { "canvis", canvis } };
+        }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 
         json preses = json::array();

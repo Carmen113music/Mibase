@@ -91,6 +91,25 @@ namespace mibase
         int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
     };
 
+    /** Tonalitat: nota fonamental (0 = C … 11 = B) i escala (índex de harmonia::escales()). */
+    struct Tonalitat
+    {
+        int to = 0;
+        int escala = 0;
+        bool operator== (const Tonalitat&) const = default;
+    };
+
+    /** Un canvi de tonalitat a partir d'un compàs (intern). Preparat per a més endavant: ara només compta la tonalitat del projecte. */
+    struct CanviTonalitat
+    {
+        int compas = 0;
+        Tonalitat tonalitat;
+    };
+
+    /** Com treballa el Piano Roll amb l'escala: 0 visual (només ressalta), 1 assistit (ajusta a la nota de l'escala
+        més propera), 2 bloquejat (no deixa posar notes fora de l'escala). */
+    enum class ModeEscala { Visual = 0, Assistit = 1, Bloquejat = 2 };
+
     /** Bucle per compassos sencers (índexs interns, des de 0): [de, a). */
     struct Bucle
     {
@@ -117,6 +136,14 @@ namespace mibase
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
         int comptador = 0;       // per fer identificadors únics
+
+        // ---- Harmonia (0.8) ----
+        /** true: la tonalitat es dedueix de les notes MIDI (si n'hi ha prou); false: l'ha triada en Roger. */
+        bool tonalitatAuto = true;
+        Tonalitat tonalitat;                      // la triada (o la darrera detectada)
+        ModeEscala modeEscala = ModeEscala::Visual;
+        bool ressaltaAcord = true;                // pinta les notes de l'acord que sona al capçal
+        std::vector<CanviTonalitat> canvisTonalitat;   // per a més endavant (es desen i es llegeixen)
 
         /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */
         std::string jsonOriginal;

@@ -2,6 +2,7 @@
 
 #include "VistesEstudi.h"
 
+#include <mibase/Harmonia.h>
 #include <mibase/Midi.h>
 
 /** Petit camp numèric que es canvia arrossegant amunt i avall (o amb la roda). Doble clic: valor inicial. */
@@ -36,19 +37,22 @@ private:
     int mn, mx, valor, perDefecte, valor0 = 0;
 };
 
-/** El Piano Roll: editor del clip MIDI obert (EstatEstudi::clipObert).
+/** Un Piano Roll: editor d'un clip MIDI (el de EstatEstudi::editors[index]). N'hi pot haver fins a 3 apilats;
+    tots comparteixen la vista horitzontal (EstatEstudi::vistaEditors), cadascun té la seva alçada de notes.
     Teclat vertical, regla, graella sincronitzada amb el tempo i el compàs del projecte, notes i carril de velocitats.
     Viu a la zona de baix de l'estudi i es pot desenganxar a una finestra pròpia (per exemple, a la segona pantalla).
 
     Punts d'integració per a les fases següents (no es fan servir encara):
-    - onAjustaTo: escales i tonalitat (mode assistit o bloquejat), per decidir el to d'una nota nova o moguda.
-    - onColorFila: ressaltar les notes de l'escala o de l'acord a la graella.
-    - onGenera: un generador (acords, arpegis, rasgueigs…) que afegeix notes MIDI normals al clip.
+    - (0.8) Escales: ressaltat de l'escala i de l'acord que sona, mode assistit i bloquejat (harmonia::).
+    - (0.8) Segell: un acord del panell d'harmonia es posa amb un clic (EstatEstudi::segell).
+    - insereixAcords(): els generadors (arpegis, rasgueigs…) hi afegiran notes MIDI normals.
     - Carril de baix: ara la velocitat; més endavant els controladors (CC1, CC11, CC64, pitch bend…). */
 class PianoRoll : public SeccioEstudi, private juce::ScrollBar::Listener
 {
 public:
-    explicit PianoRoll (EstatEstudi& e);
+    PianoRoll (EstatEstudi& e, int index);
+    void setIndex (int i) { index = i; actualitza(); }
+    int getIndex() const noexcept { return index; }
     ~PianoRoll() override;
 
     // ---- Connexions amb l'estudi ----
@@ -58,10 +62,26 @@ public:
     /** Les tecles que el Piano Roll no fa servir (Espai, R…), per quan és en una finestra a part. */
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
     std::function<void()> onDesenganxa, onTanca;
+    /** La vista horitzontal (comuna) ha canviat: els altres editors s'han de tornar a dibuixar. */
+    std::function<void()> onVistaCanviada;
+    /** Aquest editor passa a ser l'actiu (s'hi ha clicat). */
+    std::function<void()> onActiu;
 
     // ---- Integració per a les fases següents ----
-    std::function<int (int to)> onAjustaTo;                       // Fase 2: escala (assistit / bloquejat). -1: no es pot.
-    std::function<juce::Colour (int to, juce::Colour fons)> onColorFila;   // Fase 2: ressaltat de l'escala i l'acord.
+    std::function<juce::Colour (int to, juce::Colour fons)> onColorFila;   // per a capes de color de més endavant
+
+    // ---- Ordres del panell d'harmonia (sobre aquest editor) ----
+    const std::vector<int>& getTriades() const noexcept { return triadesNotes; }
+    bool teClip() const { return clip() != nullptr; }
+    /** Encén o apaga unes notes a l'instrument de la pista (per escoltar acords i progressions). */
+    void sonaNotes (const std::vector<int>& notes, bool encen);
+    void escoltaAcord (const std::vector<int>& notes);
+    /** Afegeix acords seguits (un rere l'altre, «durada» ticks cadascun) a partir del compàs del capçal
+        (o del començament del clip, si el capçal hi cau fora). */
+    void insereixAcords (const std::vector<std::vector<int>>& acords, long long duradaAcord, const juce::String& nom);
+    void fesAcords (int tipus, bool deTonalitat, int inversio, mibase::harmonia::Voicing v);
+    void inverteixTriades (bool amunt);
+    void enllacaTriades();
 
     void setDesenganxat (bool d);
     /** Torna a llegir l'estat (per exemple, quan l'estudi canvia el clip obert). */
@@ -69,7 +89,7 @@ public:
     /** Cridat pel rellotge de l'estudi mentre sona: capçal i vista que el segueix. */
     void ticTransport();
     /** Torna a encaixar la vista amb el clip obert (quan s'obre un clip nou). */
-    void encaixaVista();
+    void encaixaVista (bool tambeHoritzontal = true);
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -85,13 +105,13 @@ public:
 
     enum class EinaPR { Fletxa = 0, Llapis, Goma };
 
-    static constexpr int alcadaBarra = 46, ampleTeclat = 74, alcadaRegla = 22, gruix = 10;
+    static constexpr int alcadaBarra = 46, ampleTeclat = 92, ampleOctava = 18, alcadaRegla = 22, gruix = 10;
 
 protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
-    enum class Zona { Res, Barra, Teclat, Regla, Graella, VoraCarril, Carril };
+    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril };
     enum class Mode { Res, Requadre, Decidint, Mou, DuradaFi, DuradaInici, Dibuixa, Goma, Teclat, Velocitat, LiniaVel, VoraCarril, Regla };
     enum class Part { Cos, Inici, Fi };
 
@@ -114,11 +134,24 @@ private:
     mibase::Clip* clip();
     const mibase::Clip* clip() const;
     mibase::Pista* pista();
+    int pistaEditor() const;
+    int altCarrilEf() const;
     double posTicks() const;        // on cau Clip::pos, en ticks absoluts
     double tickAbs (const mibase::Nota& n) const { return posTicks() + (double) n.ini; }
     long long pas() const;          // graella en ticks (0 = lliure)
     long long duradaNova() const;
     long long enganxaAbs (double tickAbs, bool avall) const;   // ticks absoluts enganxats → ticks del clip
+    juce::Rectangle<int> rectOctava (bool amunt) const;
+
+    // Escala.
+    mibase::Tonalitat tonalitat() const;
+    bool escalaActiva() const;                // assistit o bloquejat
+    juce::Colour colorFila (int to, juce::Colour fons, const std::vector<int>& acordAra) const;
+    /** Desplaçament de to més proper a «desitjat» amb què totes les notes (que ja eren de l'escala) en continuen sent. */
+    int dToEscala (const mibase::Clip& k, const std::vector<int>& idx, int desitjat) const;
+    std::vector<int> segellA (juce::Point<float> p) const;   // les notes del segell, a l'octava de sota el ratolí
+    void posaSegell (juce::Point<float> p, bool mante);
+    void vistaCanviada();
     Toc tocA (juce::Point<float> p) const;
     int notaCarrilA (juce::Point<float> p) const;
 
@@ -153,15 +186,18 @@ private:
     // Dibuix.
     void pintaBarra (juce::Graphics& g);
     void pintaTeclat (juce::Graphics& g);
+    void pintaOctaves (juce::Graphics& g);
     void pintaRegla (juce::Graphics& g);
     void pintaGraella (juce::Graphics& g);
     void pintaNotes (juce::Graphics& g);
     void pintaCarril (juce::Graphics& g);
     void pintaBuit (juce::Graphics& g);
 
-    // Vista.
-    double iniciVista = 0.0;        // ticks absoluts a la vora esquerra de la graella
-    double pxPerTick = 0.06;
+    int index = 0;
+
+    // Vista: l'horitzontal és la comuna (EstatEstudi::vistaEditors); la vertical, de cada editor.
+    double& iniciVista;             // ticks absoluts a la vora esquerra de la graella
+    double& pxPerTick;
     int altNota = 14;
     int desplY = 0;
     int altCarril = 84;
@@ -199,8 +235,9 @@ private:
     Boto btQuantitza { "Quantitza", dibuix::Icona::Quantitza, Boto::Estil::Secundari };
     CaixaNumero velNova { "Vel", 1, 127, 100 };
     Boto btFantasmes { {}, dibuix::Icona::Fantasma, Boto::Estil::Tecla };
-    Boto btOctAmunt { "Oct +", std::nullopt, Boto::Estil::Secundari };
-    Boto btOctAvall { "Oct -", std::nullopt, Boto::Estil::Secundari };
+    Boto btBloqueja { {}, dibuix::Icona::Cadenat, Boto::Estil::Tecla };
+    juce::Point<float> ratoli { -1.0f, -1.0f };   // per dibuixar el segell
+    int octavaPremuda = 0;
     Boto btDesenganxa { {}, dibuix::Icona::Desenganxa, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Secundari };
     juce::ScrollBar barraV { true }, barraH { false };
@@ -208,11 +245,35 @@ private:
     juce::String info;
 };
 
-/** Finestra a part per al Piano Roll desenganxat (es pot portar a una altra pantalla i maximitzar). */
+/** La zona dels editors: els Piano Rolls apilats, tots de la mateixa alçada i amb la mateixa vista horitzontal.
+    És el que va a baix de l'estudi o, desenganxat, a la finestra a part. */
+class ZonaEditors : public juce::Component
+{
+public:
+    ZonaEditors (EstatEstudi& e, std::function<void (PianoRoll&)> configura);
+    /** Crea o treu Piano Rolls perquè n'hi hagi tants com EstatEstudi::editors. */
+    void sincronitza();
+    PianoRoll* editor (int i) { return (i >= 0 && i < llista.size()) ? llista[i] : nullptr; }
+    PianoRoll* actiu() { return editor (estat.editorActiu); }
+    int quants() const noexcept { return llista.size(); }
+    void setDesenganxat (bool d);
+    void repintaTots() { for (auto* p : llista) p->repaint(); }
+    void ticTransport() { for (auto* p : llista) p->ticTransport(); }
+    void resized() override;
+    void paint (juce::Graphics& g) override { g.fillAll (tema::linia2); }
+
+private:
+    EstatEstudi& estat;
+    std::function<void (PianoRoll&)> configura;
+    juce::OwnedArray<PianoRoll> llista;
+    bool desenganxat = false;
+};
+
+/** Finestra a part per als editors desenganxats (es pot portar a una altra pantalla i maximitzar). */
 class FinestraPianoRoll : public juce::DocumentWindow
 {
 public:
-    FinestraPianoRoll (PianoRoll& pr, std::function<void()> enTancar);
+    FinestraPianoRoll (juce::Component& contingut, std::function<void()> enTancar);
     void closeButtonPressed() override { if (tanca) tanca(); }
 
 private:

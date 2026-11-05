@@ -86,29 +86,65 @@ public:
     bool modeRang = false;     // requadre: false = clips sencers; true = només el que queda dins
     bool insereix = false;     // enganxar: false = trepitja; true = aparta el que hi ha (tecla Insert)
 
-    /** Clip MIDI obert al Piano Roll (pista i índex del clip) i si el Piano Roll es veu. */
-    mibase::edicio::RefClip clipObert;
-    bool pianoRoll = false;
-
-    std::string idPistaObert;   // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
-
-    void obreClip (mibase::edicio::RefClip r)
+    /** Els editors MIDI oberts (Piano Rolls apilats a la zona de baix, fins a 3). Cada un mostra un clip; un editor
+        bloquejat es queda amb el seu clip, i el que no ho està segueix el clip MIDI que es tria. */
+    struct EditorMidi
     {
-        clipObert = r;
-        idPistaObert = pista (r.pista) != nullptr ? projecte.pistes[(size_t) r.pista].id : std::string();
+        mibase::edicio::RefClip clip;
+        std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
+        bool bloquejat = false;
+    };
+    static constexpr int maxEditors = 3;
+    std::vector<EditorMidi> editors;
+    int editorActiu = 0;            // el que fan servir el panell d'harmonia i les dreceres
+    bool pianoRoll = false;         // la zona dels editors es veu
+
+    /** Vista horitzontal comuna a tots els editors (així tenen les mateixes referències de temps). */
+    struct VistaEditors
+    {
+        double iniciVista = 0.0;    // ticks absoluts
+        double pxPerTick = 0.06;
+        bool feta = false;          // ja s'ha encaixat un cop
+    } vistaEditors;
+
+    /** Acord preparat per posar al Piano Roll amb un clic (del panell d'harmonia). */
+    struct Segell
+    {
+        std::vector<int> notes;
+        long long durada = 0;       // ticks
+        bool enllaca = false;       // amb moviment mínim des de l'acord d'abans
+        juce::String nom;
+        bool actiu() const noexcept { return ! notes.empty(); }
+    } segell;
+
+    void editorMostra (int i, mibase::edicio::RefClip r)
+    {
+        if (i < 0 || i >= (int) editors.size()) return;
+        editors[(size_t) i].clip = r;
+        editors[(size_t) i].idPista = pista (r.pista) != nullptr ? projecte.pistes[(size_t) r.pista].id : std::string();
     }
 
-    /** El clip obert, si encara existeix i és MIDI. */
-    mibase::Clip* clipMidiObert()
+    /** El clip d'un editor, si encara existeix i és MIDI. */
+    mibase::Clip* clipEditor (int i)
     {
-        if (auto* t = pista (clipObert.pista); t == nullptr || t->id != idPistaObert)
+        if (i < 0 || i >= (int) editors.size()) return nullptr;
+        auto& ed = editors[(size_t) i];
+        if (auto* t = pista (ed.clip.pista); t == nullptr || t->id != ed.idPista)
         {
-            clipObert.pista = -1;
-            for (int i = 0; i < numPistes(); ++i)
-                if (projecte.pistes[(size_t) i].id == idPistaObert) clipObert.pista = i;
+            ed.clip.pista = -1;
+            for (int k = 0; k < numPistes(); ++k)
+                if (projecte.pistes[(size_t) k].id == ed.idPista) ed.clip.pista = k;
         }
-        auto* c = clip (clipObert);
+        auto* c = clip (ed.clip);
         return (c != nullptr && c->midi) ? c : nullptr;
+    }
+
+    /** Quin editor mostra aquest clip (-1: cap). */
+    int editorDe (mibase::edicio::RefClip r)
+    {
+        for (int i = 0; i < (int) editors.size(); ++i)
+            if (clipEditor (i) != nullptr && editors[(size_t) i].clip == r) return i;
+        return -1;
     }
 
     /** El que s'ha copiat (Ctrl+C). */

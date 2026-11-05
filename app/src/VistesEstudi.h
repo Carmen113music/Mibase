@@ -170,6 +170,9 @@ class ColumnaEsquerra : public SeccioEstudi
 {
 public:
     explicit ColumnaEsquerra (EstatEstudi& e);
+    /** Panell per als editors (el d'harmonia): quan hi ha un editor obert, ocupa el lloc del fader de la pista. */
+    void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
+    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.vistaMescles; }
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -183,6 +186,7 @@ protected:
 private:
     Boto btTreball { "Taula de treball", dibuix::Icona::Pistes, Boto::Estil::Tecla };
     Boto btMescles { "Taula de mescles", dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    juce::Component* panellEditor = nullptr;
     juce::Rectangle<int> zonaNom, zonaPan, zonaFader, zonaLcd, zonaTecles;
     juce::Rectangle<int> rectPom() const;
     enum class Arrossega { Res, Fader, Pan };

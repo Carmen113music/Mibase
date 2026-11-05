@@ -14,6 +14,7 @@
 #include "mibase/SinteSenzill.h"
 #include "mibase/Midi.h"
 #include "mibase/SinteIntern.h"
+#include "mibase/Harmonia.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1444,6 +1445,12 @@ int main()
         s.processa (nullptr, 0, L.data(), R.data(), 4800);
         comprova (! s.fentSo(), "apagaTot: silenci de seguida");
         comprova (pic (L, 2400, 4800) < 0.001f, "sense clic (s'apaga amb una caiguda curta)");
+        SinteIntern gran (0);
+        gran.prepara (fs, 512);
+        std::vector<EventInstrument> acordGran;
+        for (int n : harmonia::acord (48, 10, 0, harmonia::Voicing::Tancat, 2, true)) acordGran.push_back ({ 0, 0x90, (std::uint8_t) n, 127 });
+        gran.processa (acordGran.data(), (int) acordGran.size(), L.data(), R.data(), 24000);
+        comprova (pic (L, 0, 24000) <= 1.0f && pic (L, 0, 24000) > 0.3f, "un acord de 11 notes fort no passa d'1 (limitador suau)");
     });
 
     prova ("MIDI: exportar la mescla amb el sinte intern", []
@@ -1473,6 +1480,168 @@ int main()
         for (float x : w.mostres) maxim = std::max (maxim, std::abs (x));
         comprova (w.correcte && maxim > 0.02f, "el WAV té el so del sinte");
         fs::remove (desti);
+    });
+
+
+    // ======================================================================
+    // Harmonia (0.8)
+    // ======================================================================
+    prova ("Harmonia: escales, noms i ajust a l'escala", []
+    {
+        using namespace harmonia;
+        comprova (escales().size() == 13, "13 escales");
+        const Tonalitat am { 9, 1 };   // La menor natural
+        comprova (nomTonalitat (am) == "A Menor natural", "nom de la tonalitat");
+        comprova (aEscala (60, am) && aEscala (69, am) && ! aEscala (61, am) && ! aEscala (68, am), "notes de l'escala");
+        comprova (ajusta (61, am) == 60 && ajusta (61, am, +1) == 62 && ajusta (68, am) == 67, "ajusta a la més propera (empat: la de sota o la direcció)");
+        comprova (ajusta (66, am) == 65 || ajusta (66, am) == 67, "F# a La menor va a F o G");
+        comprova (grau (60, am, 1) == 62 && grau (60, am, -1) == 59 && grau (64, am, 2) == 67, "graus de l'escala");
+        comprova (nomTo (10, { 5, 0 }) == "Bb" && nomTo (10, { 4, 0 }) == "A#", "bemolls a les tonalitats que en porten");
+        const Tonalitat blues { 4, 12 };
+        comprova (aEscala (64 + 6, blues) && ! aEscala (64 + 4, blues), "blues de E: té la blue note i no la tercera major");
+        comprova (escalaPerId ("dorica") == 4 && escalaPerId ("x") == -1, "escales per id");
+    });
+
+    prova ("Harmonia: acords, inversions i voicings", []
+    {
+        using namespace harmonia;
+        comprova (tipusAcords().size() == 18, "18 tipus d'acord");
+        comprova (acord (60, 0) == std::vector<int> ({ 60, 64, 67 }), "C");
+        comprova (acord (57, 1) == std::vector<int> ({ 57, 60, 64 }), "Am");
+        comprova (acord (60, 0, 1) == std::vector<int> ({ 64, 67, 72 }), "C, primera inversió");
+        comprova (acord (60, 0, 2) == std::vector<int> ({ 67, 72, 76 }), "C, segona inversió");
+        comprova (acord (60, 8, 0, Voicing::Obert) == std::vector<int> ({ 55, 60, 64, 70 }), "C7 obert (drop 2)");
+        comprova (acord (60, 0, 0, Voicing::Tancat, 2).size() == 6 && acord (60, 0, 0, Voicing::Tancat, 1, true).front() == 48,
+                  "dues octaves i baix");
+        comprova (nomAcord (9, 1) == "Am" && nomAcord (0, 0, 4) == "C/E" && nomAcord (7, 8) == "G7", "noms");
+    });
+
+    prova ("Harmonia: acords de la tonalitat i reconèixer acords", []
+    {
+        using namespace harmonia;
+        auto c = acordsDeTonalitat ({ 0, 0 });
+        comprova (c.size() == 7 && c[0].nom == "C" && c[1].nom == "Dm" && c[4].nom == "G" && c[5].nom == "Am" && c[6].nom == "Bdim",
+                  "C major: C Dm Em F G Am Bdim");
+        comprova (c[5].roma == "vi" && c[6].roma == "vii°" && c[4].roma == "V", "xifres romanes");
+        auto s = acordsDeTonalitat ({ 0, 0 }, true);
+        comprova (s[0].nom == "Cmaj7" && s[4].nom == "G7" && s[6].nom == "Bm7b5", "amb setenes");
+        auto am = acordsDeTonalitat ({ 9, 1 });
+        comprova (am[0].nom == "Am" && am[2].nom == "C" && am[5].nom == "F" && am[6].nom == "G", "La menor: Am … C … F G");
+        auto pm = acordsDeTonalitat ({ 9, 11 });
+        comprova (pm[0].nom == "Am", "la pentatònica menor fa servir la menor");
+        auto hm = acordsDeTonalitat ({ 9, 2 });
+        comprova (hm[4].nom == "E", "menor harmònica: el V és major");
+
+        comprova (reconeix ({ 57, 60, 64 }).nom == "Am", "Am");
+        comprova (reconeix ({ 52, 60, 67 }).nom == "C/E", "C amb la E al baix");
+        comprova (reconeix ({ 55, 59, 62, 65 }).nom == "G7", "G7");
+        comprova (reconeix ({ 60, 64 }).nom == "C", "dues notes: C (sense quinta)");
+        comprova (! reconeix ({ 60 }).trobat && ! reconeix ({}).trobat, "una nota no és un acord");
+    });
+
+    prova ("Harmonia: detectar la tonalitat i notes que sonen", []
+    {
+        using namespace harmonia;
+        Projecte p;
+        p.tempo = 120.0;
+        auto& t = afegeixPista (p, "Piano", "midi");
+        t.instrument = "intern:piano";
+        Clip c = midi::clipNou (0.0, 16.0);
+        // Am – F – C – G, i una melodia de La menor.
+        const int acords[4][3] = { { 57, 60, 64 }, { 53, 57, 60 }, { 55, 60, 64 }, { 55, 59, 62 } };
+        for (int k = 0; k < 4; ++k)
+            for (int n : acords[k]) midi::afegeix (c, { k * 3840LL, 3840, n, 90, 0 });
+        for (int k = 0; k < 8; ++k) midi::afegeix (c, { k * 960LL, 960, (k % 2 == 0) ? 69 : 72, 90, 0 });
+        p.pistes[0].clips.push_back (c);
+        auto d = detecta (p);
+        comprova (d.fiable && d.tonalitat.to == 9 && d.tonalitat.escala == 1, "detecta La menor (" + nomTonalitat (d.tonalitat) + ")");
+        comprova (tonalitatEfectiva (p).to == 9, "en automàtic, fa servir la detectada");
+        p.tonalitatAuto = false;
+        p.tonalitat = { 2, 4 };
+        comprova (tonalitatEfectiva (p).to == 2 && tonalitatEfectiva (p).escala == 4, "a mà, la triada");
+        auto ara = notesSonant (p, 2.25);   // dins el segon acord (F) i la segona nota de la melodia
+        comprova (reconeix (ara).trobat && reconeix (ara).nom.substr (0, 1) == "F", "l'acord que sona ara: " + reconeix (ara).nom);
+        Projecte buit;
+        comprova (! detecta (buit).fiable, "sense notes no es pot detectar");
+    });
+
+    prova ("Harmonia: moviment mínim, progressions i acords sobre les notes", []
+    {
+        using namespace harmonia;
+        auto g = enllaca ({ 60, 64, 67 }, acord (65, 0));   // de C a F: millor C-F-A (segona inversió)
+        comprova (g == std::vector<int> ({ 60, 65, 69 }), "C → F amb el mínim moviment");
+        auto pr = generaProgressio ({ 9, 1 }, 1, 8, false, Voicing::Tancat, true, 4);
+        comprova (pr.size() == 8, "8 compassos");
+        comprova (reconeix (pr[0]).nom.substr (0, 2) == "Am" && reconeix (pr[1]).nom.substr (0, 1) == "F" && reconeix (pr[2]).nom.substr (0, 1) == "C",
+                  "Balada a La menor: Am F C G (amb la relativa major)");
+        auto pop = acordsProgressio ({ 9, 1 }, 0, false);
+        comprova (pop[0].nom == "C" && pop[1].nom == "G" && pop[2].nom == "Am" && pop[3].nom == "F", "Pop a La menor: C G Am F");
+        auto and_ = acordsProgressio ({ 0, 0 }, 8, false);
+        comprova (and_[0].nom == "Am" && and_[1].nom == "G" && and_[3].nom == "E", "Andalusa a Do major (la relativa menor): Am G F E");
+        comprova (relativaMajor ({ 2, 4 }).to == 0, "la major de Re dòric és Do");
+        int salt = 0;
+        for (size_t k = 1; k < pr.size(); ++k)
+        {
+            int s0 = 0, s1 = 0;
+            for (int x : pr[k - 1]) s0 += x;
+            for (int x : pr[k]) s1 += x;
+            salt = std::max (salt, std::abs (s1 - s0) / (int) pr[k].size());
+        }
+        comprova (salt <= 5, "amb moviment mínim, cap acord salta lluny");
+        auto blues = generaProgressio ({ 4, 0 }, 10, 12, true, Voicing::Tancat, false);
+        comprova (blues.size() == 12 && reconeix (blues[4]).nom.substr (0, 1) == "A", "blues de 12 en E (el compàs 5, A)");
+
+        Clip c = midi::clipNou (0.0, 4.0);
+        auto noves = afegeixAcord (c, acord (60, 0), 0, 1920, 90);
+        comprova (c.notes.size() == 3 && noves.size() == 3, "afegeix un acord");
+        std::vector<int> totes { 0, 1, 2 };
+        inverteix (c, totes, true);
+        comprova (c.notes[0].to == 64 && c.notes[2].to == 72, "inversió amunt");
+        inverteix (c, totes, false);
+        comprova (c.notes[0].to == 60 && c.notes[2].to == 67, "i avall");
+
+        Clip d = midi::clipNou (0.0, 4.0);
+        midi::afegeix (d, { 0, 960, 57, 100, 0 });     // A
+        midi::afegeix (d, { 960, 960, 53, 100, 0 });   // F
+        auto r = ferAcords (d, { 0, 1 }, { 9, 1 }, 0, true);
+        std::vector<int> primer, segon;
+        for (auto& n : d.notes) (n.ini == 0 ? primer : segon).push_back (n.to);
+        comprova (reconeix (primer).nom == "Am" && reconeix (segon).nom == "F", "cada nota es converteix en l'acord de la tonalitat");
+        comprova (r.size() == 4, "s'hi afegeixen dues notes per acord");
+
+        Clip e = midi::clipNou (0.0, 8.0);
+        afegeixAcord (e, acord (60, 0), 0, 960, 90);
+        afegeixAcord (e, acord (65, 0, 0), 960, 960, 90);   // F en posició fonamental: salta
+        std::vector<int> t2 { 0, 1, 2, 3, 4, 5 };
+        enllacaTriades (e, t2);
+        std::vector<int> f;
+        for (auto& n : e.notes) if (n.ini == 960) f.push_back (n.to);
+        comprova (f == std::vector<int> ({ 60, 65, 69 }), "enllaça els acords triats");
+    });
+
+    prova ("Harmonia: es desa la tonalitat, el mode i els canvis", []
+    {
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_harmonia";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Ton";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        comprova (q.tonalitatAuto && q.modeEscala == ModeEscala::Visual, "per defecte, automàtica i visual");
+        q.tonalitatAuto = false;
+        q.tonalitat = { 7, 7 };
+        q.modeEscala = ModeEscala::Bloquejat;
+        q.ressaltaAcord = false;
+        q.canvisTonalitat.push_back ({ 8, { 2, 0 } });
+        mibase::disc::desa (r.fitxer, q, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && ! l->tonalitatAuto && l->tonalitat == Tonalitat { 7, 7 } && l->modeEscala == ModeEscala::Bloquejat && ! l->ressaltaAcord,
+                  "tonalitat, mode i acord");
+        comprova (l && l->canvisTonalitat.size() == 1 && l->canvisTonalitat[0].compas == 8 && l->canvisTonalitat[0].tonalitat == Tonalitat { 2, 0 },
+                  "els canvis de tonalitat (per a més endavant) es conserven");
+        fs::remove_all (arrel);
     });
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);

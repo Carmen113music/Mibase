@@ -13,7 +13,8 @@ target_sources(Mibase PRIVATE
     src/PantallaInici.cpp
     src/VistesEstudi.cpp
     src/PantallaEstudi.cpp
-    src/PianoRoll.cpp)
+    src/PianoRoll.cpp
+    src/PanellHarmonia.cpp)
 
 target_compile_definitions(Mibase PRIVATE
     MIBASE_VERSIO="${PROJECT_VERSION}"

@@ -219,14 +219,20 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         d->onAcaba = [this]
         {
             ajustos.setValue ("estudi.ampleEsquerra", ampleEsquerra);
+            ajustos.setValue ("estudi.ampleEsquerraEditor", ampleEsquerraEditor);
             ajustos.setValue ("estudi.ampleNoms2", ampleNoms);
             ajustos.setValue ("estudi.amplePanell", amplePanell);
             ajustos.saveIfNeeded();
         };
     }
     divEsquerra.onComenca = [this] { ampleInici = esquerra.getWidth(); };
-    divEsquerra.onArrossega = [this] (int dx) { ampleEsquerra = juce::jlimit (110, 260, ampleInici + dx); colocaSeccions(); };
-    divEsquerra.onDobleClic = [this] { ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
+    divEsquerra.onArrossega = [this] (int dx)
+    {
+        if (esquerra.ambEditor()) ampleEsquerraEditor = juce::jlimit (230, 420, ampleInici + dx);
+        else ampleEsquerra = juce::jlimit (110, 260, ampleInici + dx);
+        colocaSeccions();
+    };
+    divEsquerra.onDobleClic = [this] { if (esquerra.ambEditor()) ampleEsquerraEditor = 270; else ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
     divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (120, ampleInici + dx); colocaSeccions(); };
     divNoms.onDobleClic = [this] { ampleNoms = 190; colocaSeccions(); divNoms.onAcaba(); };
@@ -235,25 +241,18 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     divPanell.onDobleClic = [this] { amplePanell = 270; colocaSeccions(); divPanell.onAcaba(); };
 
     // Piano Roll: a baix (amb un separador per fer-lo més alt) o en una finestra a part.
-    addChildComponent (pianoRoll);
+    addChildComponent (zonaEditors);
+    esquerra.setPanellEditor (&panellHarmonia);
+    ampleEsquerraEditor = ajustos.getIntValue ("estudi.ampleEsquerraEditor", 270);
     addChildComponent (divPianoRoll);
     altPianoRoll = ajustos.getIntValue ("estudi.altPianoRoll", 430);
-    pianoRoll.onDirecte = [this] (int pista, std::uint8_t e, std::uint8_t d1, std::uint8_t d2)
-    {
-        if (auto* t = estat.pista (pista)) servei.estudi().enviaDirecte ({ slotDePista (*t), e, d1, d2 });
-    };
-    pianoRoll.onDesfes = [this] (bool refer) { desfes (refer); };
-    pianoRoll.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
-    pianoRoll.onDesenganxa = [this]
-    {
-        const bool desenganxa = finestraPianoRoll == nullptr;
-        ajustos.setValue ("pianoRoll.desenganxat", desenganxa);
-        desenganxaPianoRoll (desenganxa);
-    };
-    pianoRoll.onTanca = [this] { mostraPianoRoll (false); };
     divPianoRoll.setTooltip ("Arrossega per fer el Piano Roll més alt o més baix. Doble clic: mida inicial."_ca);
-    divPianoRoll.onComenca = [this] { altInici = pianoRoll.getHeight(); };
-    divPianoRoll.onArrossega = [this] (int dy) { altPianoRoll = juce::jmax (160, altInici - dy); colocaSeccions(); };
+    divPianoRoll.onComenca = [this] { altInici = zonaEditors.getHeight(); };
+    divPianoRoll.onArrossega = [this] (int dy)
+    {
+        altPianoRoll = juce::jmax (160, altInici - dy - (juce::jmax (1, zonaEditors.quants()) - 1) * 250);
+        colocaSeccions();
+    };
     divPianoRoll.onDobleClic = [this] { altPianoRoll = 430; colocaSeccions(); divPianoRoll.onAcaba(); };
     divPianoRoll.onAcaba = [this] { ajustos.setValue ("estudi.altPianoRoll", altPianoRoll); ajustos.saveIfNeeded(); };
 
@@ -325,12 +324,22 @@ void PantallaEstudi::desaAra()
 
 void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    // El Piano Roll segueix el clip MIDI triat.
+    // L'editor que no està bloquejat segueix el clip MIDI triat (primer l'actiu).
     if (estat.triats.size() == 1)
-        if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi && ! (estat.clipObert == estat.triats[0]))
+        if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi && estat.editorDe (estat.triats[0]) < 0)
         {
-            estat.obreClip (estat.triats[0]);
-            pianoRoll.actualitza();
+            if (estat.editors.empty()) estat.editors.push_back ({});
+            int lliure = -1;
+            if (estat.editorActiu < (int) estat.editors.size() && ! estat.editors[(size_t) estat.editorActiu].bloquejat) lliure = estat.editorActiu;
+            for (int i = 0; i < (int) estat.editors.size() && lliure < 0; ++i)
+                if (! estat.editors[(size_t) i].bloquejat) lliure = i;
+            if (lliure >= 0)
+            {
+                estat.editorMostra (lliure, estat.triats[0]);
+                estat.editorActiu = lliure;
+                zonaEditors.sincronitza();
+                if (auto* pr = zonaEditors.editor (lliure)) pr->actualitza();
+            }
         }
     // El teclat MIDI de fora toca la pista triada (si és MIDI) o la que grava.
     {
@@ -341,7 +350,8 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
     }
     {
         const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.vistaMescles;
-        if (volVisible != pianoRoll.isVisible() && finestraPianoRoll == nullptr) colocaSeccions();
+        if (volVisible != zonaEditors.isVisible() && finestraPianoRoll == nullptr) colocaSeccions();
+        else if (esquerra.ambEditor() != (esquerra.getWidth() == ampleEsquerraEditor)) colocaSeccions();
     }
 
     const auto& p = estat.projecte;
@@ -419,12 +429,13 @@ void PantallaEstudi::colocaSeccions()
     auto r = getLocalBounds().withTrimmedTop (alcadaBarra);
     const bool m = estat.vistaMescles;
 
-    int esq = ampleEsquerra, noms = ampleNoms, pan = amplePanell;
+    const bool ambEditor = estat.pianoRoll && ! m;   // amb un editor obert, la columna esquerra té el panell d'harmonia
+    int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
     int sobra = esq + (m ? 0 : noms) + pan + 320 - r.getWidth();
     auto encongeix = [&sobra] (int& v, int minim) { if (sobra > 0) { const int t = juce::jmin (sobra, v - minim); if (t > 0) { v -= t; sobra -= t; } } };
     encongeix (pan, 200);
     if (! m) encongeix (noms, 140);
-    encongeix (esq, 110);
+    encongeix (esq, ambEditor ? 230 : 110);
 
     esquerra.setBounds (r.removeFromLeft (esq));
     panell.setBounds (r.removeFromRight (pan));
@@ -432,12 +443,14 @@ void PantallaEstudi::colocaSeccions()
     // Piano Roll a baix (si és obert i no és en una finestra a part).
     const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m;
     divPianoRoll.setVisible (prBaix);
-    if (finestraPianoRoll == nullptr) pianoRoll.setVisible (prBaix);
+    if (finestraPianoRoll == nullptr) zonaEditors.setVisible (prBaix);
     if (prBaix)
     {
-        const int alt = juce::jlimit (160, juce::jmax (160, r.getHeight() - 140), altPianoRoll);
+        // Amb diversos editors, la zona creix (cada un ha de tenir lloc per treballar); les pistes en conserven una mica.
+        const int n = juce::jmax (1, zonaEditors.quants());
+        const int alt = juce::jlimit (160, juce::jmax (160, r.getHeight() - 140), altPianoRoll + (n - 1) * 250);
         auto zona = r.removeFromBottom (alt);
-        pianoRoll.setBounds (zona.withTrimmedTop (4));
+        zonaEditors.setBounds (zona.withTrimmedTop (4));
         divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
     }
     const int baixSeccions = r.getBottom();
@@ -858,7 +871,7 @@ void PantallaEstudi::tic()
             else pistes.repaint (x0, 0, x1 - x0, pistes.getHeight());
             regla.repaint (x0, 0, x1 - x0, regla.getHeight());
         }
-        pianoRoll.ticTransport();
+        zonaEditors.ticTransport();
     }
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
@@ -1555,21 +1568,89 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
 //==============================================================================
 // Piano Roll i MIDI
 //==============================================================================
+void PantallaEstudi::configuraEditor (PianoRoll& pr)
+{
+    juce::Component::SafePointer<PianoRoll> sp (&pr);
+    pr.onDirecte = [this] (int pista, std::uint8_t e, std::uint8_t d1, std::uint8_t d2)
+    {
+        if (auto* t = estat.pista (pista)) servei.estudi().enviaDirecte ({ slotDePista (*t), e, d1, d2 });
+    };
+    pr.onDesfes = [this] (bool refer) { desfes (refer); };
+    pr.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
+    pr.onDesenganxa = [this]
+    {
+        const bool desenganxa = finestraPianoRoll == nullptr;
+        ajustos.setValue ("pianoRoll.desenganxat", desenganxa);
+        desenganxaPianoRoll (desenganxa);
+    };
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    pr.onTanca = [jo, sp]
+    {
+        if (sp == nullptr) return;
+        const int i = sp->getIndex();
+        juce::MessageManager::callAsync ([jo, i] { if (jo != nullptr) jo->tancaEditor (i); });   // no es pot esborrar l'editor des de dins seu
+    };
+    pr.onVistaCanviada = [this] { zonaEditors.repintaTots(); };
+    pr.onActiu = [this] { zonaEditors.repintaTots(); esquerra.repaint(); estat.avisa(); };
+}
+
+void PantallaEstudi::tancaEditor (int index)
+{
+    if (index < 0 || index >= (int) estat.editors.size()) return;
+    estat.editors.erase (estat.editors.begin() + index);
+    estat.editorActiu = juce::jlimit (0, juce::jmax (0, (int) estat.editors.size() - 1), estat.editorActiu >= index ? estat.editorActiu - 1 : estat.editorActiu);
+    zonaEditors.sincronitza();
+    if (estat.editors.empty()) mostraPianoRoll (false);
+    else { colocaSeccions(); estat.avisa(); }
+}
+
 void PantallaEstudi::obrePianoRoll (int pista, int clip)
 {
     auto* c = estat.clip ({ pista, clip });
     if (c == nullptr || ! c->midi) return;
     estat.triaClip (pista, clip);
-    estat.obreClip ({ pista, clip });
+    int i = estat.editorDe ({ pista, clip });
+    if (i < 0)
+    {
+        // Un editor no bloquejat (primer l'actiu); si tots ho estan, un de nou a sota.
+        if (estat.editorActiu < (int) estat.editors.size() && ! estat.editors[(size_t) estat.editorActiu].bloquejat) i = estat.editorActiu;
+        for (int k = 0; k < (int) estat.editors.size() && i < 0; ++k)
+            if (! estat.editors[(size_t) k].bloquejat) i = k;
+        if (i < 0)
+        {
+            if ((int) estat.editors.size() >= EstatEstudi::maxEditors)
+            {
+                estat.info = "Ja hi ha 3 editors bloquejats: desbloqueja'n un per obrir aquest clip"_ca;
+                estat.avisa();
+                return;
+            }
+            estat.editors.push_back ({});
+            i = (int) estat.editors.size() - 1;
+        }
+        estat.editorMostra (i, { pista, clip });
+    }
+    estat.editorActiu = i;
+    zonaEditors.sincronitza();
     mostraPianoRoll (true);
-    pianoRoll.actualitza();
-    pianoRoll.encaixaVista();
+    if (auto* pr = zonaEditors.editor (i))
+    {
+        pr->actualitza();
+        pr->grabKeyboardFocus();
+    }
     estat.avisa();
-    pianoRoll.grabKeyboardFocus();
 }
 
 void PantallaEstudi::mostraPianoRoll (bool visible)
 {
+    if (visible && estat.editors.empty())
+    {
+        // Un editor (amb el clip MIDI triat, si n'hi ha un).
+        estat.editors.push_back ({});
+        if (estat.triats.size() == 1)
+            if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi) estat.editorMostra (0, estat.triats[0]);
+        estat.editorActiu = 0;
+        zonaEditors.sincronitza();
+    }
     estat.pianoRoll = visible;
     if (visible && finestraPianoRoll == nullptr && ajustos.getBoolValue ("pianoRoll.desenganxat", false))
         desenganxaPianoRoll (true);
@@ -1585,11 +1666,11 @@ void PantallaEstudi::desenganxaPianoRoll (bool desenganxa)
     if (desenganxa)
     {
         if (finestraPianoRoll != nullptr) return;
-        removeChildComponent (&pianoRoll);
-        pianoRoll.setVisible (true);
-        pianoRoll.setDesenganxat (true);
+        removeChildComponent (&zonaEditors);
+        zonaEditors.setVisible (true);
+        zonaEditors.setDesenganxat (true);
         juce::Component::SafePointer<PantallaEstudi> jo (this);
-        finestraPianoRoll = std::make_unique<FinestraPianoRoll> (pianoRoll, [jo]
+        finestraPianoRoll = std::make_unique<FinestraPianoRoll> (zonaEditors, [jo]
         {
             // En tancar la finestra, torna a baix (més tard: no es pot esborrar la finestra des de dins seu).
             juce::MessageManager::callAsync ([jo]
@@ -1610,13 +1691,13 @@ void PantallaEstudi::desenganxaPianoRoll (bool desenganxa)
         ajustos.setValue ("pianoRoll.finestra", finestraPianoRoll->getWindowStateAsString());
         finestraPianoRoll->clearContentComponent();
         finestraPianoRoll.reset();
-        addChildComponent (pianoRoll);
-        pianoRoll.setDesenganxat (false);
+        addChildComponent (zonaEditors);
+        zonaEditors.setDesenganxat (false);
     }
     ajustos.saveIfNeeded();
     colocaSeccions();
     estat.avisa();
-    pianoRoll.grabKeyboardFocus();
+    if (auto* pr = zonaEditors.actiu()) pr->grabKeyboardFocus();
 }
 
 void PantallaEstudi::recullMidiGravat()

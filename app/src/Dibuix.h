@@ -11,7 +11,7 @@ namespace dibuix
     enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa,
                        Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
                        Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix,
-                       Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes };
+                       Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes, Cadenat };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -178,6 +178,11 @@ namespace dibuix
             case Icona::Amaga:   // fletxa avall a una línia
                 p.startNewSubPath (6, 9); p.lineTo (12, 15); p.lineTo (18, 9);
                 p.startNewSubPath (5, 19); p.lineTo (19, 19);
+                break;
+            case Icona::Cadenat:   // cadenat tancat
+                p.addRoundedRectangle (5.0f, 11.0f, 14.0f, 10.0f, 2.0f);
+                p.startNewSubPath (8, 11); p.lineTo (8, 8); p.quadraticTo (8, 4, 12, 4); p.quadraticTo (16, 4, 16, 8); p.lineTo (16, 11);
+                p.startNewSubPath (12, 15); p.lineTo (12, 17);
                 break;
             case Icona::Notes:   // notes MIDI petites
                 p.addRoundedRectangle (3.0f, 6.0f, 8.0f, 3.5f, 1.0f); p.addRoundedRectangle (9.0f, 11.0f, 10.0f, 3.5f, 1.0f);

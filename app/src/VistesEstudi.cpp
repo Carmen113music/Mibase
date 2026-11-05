@@ -596,7 +596,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         {
             juce::String nom = c.midi ? "MIDI · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " nota" : " notes")
                              : (s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida"));
-            if (c.midi && estat.clipObert == ed::RefClip { pista, indexClip } && estat.pianoRoll) nom += "  (Piano Roll)";
+            if (c.midi && estat.pianoRoll && estat.editorDe ({ pista, indexClip }) >= 0) nom += "  (Piano Roll)";
             if (c.mut) nom = "(silenciat) " + nom;
             const bool banderaAprop = ed::banderaVisible (p, c) && std::abs (estat.x (c.pos + s->primer) - xn) < 14.0f;
             g.drawText (nom, juce::Rectangle<float> (xn + (banderaAprop ? 12.0f : 0.0f), r.getY() + 3.0f, r.getRight() - xn - 6.0f, 16.0f),
@@ -1601,6 +1601,11 @@ void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     btTreball.setToggleState (! estat.vistaMescles, juce::dontSendNotification);
     btMescles.setToggleState (estat.vistaMescles, juce::dontSendNotification);
+    if (panellEditor != nullptr && panellEditor->isVisible() != ambEditor())
+    {
+        panellEditor->setVisible (ambEditor());
+        resized();
+    }
     repaint();
 }
 
@@ -1611,6 +1616,7 @@ void ColumnaEsquerra::resized()
     r.removeFromTop (6);
     btMescles.setBounds (r.removeFromTop (44));
     r.removeFromTop (16);
+    if (panellEditor != nullptr) panellEditor->setBounds (r.withTrimmedLeft (-2).withTrimmedRight (-4).withTrimmedBottom (-6));
     zonaNom = r.removeFromTop (44);
     zonaPan = r.removeFromTop (52);
     zonaTecles = r.removeFromBottom (30);
@@ -1625,7 +1631,8 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
     g.fillRect (getWidth() - 1, 0, 1, getHeight());
 
     // A la taula de mescles, cada pista ja té la seva tira: aquí només hi ha les pestanyes.
-    if (estat.vistaMescles) return;
+    // Amb un editor obert, hi ha el seu panell (el d'harmonia) en lloc del fader.
+    if (estat.vistaMescles || ambEditor()) return;
 
     auto* t = estat.pista (estat.pistaTriada);
     auto cap = zonaNom.withTrimmedLeft (2);
@@ -1680,6 +1687,7 @@ juce::Rectangle<int> ColumnaEsquerra::rectPom() const
 void ColumnaEsquerra::mouseDown (const juce::MouseEvent& e)
 {
     movent = Arrossega::Res;
+    if (ambEditor()) return;
     auto* t = estat.pista (estat.pistaTriada);
     if (t == nullptr || estat.vistaMescles) return;
 
@@ -1746,7 +1754,7 @@ void ColumnaEsquerra::mouseUp (const juce::MouseEvent&)
 
 void ColumnaEsquerra::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (estat.pista (estat.pistaTriada) == nullptr || estat.vistaMescles) return;
+    if (estat.pista (estat.pistaTriada) == nullptr || estat.vistaMescles || ambEditor()) return;
     const bool pan = zonaPan.contains (e.getPosition());
     if (! pan && ! zonaFader.contains (e.getPosition())) return;
     comencaCanvi();

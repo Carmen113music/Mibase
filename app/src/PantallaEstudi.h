@@ -5,6 +5,7 @@
 #include "Historial.h"
 #include "Instruments.h"
 #include "PanellColor.h"
+#include "PanellHarmonia.h"
 #include "PianoRoll.h"
 #include "ServeiAudio.h"
 #include "VistesEstudi.h"
@@ -76,6 +77,8 @@ private:
 
     void pistaNova (const juce::String& tipus, int canals);
     void obrePianoRoll (int pista, int clip);
+    void configuraEditor (PianoRoll& pr);
+    void tancaEditor (int index);
     void mostraPianoRoll (bool visible);
     void desenganxaPianoRoll (bool desenganxa);
     void acabaGravacioMidi();
@@ -130,7 +133,9 @@ private:
     TaulaMescles mescles { estat };
     PanellPista panell { estat };
     Divisor divEsquerra, divNoms, divPanell;
-    PianoRoll pianoRoll { estat };
+    ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
+    PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); } };
+    int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
     int altPianoRoll = 430, altInici = 0;
