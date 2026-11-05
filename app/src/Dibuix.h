@@ -10,7 +10,8 @@ namespace dibuix
 {
     enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa,
                        Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
-                       Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix };
+                       Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix,
+                       Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -147,6 +148,40 @@ namespace dibuix
             case Icona::Pistes:   // carrils amb clips
                 p.addRoundedRectangle (3.0f, 5.0f, 10.0f, 5.0f, 1.0f); p.addRoundedRectangle (9.0f, 14.0f, 12.0f, 5.0f, 1.0f);
                 p.startNewSubPath (3, 12); p.lineTo (21, 12);
+                break;
+            case Icona::Piano:   // teclat vist de dalt
+                p.addRoundedRectangle (3.0f, 5.0f, 18.0f, 14.0f, 1.5f);
+                p.startNewSubPath (7.5f, 13); p.lineTo (7.5f, 19);
+                p.startNewSubPath (12, 13); p.lineTo (12, 19);
+                p.startNewSubPath (16.5f, 13); p.lineTo (16.5f, 19);
+                p.addRectangle (6.3f, 5.0f, 2.4f, 8.0f); p.addRectangle (10.8f, 5.0f, 2.4f, 8.0f); p.addRectangle (15.3f, 5.0f, 2.4f, 8.0f);
+                break;
+            case Icona::Desenganxa:   // finestra amb una fletxa que en surt
+                p.startNewSubPath (11, 5); p.lineTo (5, 5); p.lineTo (5, 19); p.lineTo (19, 19); p.lineTo (19, 13);
+                p.startNewSubPath (13, 11); p.lineTo (20, 4);
+                p.startNewSubPath (14, 4); p.lineTo (20, 4); p.lineTo (20, 10);
+                break;
+            case Icona::Enganxa:   // la fletxa torna a entrar
+                p.startNewSubPath (11, 5); p.lineTo (5, 5); p.lineTo (5, 19); p.lineTo (19, 19); p.lineTo (19, 13);
+                p.startNewSubPath (20, 4); p.lineTo (12, 12);
+                p.startNewSubPath (12, 6); p.lineTo (12, 12); p.lineTo (18, 12);
+                break;
+            case Icona::Fantasma:   // notes d'altres pistes, en línia discontínua
+                p.addRoundedRectangle (3.0f, 6.0f, 9.0f, 4.0f, 1.0f);
+                p.startNewSubPath (11, 15); p.lineTo (13, 15); p.startNewSubPath (15, 15); p.lineTo (17, 15); p.startNewSubPath (19, 15); p.lineTo (21, 15);
+                p.startNewSubPath (11, 19); p.lineTo (13, 19); p.startNewSubPath (15, 19); p.lineTo (17, 19); p.startNewSubPath (19, 19); p.lineTo (21, 19);
+                break;
+            case Icona::Quantitza:   // notes que van a les línies de la graella
+                p.startNewSubPath (4, 4); p.lineTo (4, 20); p.startNewSubPath (12, 4); p.lineTo (12, 20); p.startNewSubPath (20, 4); p.lineTo (20, 20);
+                p.addRoundedRectangle (4.0f, 7.0f, 6.0f, 3.5f, 1.0f); p.addRoundedRectangle (12.0f, 14.0f, 6.0f, 3.5f, 1.0f);
+                break;
+            case Icona::Amaga:   // fletxa avall a una línia
+                p.startNewSubPath (6, 9); p.lineTo (12, 15); p.lineTo (18, 9);
+                p.startNewSubPath (5, 19); p.lineTo (19, 19);
+                break;
+            case Icona::Notes:   // notes MIDI petites
+                p.addRoundedRectangle (3.0f, 6.0f, 8.0f, 3.5f, 1.0f); p.addRoundedRectangle (9.0f, 11.0f, 10.0f, 3.5f, 1.0f);
+                p.addRoundedRectangle (14.0f, 16.0f, 7.0f, 3.5f, 1.0f);
                 break;
             case Icona::Casa:
                 p.startNewSubPath (4, 11); p.lineTo (12, 4); p.lineTo (20, 11);

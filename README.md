@@ -10,7 +10,7 @@ Neix de les idees provades a **Riffs**, una app d'Android per gravar idees music
 
 Motor propi escrit en C++; [JUCE](https://juce.com) es fa servir només per als controladors d'àudio i MIDI, els plugins i les finestres.
 
-> Estat: **0.6 — editar com a casa**: sona i grava, i ara amb requadre de selecció, copiar i enganxar (trepitjant o inserint), colors i dreceres de teclat.
+> Estat: **0.7 — MIDI i Piano Roll**: pistes d'instrument amb el sinte intern, Piano Roll complet (dibuixar, editar, quantitzar, velocitats, notes fantasma), gravació des del teclat MIDI. Els plugins VST3 arriben a la versió següent.
 
 ## Com es fa servir
 
@@ -59,7 +59,7 @@ D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Tau
 - **Color**: el quadret de color de la barra pinta els clips triats o, si no n'hi ha, la pista. Colors preparats o la roda (to i saturació) amb la barra de lluminositat.
 - **Clips trepitjats**: on un clip queda damunt d'un altre es veu ratllat (i sona el de dalt).
 - **Claqueta**: la tecla l'encén i l'apaga; la fletxeta obre el volum (0 a 150 %), el so (Digital, Fusta, Analògic, Campana) i «Escolta-la» per sentir-la al tempo del projecte. Al costat, el tempo i el compàs (clica per canviar el tempo), la graella **Compàs / Temps / Lliure**, Desfés i Refés. A la dreta, el text d'informació.
-- **Pista nova**: «+ Pista nova» → Àudio mono o estèreo (instrument, bateria, acords i bus d'efectes vindran després). Cada pista nova agafa un color diferent; amb el botó dret sobre el nom es canvia el color, mono/estèreo, l'**entrada per gravar** (E1, E2… o E1-2 en estèreo; surt al costat de M S gravar), el nom o s'esborra. També pots **arrossegar fitxers d'àudio** des de l'Explorador.
+- **Pista nova**: «+ Pista nova» → Àudio mono o estèreo, o **Instrument MIDI** (bateria, acords i bus d'efectes vindran després). Cada pista nova agafa un color diferent; amb el botó dret sobre el nom es canvia el color, mono/estèreo, l'**entrada per gravar** (E1, E2… o E1-2 en estèreo; surt al costat de M S gravar), el nom o s'esborra. També pots **arrossegar fitxers d'àudio** des de l'Explorador.
 - **Ona**: es dibuixa plena, com una ona analògica. Amb molt de zoom es veuen les mostres i la línia del zero.
 - **Clips un damunt de l'altre**: sona només el de dalt (el darrer que hi has posat, per exemple una presa nova). Si el silencies amb la X, torna a sonar el de sota.
 - **Ratolí**: roda = amunt i avall; Maj+roda = de costat (mai abans del començament); **Ctrl+roda = zoom del temps**, a partir del punt on tens el ratolí, que queda centrat a la pantalla; Alt+roda = alçada de les pistes (mai tan petites que no es vegin M, S i gravar).
@@ -68,6 +68,31 @@ D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Tau
 - **Faders i panorama**: arrossega amunt i avall; amb **Maj**, deu vegades més fi (per posar, per exemple, -0,2 dB). Doble clic: 0 dB (o el panorama al mig). Els vúmetres tenen la mateixa escala que el fader; si la pista té el botó de gravar encès, també mostren el que entra per la targeta.
 - **Taula de mescles**: una tira per pista amb els llocs per als **inserts** (efectes) i els **enviaments** a busos (arribaran més endavant), el **panorama**, M, S, gravar, el fader amb vúmetre i l'entrada; i, fixa a la dreta, la **Sortida** (volum general i vúmetre).
 - Tot es desa sol (i una còpia del projecte a `Còpies`, com a molt cada 10 minuts).
+
+### Pistes d'instrument (MIDI)
+- **Pista nova → Instrument MIDI** fa una pista que sona amb el **sinte intern** de Mibase. Amb el botó dret al nom → *Instrument* tries el so: Piano, Piano elèctric, Orgue, Pad, Baix, Pinçat, Solista o Cordes (els plugins VST3 arribaran a la versió següent, al mateix lloc).
+- **Clips MIDI**: amb el **llapis** (2) a una pista d'instrument fas un clip buit (arrossegant, o d'un compàs) i s'obre al Piano Roll. Els clips MIDI es mouen, es retallen, es tallen amb les tisores, s'ajunten amb la cola, es copien i s'enganxen com els d'àudio (no passen a pistes d'àudio, ni al revés). Dins el clip es veuen les notes en petit. **Doble clic** (o el menú del botó dret) l'obre al Piano Roll.
+- **Teclat MIDI**: quan la pista triada és d'instrument, el teclat (l'AKAI) la fa sonar. Si la pista triada és d'àudio, sona el so de prova del Diagnòstic, com abans.
+- **Gravar MIDI**: encén el botó vermell d'una pista d'instrument i prem Grava (R). Sona un compàs de compte i es grava el que toques al teclat, amb la velocitat, el pedal (sustain), la roda de modulació i el pitch bend. El que toques durant el compte queda amagat a l'esquerra del clip (no s'esborra).
+- **Canviar el tempo**: els clips MIDI segueixen els compassos (les notes es guarden en temps musical); els d'àudio no es mouen.
+- La **dinàmica** d'un clip MIDI és la velocitat de les notes: els clips MIDI no tenen fades ni volum de clip (el fader de la pista sí).
+
+### Piano Roll
+S'obre a **baix de l'estudi** (doble clic a un clip MIDI, o la tecla **P** per mostrar-lo o amagar-lo). La ratlla de sobre el fa més alt o més baix. El botó de la finestra el **desenganxa** en una finestra a part (per portar-lo a la segona pantalla i maximitzar-lo); el mateix botó, o tancar la finestra, el torna a baix. Es recorda com el vas deixar.
+
+- **Teclat** a l'esquerra amb el nom de les notes (do central = **C4**). Clica-hi per escoltar-les (més a la dreta de la tecla, més fort); mentre sona la cançó, s'il·luminen les que sonen.
+- **Graella** sincronitzada amb el tempo i el compàs del projecte: compassos, temps i les divisions de la graella. La part de fora del clip es veu més fosca (el que hi ha fora no sona, però no s'esborra).
+- **Eines** (tecles 1–3): **Fletxa**: clica per triar (Ctrl: afegeix o treu, Maj: afegeix), arrossega per moure (en el temps i en to), arrossega la **vora dreta** per allargar o escurçar (o l'esquerra, per l'inici), arrossega en un lloc buit per fer un **requadre**; **doble clic** fa una nota (o l'esborra). **Llapis**: clica per fer una nota; arrossega cap a la dreta per fer-la més llarga. **Goma**: esborra les notes per on passes. Botó dret en una nota: menú (copiar, duplicar, quantitzar, velocitat, octaves); en un lloc buit, torna a la fletxa.
+- **Graella**: Lliure, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32 i tresets (1/4 T, 1/8 T, 1/16 T). **Alt** mentre arrossegues: sense graella. **Nota**: la durada de les notes noves (igual que la graella o una de fixa).
+- **Quantitza** (o **Q**): les notes triades (o totes, si no n'hi ha cap) a la graella de la cançó. **Maj+Q**: també el final. Al menú del botó dret, també «a mitges» (50 %).
+- **Vel**: la velocitat de les notes noves (arrossega amunt i avall; doble clic: 100).
+- **Notes fantasma** (botó blau): mostra en línia discontínua les notes de les altres pistes MIDI i dels altres clips de la mateixa pista, com a referència.
+- **Oct + / Oct -** (o Re Pàg / Av Pàg): la vista una octava amunt o avall.
+- **Velocitats** (carril de baix): una barra per nota. Arrossega-la amunt o avall; si la nota és triada amb d'altres, es mouen totes juntes. En un lloc buit, arrossega per «pintar» velocitats; amb **Maj**, fa una línia recta (crescendo o diminuendo). Si hi ha notes triades, només els afecta a elles. La vora de dalt del carril el fa més alt.
+- **Notes trepitjades** (dues del mateix to una damunt l'altra): ratllades i amb la vora vermella.
+- **Teclat de l'ordinador**: Supr = esborra; Ctrl+A = totes; Ctrl+C / Ctrl+X / Ctrl+V (enganxa al capçal); Ctrl+D = duplica just després; Amunt / Avall = un semitò (amb Maj, una octava); Esquerra / Dreta = mou un pas de graella (amb Maj, més llarga o més curta); Q / Maj+Q = quantitza; Z = el clip a la pantalla; Ctrl+Z / Ctrl+Y = desfer / refer; Esc = res triat. Espai i R fan com a l'estudi (també amb el Piano Roll en una finestra a part).
+- **Ratolí**: roda = amunt i avall; Maj+roda = de costat; Ctrl+roda = zoom del temps (a partir del ratolí); Alt+roda = alçada de les notes. Clicar la regla mou el capçal.
+- Tot el que fa el Piano Roll són notes MIDI normals: es desen al projecte, es poden desfer i sonen igual amb el sinte intern que (més endavant) amb els VST3.
 
 ### Diagnòstic
 
@@ -102,7 +127,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Estructura
 | Carpeta | Què hi ha |
 |---|---|
-| `motor/` | El motor (clic, vúmetres, mesura de latència, projectes al disc, edició, i el motor de l'estudi: mescla, gravació i WAV). Sense interfície: es prova sol. |
+| `motor/` | El motor (clic, vúmetres, mesura de latència, projectes al disc, edició, MIDI i sinte intern, i el motor de l'estudi: mescla, instruments, gravació i WAV). Sense interfície: es prova sol. |
 | `app/` | El programa de Windows (finestres, àudio, MIDI). La icona és a `app/recursos/`. |
 | `proves/` | Proves automàtiques del motor. |
 | `extern/asiosdk/` | Kit d'ASIO oficial de Steinberg (2.3.4), només les parts necessàries. |
@@ -111,6 +136,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.7.0** — MIDI i Piano Roll (fase 1). Pistes d'instrument MIDI amb el sinte intern (8 sons). Clips MIDI no destructius (notes en temps musical, 960 per negra) que es mouen, retallen, tallen, ajunten, copien i enganxen com els d'àudio. Piano Roll a baix de l'estudi o en una finestra a part: teclat amb noms de notes, graella sincronitzada, fletxa / llapis / goma, moure, allargar per l'inici o pel final, requadre, copiar, enganxar, duplicar, esborrar, transposar, quantitzar (graella, tresets, a mitges, inici i final), zoom horitzontal i vertical, octaves, notes fantasma, notes trepitjades marcades, carril de velocitats (una barra per nota, en grup, a mà alçada o en línia). El teclat MIDI fa sonar la pista d'instrument triada i grava notes, pedal, modulació i pitch bend. Canviar el tempo manté els clips MIDI als seus compassos. Exportar la mescla inclou el MIDI. Les notes mai queden penjades (aturar, bucle, saltar, esborrar la pista o canviar d'instrument mentre sona). Punts d'endoll preparats per als VST3 i per a les fases següents (escales, generadors, controladors).
 - **0.6.0** — Requadre de selecció (clips sencers o només el tros de dins) i selecció de diverses pistes. Copiar, retallar i enganxar al capçal, trepitjant o inserint (Insert). Clicar en un lloc buit treu la selecció; el capçal només es mou a la regla. Botó dret en un lloc buit = fletxa. Color de clips i pistes (preparats i roda). Clips trepitjats ratllats. Tecles Z, Maj+Z, M, Q, W, E.
 - **0.5.0** — Sona i grava. Reproducció de totes les pistes (volum, panorama, silenci, solo, fades, volum de clip, bucle) amb la claqueta enganxada als temps; el clip de dalt tapa els de sota. Gravació a la pista amb el botó vermell, amb un compàs de compte, l'entrada triada per pista i el retard de la targeta corregit; el fitxer s'escriu al disc des d'un fil a part (el so no s'atura mai a esperar el disc). Vúmetres a les pistes, a la columna esquerra i a la taula de mescles. Panorama. Sortida amb volum general. Exportar la mescla (WAV). Faders sense imant al 0 dB i amb Maj per afinar; capçal de fader ample amb ratlletes. Taula de mescles amb llocs per a inserts i enviaments. Sense la columna de volums (ja hi ha el fader a l'esquerra). El transport només surt dins d'un projecte. No es pot desplaçar abans del començament.
 - **0.4.0** — Menú Fitxer (desar, nova versió, nou, obrir, tancar, importar, exportar el projecte, sortir). Transport fix a la dreta amb pantalla de posició. Caixa d'eines: fletxa, llapis, goma, tisores, cola i X. Claqueta amb volum i quatre sons (es pot escoltar). Columna esquerra amb taula de treball / de mescles i el fader de la pista triada; taula de mescles. Ona analògica amb detall fins a les mostres i la línia del zero; zoom centrat. Pistes d'àudio mono o estèreo amb colors. Aspecte d'aparell antic (tecles, pantalla, faders). Alçada mínima de les pistes.

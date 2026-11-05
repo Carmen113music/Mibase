@@ -12,7 +12,8 @@ target_sources(Mibase PRIVATE
     src/FinestraProjecteNou.cpp
     src/PantallaInici.cpp
     src/VistesEstudi.cpp
-    src/PantallaEstudi.cpp)
+    src/PantallaEstudi.cpp
+    src/PianoRoll.cpp)
 
 target_compile_definitions(Mibase PRIVATE
     MIBASE_VERSIO="${PROJECT_VERSION}"

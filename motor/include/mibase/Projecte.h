@@ -9,6 +9,35 @@ namespace mibase
     /** Graella on s'enganxen els clips. */
     enum class Snap { Compas = 0, Temps = 1, Lliure = 2 };
 
+    /** Resolució del MIDI: ticks per negra. Les notes es guarden en ticks (temps musical):
+        si canvia el tempo, les notes el segueixen. */
+    constexpr int ticksPerNegra = 960;
+
+    /** Una nota MIDI d'un clip. Temps en ticks, des del començament del clip (Clip::pos). */
+    struct Nota
+    {
+        long long ini = 0;       // ticks
+        long long dur = 240;     // ticks (mínim 1)
+        int to = 60;             // 0..127 (60 = C4, el do central)
+        int vel = 100;           // 1..127
+        int canal = 0;           // 0..15
+        bool operator== (const Nota&) const = default;
+    };
+
+    /** Un altre esdeveniment MIDI d'un clip (controladors, pitch bend, aftertouch…), en ticks des de Clip::pos.
+        «tipus» és el nibble alt de l'estat MIDI: 0xB0 controlador, 0xE0 pitch bend (valor 0..16383, centre 8192),
+        0xD0 aftertouch de canal, 0xA0 aftertouch polifònic (num = nota), 0xC0 canvi de programa.
+        Es conserven (per exemple, d'un MIDI importat) i sonen; l'editor d'expressió arribarà més endavant. */
+    struct EventMidi
+    {
+        long long tick = 0;
+        int tipus = 0xB0;
+        int num = 0;
+        int valor = 0;
+        int canal = 0;
+        bool operator== (const EventMidi&) const = default;
+    };
+
     /** Una gravació (un fitxer d'Àudios). Tots els temps, en segons. */
     struct Presa
     {
@@ -32,6 +61,13 @@ namespace mibase
         double guanyDb = 0.0;    // de -24 a 0
         std::uint32_t rgb = 0;   // color propi (0xAARRGGBB); 0 = el de la pista
 
+        // ---- Clip MIDI (pistes de tipus «midi») ----
+        /** És un clip MIDI: les notes són a «notes» (ticks des de «pos») i «inici»/«fi» és la finestra que sona.
+            Com l'àudio, no destructiu: el que queda fora de la finestra no sona però no s'esborra. */
+        bool midi = false;
+        std::vector<Nota> notes;
+        std::vector<EventMidi> events;
+
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }
         double longitud() const noexcept     { return fi - inici; }
@@ -41,7 +77,10 @@ namespace mibase
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // audio (més endavant: instrument, midi, bateria, acords, bus)
+        std::string tipus = "audio";   // audio, midi (més endavant: bateria, acords, bus)
+        /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
+            més endavant «vst3:<identificador>». */
+        std::string instrument;
         int canals = 1;                 // 1 mono, 2 estèreo
         int color = 0;                  // índex de la paleta de colors de pista
         std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta

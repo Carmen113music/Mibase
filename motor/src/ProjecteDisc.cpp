@@ -288,6 +288,8 @@ namespace mibase::disc
                 t.pan = std::clamp (e.value ("pan", 0.0), -1.0, 1.0);
                 t.entrada = std::clamp (e.value ("entrada", 0), 0, 63);
                 t.rgb = e.value ("rgb", (std::uint32_t) 0);
+                t.instrument = e.value ("instrument", std::string());
+                if (t.tipus == "midi") t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -303,6 +305,35 @@ namespace mibase::disc
                         c.guanyDb = k.value ("guanyDb", 0.0);
                         c.mut = k.value ("mut", false);
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
+                        c.midi = k.value ("midi", false);
+                        // Notes: [inici, durada, to, velocitat, canal] (ticks).
+                        if (k.contains ("notes") && k["notes"].is_array())
+                            for (auto& n : k["notes"])
+                            {
+                                if (! n.is_array() || n.size() < 4) continue;
+                                Nota nota;
+                                if (! n[0].is_number() || ! n[1].is_number() || ! n[2].is_number() || ! n[3].is_number()) continue;
+                                nota.ini = n[0].get<long long>();
+                                nota.dur = std::max (1LL, n[1].get<long long>());
+                                nota.to = std::clamp (n[2].get<int>(), 0, 127);
+                                nota.vel = std::clamp (n[3].get<int>(), 1, 127);
+                                nota.canal = n.size() > 4 && n[4].is_number() ? std::clamp (n[4].get<int>(), 0, 15) : 0;
+                                c.notes.push_back (nota);
+                            }
+                        // Altres esdeveniments: [tick, tipus, número, valor, canal].
+                        if (k.contains ("events") && k["events"].is_array())
+                            for (auto& n : k["events"])
+                            {
+                                if (! n.is_array() || n.size() < 4) continue;
+                                EventMidi ev;
+                                if (! n[0].is_number() || ! n[1].is_number() || ! n[2].is_number() || ! n[3].is_number()) continue;
+                                ev.tick = n[0].get<long long>();
+                                ev.tipus = n[1].get<int>() & 0xF0;
+                                ev.num = n[2].get<int>();
+                                ev.valor = n[3].get<int>();
+                                ev.canal = n.size() > 4 && n[4].is_number() ? std::clamp (n[4].get<int>(), 0, 15) : 0;
+                                c.events.push_back (ev);
+                            }
                         if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
                         t.clips.push_back (c);
                     }
@@ -377,13 +408,28 @@ namespace mibase::disc
         {
             json clips = json::array();
             for (auto& c : t.clips)
-                clips.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
-                                   { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
-                                   { "rgb", c.rgb } });
-            pistes.push_back ({ { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
-                                { "mut", t.mut }, { "solo", t.solo },
-                                { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
-                                { "clips", clips } });
+            {
+                json k = { { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
+                           { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
+                           { "rgb", c.rgb } };
+                if (c.midi)
+                {
+                    k["midi"] = true;
+                    json notes = json::array();
+                    for (auto& n : c.notes) notes.push_back (json::array ({ n.ini, n.dur, n.to, n.vel, n.canal }));
+                    k["notes"] = notes;
+                    json events = json::array();
+                    for (auto& e : c.events) events.push_back (json::array ({ e.tick, e.tipus, e.num, e.valor, e.canal }));
+                    k["events"] = events;
+                }
+                clips.push_back (k);
+            }
+            json pista = { { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
+                           { "mut", t.mut }, { "solo", t.solo },
+                           { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
+                           { "clips", clips } };
+            if (! t.instrument.empty()) pista["instrument"] = t.instrument;
+            pistes.push_back (pista);
         }
         j["pistes"] = pistes;
 

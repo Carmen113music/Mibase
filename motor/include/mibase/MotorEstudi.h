@@ -3,6 +3,7 @@
 #include "mibase/ClicDeProva.h"
 #include "mibase/CuaSenseBloqueig.h"
 #include "mibase/Gravadora.h"
+#include "mibase/Instrument.h"
 #include "mibase/Mesurador.h"
 #include "mibase/Projecte.h"
 
@@ -45,6 +46,20 @@ namespace mibase
             std::vector<std::pair<double, double>> trams;
         };
 
+        /** Una nota MIDI, ja en segons absoluts i retallada a la finestra del clip (i al que no tapa un altre clip). */
+        struct Nota
+        {
+            double ini = 0.0, fi = 0.0;
+            std::uint8_t to = 60, vel = 100, canal = 0;
+        };
+
+        /** Un altre missatge MIDI (controladors, pitch bend…), en segons absoluts. */
+        struct Event
+        {
+            double t = 0.0;
+            std::uint8_t estat = 0xB0, dada1 = 0, dada2 = 0;
+        };
+
         struct Pista
         {
             int slot = 0;            // canal de la taula (per suavitzar el volum i per al vúmetre)
@@ -53,6 +68,11 @@ namespace mibase
             float pan = 0.0f;        // -1..1
             bool sona = true;        // ni silenciada ni tapada per un solo
             std::vector<Clip> clips;
+
+            /** Pistes MIDI: l'instrument (el fa servir el fil d'àudio; la interfície el manté viu) i les notes ordenades. */
+            std::shared_ptr<Instrument> instrument;
+            std::vector<Nota> notes;
+            std::vector<Event> events;
         };
 
         double tempo = 120.0;
@@ -72,8 +92,19 @@ namespace mibase
     /** Canal de la taula de cada pista (a partir del seu identificador, que no canvia). */
     int slotDePista (const Pista& t) noexcept;
 
+    /** Qui dona l'instrument de cada pista MIDI (fil de la interfície). Ha de tornar sempre el mateix objecte per a la mateixa
+        pista mentre no canviï el so, perquè les notes que sonen no es tallin. nullptr: la pista no sona. */
+    using ProveidorInstruments = std::function<std::shared_ptr<Instrument> (const Pista&)>;
+
     /** Fa el pla del projecte (fil de la interfície). Els clips sense àudio a la memòria no sonen. */
-    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios);
+    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {});
+
+    /** Un missatge MIDI en directe (del piano roll o del teclat) per a l'instrument d'una pista. */
+    struct EventDirecte
+    {
+        int slot = -1;
+        std::uint8_t estat = 0, dada1 = 0, dada2 = 0;
+    };
 
     /** Guany lineal d'un valor en dB (-60 o menys = silenci). */
     float guanyDb (double db) noexcept;
@@ -84,12 +115,37 @@ namespace mibase
     public:
         void prepara (double fs, int maxBloc);
         /** Suma a L i R «n» mostres a partir de la mostra «pos» de la línia de temps (pot ser negativa).
-            «vus»: un Mesurador per slot i canal (2 * maxSlots), o nullptr. */
-        void processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus) noexcept;
-        /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc). */
+            «vus»: un Mesurador per slot i canal (2 * maxSlots), o nullptr.
+            «reproduint»: false quan el transport és aturat (només sonen els instruments, amb el que es toca en directe).
+            «directe»: missatges en directe per als instruments (sonen al començament del bloc). */
+        void processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus,
+                       bool reproduint = true, const EventDirecte* directe = nullptr, int numDirecte = 0) noexcept;
+        /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc) i apaga les notes que sonen
+            (play, situar el capçal, tornar a l'inici del bucle). */
         void reinicia() noexcept;
+        /** Apaga les notes MIDI que sonen (en aturar). */
+        void apagaNotes() noexcept;
+        /** Fil d'àudio, just abans de canviar de pla: els instruments que ja no hi seran (o han canviat) s'apaguen
+            i s'obliden les seves notes. */
+        void canviDePla (const Pla* vell, const Pla* nou) noexcept;
+        /** Quantes notes té enceses ara mateix l'instrument d'una pista (per a les proves). */
+        int notesEnceses (int slot) const noexcept { return slots.empty() ? 0 : slots[(size_t) (slot % maxSlots)].n; }
+
+        static constexpr int maxNotesActives = 128;
+        static constexpr int maxEventsBloc = 1024;
 
     private:
+        struct NotaActiva { long long fi = 0; std::uint8_t to = 0, canal = 0; };
+        struct EstatSlot
+        {
+            const Instrument* inst = nullptr;
+            std::array<NotaActiva, maxNotesActives> act {};
+            int n = 0;
+            bool apagar = false;
+        };
+        void instrumentPista (const Pla::Pista& t, long long pos, int n, bool reproduint, const EventDirecte* directe, int numDirecte) noexcept;
+        void afegeixEvent (int offset, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
+
         void sonaClip (const Pla::Clip& c, int canalsPista, long long pos, int n) noexcept;
         void sonaTram (const Pla::Clip& c, double de, double fins, int canalsPista, long long pos, int n) noexcept;
 
@@ -100,6 +156,9 @@ namespace mibase
         float gMaster = 1.0f;
         bool masterFet = false;
         ClicDeProva clic;
+        std::vector<EstatSlot> slots;
+        std::vector<EventInstrument> evs;
+        int numEvs = 0;
     };
 
     /** El motor de l'estudi: fa sonar el projecte, compta abans de gravar i grava.
@@ -132,6 +191,27 @@ namespace mibase
         void grava (double desDe, double cursor, int entrada, int canals);
         Gravadora& gravadora() noexcept { return grav; }
 
+        // ---- MIDI en directe ----
+        /** Fil de la interfície: una nota (o un altre missatge) per a l'instrument d'una pista, ara (piano roll, teclat de pantalla). */
+        bool enviaDirecte (const EventDirecte& e) noexcept { return directeUI.posa (e); }
+        /** A quina pista (slot) va el teclat MIDI de fora. -1: a cap (el teclat fa sonar el so de prova del Diagnòstic). */
+        void setSlotTeclat (int slot) noexcept { slotTeclat.store (slot, std::memory_order_relaxed); }
+        int getSlotTeclat() const noexcept { return slotTeclat.load (std::memory_order_relaxed); }
+        /** Fil del MIDI (un sol productor alhora): un missatge del teclat de fora. Retorna false si no hi ha cap pista que l'esperi.
+            Els note-off van sempre a la mateixa pista que el seu note-on, encara que mentrestant s'hagi canviat de pista. */
+        bool enviaTeclat (std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
+
+        /** Un missatge del teclat gravat (temps en segons de la línia de temps). */
+        struct MidiGravat
+        {
+            double t = 0.0;
+            std::uint8_t estat = 0, dada1 = 0, dada2 = 0;
+        };
+        /** Grava el MIDI que arriba del teclat a la pista «slot» (mentre el transport grava). -1: no. */
+        void setSlotGravaMidi (int slot) noexcept { slotGravaMidi.store (slot, std::memory_order_relaxed); }
+        /** Fil de la interfície: el que s'ha gravat del teclat. */
+        bool treuMidiGravat (MidiGravat& m) noexcept { return gravats.treu (m); }
+
         Estat getEstat() const noexcept { return (Estat) estat.load (std::memory_order_acquire); }
         double getPosicio() const noexcept { return posicio.load (std::memory_order_relaxed); }
 
@@ -152,6 +232,7 @@ namespace mibase
         };
 
         void ordres() noexcept;
+        void sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept;
 
         double fs = 48000.0;
         int maxBloc = 512;
@@ -172,6 +253,14 @@ namespace mibase
         int entradaGrava = 0, canalsGrava = 1;
 
         Gravadora grav;
+
+        CuaSenseBloqueig<EventDirecte, 512> directeUI, directeTeclat;
+        std::array<EventDirecte, 512> directeBloc {};
+        int numDirecte = 0;
+        std::atomic<int> slotTeclat { -1 }, slotGravaMidi { -1 };
+        std::array<int, 128> slotNotaTeclat {};     // fil del MIDI: a quina pista ha anat cada nota del teclat
+        CuaSenseBloqueig<MidiGravat, 4096> gravats;
+
         std::array<Mesurador, maxSlots * 2> vus;
         std::array<Mesurador, 2> vusSortida;
         std::array<Mesurador, maxEntrades> vusEntrada;

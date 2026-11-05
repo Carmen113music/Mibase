@@ -1,4 +1,5 @@
 #include "mibase/MotorEstudi.h"
+#include "mibase/Midi.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -20,7 +21,85 @@ namespace mibase
         return db <= -59.95 ? 0.0f : (float) std::pow (10.0, db / 20.0);
     }
 
-    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios)
+    namespace
+    {
+        /** Trossos de [a, b) que no tapen els intervals de «sobre». */
+        std::vector<std::pair<double, double>> destapat (double a, double b, const std::vector<std::pair<double, double>>& sobre)
+        {
+            std::vector<std::pair<double, double>> trams { { a, b } };
+            for (auto& [x, y] : sobre)
+            {
+                std::vector<std::pair<double, double>> nous;
+                for (auto& t : trams)
+                {
+                    if (y <= t.first || x >= t.second) { nous.push_back (t); continue; }
+                    if (x > t.first) nous.push_back ({ t.first, x });
+                    if (y < t.second) nous.push_back ({ y, t.second });
+                }
+                trams = std::move (nous);
+            }
+            return trams;
+        }
+
+        void notesDePista (const Pista& t, double spt, Pla::Pista& pp)
+        {
+            std::vector<const Clip*> clips;
+            for (const auto& c : t.clips)
+                if (c.midi && ! c.mut) clips.push_back (&c);
+
+            for (size_t k = 0; k < clips.size(); ++k)
+            {
+                const auto& c = *clips[k];
+                // Com a l'àudio: el clip de més amunt de la llista tapa els de sota.
+                std::vector<std::pair<double, double>> sobre;
+                for (size_t j = k + 1; j < clips.size(); ++j)
+                    sobre.push_back ({ clips[j]->iniciVisible(), clips[j]->fiVisible() });
+                const auto trams = destapat (c.iniciVisible(), c.fiVisible(), sobre);
+                auto tram = [&trams] (double t) -> const std::pair<double, double>*
+                {
+                    for (auto& x : trams) if (t >= x.first - 1e-9 && t < x.second - 1e-9) return &x;
+                    return nullptr;
+                };
+
+                for (const auto& n : c.notes)
+                {
+                    const double ini = c.pos + spt * (double) n.ini;
+                    const auto* tr = tram (ini);
+                    if (tr == nullptr) continue;
+                    Pla::Nota pn;
+                    pn.ini = std::max (ini, tr->first);
+                    pn.fi = std::min (c.pos + spt * (double) (n.ini + std::max (1LL, n.dur)), tr->second);
+                    if (pn.fi <= pn.ini) pn.fi = pn.ini + 0.001;
+                    pn.to = (std::uint8_t) std::clamp (n.to, 0, 127);
+                    pn.vel = (std::uint8_t) std::clamp (n.vel, 1, 127);
+                    pn.canal = (std::uint8_t) std::clamp (n.canal, 0, 15);
+                    pp.notes.push_back (pn);
+                }
+                for (const auto& e : c.events)
+                {
+                    const double te = c.pos + spt * (double) e.tick;
+                    if (tram (te) == nullptr) continue;
+                    Pla::Event pe;
+                    pe.t = te;
+                    const int canal = std::clamp (e.canal, 0, 15);
+                    const int tipus = e.tipus & 0xF0;
+                    pe.estat = (std::uint8_t) (tipus | canal);
+                    switch (tipus)
+                    {
+                        case 0xE0: { const int v = std::clamp (e.valor, 0, 16383); pe.dada1 = (std::uint8_t) (v & 127); pe.dada2 = (std::uint8_t) (v >> 7); break; }
+                        case 0xD0: case 0xC0: pe.dada1 = (std::uint8_t) std::clamp (e.valor, 0, 127); break;
+                        case 0xB0: case 0xA0: pe.dada1 = (std::uint8_t) std::clamp (e.num, 0, 127); pe.dada2 = (std::uint8_t) std::clamp (e.valor, 0, 127); break;
+                        default: continue;
+                    }
+                    pp.events.push_back (pe);
+                }
+            }
+            std::stable_sort (pp.notes.begin(), pp.notes.end(), [] (const Pla::Nota& a, const Pla::Nota& b) { return a.ini < b.ini; });
+            std::stable_sort (pp.events.begin(), pp.events.end(), [] (const Pla::Event& a, const Pla::Event& b) { return a.t < b.t; });
+        }
+    }
+
+    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments)
     {
         auto pla = std::make_unique<Pla>();
         pla->tempo = p.tempo > 1.0 ? p.tempo : 120.0;
@@ -82,6 +161,14 @@ namespace mibase
                 }
                 c.trams = std::move (trams);
             }
+            if (t.tipus == "midi")
+            {
+                pp.canals = 2;
+                pp.clips.clear();
+                if (instruments) pp.instrument = instruments (t);
+                if (pp.instrument != nullptr)
+                    notesDePista (t, 60.0 / pla->tempo / ticksPerNegra, pp);
+            }
             pla->pistes.push_back (std::move (pp));
         }
         return pla;
@@ -94,6 +181,8 @@ namespace mibase
         pL.assign ((size_t) std::max (16, maxBloc), 0.0f);
         pR.assign ((size_t) std::max (16, maxBloc), 0.0f);
         clic.prepara (fs);
+        if (slots.size() != (size_t) maxSlots) slots.assign ((size_t) maxSlots, EstatSlot {});
+        evs.assign ((size_t) maxEventsBloc, EventInstrument {});
         reinicia();
     }
 
@@ -102,6 +191,137 @@ namespace mibase
         gFet.fill (false);
         masterFet = false;
         clic.reinicia();
+        apagaNotes();
+    }
+
+    void Mesclador::apagaNotes() noexcept
+    {
+        for (auto& s : slots)
+            if (s.inst != nullptr) s.apagar = true;
+    }
+
+    void Mesclador::canviDePla (const Pla* vell, const Pla* nou) noexcept
+    {
+        if (vell == nullptr || slots.empty()) return;
+        for (const auto& t : vell->pistes)
+        {
+            if (t.instrument == nullptr) continue;
+            bool continua = false;
+            if (nou != nullptr)
+                for (const auto& u : nou->pistes)
+                    if (u.slot == t.slot && u.instrument == t.instrument) { continua = true; break; }
+            if (continua) continue;
+            // Ja no sonarà: s'apaga ara (l'objecte encara és viu, el pla vell el manté) i el slot s'oblida.
+            t.instrument->apagaTot();
+            auto& es = slots[(size_t) (t.slot % maxSlots)];
+            if (es.inst == t.instrument.get()) { es.inst = nullptr; es.n = 0; es.apagar = false; }
+        }
+    }
+
+    void Mesclador::afegeixEvent (int offset, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept
+    {
+        if (numEvs >= (int) evs.size()) return;
+        // Ordenat per offset (inserció: n'hi ha pocs); al mateix offset, en l'ordre d'arribada.
+        int i = numEvs++;
+        while (i > 0 && evs[(size_t) (i - 1)].offset > offset) { evs[(size_t) i] = evs[(size_t) (i - 1)]; --i; }
+        evs[(size_t) i] = { offset, estat, d1, d2 };
+    }
+
+    void Mesclador::instrumentPista (const Pla::Pista& t, long long pos, int n, bool reproduint, const EventDirecte* directe, int numDirecte) noexcept
+    {
+        auto& es = slots[(size_t) (t.slot % maxSlots)];
+        auto* inst = t.instrument.get();
+        numEvs = 0;
+
+        if (es.inst != inst)
+        {
+            es.inst = inst;
+            es.n = 0;
+            es.apagar = false;
+        }
+        if (es.apagar)
+        {
+            es.apagar = false;
+            es.n = 0;
+            inst->apagaTot();
+        }
+
+        // Notes que s'acaben dins aquest bloc.
+        for (int k = 0; k < es.n;)
+        {
+            auto& a = es.act[(size_t) k];
+            if (a.fi < pos + n)
+            {
+                afegeixEvent ((int) std::clamp (a.fi - pos, 0LL, (long long) n - 1), (std::uint8_t) (0x80 | a.canal), a.to, 0);
+                es.act[(size_t) k] = es.act[(size_t) (es.n - 1)];
+                --es.n;
+            }
+            else ++k;
+        }
+
+        // En directe (piano roll, teclat): al començament del bloc.
+        for (int k = 0; k < numDirecte; ++k)
+            if (directe[k].slot == t.slot)
+                afegeixEvent (0, directe[k].estat, directe[k].dada1, directe[k].dada2);
+
+        if (reproduint)
+        {
+            // Controladors i altres missatges.
+            {
+                auto it = std::lower_bound (t.events.begin(), t.events.end(), pos, [this] (const Pla::Event& e, long long p)
+                                            { return std::llround (e.t * fs) < p; });
+                for (; it != t.events.end(); ++it)
+                {
+                    const long long s = std::llround (it->t * fs);
+                    if (s >= pos + n) break;
+                    afegeixEvent ((int) (s - pos), it->estat, it->dada1, it->dada2);
+                }
+            }
+            // Notes que comencen dins aquest bloc (si la pista no està silenciada).
+            if (t.sona)
+            {
+                auto it = std::lower_bound (t.notes.begin(), t.notes.end(), pos, [this] (const Pla::Nota& x, long long p)
+                                            { return std::llround (x.ini * fs) < p; });
+                for (; it != t.notes.end(); ++it)
+                {
+                    const long long s = std::llround (it->ini * fs);
+                    if (s >= pos + n) break;
+                    const int off = (int) (s - pos);
+                    const long long fi = std::max (s + 1, std::llround (it->fi * fs));
+                    // La mateixa nota ja sona: s'apaga abans de tornar-la a tocar.
+                    bool ja = false;
+                    for (int k = 0; k < es.n; ++k)
+                    {
+                        auto& a = es.act[(size_t) k];
+                        if (a.to == it->to && a.canal == it->canal)
+                        {
+                            afegeixEvent (off, (std::uint8_t) (0x80 | a.canal), a.to, 0);
+                            a.fi = fi;
+                            ja = true;
+                            break;
+                        }
+                    }
+                    if (! ja)
+                    {
+                        if (es.n >= maxNotesActives) continue;   // massa notes alhora: aquesta no sona
+                        es.act[(size_t) es.n++] = { fi, it->to, it->canal };
+                    }
+                    afegeixEvent (off, (std::uint8_t) (0x90 | it->canal), it->to, it->vel);
+                    // Una nota que acaba dins el mateix bloc on comença.
+                    if (fi < pos + n)
+                    {
+                        for (int k = 0; k < es.n; ++k)
+                            if (es.act[(size_t) k].to == it->to && es.act[(size_t) k].canal == it->canal)
+                            {
+                                es.act[(size_t) k] = es.act[(size_t) (es.n - 1)];
+                                --es.n;
+                                break;
+                            }
+                        afegeixEvent ((int) (fi - pos), (std::uint8_t) (0x80 | it->canal), it->to, 0);
+                    }
+                }
+            }
+        }
     }
 
     void Mesclador::sonaClip (const Pla::Clip& c, int canalsPista, long long pos, int n) noexcept
@@ -153,7 +373,8 @@ namespace mibase
         }
     }
 
-    void Mesclador::processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus) noexcept
+    void Mesclador::processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus,
+                              bool reproduint, const EventDirecte* directe, int numDirecte) noexcept
     {
         if (n <= 0) return;
         n = std::min (n, (int) pL.size());
@@ -161,6 +382,19 @@ namespace mibase
         for (const auto& t : pla.pistes)
         {
             const int s = t.slot % maxSlots;
+            bool instrumentFet = false;
+            if (t.instrument != nullptr && ! slots.empty())
+            {
+                // L'instrument sempre rep els seus missatges (també silenciat: així les notes s'apaguen).
+                instrumentPista (t, pos, n, reproduint, directe, numDirecte);
+                if (numEvs == 0 && ! t.instrument->fentSo())
+                    continue;
+                t.instrument->processa (evs.data(), numEvs, pL.data(), pR.data(), n);
+                instrumentFet = true;
+            }
+            else if (! reproduint)
+                continue;   // aturat: només sonen els instruments
+
             const float g = t.sona ? t.guany : 0.0f;
             const float objL = g * (t.pan <= 0.0f ? 1.0f : 1.0f - t.pan);
             const float objR = g * (t.pan >= 0.0f ? 1.0f : 1.0f + t.pan);
@@ -172,11 +406,14 @@ namespace mibase
             if (l0 < 1.0e-6f && r0 < 1.0e-6f && objL < 1.0e-6f && objR < 1.0e-6f)
                 continue;   // no sona: ni es calcula
 
-            std::fill (pL.begin(), pL.begin() + n, 0.0f);
-            if (t.canals == 2) std::fill (pR.begin(), pR.begin() + n, 0.0f);
-            for (const auto& c : t.clips)
-                if (c.audio != nullptr)
-                    sonaClip (c, t.canals, pos, n);
+            if (! instrumentFet)
+            {
+                std::fill (pL.begin(), pL.begin() + n, 0.0f);
+                if (t.canals == 2) std::fill (pR.begin(), pR.begin() + n, 0.0f);
+                for (const auto& c : t.clips)
+                    if (c.audio != nullptr)
+                        sonaClip (c, t.canals, pos, n);
+            }
 
             const float* fontR = t.canals == 2 ? pR.data() : pL.data();
             const float dl = (objL - l0) / (float) n, dr = (objR - r0) / (float) n;
@@ -207,6 +444,8 @@ namespace mibase
                 L[i] *= g;
                 R[i] *= g;
             }
+
+        if (! reproduint) return;
 
         // Claqueta, enganxada als temps de la línia de temps.
         clic.setSo (pla.clicSo);
@@ -241,6 +480,7 @@ namespace mibase
     MotorEstudi::MotorEstudi()
     {
         mapaEntrades.fill (-1);
+        slotNotaTeclat.fill (-1);
         prepara (48000.0, 512);
     }
 
@@ -260,7 +500,31 @@ namespace mibase
         mesclador.prepara (fs, maxBloc);
         mixL.assign ((size_t) maxBloc, 0.0f);
         mixR.assign ((size_t) maxBloc, 0.0f);
+        // Els instruments del pla que sona, a la freqüència nova (el fil d'àudio no corre ara).
+        if (pla != nullptr)
+            for (auto& t : pla->pistes)
+                if (t.instrument != nullptr) t.instrument->prepara (fs, maxBloc);
         estat.store ((int) Estat::Aturat, std::memory_order_release);
+    }
+
+    bool MotorEstudi::enviaTeclat (std::uint8_t e, std::uint8_t d1, std::uint8_t d2) noexcept
+    {
+        // slotNotaTeclat: -1 = no se sap; -2 = l'encesa va anar al Diagnòstic; >= 0 = la pista on va anar.
+        const int tipus = e & 0xF0;
+        int slot = slotTeclat.load (std::memory_order_relaxed);
+        if (tipus == 0x80 || (tipus == 0x90 && d2 == 0))
+        {
+            // L'apagada va on va anar l'encesa (encara que mentrestant s'hagi canviat de pista).
+            const int abans = slotNotaTeclat[(size_t) (d1 & 127)];
+            slotNotaTeclat[(size_t) (d1 & 127)] = -1;
+            if (abans == -2) return false;
+            if (abans >= 0) slot = abans;
+        }
+        else if (tipus == 0x90)
+            slotNotaTeclat[(size_t) (d1 & 127)] = slot >= 0 ? slot : -2;
+        if (slot < 0) return false;
+        directeTeclat.posa ({ slot, e, d1, d2 });
+        return true;
     }
 
     void MotorEstudi::setMapaEntrades (const std::vector<int>& mapa)
@@ -308,9 +572,24 @@ namespace mibase
         Pla* p = nullptr;
         while (nous.treu (p))
         {
+            mesclador.canviDePla (pla, p);
             if (pla != nullptr && ! vells.posa (pla)) { /* no hauria de passar mai: es perd (no s'esborra aquí) */ }
             pla = p;
         }
+
+        // Missatges en directe d'aquest bloc (de la pantalla i del teclat).
+        numDirecte = 0;
+        EventDirecte d;
+        while (numDirecte < (int) directeBloc.size() && directeUI.treu (d)) directeBloc[(size_t) numDirecte++] = d;
+        const int primerTeclat = numDirecte;
+        while (numDirecte < (int) directeBloc.size() && directeTeclat.treu (d)) directeBloc[(size_t) numDirecte++] = d;
+
+        // Gravant: el que arriba del teclat a la pista que grava, amb el temps de la línia de temps.
+        const int sg = slotGravaMidi.load (std::memory_order_relaxed);
+        if (sg >= 0 && ((Estat) estat.load() == Estat::Gravant || (Estat) estat.load() == Estat::Comptant))
+            for (int k = primerTeclat; k < numDirecte; ++k)
+                if (directeBloc[(size_t) k].slot == sg)
+                    gravats.posa ({ (double) pos / fs, directeBloc[(size_t) k].estat, directeBloc[(size_t) k].dada1, directeBloc[(size_t) k].dada2 });
 
         Ordre o;
         while (cuaOrdres.treu (o))
@@ -326,6 +605,7 @@ namespace mibase
                     break;
                 case Ordre::Tipus::Atura:
                     estat.store ((int) Estat::Aturat, std::memory_order_release);
+                    mesclador.apagaNotes();
                     break;
                 case Ordre::Tipus::Situa:
                     if ((Estat) estat.load() == Estat::Sonant)
@@ -360,8 +640,24 @@ namespace mibase
         }
 
         auto ara = (Estat) estat.load (std::memory_order_relaxed);
-        if (ara == Estat::Aturat || pla == nullptr)
+        if (pla == nullptr)
             return;
+        if (ara == Estat::Aturat)
+        {
+            // Aturat: només els instruments (el que es toca en directe i les cues de les notes).
+            int fet = 0;
+            while (fet < n)
+            {
+                const int m = std::min (n - fet, maxBloc);
+                std::fill (mixL.begin(), mixL.begin() + m, 0.0f);
+                std::fill (mixR.begin(), mixR.begin() + m, 0.0f);
+                mesclador.processa (*pla, pos, m, mixL.data(), mixR.data(), false, vus.data(), false,
+                                    fet == 0 ? directeBloc.data() : nullptr, fet == 0 ? numDirecte : 0);
+                sumaSortida (sortides, numSortides, fet, m);
+                fet += m;
+            }
+            return;
+        }
 
         const bool gravant = ara == Estat::Comptant || ara == Estat::Gravant;
         int fet = 0;
@@ -379,7 +675,8 @@ namespace mibase
             std::fill (mixL.begin(), mixL.begin() + m, 0.0f);
             std::fill (mixR.begin(), mixR.begin() + m, 0.0f);
             const bool ambClic = pla->clic || pos < compteFins;
-            mesclador.processa (*pla, pos, m, mixL.data(), mixR.data(), ambClic, vus.data());
+            mesclador.processa (*pla, pos, m, mixL.data(), mixR.data(), ambClic, vus.data(), true,
+                                fet == 0 ? directeBloc.data() : nullptr, fet == 0 ? numDirecte : 0);
 
             if (gravant)
             {
@@ -393,16 +690,7 @@ namespace mibase
                 grav.escriu (canals, m);
             }
 
-            if (numSortides >= 2)
-            {
-                if (sortides[0] != nullptr) for (int i = 0; i < m; ++i) sortides[0][fet + i] = std::clamp (sortides[0][fet + i] + mixL[(size_t) i], -1.0f, 1.0f);
-                if (sortides[1] != nullptr) for (int i = 0; i < m; ++i) sortides[1][fet + i] = std::clamp (sortides[1][fet + i] + mixR[(size_t) i], -1.0f, 1.0f);
-            }
-            else if (numSortides == 1 && sortides[0] != nullptr)
-                for (int i = 0; i < m; ++i) sortides[0][fet + i] = std::clamp (sortides[0][fet + i] + 0.5f * (mixL[(size_t) i] + mixR[(size_t) i]), -1.0f, 1.0f);
-
-            vusSortida[0].processa (mixL.data(), m);
-            vusSortida[1].processa (mixR.data(), m);
+            sumaSortida (sortides, numSortides, fet, m);
 
             pos += m;
             fet += m;
@@ -420,6 +708,20 @@ namespace mibase
         posicio.store ((double) pos / fs, std::memory_order_relaxed);
     }
 
+    void MotorEstudi::sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept
+    {
+        if (numSortides >= 2)
+        {
+            if (sortides[0] != nullptr) for (int i = 0; i < m; ++i) sortides[0][fet + i] = std::clamp (sortides[0][fet + i] + mixL[(size_t) i], -1.0f, 1.0f);
+            if (sortides[1] != nullptr) for (int i = 0; i < m; ++i) sortides[1][fet + i] = std::clamp (sortides[1][fet + i] + mixR[(size_t) i], -1.0f, 1.0f);
+        }
+        else if (numSortides == 1 && sortides[0] != nullptr)
+            for (int i = 0; i < m; ++i) sortides[0][fet + i] = std::clamp (sortides[0][fet + i] + 0.5f * (mixL[(size_t) i] + mixR[(size_t) i]), -1.0f, 1.0f);
+
+        vusSortida[0].processa (mixL.data(), m);
+        vusSortida[1].processa (mixR.data(), m);
+    }
+
     //==========================================================================
     std::pair<double, double> trosPerExportar (const Projecte& p)
     {
@@ -435,6 +737,19 @@ namespace mibase
             if (t.mut || (hiHaSolo && ! t.solo)) continue;
             for (const auto& c : t.clips)
             {
+                if (c.midi && ! c.mut && t.tipus == "midi" && ! c.notes.empty())
+                {
+                    // De la primera nota que sona a l'última (més una mica de cua perquè s'apagui).
+                    const double spt = 60.0 / (p.tempo > 1.0 ? p.tempo : 120.0) / ticksPerNegra;
+                    for (const auto& n : c.notes)
+                    {
+                        const double ini = c.pos + spt * (double) n.ini;
+                        if (ini < c.iniciVisible() - 1e-9 || ini >= c.fiVisible()) continue;
+                        a = std::min (a, ini);
+                        b = std::max (b, std::min (c.fiVisible(), c.pos + spt * (double) (n.ini + n.dur)) + 1.0);
+                    }
+                    continue;
+                }
                 if (c.mut || c.presa.empty()) continue;
                 const Presa* s = nullptr;
                 for (const auto& x : p.preses) if (x.id == c.presa) s = &x;

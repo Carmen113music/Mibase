@@ -22,6 +22,7 @@ public:
     }
 
     void setEstil (Estil e) { es = e; repaint(); }
+    void setIcona (std::optional<dibuix::Icona> i) { ic = i; repaint(); }
     /** Color de la llumeta (estil Tecla). */
     void setLlum (juce::Colour c) { llum = c; repaint(); }
     /** Color fix de la icona (per exemple, el play verd). */
@@ -254,23 +255,35 @@ public:
     std::function<void()> onComenca, onAcaba, onDobleClic;
     std::function<void (int)> onArrossega;   // píxels des d'on s'ha començat
 
-    Divisor() { setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); setRepaintsOnMouseActivity (true); }
+    /** «fila»: separa una zona de dalt d'una de baix (s'arrossega amunt i avall; onArrossega dona els píxels en vertical). */
+    explicit Divisor (bool esFila = false) : fila (esFila)
+    {
+        setMouseCursor (fila ? juce::MouseCursor::UpDownResizeCursor : juce::MouseCursor::LeftRightResizeCursor);
+        setRepaintsOnMouseActivity (true);
+    }
 
     void paint (juce::Graphics& g) override
     {
         const bool actiu = isMouseOverOrDragging();
-        const float x = (float) getWidth() / 2.0f;
         g.setColour (actiu ? tema::accent : tema::linia);
+        if (fila)
+        {
+            const float y = (float) getHeight() / 2.0f;
+            g.fillRect (juce::Rectangle<float> (0.0f, y - (actiu ? 1.0f : 0.5f), (float) getWidth(), actiu ? 2.0f : 1.0f));
+            return;
+        }
+        const float x = (float) getWidth() / 2.0f;
         g.fillRect (juce::Rectangle<float> (x - (actiu ? 1.0f : 0.5f), 0.0f, actiu ? 2.0f : 1.0f, (float) getHeight()));
     }
 
     // Es compta en coordenades de pantalla: el separador es mou mentre l'arrossegues,
     // i comptar des de dins seu faria que la mida anés i tornés.
-    void mouseDown (const juce::MouseEvent& e) override           { xInici = e.getScreenX(); if (onComenca) onComenca(); }
-    void mouseDrag (const juce::MouseEvent& e) override           { if (onArrossega) onArrossega (e.getScreenX() - xInici); }
+    void mouseDown (const juce::MouseEvent& e) override           { xInici = fila ? e.getScreenY() : e.getScreenX(); if (onComenca) onComenca(); }
+    void mouseDrag (const juce::MouseEvent& e) override           { if (onArrossega) onArrossega ((fila ? e.getScreenY() : e.getScreenX()) - xInici); }
     void mouseUp (const juce::MouseEvent&) override               { if (onAcaba) onAcaba(); }
     void mouseDoubleClick (const juce::MouseEvent&) override      { if (onDobleClic) onDobleClic(); }
 
 private:
+    bool fila = false;
     int xInici = 0;
 };

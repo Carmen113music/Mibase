@@ -84,6 +84,8 @@ public:
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova
     std::function<void (int pista, double on)> onDemanaImportar;
+    /** Obre un clip MIDI al Piano Roll (doble clic, o en fer-ne un de nou amb el llapis). */
+    std::function<void (int pista, int clip)> onObreMidi;
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
 

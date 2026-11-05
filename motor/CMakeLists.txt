@@ -7,7 +7,9 @@ add_library(mibase_motor STATIC
     src/Edicio.cpp
     src/Wav.cpp
     src/Gravadora.cpp
-    src/MotorEstudi.cpp)
+    src/MotorEstudi.cpp
+    src/Midi.cpp
+    src/SinteIntern.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

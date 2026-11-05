@@ -234,7 +234,9 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiM
 
     // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
-    motorDiag.enviaMidi (e);
+    // Si a l'estudi hi ha una pista MIDI triada, el teclat la fa sonar; si no, el so de prova del Diagnòstic.
+    if (! motorEstudi.enviaTeclat (e.estat, e.dada1, e.dada2))
+        motorDiag.enviaMidi (e);
     cuaMostrar.posa (e);
 }
 

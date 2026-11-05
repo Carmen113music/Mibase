@@ -1,5 +1,7 @@
 #include "VistesEstudi.h"
 
+#include <mibase/Midi.h>
+
 using namespace mibase;
 namespace ed = mibase::edicio;
 
@@ -39,7 +41,18 @@ namespace
         g.fillRect (juce::Rectangle<float> (xb - 0.75f, 0.0f, 1.5f, alt));
     }
 
-    juce::String textCanals (const Pista& t) { return t.canals == 2 ? juce::String::fromUTF8 ("estèreo") : juce::String ("mono"); }
+    juce::String textCanals (const Pista& t)
+    {
+        if (t.tipus == "midi") return "MIDI";
+        return t.canals == 2 ? juce::String::fromUTF8 ("estèreo") : juce::String ("mono");
+    }
+
+    /** «MIDI · Piano» o «mono · E1». */
+    juce::String textPistaCurt (const Pista& t)
+    {
+        if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "intern:piano" : t.instrument)).c_str());
+        return textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t);
+    }
 }
 
 //==============================================================================
@@ -315,11 +328,20 @@ VistaPistes::Lloc VistaPistes::llocA (juce::Point<int> p) const
                 const float yg = yGuany (c, r);
                 auto prova = [&] (juce::Rectangle<float> z, Maneta m) { if (z.expanded (4.0f).contains (pf)) { l.clip = ci; l.maneta = m; return true; } return false; };
 
+                if (c.midi)
+                {
+                    // Clips MIDI: només retallar (ni fades ni volum: la dinàmica és la velocitat de les notes).
+                    if (prova ({ r.getX(), r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, Maneta::RetallInici)) return l;
+                    if (prova ({ r.getRight() - mida * 1.4f, r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, Maneta::RetallFi)) return l;
+                }
+                else
+                {
                 if (prova ({ (r.getX() + r.getRight()) / 2.0f - mida, yg - mida, mida * 2, mida * 2 }, Maneta::Guany)) return l;
                 if (prova ({ r.getX(), r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, Maneta::RetallInici)) return l;
                 if (prova ({ r.getRight() - mida * 1.4f, r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, Maneta::RetallFi)) return l;
                 if (prova ({ xfi - mida * 0.7f, r.getY(), mida * 1.4f, mida * 1.4f }, Maneta::FadeIn)) return l;
                 if (prova ({ xfo - mida * 0.7f, r.getY(), mida * 1.4f, mida * 1.4f }, Maneta::FadeOut)) return l;
+                }
             }
         }
 
@@ -494,7 +516,31 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         juce::Graphics::ScopedSaveState estatG (g);
         g.reduceClipRegion (r.toNearestInt());
 
-        if (s == nullptr)
+        if (c.midi)
+        {
+            // Clip MIDI: les notes en petit (només les que cauen dins la finestra sonen; la resta, apagades).
+            int toMin = 127, toMax = 0;
+            for (auto& n : c.notes) { toMin = juce::jmin (toMin, n.to); toMax = juce::jmax (toMax, n.to); }
+            if (! c.notes.empty())
+            {
+                const int rang = juce::jmax (12, toMax - toMin + 1);
+                const int baix = juce::jmax (0, (toMin + toMax) / 2 - rang / 2);
+                const float zonaY = r.getY() + 18.0f, zonaH = juce::jmax (8.0f, r.getHeight() - 22.0f);
+                const float hNota = juce::jlimit (1.5f, 5.0f, zonaH / (float) rang);
+                const double spt = midi::segonsPerTick (p);
+                for (auto& n : c.notes)
+                {
+                    const double a = c.pos + spt * (double) n.ini, b = c.pos + spt * (double) (n.ini + n.dur);
+                    const bool dins = a >= c.iniciVisible() - 1e-9 && a < c.fiVisible();
+                    const float xa = estat.x (a), xb = juce::jmax (xa + 1.5f, estat.x (juce::jmin (b, dins ? c.fiVisible() : b)));
+                    if (xb < 0.0f || xa > (float) getWidth()) continue;
+                    const float y = zonaY + zonaH - (float) (n.to - baix + 1) * zonaH / (float) rang;
+                    g.setColour (dins ? color.withAlpha (0.55f + 0.45f * (float) n.vel / 127.0f) : color.withAlpha (0.18f));
+                    g.fillRect (juce::Rectangle<float> (xa, y, xb - xa, hNota));
+                }
+            }
+        }
+        else if (s == nullptr)
         {
             // Finestra buida: ratlles en diagonal.
             g.setColour (color.withAlpha (0.12f));
@@ -505,7 +551,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             pintaOna (g, c, *s, *it->second, r, color);
 
         const float yg = yGuany (c, r);
-        if (c.fadeIn > 0.0)
+        if (c.fadeIn > 0.0 && ! c.midi)
         {
             const float xf = estat.x (c.iniciVisible() + c.fadeIn);
             juce::Path zona;
@@ -515,7 +561,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             g.setColour (tema::text);
             g.drawLine (r.getX(), r.getBottom(), xf, r.getY(), 1.5f);
         }
-        if (c.fadeOut > 0.0)
+        if (c.fadeOut > 0.0 && ! c.midi)
         {
             const float xf = estat.x (c.fiVisible() - c.fadeOut);
             juce::Path zona;
@@ -526,7 +572,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             g.drawLine (xf, r.getY(), r.getRight(), r.getBottom(), 1.5f);
         }
 
-        if (c.guanyDb < -0.05 || manetes)
+        if ((c.guanyDb < -0.05 || manetes) && ! c.midi)
         {
             g.setColour (juce::Colours::white.withAlpha (manetes ? 0.8f : 0.45f));
             g.fillRect (juce::Rectangle<float> (r.getX(), yg - 0.5f, r.getWidth(), 1.0f));
@@ -548,7 +594,9 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         const float xn = juce::jmax (r.getX(), 0.0f) + 8.0f;
         if (xn < r.getRight() - 24.0f)
         {
-            juce::String nom = s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida");
+            juce::String nom = c.midi ? "MIDI · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " nota" : " notes")
+                             : (s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida"));
+            if (c.midi && estat.clipObert == ed::RefClip { pista, indexClip } && estat.pianoRoll) nom += "  (Piano Roll)";
             if (c.mut) nom = "(silenciat) " + nom;
             const bool banderaAprop = ed::banderaVisible (p, c) && std::abs (estat.x (c.pos + s->primer) - xn) < 14.0f;
             g.drawText (nom, juce::Rectangle<float> (xn + (banderaAprop ? 12.0f : 0.0f), r.getY() + 3.0f, r.getRight() - xn - 6.0f, 16.0f),
@@ -589,6 +637,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         };
         maneta ({ r.getX(), r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, m == Maneta::RetallInici);
         maneta ({ r.getRight() - mida * 1.4f, r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, m == Maneta::RetallFi);
+        if (c.midi) return;
         maneta ({ xfi - mida * 0.7f, r.getY(), mida * 1.4f, mida * 1.4f }, m == Maneta::FadeIn);
         maneta ({ xfo - mida * 0.7f, r.getY(), mida * 1.4f, mida * 1.4f }, m == Maneta::FadeOut);
         const float xm = (r.getX() + r.getRight()) / 2.0f;
@@ -779,7 +828,7 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
     m.addItem (1, "Àudio mono"_ca);
     m.addItem (2, "Àudio estèreo"_ca);
     m.addSeparator();
-    m.addItem (10, "Instrument (MIDI amb VST o sinte)  · aviat"_ca, false);
+    m.addItem (10, "Instrument MIDI (sinte intern; VST3 aviat)"_ca);
     m.addItem (11, "Bateria  · més endavant"_ca, false);
     m.addItem (12, "Acords  · més endavant"_ca, false);
     m.addItem (13, "Bus d'efectes  · més endavant"_ca, false);
@@ -787,6 +836,7 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
     {
         if (r == 1) tria ("audio", 1);
         else if (r == 2) tria ("audio", 2);
+        else if (r == 10) tria ("midi", 2);
     });
 }
 
@@ -798,22 +848,31 @@ void VistaPistes::menuClip (int pista, int clip, double t)
     const bool molts = estat.triats.size() > 1;
 
     juce::PopupMenu m;
+    if (clip0.midi)
+    {
+        m.addItem (20, "Obre al Piano Roll   (doble clic)"_ca);
+        m.addSeparator();
+    }
     m.addItem (8, "Copia   (Ctrl+C)");
     m.addItem (1, molts ? "Duplica els clips   (Ctrl+D)" : "Duplica   (Ctrl+D)");
     m.addItem (2, molts ? "Treu els clips   (Supr)" : "Treu   (Supr)");
     m.addItem (6, clip0.mut ? "Torna a fer sonar   (M)" : "Silencia   (M)");
     m.addItem (7, "Talla aquí   (tisores)"_ca, unic && t > clip0.iniciVisible() && t < clip0.fiVisible());
     m.addSeparator();
-    m.addItem (3, "Posa la bandera del primer temps aquí"_ca, unic && s != nullptr);
-    m.addItem (4, "Treu la bandera", unic && s != nullptr && s->primer >= 0.0);
-    m.addSeparator();
-    m.addItem (5, "Treu els fades i el volum del clip", unic);
+    if (! clip0.midi)
+    {
+        m.addItem (3, "Posa la bandera del primer temps aquí"_ca, unic && s != nullptr);
+        m.addItem (4, "Treu la bandera", unic && s != nullptr && s->primer >= 0.0);
+        m.addSeparator();
+        m.addItem (5, "Treu els fades i el volum del clip", unic);
+    }
     m.addItem (9, "Treu el color propi", clip0.rgb != 0);
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista, clip, t] (int r)
     {
         if (r == 0 || pista >= estat.numPistes() || clip >= (int) estat.projecte.pistes[(size_t) pista].clips.size()) return;
         if (r == 8) { estat.portaretalls = ed::copiaClips (estat.projecte, estat.triats); estat.info = "Copiat"; estat.avisa(); return; }
+        if (r == 20) { if (onObreMidi) onObreMidi (pista, clip); return; }
         comencaCanvi();
         restaura();
         auto& c = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];
@@ -1223,6 +1282,8 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             const int nou = ed::creaFinestra (estat.projecte, lloc0.pista, a, b);
             estat.triaClip (lloc0.pista, nou);
             acabaCanvi();
+            if (auto* c = estat.clip ({ lloc0.pista, nou }); c != nullptr && c->midi && onObreMidi)
+                onObreMidi (lloc0.pista, nou);   // clip MIDI nou: s'obre al Piano Roll per dibuixar-hi
             break;
         }
 
@@ -1272,6 +1333,11 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
 void VistaPistes::mouseDoubleClick (const juce::MouseEvent& e)
 {
     const auto l = llocA (e.getPosition());
+    if (l.pista >= 0 && l.clip >= 0 && estat.projecte.pistes[(size_t) l.pista].clips[(size_t) l.clip].midi)
+    {
+        if (onObreMidi) onObreMidi (l.pista, l.clip);
+        return;
+    }
     if (l.pista < 0 && ! l.pistaNova && e.y > estat.yPista (estat.numPistes()))
         menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
 }
@@ -1348,7 +1414,7 @@ void Capcaleres::paint (juce::Graphics& g)
         {
             g.setColour (t.grava ? vintage::ledVermell.withAlpha (0.85f) : tema::suau);
             g.setFont (dibuix::lletra (11.0f));
-            g.drawFittedText (textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t), zonaCanals,
+            g.drawFittedText (textPistaCurt (t), zonaCanals,
                               juce::Justification::centredLeft, 1, 0.8f);
         }
 
@@ -1397,11 +1463,26 @@ void Capcaleres::menu (int pista)
     if (noms.isEmpty())
         entrades.addItem (39, "La targeta no té entrades (o està aturada)", false);
 
+    juce::PopupMenu sons;
+    if (t.tipus == "midi")
+    {
+        const int actual = juce::jmax (0, midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument));
+        for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
+            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k);
+        sons.addSeparator();
+        sons.addItem (59, "Plugins VST3  · a la versió següent"_ca, false);
+    }
+
     juce::PopupMenu m;
     m.addItem (1, "Canvia el nom…"_ca);
     m.addSubMenu ("Color", colors);
-    m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
-    m.addSubMenu ("Entrada per gravar", entrades);
+    if (t.tipus == "midi")
+        m.addSubMenu ("Instrument (sinte intern)", sons);
+    else
+    {
+        m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
+        m.addSubMenu ("Entrada per gravar", entrades);
+    }
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista] (int r)
@@ -1419,6 +1500,11 @@ void Capcaleres::menu (int pista)
             estat.capTriat();
         }
         else if (r == 3) tt.canals = tt.canals == 2 ? 1 : 2;
+        else if (r >= 60)
+        {
+            tt.instrument = std::string ("intern:") + midi::sonsInterns()[(size_t) (r - 60)].id;
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: so "_ca + juce::String::fromUTF8 (midi::sonsInterns()[(size_t) (r - 60)].nom);
+        }
         else if (r >= 40) tt.entrada = r - 40;
         else if (r >= 20) { tt.color = r - 20; tt.rgb = 0; }
         acabaCanvi (evolucio);
@@ -1768,7 +1854,7 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
         vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
-        g.drawText (juce::String (i + 1) + "  " + EstatEstudi::textEntrada (*t), ge.numero, juce::Justification::centred);
+        g.drawText (juce::String (i + 1) + "  " + (t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
     }
     else
     {
@@ -1986,6 +2072,20 @@ void PanellPista::paint (juce::Graphics& g)
             g.setFont (dibuix::lletra (12.5f));
             g.drawText (valor, fila, juce::Justification::centredLeft, true);
         };
+        if (c->midi)
+        {
+            int toMin = 127, toMax = 0;
+            for (auto& n : c->notes) { toMin = juce::jmin (toMin, n.to); toMax = juce::jmax (toMax, n.to); }
+            linia ("Clip", "MIDI");
+            linia ("Notes", juce::String ((int) c->notes.size()) + (c->notes.empty() ? juce::String()
+                       : "  (" + juce::String::fromUTF8 (midi::nomNota (toMin).c_str()) + " a " + juce::String::fromUTF8 (midi::nomNota (toMax).c_str()) + ")"));
+            linia ("Comença"_ca, posicio (p, c->iniciVisible(), true));
+            linia ("Llargada", juce::String (c->longitud() / ed::segonsPerCompas (p), 2).replaceCharacter ('.', ',') + " compassos");
+            linia ("Estat", c->mut ? "silenciat" : "sona");
+            linia ("Edita", "doble clic: Piano Roll (P)");
+        }
+        else
+        {
         linia ("Presa", s ? dibuix::utf8 (s->nom) : juce::String ("finestra buida"));
         linia ("Fitxer", s ? dibuix::utf8 (s->fitxer).fromLastOccurrenceOf ("/", false, false) : juce::String ("-"));
         linia ("Comença"_ca, posicio (p, c->iniciVisible(), true));
@@ -1994,6 +2094,7 @@ void PanellPista::paint (juce::Graphics& g)
         linia ("Volum", EstatEstudi::textDb (c->guanyDb) + (c->mut ? " · silenciat"_ca : ""));
         linia ("Bandera", s && ed::banderaVisible (p, *c) ? posicio (p, c->pos + s->primer, true)
                                                           : (s && s->primer >= 0 ? juce::String ("fora del clip") : juce::String ("no en té"_ca)));
+        }
     }
     else
     {

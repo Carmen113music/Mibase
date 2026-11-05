@@ -86,6 +86,31 @@ public:
     bool modeRang = false;     // requadre: false = clips sencers; true = només el que queda dins
     bool insereix = false;     // enganxar: false = trepitja; true = aparta el que hi ha (tecla Insert)
 
+    /** Clip MIDI obert al Piano Roll (pista i índex del clip) i si el Piano Roll es veu. */
+    mibase::edicio::RefClip clipObert;
+    bool pianoRoll = false;
+
+    std::string idPistaObert;   // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
+
+    void obreClip (mibase::edicio::RefClip r)
+    {
+        clipObert = r;
+        idPistaObert = pista (r.pista) != nullptr ? projecte.pistes[(size_t) r.pista].id : std::string();
+    }
+
+    /** El clip obert, si encara existeix i és MIDI. */
+    mibase::Clip* clipMidiObert()
+    {
+        if (auto* t = pista (clipObert.pista); t == nullptr || t->id != idPistaObert)
+        {
+            clipObert.pista = -1;
+            for (int i = 0; i < numPistes(); ++i)
+                if (projecte.pistes[(size_t) i].id == idPistaObert) clipObert.pista = i;
+        }
+        auto* c = clip (clipObert);
+        return (c != nullptr && c->midi) ? c : nullptr;
+    }
+
     /** El que s'ha copiat (Ctrl+C). */
     mibase::edicio::Retall portaretalls;
 

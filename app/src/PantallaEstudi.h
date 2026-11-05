@@ -3,7 +3,9 @@
 #include "DialegText.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
+#include "Instruments.h"
 #include "PanellColor.h"
+#include "PianoRoll.h"
 #include "ServeiAudio.h"
 #include "VistesEstudi.h"
 
@@ -73,6 +75,10 @@ private:
     void previsualitzaClic (bool encesa);
 
     void pistaNova (const juce::String& tipus, int canals);
+    void obrePianoRoll (int pista, int clip);
+    void mostraPianoRoll (bool visible);
+    void desenganxaPianoRoll (bool desenganxa);
+    void acabaGravacioMidi();
     void canviaNom (int pista);
     void canviaTempo();
     void demanaImportar (int pista, double on);
@@ -100,6 +106,7 @@ private:
     Historial& historial;
     ServeiAudio& servei;
     EstatEstudi estat;
+    Instruments instruments;   // els de les pistes MIDI (viu abans que el pla que els fa servir)
     juce::AudioFormatManager formats;
 
     // Barra d'eines.
@@ -123,6 +130,10 @@ private:
     TaulaMescles mescles { estat };
     PanellPista panell { estat };
     Divisor divEsquerra, divNoms, divPanell;
+    PianoRoll pianoRoll { estat };
+    Divisor divPianoRoll { true };
+    std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
+    int altPianoRoll = 430, altInici = 0;
     juce::ScrollBar barraV { true }, barraH { false };
     int ampleEsquerra = 132, ampleNoms = 190, amplePanell = 270, ampleInici = 0;
     juce::Rectangle<int> zonaTitolNoms;
@@ -140,7 +151,11 @@ private:
         juce::File fitxer;
         double desDe = 0.0, cursor = 0.0, retard = 0.0;
         bool retardMesurat = false;
+        bool midi = false;                                   // grava el teclat MIDI (no la targeta)
+        double fins = 0.0;                                   // MIDI: on s'ha aturat
+        std::vector<mibase::MotorEstudi::MidiGravat> missatges;
     } gravacio;
+    void recullMidiGravat();
 
     std::unique_ptr<DialegText> dialeg;
     std::unique_ptr<juce::FileChooser> selector;

@@ -12,6 +12,8 @@
 #include "mibase/MotorEstudi.h"
 #include "mibase/Wav.h"
 #include "mibase/SinteSenzill.h"
+#include "mibase/Midi.h"
+#include "mibase/SinteIntern.h"
 
 #include <algorithm>
 #include <cmath>
@@ -96,6 +98,32 @@ namespace
         comprova (motor.latencia().teDades(), "la mesura s'acaba");
         return motor.latencia().calcula();
     }
+
+    /** Instrument de prova: apunta els missatges que rep (amb la mostra absoluta) i fa so mentre té notes enceses. */
+    struct InstrumentProva : Instrument
+    {
+        struct Rebut { long long mostra; int estat, d1, d2; };
+        std::vector<Rebut> rebuts;
+        long long mostra = 0;
+        int enceses = 0, apagaTots = 0;
+        void prepara (double, int) override { rebuts.reserve (100000); }
+        void processa (const EventInstrument* e, int n, float* L, float* R, int m) noexcept override
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                rebuts.push_back ({ mostra + e[i].offset, e[i].estat, e[i].dada1, e[i].dada2 });
+                const int t = e[i].estat & 0xF0;
+                if (t == 0x90 && e[i].dada2 > 0) ++enceses;
+                else if (t == 0x80 || t == 0x90) --enceses;
+            }
+            for (int i = 0; i < m; ++i) { L[i] = enceses > 0 ? 0.1f : 0.0f; R[i] = L[i]; }
+            mostra += m;
+        }
+        void apagaTot() noexcept override { ++apagaTots; enceses = 0; }
+        bool fentSo() const noexcept override { return true; }   // sempre es processa: així el comptador de mostres és exacte
+        int ons() const { int k = 0; for (auto& r : rebuts) if ((r.estat & 0xF0) == 0x90 && r.d2 > 0) ++k; return k; }
+        int offs() const { int k = 0; for (auto& r : rebuts) if ((r.estat & 0xF0) == 0x80 || ((r.estat & 0xF0) == 0x90 && r.d2 == 0)) ++k; return k; }
+    };
 }
 
 int main()
@@ -1024,6 +1052,428 @@ int main()
                   "es desen i es llegeixen");
     });
     fs5::remove_all (arrel5);
+
+
+    // ======================================================================
+    // MIDI i piano roll (0.7)
+    // ======================================================================
+    prova ("MIDI: noms de les notes, tecles negres i graella", []
+    {
+        comprova (midi::nomNota (60) == "C4" && midi::nomNota (69) == "A4" && midi::nomNota (61) == "C#4" && midi::nomNota (0) == "C-1", "noms (do central = C4)");
+        comprova (midi::esNegra (61) && ! midi::esNegra (60) && midi::esNegra (70) && ! midi::esNegra (64), "tecles negres");
+        comprova (midi::enganxa (500, 480) == 480 && midi::enganxa (730, 480) == 960 && midi::enganxa (731, 0) == 731, "enganxa a la graella");
+        comprova (midi::enganxaAvall (959, 480) == 480, "enganxa cap avall");
+        comprova (midi::valorsGraella()[3].ticks == ticksPerNegra && midi::valorsGraella()[8].ticks == ticksPerNegra / 3, "negra i corxera de treset");
+    });
+
+    prova ("MIDI: afegir, moure, durada, quantitzar, transposar", []
+    {
+        Clip c = midi::clipNou (0.0, 2.0);
+        comprova (c.midi && c.notes.empty(), "clip MIDI buit");
+        midi::afegeix (c, { 960, 480, 64, 100, 0 });
+        midi::afegeix (c, { 0, 480, 60, 90, 0 });
+        const int k = midi::afegeix (c, { 480, 480, 62, 80, 0 });
+        comprova (c.notes.size() == 3 && c.notes[0].to == 60 && c.notes[1].to == 62 && c.notes[2].to == 64 && k == 1, "ordenades per inici");
+
+        std::vector<int> t { 2 };
+        midi::mou (c, t, -1000, 3);
+        comprova (c.notes[(size_t) t[0]].ini == 960 - 960 && c.notes[(size_t) t[0]].to == 67, "es mou (i no passa del començament)");
+        comprova (t.size() == 1 && c.notes[(size_t) t[0]].to == 67, "la selecció segueix la nota després d'ordenar");
+
+        std::vector<int> totes { 0, 1, 2 };
+        midi::mou (c, totes, 0, 100);
+        int maxim = 0; for (auto& n : c.notes) maxim = std::max (maxim, n.to);
+        comprova (maxim == 127, "el grup no passa de 127 (s'atura tot junt)");
+        midi::mou (c, totes, 0, -(maxim - 67));
+
+        Clip q = midi::clipNou (0.0, 4.0);
+        midi::afegeix (q, { 470, 300, 60, 100, 0 });
+        midi::afegeix (q, { 1000, 300, 62, 100, 0 });
+        std::vector<int> s2 { 0, 1 };
+        midi::quantitza (q, s2, 480);
+        comprova (q.notes[0].ini == 480 && q.notes[1].ini == 960 && q.notes[0].dur == 300, "quantitza l'inici (la durada es manté)");
+        midi::quantitza (q, s2, 480, 1.0, true);
+        comprova (q.notes[0].dur == 480, "quantitza també el final");
+        q.notes[0].ini = 500;
+        midi::quantitza (q, s2, 480, 0.5);
+        comprova (q.notes[0].ini == 490, "força del 50 %: la meitat del camí");
+
+        std::vector<int> u { 0 };
+        midi::canviaDurada (q, u, 100);
+        comprova (q.notes[0].dur == 580, "allarga");
+        midi::canviaDurada (q, u, -10000);
+        comprova (q.notes[0].dur == 1, "no queda mai a zero");
+        q.notes[0].dur = 480; q.notes[0].ini = 480;
+        midi::canviaDurada (q, u, -240, true);
+        comprova (q.notes[(size_t) u[0]].ini == 240 && q.notes[(size_t) u[0]].dur == 720, "allarga per l'inici (el final no es mou)");
+
+        std::vector<int> v { 0, 1 };
+        midi::transposa (q, v, 12);
+        comprova (q.notes[0].to == 72 && q.notes[1].to == 74, "transposa una octava");
+        midi::velocitat (q, v, 200);
+        comprova (q.notes[0].vel == 127, "velocitat limitada a 127");
+        midi::sumaVelocitat (q, v, -500);
+        comprova (q.notes[0].vel == 1, "velocitat mínima 1");
+    });
+
+    prova ("MIDI: duplicar, copiar, enganxar, notes dins un requadre i trepitjades", []
+    {
+        Clip c = midi::clipNou (0.0, 8.0);
+        midi::afegeix (c, { 0, 400, 60, 100, 0 });
+        midi::afegeix (c, { 480, 400, 64, 100, 0 });
+        auto d = midi::duplica (c, { 0, 1 }, 960);
+        comprova (c.notes.size() == 4 && d.size() == 2 && c.notes[(size_t) d[0]].ini == 960 && c.notes[(size_t) d[1]].ini == 1440,
+                  "duplica just després, arrodonit a la graella");
+        auto r = midi::copia (c, { 1, 2 });
+        comprova (r.notes.size() == 2 && r.notes[0].ini == 0 && r.notes[1].ini == 480, "copia (relatiu a la primera)");
+        auto e = midi::enganxa (c, r, 3840);
+        comprova (c.notes.size() == 6 && c.notes[(size_t) e[0]].ini == 3840, "enganxa on es demana");
+        auto dins = midi::notesDins (c, 0, 960, 60, 60);
+        comprova (dins.size() == 1 && c.notes[(size_t) dins[0]].to == 60, "notes dins un requadre");
+
+        Clip t = midi::clipNou (0.0, 4.0);
+        midi::afegeix (t, { 0, 960, 60, 100, 0 });
+        midi::afegeix (t, { 480, 960, 60, 100, 0 });
+        midi::afegeix (t, { 480, 100, 62, 100, 0 });
+        auto tr = midi::trepitjades (t.notes);
+        comprova (tr[0] && tr[2] == false && std::count (tr.begin(), tr.end(), true) == 2, "dues notes iguals que es trepitgen");
+        midi::esborra (t, { 0, 2 });
+        comprova (t.notes.size() == 1 && t.notes[0].ini == 480 && t.notes[0].to == 60, "esborra");
+    });
+
+    prova ("MIDI: clips (llapis, tisores, cola, moure de pista, enganxar i canvi de tempo)", []
+    {
+        Projecte p;
+        p.tempo = 120.0;
+        afegeixPista (p, "Àudio", "audio");
+        auto& m = afegeixPista (p, "Piano", "midi");
+        m.instrument = "intern:piano";
+        const int k = edicio::creaFinestra (p, 1, 2.0, 4.0);
+        auto& c = p.pistes[1].clips[(size_t) k];
+        comprova (c.midi, "el llapis a una pista MIDI fa un clip MIDI");
+        midi::afegeix (c, { 0, 480, 60, 100, 0 });          // 2,0 s
+        midi::afegeix (c, { 1920, 480, 62, 100, 0 });       // 3,0 s
+        comprova (std::abs (midi::segonsAbs (p, c, 1920) - 3.0) < 1e-9, "ticks a segons (120 bpm: 960 ticks = 0,5 s)");
+
+        comprova (edicio::talla (p, 1, 0, 3.0) && p.pistes[1].clips.size() == 2 && p.pistes[1].clips[1].notes.size() == 2,
+                  "les tisores parteixen la finestra (les notes es conserven a les dues meitats)");
+        auto rc = edicio::enganxaClips (p, 1, 0, 1);
+        comprova (rc.fet && p.pistes[1].clips.size() == 1 && p.pistes[1].clips[0].notes.size() == 2, "la cola torna a ajuntar les notes");
+
+        auto res = edicio::mouDePista (p, { { 1, 0 } }, -1);
+        comprova (res.size() == 1 && res[0].pista == 1 && p.pistes[0].clips.empty(), "un clip MIDI no passa a una pista d'àudio");
+
+        auto ret = edicio::copiaClips (p, { { 1, 0 } });
+        auto nous = edicio::enganxaRetall (p, ret, 10.0, false);
+        comprova (nous.size() == 1 && p.pistes[1].clips.size() == 2 && p.pistes[1].clips[1].midi, "copiar i enganxar clips MIDI");
+
+        // Canvi de tempo: la nota de 3,0 s (compàs intern 1, temps 3) queda al mateix compàs i temps.
+        const double abans = edicio::segonsPerCompas (p);
+        const auto& c0 = p.pistes[1].clips[0];
+        const double compasAbans = midi::segonsAbs (p, c0, 1920) / abans;
+        midi::canviaTempo (p, 60.0);
+        const double compasDespres = midi::segonsAbs (p, p.pistes[1].clips[0], 1920) / edicio::segonsPerCompas (p);
+        comprova (std::abs (compasAbans - compasDespres) < 1e-9 && std::abs (p.pistes[1].clips[0].pos - 4.0) < 1e-9,
+                  "amb el tempo nou les notes queden al mateix compàs");
+
+        Clip llarg = midi::clipNou (0.0, 0.5);
+        midi::afegeix (llarg, { 0, 4 * 960, 60, 100, 0 });
+        midi::encabeix (p, llarg);
+        comprova (std::abs (llarg.fi - 4.0) < 1e-9, "la finestra s'allarga perquè hi càpiga la nota");
+        comprova (midi::soIntern ("intern:baix") == 4 && midi::soIntern ("vst3:x") == -1 && midi::nomInstrument ("intern:pad") == "Pad", "sons interns");
+    });
+
+    prova ("MIDI: es desa i es llegeix (notes, controladors, instrument)", []
+    {
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_midi";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Midi";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        auto q = *mibase::disc::llegeix (r.fitxer);
+        auto& t = afegeixPista (q, "Piano", "midi");
+        t.instrument = "intern:epiano";
+        Clip c = midi::clipNou (1.0, 3.0);
+        midi::afegeix (c, { 0, 480, 60, 99, 0 });
+        midi::afegeix (c, { 960, 240, 67, 30, 9 });
+        c.events.push_back ({ 100, 0xB0, 64, 127, 0 });
+        c.events.push_back ({ 200, 0xE0, 0, 12000, 0 });
+        q.pistes[0].clips.push_back (c);
+        mibase::disc::desa (r.fitxer, q, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && l->pistes.size() == 1 && l->pistes[0].tipus == "midi" && l->pistes[0].instrument == "intern:epiano", "pista i instrument");
+        comprova (l && l->pistes[0].clips.size() == 1 && l->pistes[0].clips[0].midi && l->pistes[0].clips[0].notes == c.notes, "les notes, iguals");
+        comprova (l && l->pistes[0].clips[0].events == c.events, "els controladors i el pitch bend, iguals");
+        fs::remove_all (arrel);
+    });
+
+    prova ("MIDI: el pla (notes en segons, retallades a la finestra i tapades per un clip de sobre)", []
+    {
+        Projecte p;
+        p.tempo = 120.0;
+        auto& t = afegeixPista (p, "Piano", "midi");
+        t.instrument = "intern:piano";
+        Clip a = midi::clipNou (0.0, 2.0);
+        midi::afegeix (a, { 0, 480, 60, 100, 0 });       // 0,0 – 0,25 s
+        midi::afegeix (a, { 1920, 9600, 62, 100, 0 });   // 1,0 s, molt llarga: es talla al final de la finestra (2,0 s)
+        midi::afegeix (a, { 3000, 100, 64, 100, 0 });    // 1,5625 s: queda tapada pel clip B
+        Clip b = midi::clipNou (1.5, 1.6);
+        p.pistes[0].clips = { a, b };
+        auto inst = std::make_shared<InstrumentProva>();
+        auto pla = construeixPla (p, {}, [&] (const Pista&) { return inst; });
+        const auto& pp = pla->pistes[0];
+        comprova (pp.instrument == inst && pp.notes.size() == 2, "dues notes sonen (la tapada no)");
+        comprova (pp.notes.size() == 2 && std::abs (pp.notes[0].fi - 0.25) < 1e-9 && std::abs (pp.notes[1].ini - 1.0) < 1e-9
+                  && std::abs (pp.notes[1].fi - 1.5) < 1e-9, "acaben on toca (la llarga, on comença el clip que la tapa)");
+        auto plaSense = construeixPla (p, {});
+        comprova (plaSense->pistes[0].notes.empty(), "sense instrument, no sona");
+    });
+
+    prova ("MIDI: el mesclador envia les notes a la mostra justa i no en deixa cap de penjada", []
+    {
+        const double fs = 48000.0;
+        Projecte p;
+        p.tempo = 120.0;
+        auto& t = afegeixPista (p, "Piano", "midi");
+        t.instrument = "intern:piano";
+        Clip a = midi::clipNou (0.0, 4.0);
+        midi::afegeix (a, { 960, 960, 60, 100, 0 });      // 0,5 s a 1,0 s
+        midi::afegeix (a, { 1920, 4800, 64, 90, 0 });     // 1,0 s a 3,5 s
+        a.events.push_back ({ 960, 0xB0, 64, 127, 0 });
+        p.pistes[0].clips = { a };
+        auto inst = std::make_shared<InstrumentProva>();
+        inst->prepara (fs, 256);
+        auto pla = construeixPla (p, {}, [&] (const Pista&) { return inst; });
+
+        Mesclador m;
+        m.prepara (fs, 256);
+        std::vector<float> L (256), R (256);
+        for (long long pos = 0; pos < (long long) (2.0 * fs); pos += 256)
+            m.processa (*pla, pos, 256, L.data(), R.data(), false, nullptr);
+        bool onBe = false, offBe = false, ccBe = false;
+        for (auto& r : inst->rebuts)
+        {
+            if ((r.estat & 0xF0) == 0x90 && r.d1 == 60 && r.mostra == 24000) onBe = true;
+            if ((r.estat & 0xF0) == 0x80 && r.d1 == 60 && r.mostra == 48000) offBe = true;
+            if ((r.estat & 0xF0) == 0xB0 && r.d1 == 64 && r.mostra == 24000) ccBe = true;
+        }
+        comprova (onBe && offBe && ccBe, "note-on, note-off i controlador a la mostra exacta");
+        comprova (m.notesEnceses (slotDePista (p.pistes[0])) == 1, "la nota llarga encara sona");
+
+        // Aturar: s'apaga tot.
+        m.apagaNotes();
+        m.processa (*pla, 0, 256, L.data(), R.data(), false, nullptr, false);
+        comprova (inst->apagaTots >= 1 && m.notesEnceses (slotDePista (p.pistes[0])) == 0, "en aturar, no queda cap nota encesa");
+
+        // Silenciada: no hi entra cap nota nova.
+        const int onsAbans = inst->ons();
+        auto pla2 = construeixPla ([&] { auto q = p; q.pistes[0].mut = true; return q; }(), {}, [&] (const Pista&) { return inst; });
+        m.reinicia();
+        for (long long pos = 0; pos < (long long) (2.0 * fs); pos += 256)
+            m.processa (*pla2, pos, 256, L.data(), R.data(), false, nullptr);
+        comprova (inst->ons() == onsAbans, "pista silenciada: cap nota nova");
+
+        // Canvi de pla amb un altre instrument: el vell s'apaga.
+        m.reinicia();
+        for (long long pos = 0; pos < (long long) (1.2 * fs); pos += 256)
+            m.processa (*pla, pos, 256, L.data(), R.data(), false, nullptr);
+        auto altre = std::make_shared<InstrumentProva>();
+        auto pla3 = construeixPla (p, {}, [&] (const Pista&) { return altre; });
+        const int apagatsAbans = inst->apagaTots;
+        m.canviDePla (pla.get(), pla3.get());
+        comprova (inst->apagaTots == apagatsAbans + 1 && m.notesEnceses (slotDePista (p.pistes[0])) == 0, "l'instrument que se'n va s'apaga");
+        m.canviDePla (pla3.get(), pla3.get());
+        comprova (altre->apagaTots == 0, "el mateix instrument no s'apaga en publicar un pla nou");
+
+        // Mateixa nota dues vegades seguides (trepitjades): sempre una apagada abans de tornar-la a encendre.
+        Projecte p2 = p;
+        p2.pistes[0].clips[0].notes = { { 0, 960, 60, 100, 0 }, { 480, 960, 60, 100, 0 } };
+        auto i2 = std::make_shared<InstrumentProva>();
+        auto pl = construeixPla (p2, {}, [&] (const Pista&) { return i2; });
+        Mesclador m2;
+        m2.prepara (fs, 512);
+        std::vector<float> L2 (512), R2 (512);
+        for (long long pos = 0; pos < (long long) (2.0 * fs); pos += 512)
+            m2.processa (*pl, pos, 512, L2.data(), R2.data(), false, nullptr);
+        int sonant = 0, maxim = 0;
+        for (auto& r : i2->rebuts)
+        {
+            if ((r.estat & 0xF0) == 0x90) ++sonant;
+            else if ((r.estat & 0xF0) == 0x80) --sonant;
+            maxim = std::max (maxim, sonant);
+        }
+        comprova (sonant == 0 && maxim == 1 && i2->ons() == 2, "notes trepitjades: cap queda penjada");
+    });
+
+    prova ("MIDI: el motor de l'estudi (sonar, aturar, bucle i teclat en directe)", []
+    {
+        const double fs = 48000.0;
+        const int bloc = 256;
+        Projecte p;
+        p.tempo = 120.0;
+        auto& t = afegeixPista (p, "Piano", "midi");
+        t.instrument = "intern:piano";
+        Clip a = midi::clipNou (0.0, 4.0);
+        midi::afegeix (a, { 0, 7680, 60, 100, 0 });      // tota la finestra
+        midi::afegeix (a, { 960, 480, 67, 100, 0 });
+        p.pistes[0].clips = { a };
+        p.bucle = { true, true, 0, 1 };                    // el primer compàs (2 s)
+        auto inst = std::make_shared<InstrumentProva>();
+        inst->prepara (fs, 2048);
+        MotorEstudi motor;
+        motor.prepara (fs, 2048);
+        motor.publica (construeixPla (p, {}, [&] (const Pista&) { return inst; }));
+        std::vector<float> outL (bloc), outR (bloc);
+        float* sortides[] = { outL.data(), outR.data() };
+        auto corre = [&] (double segons)
+        {
+            for (long long k = 0; k < (long long) (segons * fs / bloc); ++k)
+            {
+                std::fill (outL.begin(), outL.end(), 0.0f);
+                std::fill (outR.begin(), outR.end(), 0.0f);
+                motor.processa (nullptr, 0, sortides, 2, bloc);
+                motor.recull();
+            }
+        };
+        motor.reprodueix (0.0);
+        corre (5.0);   // dues voltes i mitja de bucle
+        comprova (inst->ons() >= 6, "el bucle torna a tocar les notes");
+        comprova (inst->enceses <= 2, "mai més de dues notes alhora (les del bucle s'apaguen en tornar)");
+        motor.atura();
+        corre (0.1);
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat && inst->enceses == 0, "aturat: cap nota penjada");
+
+        // Teclat en directe, amb el transport aturat.
+        const int slot = slotDePista (p.pistes[0]);
+        comprova (! motor.enviaTeclat (0x90, 72, 100), "sense pista triada, el teclat no va a l'estudi");
+        motor.setSlotTeclat (slot);
+        comprova (motor.enviaTeclat (0x90, 72, 100), "amb pista triada, sí");
+        motor.setSlotTeclat (-1);                          // es canvia de pista amb la tecla premuda
+        comprova (motor.enviaTeclat (0x80, 72, 0), "l'apagada va a la mateixa pista que l'encesa");
+        corre (0.05);
+        bool rebut = false; for (auto& r : inst->rebuts) if (r.d1 == 72 && (r.estat & 0xF0) == 0x80) rebut = true;
+        comprova (rebut && inst->enceses == 0, "el teclat sona aturat i s'apaga");
+        comprova (! motor.enviaTeclat (0x90, 40, 100), "sense pista, l'encesa va al Diagnòstic");
+        motor.setSlotTeclat (slot);
+        comprova (! motor.enviaTeclat (0x80, 40, 0), "i l'apagada també hi va, encara que ara hi hagi pista triada");
+        motor.setSlotTeclat (-1);
+
+        motor.enviaDirecte ({ slot, 0x90, 50, 90 });
+        corre (0.02);
+        comprova (inst->enceses == 1, "una nota des del piano roll");
+        motor.enviaDirecte ({ slot, 0x80, 50, 0 });
+        corre (0.02);
+        comprova (inst->enceses == 0, "i s'apaga");
+
+        // Treure la pista mentre sona: no queda res encès.
+        motor.reprodueix (0.0);
+        corre (0.6);
+        Projecte buit = p;
+        buit.pistes.clear();
+        motor.publica (construeixPla (buit, {}));
+        corre (0.05);
+        comprova (inst->enceses == 0, "esborrar la pista mentre sona l'apaga");
+        motor.atura();
+        corre (0.05);
+    });
+
+    prova ("MIDI: gravar el teclat", []
+    {
+        const double fs = 48000.0;
+        MotorEstudi motor;
+        motor.prepara (fs, 2048);
+        Projecte p;
+        auto& t = afegeixPista (p, "Piano", "midi");
+        t.instrument = "intern:piano";
+        auto inst = std::make_shared<InstrumentProva>();
+        motor.publica (construeixPla (p, {}, [&] (const Pista&) { return inst; }));
+        const int slot = slotDePista (p.pistes[0]);
+        motor.setSlotTeclat (slot);
+        motor.setSlotGravaMidi (slot);
+        std::vector<float> L (480), R (480);
+        float* s[] = { L.data(), R.data() };
+        motor.grava (0.0, 0.0, 0, 1);
+        for (int k = 0; k < 100; ++k) motor.processa (nullptr, 0, s, 2, 480);   // 1 s
+        motor.enviaTeclat (0x90, 60, 100);
+        for (int k = 0; k < 50; ++k) motor.processa (nullptr, 0, s, 2, 480);
+        motor.enviaTeclat (0x80, 60, 0);
+        motor.processa (nullptr, 0, s, 2, 480);
+        MotorEstudi::MidiGravat g;
+        std::vector<MotorEstudi::MidiGravat> v;
+        while (motor.treuMidiGravat (g)) v.push_back (g);
+        comprova (v.size() == 2 && std::abs (v[0].t - 1.0) < 0.011 && std::abs (v[1].t - 1.5) < 0.011, "es grava amb el temps de la línia de temps");
+    });
+
+    prova ("Sinte intern: sona, s'apaga, pedal i tots els sons", []
+    {
+        const double fs = 48000.0;
+        for (int so = 0; so < (int) midi::sonsInterns().size(); ++so)
+        {
+            SinteIntern s (so);
+            s.prepara (fs, 512);
+            std::vector<float> L ((size_t) fs * 5), R ((size_t) fs * 5);
+            EventInstrument on { 0, 0x90, 60, 110 };
+            s.processa (&on, 1, L.data(), R.data(), (int) fs);
+            EventInstrument off { 0, 0x80, 60, 0 };
+            s.processa (&off, 1, L.data() + (size_t) fs, R.data() + (size_t) fs, (int) fs);
+            for (int k = 2; k < 5; ++k)
+                s.processa (nullptr, 0, L.data() + (size_t) (k * fs), R.data() + (size_t) (k * fs), (int) fs);
+            const auto nom = std::string (midi::sonsInterns()[(size_t) so].nom);
+            comprova (totFinit (L) && totFinit (R), nom + ": sense valors estranys");
+            comprova (pic (L, 0, 24000) > 0.02f, nom + ": sona");
+            comprova (pic (L, 0, L.size()) < 1.0f, nom + ": no satura");
+            comprova (pic (L, (size_t) (4.5 * fs), L.size()) < 0.0005f && ! s.fentSo(), nom + ": s'apaga del tot");
+        }
+        SinteIntern s (2);   // orgue: sosté mentre la tecla és premuda
+        s.prepara (fs, 512);
+        std::vector<float> L (48000), R (48000);
+        EventInstrument ev[] = { { 0, 0xB0, 64, 127 }, { 0, 0x90, 60, 100 }, { 100, 0x80, 60, 0 } };
+        s.processa (ev, 3, L.data(), R.data(), 24000);
+        s.processa (nullptr, 0, L.data() + 24000, R.data() + 24000, 24000);
+        comprova (pic (L, 40000, 48000) > 0.02f, "amb el pedal, la nota continua després d'amollar la tecla");
+        EventInstrument peu { 0, 0xB0, 64, 0 };
+        s.processa (&peu, 1, L.data(), R.data(), 24000);
+        s.processa (nullptr, 0, L.data(), R.data(), 24000);
+        comprova (! s.fentSo(), "sense pedal, s'apaga");
+        EventInstrument tres[] = { { 0, 0x90, 60, 100 }, { 0, 0x90, 64, 100 }, { 0, 0x90, 67, 100 } };
+        s.processa (tres, 3, L.data(), R.data(), 4800);
+        comprova (s.veusSonant() == 3, "tres notes, tres veus");
+        s.apagaTot();
+        s.processa (nullptr, 0, L.data(), R.data(), 4800);
+        comprova (! s.fentSo(), "apagaTot: silenci de seguida");
+        comprova (pic (L, 2400, 4800) < 0.001f, "sense clic (s'apaga amb una caiguda curta)");
+    });
+
+    prova ("MIDI: exportar la mescla amb el sinte intern", []
+    {
+        namespace fs = std::filesystem;
+        Projecte p;
+        p.tempo = 120.0;
+        auto& t = afegeixPista (p, "Piano", "midi");
+        t.instrument = "intern:piano";
+        Clip a = midi::clipNou (0.0, 2.0);
+        midi::afegeix (a, { 0, 960, 60, 100, 0 });
+        midi::afegeix (a, { 960, 960, 64, 100, 0 });
+        p.pistes[0].clips = { a };
+        const auto tros = trosPerExportar (p);
+        comprova (std::abs (tros.first) < 1e-9 && tros.second > 1.0 && tros.second <= 3.0, "el tros va de la primera nota a l'última (més la cua)");
+        auto pla = construeixPla (p, {}, [] (const Pista& x)
+        {
+            auto s = std::make_shared<SinteIntern> (std::max (0, midi::soIntern (x.instrument)));
+            s->prepara (48000.0, 4096);
+            return s;
+        });
+        const auto desti = fs::temp_directory_path() / "mibase_midi_mescla.wav";
+        std::string error;
+        comprova (exportaMescla (*pla, 48000.0, tros.first, tros.second, desti, error), "s'exporta");
+        auto w = llegeixWav (desti);
+        float maxim = 0.0f;
+        for (float x : w.mostres) maxim = std::max (maxim, std::abs (x));
+        comprova (w.correcte && maxim > 0.02f, "el WAV té el so del sinte");
+        fs::remove (desti);
+    });
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
