@@ -84,10 +84,17 @@ public:
     void enllacaTriades();
     int pistaDeLEditor() const { return pistaEditor(); }
 
+    /** Chord Pad obert (amb un clip): el teclat MIDI de la pista toca els acords dels pads. */
+    bool chordPadActiu() const { return modePads() && clip() != nullptr; }
+    /** L'acord de cada pad (0 = C … 11 = B), amb l'octava i el voicing triats: el que toca cada tecla. */
+    std::array<std::vector<int>, 12> acordsTeclat() const;
+
     /** Comença a arrossegar un acord (del panell o d'un pad) cap a un Piano Roll: en amollar-lo a la graella, s'hi posa. */
     static void arrossegaAcord (juce::Component& origen, EstatEstudi& estat, const std::vector<int>& notes, const juce::String& nom,
                                 long long durada, bool enllaca);
     static constexpr const char* idArrossegaAcord = "mibase-acord";
+    /** Arrossegar una pista (des del seu nom) al botó de notes fantasma: «mibase-pista:<id>». */
+    static constexpr const char* prefixArrossegaPista = "mibase-pista:";
 
     // ---- Arrossegar i deixar anar (acords) ----
     bool isInterestedInDragSource (const SourceDetails& d) override;
@@ -189,6 +196,9 @@ private:
     void menuGraella();
     void menuDurada();
     void menuNota (int nota);
+    void menuFantasmes();
+    std::vector<std::string>* fantasmes();
+    void actualitzaFantasmes();
     void quantitza (bool tambeFinal, double forca = 1.0);
     void esborraTriades();
     void duplicaTriades();
@@ -230,7 +240,7 @@ private:
     int altNota = 14;
     int desplY = 0;
     int altCarril = 84;
-    bool fantasmes = true;
+    bool sobreFantasmes = false;    // s'arrossega una pista per sobre del botó de notes fantasma
     bool desenganxat = false;
     bool vistaPendent = false;      // s'ha d'encaixar la vista quan el Piano Roll tingui mida
     int graella = 5;                // índex de midi::valorsGraella() (5 = 1/16)
@@ -276,6 +286,7 @@ private:
     Boto btMinimPads { "Mov. mínim"_ca, std::nullopt, Boto::Estil::Tecla };
     int padPremut = -1, padSobre = -1;
     std::vector<int> notesPadPremut;
+    std::vector<int> notesTeclatPad;    // l'acord que toca el teclat de pantalla (Chord Pad)
     int octavaPremuda = 0;
     Boto btDesenganxa { {}, dibuix::Icona::Desenganxa, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Secundari };

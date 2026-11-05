@@ -324,23 +324,7 @@ void PantallaEstudi::desaAra()
 
 void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    // L'editor que no està bloquejat segueix el clip MIDI triat (primer l'actiu).
-    if (estat.triats.size() == 1)
-        if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi && estat.editorDe (estat.triats[0]) < 0)
-        {
-            if (estat.editors.empty()) estat.editors.push_back ({});
-            int lliure = -1;
-            if (estat.editorActiu < (int) estat.editors.size() && ! estat.editors[(size_t) estat.editorActiu].bloquejat) lliure = estat.editorActiu;
-            for (int i = 0; i < (int) estat.editors.size() && lliure < 0; ++i)
-                if (! estat.editors[(size_t) i].bloquejat) lliure = i;
-            if (lliure >= 0)
-            {
-                estat.editorMostra (lliure, estat.triats[0]);
-                estat.editorActiu = lliure;
-                zonaEditors.sincronitza();
-                if (auto* pr = zonaEditors.editor (lliure)) pr->actualitza();
-            }
-        }
+    // Els editors només canvien de clip amb doble clic (obrePianoRoll), no en triar un clip (0.10).
     // El teclat MIDI de fora toca la pista triada (si és MIDI) o la que grava.
     {
         int slot = -1;
@@ -354,6 +338,17 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         juce::String teclatTriada;
         if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") teclatTriada = juce::String (t->entradaMidi);
         servei.setMapaTeclats (mapa, teclatTriada);
+
+        // Chord Pad (0.10): el de l'editor actiu (o el primer que el tingui obert) fa que el teclat de la seva pista toqui acords.
+        int slotPads = -1;
+        std::array<std::vector<int>, 12> acords;
+        for (int k = -1; k < zonaEditors.quants() && slotPads < 0; ++k)
+        {
+            auto* pr = zonaEditors.editor (k < 0 ? estat.editorActiu : k);
+            if (pr == nullptr || ! pr->chordPadActiu()) continue;
+            if (auto* t = estat.pista (pr->pistaDeLEditor())) { slotPads = slotDePista (*t); acords = pr->acordsTeclat(); }
+        }
+        servei.setChordPadTeclat (slotPads, acords);
     }
     {
         const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.vistaMescles;

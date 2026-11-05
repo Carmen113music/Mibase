@@ -87,13 +87,14 @@ public:
     bool insereix = false;     // enganxar: false = trepitja; true = aparta el que hi ha (tecla Insert)
 
     /** Els editors MIDI oberts (Piano Rolls apilats a la zona de baix, fins a 3). Cada un mostra un clip; un editor
-        bloquejat es queda amb el seu clip, i el que no ho està segueix el clip MIDI que es tria. */
+        bloquejat es queda amb el seu clip, i el que no ho està obre el clip MIDI on es fa doble clic. */
     struct EditorMidi
     {
         mibase::edicio::RefClip clip;
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
         bool pads = false;          // a baix, els pads d'acords (Chord Pad) en lloc de les velocitats
+        std::vector<std::string> fantasmes;   // 0.10: pistes (id) de les quals es veuen les notes fantasma (per defecte, cap)
     };
     static constexpr int maxEditors = 3;
     std::vector<EditorMidi> editors;

@@ -681,11 +681,24 @@ namespace mibase::harmonia
         return nom;
     }
 
+    std::string textPad (const AcordPad& a)
+    {
+        if (a.buit() || a.inversio == 0) return nomPad (a);
+        return nomPad (a) + "^" + std::to_string (a.inversio);
+    }
+
     AcordPad llegeixAcord (const std::string& text)
     {
         AcordPad a;
         std::string s;
         for (char c : text) if (c != ' ' && c != '\t') s += c;
+        // Inversió: «^n» al final.
+        int inversio = 0;
+        if (auto k = s.rfind ('^'); k != std::string::npos)
+        {
+            try { inversio = std::clamp (std::stoi (s.substr (k + 1)), -maxInversio, maxInversio); } catch (...) { return {}; }
+            s = s.substr (0, k);
+        }
         substitueix (s, "\xE2\x99\xAD", "b");   // ♭
         substitueix (s, "\xE2\x99\xAF", "#");   // ♯
         substitueix (s, "\xC2\xB0", "dim");     // °
@@ -746,6 +759,7 @@ namespace mibase::harmonia
                 }
             if (! trobat) return {};   // no s'entén
         }
+        a.inversio = inversio;
         return a;
     }
 
@@ -778,6 +792,8 @@ namespace mibase::harmonia
             n[n.size() - 2] -= 12;
             std::sort (n.begin(), n.end());
         }
+        for (int k = 0; k < a.inversio; ++k) { n.front() += 12; std::sort (n.begin(), n.end()); }
+        for (int k = 0; k > a.inversio; --k) { n.back() -= 12; std::sort (n.begin(), n.end()); }
         if (a.baix >= 0 && a.baix != a.arrel)
         {
             int b = n.front() - 1;
