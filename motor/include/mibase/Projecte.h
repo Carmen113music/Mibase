@@ -96,6 +96,16 @@ namespace mibase
         double faderDb = 0.0;    // de -60 (silenci) a +6
         double pan = 0.0;        // de -1 (tot a l'esquerra) a +1 (tot a la dreta)
         int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
+        std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
+    };
+
+    /** Carpeta de pistes (0.11): agrupa pistes (bateria, guitarres…). Plegada: a la taula de treball les seves pistes
+        es veuen com una sola fila. Amagada: no es veuen a la taula de treball (però sonen). */
+    struct Carpeta
+    {
+        std::string id;          // «fN»
+        std::string nom;
+        bool plegada = false, amagada = false;
     };
 
     /** Tonalitat: nota fonamental (0 = C … 11 = B) i escala (índex de harmonia::escales()). */
@@ -121,7 +131,16 @@ namespace mibase
     struct Bucle
     {
         bool marcat = false, actiu = false;
-        int de = 0, a = 0;
+        double de = 0, a = 0;    // en compassos interns (0.13: amb decimals, per a seleccions a Temps o Lliure)
+    };
+
+    /** Part de la cançó (0.13): intro, estrofa, tornada… marcada a la regla. En compassos interns. */
+    struct Part
+    {
+        std::string id;          // «mN»
+        std::string nom;
+        double de = 0, a = 0;
+        std::uint32_t rgb = 0;
     };
 
     struct Projecte
@@ -136,6 +155,8 @@ namespace mibase
 
         std::vector<Presa> preses;
         std::vector<Pista> pistes;
+        std::vector<Carpeta> carpetes;
+        std::vector<Part> parts;
         Bucle bucle;
         Snap snap = Snap::Compas;
         bool clic = true;

@@ -229,6 +229,15 @@ void ServeiAudio::setMapaTeclats (const std::vector<std::pair<juce::String, int>
     teclatTriada = triada;
 }
 
+void ServeiAudio::setChordPadTeclat (int slot, const std::array<std::vector<int>, 12>& acords)
+{
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    if (slot == slotChordPad && acords == acordsChordPad) return;
+    slotChordPad = slot;
+    acordsChordPad = acords;
+    for (int i = 0; i < 12; ++i) teclatAcords.setAcord (i, acords[(size_t) i]);
+}
+
 void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce::MidiMessage& m)
 {
     if (m.getRawDataSize() > 3 || m.isMidiClock() || m.isActiveSense())
@@ -249,8 +258,14 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     for (auto& [teclat, slot] : mapaTeclats)
         if (teclat == id) desti = slot;
     if (desti == -2 && teclatTriada.isNotEmpty() && teclatTriada != id) desti = -1;
-    if (! motorEstudi.enviaTeclat (e.estat, e.dada1, e.dada2, desti))
-        motorDiag.enviaMidi (e);
+    // Chord Pad: si la pista on va el teclat el té obert, cada tecla toca l'acord del seu pad.
+    const int slot = desti == -2 ? motorEstudi.getSlotTeclat() : desti;
+    const bool acords = slotChordPad >= 0 && slot == slotChordPad;
+    teclatAcords.tradueix (e.estat, e.dada1, e.dada2, acords, [this, desti] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    {
+        if (! motorEstudi.enviaTeclat (es, d1, d2, desti))
+            motorDiag.enviaMidi ({ es, d1, d2 });
+    });
     cuaMostrar.posa (e);
 }
 

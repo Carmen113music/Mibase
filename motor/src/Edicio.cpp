@@ -190,6 +190,45 @@ namespace mibase::edicio
         return true;
     }
 
+    bool crossfade (Projecte& p, int pista, double t0, double t1)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size() || t1 - t0 < 0.0005) return false;
+        auto& cl = p.pistes[(size_t) pista].clips;
+        auto toca = [&] (const Clip& c) { return ! c.midi && ! c.presa.empty() && c.iniciVisible() < t1 && c.fiVisible() > t0; };
+        int u = -1, l = -1;
+        for (int i = (int) cl.size() - 1; i >= 0; --i)
+            if (toca (cl[(size_t) i])) { if (u < 0) u = i; else { l = i; break; } }
+        if (u < 0 || l < 0) return false;
+        const double len = t1 - t0;
+        const auto& U = cl[(size_t) u];
+        const auto& L = cl[(size_t) l];
+        const bool entra = U.iniciVisible() > L.iniciVisible() + 1e-9
+                        && (U.fiVisible() >= L.fiVisible() - 1e-9 || std::abs (t0 - U.iniciVisible()) <= std::abs (t1 - U.fiVisible()));
+        if (entra)
+        {
+            // El tros de sota que hi ha després només es conserva (partint) si torna a sonar quan el de dalt s'acaba.
+            if (L.fiVisible() > U.fiVisible() + longitudMinima && talla (p, pista, l, t1) && u > l) ++u;
+            auto& lo = cl[(size_t) l];
+            lo.fi = t1 - lo.pos;
+            lo.fadeOut = std::min (len, lo.longitud());
+            auto& up = cl[(size_t) u];
+            up.inici = t0 - up.pos;
+            up.fadeIn = std::min (len, up.longitud());
+        }
+        else
+        {
+            int peca = l;
+            if (L.iniciVisible() < U.iniciVisible() - longitudMinima && talla (p, pista, l, t0)) { peca = l + 1; if (u > l) ++u; }
+            auto& lo = cl[(size_t) peca];
+            lo.inici = t0 - lo.pos;
+            lo.fadeIn = std::min (len, lo.longitud());
+            auto& up = cl[(size_t) u];
+            up.fi = t1 - up.pos;
+            up.fadeOut = std::min (len, up.longitud());
+        }
+        return true;
+    }
+
     namespace
     {
         /** Retalla la finestra del clip a [a, b) (absolut). Retorna false si no en queda res. */
@@ -449,6 +488,110 @@ namespace mibase::edicio
         auto t = p.pistes[(size_t) de];
         p.pistes.erase (p.pistes.begin() + de);
         p.pistes.insert (p.pistes.begin() + a, t);
+    }
+
+    std::string creaPart (Projecte& p, const std::string& nom, double de, double a, std::uint32_t rgb)
+    {
+        Part x;
+        x.id = idNou (p, 'm');
+        x.nom = nom;
+        x.de = std::max (0.0, std::min (de, a));
+        x.a = std::max (de, a);
+        x.rgb = rgb;
+        p.parts.push_back (x);
+        return x.id;
+    }
+
+    Part* part (Projecte& p, const std::string& id)
+    {
+        for (auto& x : p.parts) if (x.id == id && ! id.empty()) return &x;
+        return nullptr;
+    }
+
+    void esborraPart (Projecte& p, const std::string& id)
+    {
+        p.parts.erase (std::remove_if (p.parts.begin(), p.parts.end(), [&id] (const Part& x) { return x.id == id; }), p.parts.end());
+    }
+
+    int partA (const Projecte& p, double t)
+    {
+        const double c = t / segonsPerCompas (p);
+        for (int i = (int) p.parts.size() - 1; i >= 0; --i)
+            if (c >= p.parts[(size_t) i].de && c < p.parts[(size_t) i].a) return i;
+        return -1;
+    }
+
+    Carpeta* carpeta (Projecte& p, const std::string& id)
+    {
+        for (auto& c : p.carpetes) if (c.id == id && ! id.empty()) return &c;
+        return nullptr;
+    }
+
+    std::string creaCarpeta (Projecte& p, const std::string& nom, const std::vector<int>& pistes)
+    {
+        Carpeta c;
+        c.id = idNou (p, 'f');
+        c.nom = nom;
+        p.carpetes.push_back (c);
+        // Per ordre: la primera on és; la resta, seguides darrere seu.
+        std::vector<std::string> ids;
+        for (int i : pistes) if (i >= 0 && i < (int) p.pistes.size()) ids.push_back (p.pistes[(size_t) i].id);
+        std::vector<std::pair<int, std::string>> ordre;
+        for (auto& id : ids)
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) ordre.push_back ({ i, id });
+        std::sort (ordre.begin(), ordre.end());
+        for (auto& [i0, id] : ordre)
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) { posaACarpeta (p, i, c.id); break; }
+        return c.id;
+    }
+
+    int posaACarpeta (Projecte& p, int pista, const std::string& id)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return pista;
+        if (! id.empty() && carpeta (p, id) == nullptr) return pista;
+        auto& t = p.pistes[(size_t) pista];
+        if (t.carpeta == id) return pista;
+        t.carpeta = id;
+        if (id.empty()) return pista;
+        int ultima = -1;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (i != pista && p.pistes[(size_t) i].carpeta == id) ultima = i;
+        if (ultima < 0) return pista;                      // la primera: es queda on és
+        const int desti = ultima < pista ? ultima + 1 : ultima;
+        mouPista (p, pista, desti);
+        return desti;
+    }
+
+    void esborraCarpeta (Projecte& p, const std::string& id)
+    {
+        for (auto& t : p.pistes) if (t.carpeta == id) t.carpeta.clear();
+        p.carpetes.erase (std::remove_if (p.carpetes.begin(), p.carpetes.end(), [&id] (const Carpeta& c) { return c.id == id; }),
+                          p.carpetes.end());
+    }
+
+    std::vector<int> pistesDeCarpeta (const Projecte& p, const std::string& id)
+    {
+        std::vector<int> r;
+        for (int i = 0; i < (int) p.pistes.size(); ++i) if (! id.empty() && p.pistes[(size_t) i].carpeta == id) r.push_back (i);
+        return r;
+    }
+
+    std::vector<int> filesVisibles (const Projecte& p)
+    {
+        std::vector<int> r (p.pistes.size(), 1);
+        for (auto& c : p.carpetes)
+        {
+            if (! c.plegada && ! c.amagada) continue;
+            bool primera = true;
+            for (int i : pistesDeCarpeta (p, c.id))
+            {
+                r[(size_t) i] = (c.amagada || ! primera) ? 0 : 2;
+                primera = false;
+            }
+        }
+        return r;
     }
 
     void triaGravacio (Projecte& p, int pista)
