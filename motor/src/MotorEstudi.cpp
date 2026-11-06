@@ -1,5 +1,6 @@
 #include "mibase/MotorEstudi.h"
 #include "mibase/Midi.h"
+#include "mibase/Edicio.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -108,7 +109,19 @@ namespace mibase
         pla->clicVolum = (float) p.clicVolum;
         pla->clicSo = p.clicSo;
         pla->master = guanyDb (p.masterDb);
-        if (p.bucle.marcat && p.bucle.actiu && p.bucle.a > p.bucle.de)
+        const double spcRuta = 60.0 / pla->tempo * pla->compasNum;
+        if (const auto* es = edicio::estructuraActiva (p))
+            for (auto& pc : es->peces)
+                for (auto& x : p.parts)
+                    if (x.id == pc.part && x.a > x.de)
+                    {
+                        Pla::Tram tr { x.de * spcRuta, x.a * spcRuta, {} };
+                        for (auto& id : pc.silencis)
+                            for (auto& t : p.pistes)
+                                if (t.id == id) tr.silenci.set ((size_t) (slotDePista (t) % maxSlots));
+                        pla->ruta.push_back (tr);
+                    }
+        if (p.bucle.marcat && p.bucle.actiu && p.bucle.a > p.bucle.de && pla->ruta.empty())
         {
             const double spc = 60.0 / pla->tempo * pla->compasNum;
             pla->bucle = true;
@@ -149,7 +162,10 @@ namespace mibase
                 std::vector<std::pair<double, double>> trams { { c.pos + c.inici, c.pos + c.fi } };
                 for (size_t j = k + 1; j < pp.clips.size(); ++j)
                 {
-                    const double a = pp.clips[j].pos + pp.clips[j].inici, b = pp.clips[j].pos + pp.clips[j].fi;
+                    // 0.14: durant els fades del de dalt (crossfade), el de sota també sona.
+                    const double a = pp.clips[j].pos + pp.clips[j].inici + pp.clips[j].fadeIn,
+                                 b = pp.clips[j].pos + pp.clips[j].fi - pp.clips[j].fadeOut;
+                    if (b <= a) continue;
                     std::vector<std::pair<double, double>> nous;
                     for (auto& t : trams)
                     {
@@ -278,7 +294,7 @@ namespace mibase
                 }
             }
             // Notes que comencen dins aquest bloc (si la pista no està silenciada).
-            if (t.sona)
+            if (t.sona && ! silenciAra[(size_t) (t.slot % maxSlots)])
             {
                 auto it = std::lower_bound (t.notes.begin(), t.notes.end(), pos, [this] (const Pla::Nota& x, long long p)
                                             { return std::llround (x.ini * fs) < p; });
@@ -395,7 +411,7 @@ namespace mibase
             else if (! reproduint)
                 continue;   // aturat: només sonen els instruments
 
-            const float g = t.sona ? t.guany : 0.0f;
+            const float g = t.sona && ! silenciAra[(size_t) s] ? t.guany : 0.0f;
             const float objL = g * (t.pan <= 0.0f ? 1.0f : 1.0f - t.pan);
             const float objR = g * (t.pan >= 0.0f ? 1.0f : 1.0f + t.pan);
             if (! gFet[(size_t) s]) { gL[(size_t) s] = objL; gR[(size_t) s] = objR; gFet[(size_t) s] = true; }
@@ -599,6 +615,7 @@ namespace mibase
                 case Ordre::Tipus::Reprodueix:
                     if ((Estat) estat.load() == Estat::Comptant || (Estat) estat.load() == Estat::Gravant) break;
                     pos = (long long) std::llround (o.t * fs);
+                    entraARuta();
                     compteFins = pos;
                     mesclador.reinicia();
                     estat.store ((int) Estat::Sonant, std::memory_order_release);
@@ -611,6 +628,8 @@ namespace mibase
                     if ((Estat) estat.load() == Estat::Sonant)
                     {
                         pos = (long long) std::llround (o.t * fs);
+                        entraARuta();
+                        compteFins = std::min (compteFins, pos);
                         mesclador.reinicia();
                     }
                     break;
@@ -619,6 +638,8 @@ namespace mibase
                     compteFins = (long long) std::llround (o.t2 * fs);
                     entradaGrava = std::clamp (o.a, 0, maxEntrades - 1);
                     canalsGrava = o.b == 2 ? 2 : 1;
+                    tramRuta = -1;   // gravant, sempre lineal
+                    mesclador.setSilenci ({});
                     mesclador.reinicia();
                     estat.store ((int) (pos < compteFins ? Estat::Comptant : Estat::Gravant), std::memory_order_release);
                     break;
@@ -671,6 +692,10 @@ namespace mibase
                 m = (int) (fiBucle - pos);
             if (gravant && pos < compteFins && pos + m > compteFins)
                 m = (int) (compteFins - pos);   // el canvi de «compte» a «grava», just al temps
+            // Estructura: el tram acaba al seu final i salta al següent (o s'atura).
+            const bool ambRuta = ! gravant && tramRuta >= 0 && tramRuta < (int) pla->ruta.size();
+            const long long fiTram = ambRuta ? (long long) std::llround (pla->ruta[(size_t) tramRuta].fi * fs) : 0;
+            if (ambRuta && pos + m > fiTram) m = (int) std::max<long long> (0, fiTram - pos);
 
             std::fill (mixL.begin(), mixL.begin() + m, 0.0f);
             std::fill (mixR.begin(), mixR.begin() + m, 0.0f);
@@ -694,6 +719,23 @@ namespace mibase
 
             pos += m;
             fet += m;
+            if (ambRuta && pos >= fiTram)
+            {
+                if (++tramRuta >= (int) pla->ruta.size())
+                {
+                    // Final de l'estructura: s'atura (la resta del bloc, en silenci).
+                    tramRuta = -1;
+                    mesclador.setSilenci ({});
+                    mesclador.apagaNotes();
+                    estat.store ((int) Estat::Aturat, std::memory_order_release);
+                    break;
+                }
+                pos = (long long) std::llround (pla->ruta[(size_t) tramRuta].ini * fs);
+                compteFins = std::min (compteFins, pos);   // sense compte d'entrada (si no, sonaria la claqueta)
+                mesclador.setSilenci (pla->ruta[(size_t) tramRuta].silenci);
+                mesclador.reinicia();
+                continue;
+            }
             if (potTornar && pos >= fiBucle)
             {
                 pos = (long long) std::llround (pla->bucleIni * fs);
@@ -706,6 +748,18 @@ namespace mibase
             }
         }
         posicio.store ((double) pos / fs, std::memory_order_relaxed);
+    }
+
+    void MotorEstudi::entraARuta() noexcept
+    {
+        // Amb estructura: el tram on cau el capçal (el primer que el conté) o, si no n'hi ha cap, el primer tram.
+        tramRuta = -1;
+        if (pla == nullptr || pla->ruta.empty()) { mesclador.setSilenci ({}); return; }
+        const double t = (double) pos / fs;
+        for (int i = 0; i < (int) pla->ruta.size(); ++i)
+            if (t >= pla->ruta[(size_t) i].ini - 1e-9 && t < pla->ruta[(size_t) i].fi) { tramRuta = i; break; }
+        if (tramRuta < 0) { tramRuta = 0; pos = (long long) std::llround (pla->ruta[0].ini * fs); }
+        mesclador.setSilenci (pla->ruta[(size_t) tramRuta].silenci);
     }
 
     void MotorEstudi::sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept

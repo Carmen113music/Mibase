@@ -131,7 +131,7 @@ public:
         for (auto* c : std::initializer_list<juce::Component*> { &btInstrument, &btSo, &btTeclat, &btEscala, &btAuto, &mode, &btAcord, &setenes, &durada, &btMinim,
                                                                  &btFonamental, &btTipus, &inversio, &voicing, &octava, &btDobla, &btBaix,
                                                                  &btEscolta, &btPosa, &btFesAcord, &btFesEscala, &btInvAmunt, &btInvAvall,
-                                                                 &btEnllaca, &btProgressio, &compassos, &btEscoltaProg, &btInsereix })
+                                                                 &btEnllaca, &btProgressio, &compassos, &btEscoltaProg, &btInsereix, &btAplicaPads })
             addAndMakeVisible (c);
 
         reproductor.tic = [this] { pasProgressio(); };
@@ -140,12 +140,23 @@ public:
         seccions[0] = { "Pista", "pista", { &btInstrument, &btSo, &btTeclat }, false, {} };
         seccions[1] = { "Tonalitat", "tonalitat", { &btEscala, &btAuto }, false, {} };
         for (auto* b : arrels) seccions[1].fills.push_back (b);
-        seccions[2] = { "Escala al Piano Roll", "escala", { &mode, &btAcord }, false, {} };
+        seccions[2] = { "Escala al Piano Roll", "escala", { &mode }, false, {} };   // 0.12: sense «Ressalta l'acord» (sempre encès)
+        btAcord.setVisible (false);
         seccions[3] = { "Acords de la tonalitat", "acords", { &setenes, &durada, &btMinim }, false, {} };
         for (auto* b : graus) seccions[3].fills.push_back (b);
         seccions[4] = { "Constructor d'acords", "constructor", { &btFonamental, &btTipus, &inversio, &voicing, &octava, &btDobla, &btBaix,
                                                                  &btEscolta, &btPosa, &btFesAcord, &btFesEscala, &btInvAvall, &btInvAmunt, &btEnllaca }, false, {} };
-        seccions[5] = { juce::String::fromUTF8 ("Progressió"), "progressio", { &btProgressio, &compassos, &btEscoltaProg, &btInsereix }, false, {} };
+        seccions[5] = { juce::String::fromUTF8 ("Progressió"), "progressio", { &btProgressio, &compassos, &btEscoltaProg, &btInsereix, &btAplicaPads }, false, {} };
+        btAplicaPads.setTooltip ("Posa els acords d'aquesta progressió als pads del Chord Pad (per ordre: C, C#, D…)"_ca);
+        btAplicaPads.onClick = [this]
+        {
+            auto* pr = editor ? editor() : nullptr;
+            if (pr == nullptr) return;
+            std::vector<std::string> v;
+            for (auto& a : hm::acordsProgressio (tonalitat(), progressio, setenes.getTriat() == 1))
+                if (std::find (v.begin(), v.end(), a.nom) == v.end()) v.push_back (a.nom);
+            pr->posaPads (v, txt (hm::progressions()[(size_t) progressio].nom).toStdString());
+        };
         for (auto& sc : seccions) sc.plegada = ajustos.getBoolValue ("panellHarmonia.plegada." + sc.clau, false);
         actualitza();
     }
@@ -254,8 +265,6 @@ public:
         if (obre (2))
         {
             mode.setBounds (fila (32));
-            btAcord.setBounds (fila (30));
-            zAcordAra = fila (20);
             y += 8;
         }
 
@@ -279,7 +288,10 @@ public:
             y += 8;
         }
 
-        if (obre (4))
+        // 0.12: el constructor d'acords ja no hi és (en Roger: massa complicat).
+        seccions[4].rect = {};
+        for (auto* c : seccions[4].fills) c->setVisible (false);
+        if (false)
         {
             {
                 auto f = fila (30);
@@ -327,6 +339,7 @@ public:
                 f.removeFromLeft (4);
                 btInsereix.setBounds (f);
             }
+            btAplicaPads.setBounds (fila (30));
         }
         alcada = y + 10;
     }
@@ -336,6 +349,7 @@ public:
         // Títols de les seccions, amb un triangle (obert / plegat).
         for (auto& sc : seccions)
         {
+            if (sc.rect.isEmpty()) continue;
             auto r = sc.rect;
             g.setColour (juce::Colours::black.withAlpha (0.22f));
             g.fillRoundedRectangle (r.toFloat(), 4.0f);
@@ -765,6 +779,7 @@ private:
     Segmentat compassos { { "2", "4", "8", "16" } };
     Boto btEscoltaProg { "Escolta", dibuix::Icona::Play, Boto::Estil::Tecla };
     Boto btInsereix { "Insereix", dibuix::Icona::Notes, Boto::Estil::Primari };
+    Boto btAplicaPads { "Aplica al Chord Pad", std::nullopt, Boto::Estil::Secundari };
 
     juce::Rectangle<int> zPista, zEstat, zNotes, zAcordAra, zAjudaAcords, zDurada, zTriades, zProgressio;
     int alcada = 900;

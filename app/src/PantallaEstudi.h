@@ -4,6 +4,8 @@
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
+#include "PanellCarpetes.h"
+#include "TaulaEstructura.h"
 #include "PanellColor.h"
 #include "PanellHarmonia.h"
 #include "PianoRoll.h"
@@ -44,14 +46,19 @@ public:
     void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura, 4 play, 5 grava
     /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
     int estatTransport() const noexcept { return estat.transport; }
+    /** Botó del bucle del transport (0.11): encén o apaga el bucle (si no n'hi ha, en marca un de 4 compassos al capçal). */
+    void commutaBucle();
+    void fesCrossfade();
+    bool bucleActiu() const noexcept { return estat.projecte.bucle.marcat && estat.projecte.bucle.actiu; }
     std::pair<juce::String, juce::String> textPosicio() const;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& k) override;
-    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails&) override
+    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails& d) override
     {
         if (estat.segell.perArrossegar) { estat.segell = {}; estat.avisa(); }
+        if (d.description.toString().startsWith ("mibase-pista:")) { estat.info.clear(); estat.avisa(); }
         zonaEditors.repintaTots();
     }
 
@@ -105,6 +112,7 @@ private:
     void canviaModeRang (bool rang);
     void canviaInsereix (bool ins);
     void silenciaTriat();
+    void demanaNomCarpeta (std::vector<int> pistes, const std::string& idACanviar);
     void zoomA (double a, double b, int pistaDe, int pistaFins);
     void zoomTot();
     void zoomTriat();
@@ -134,11 +142,14 @@ private:
     // Seccions.
     ColumnaEsquerra esquerra { estat };
     Capcaleres capcaleres { estat };
+    PanellCarpetes carpetes { estat };
+    Boto btCarpetes { {}, dibuix::Icona::Carpeta, Boto::Estil::Tecla };
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
+    TaulaEstructura taulaEstructura { estat };
     PanellPista panell { estat };
-    Divisor divEsquerra, divNoms, divPanell;
+    Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
@@ -146,7 +157,7 @@ private:
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
     int altPianoRoll = 430, altInici = 0;
     juce::ScrollBar barraV { true }, barraH { false };
-    int ampleEsquerra = 132, ampleNoms = 190, amplePanell = 270, ampleInici = 0;
+    int ampleEsquerra = 132, ampleNoms = 190, ampleCarpetes = 190, amplePanell = 270, ampleInici = 0;
     juce::Rectangle<int> zonaTitolNoms;
 
     // So i gravació.
