@@ -214,6 +214,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     // Carpetes de pistes (0.11).
     addChildComponent (carpetes);
+    addChildComponent (taulaEstructura);
     addChildComponent (divCarpetes);
     estat.panellCarpetes = ajustos.getBoolValue ("estudi.panellCarpetes", false);
     ampleCarpetes = juce::jlimit (130, 400, ajustos.getIntValue ("estudi.ampleCarpetes", 190));
@@ -373,7 +374,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         servei.setChordPadTeclat (slotPads, acords);
     }
     {
-        const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.vistaMescles;
+        const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.foraTreball();
         if (volVisible != zonaEditors.isVisible() && finestraPianoRoll == nullptr) colocaSeccions();
         else if (esquerra.ambEditor() != (esquerra.getWidth() == ampleEsquerraEditor)) colocaSeccions();
     }
@@ -399,8 +400,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         eines[i]->setToggleState ((int) estat.eina == i, juce::dontSendNotification);
     if (snap.getTriat() != (int) p.snap) snap.setTriat ((int) p.snap);
 
-    const bool mesclesVisible = mescles.isVisible();
-    if (mesclesVisible != estat.vistaMescles)
+    if (mescles.isVisible() != estat.vistaMescles || taulaEstructura.isVisible() != estat.vistaEstructura)
         colocaSeccions();
     actualitzaBarres();
     repaint (zonaBarra);
@@ -409,8 +409,6 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void PantallaEstudi::triaEina (Eina e)
 {
-    // 0.14: la X amb un tros triat fa el crossfade (i no canvia d'eina).
-    if (e == Eina::Silenci && estat.rang.actiu) { fesCrossfade(); estat.avisa(); return; }
     estat.eina = e;
     if (e != Eina::Fletxa && (estat.triats.size() > 1 || estat.rang.actiu)) estat.capTriat();
     estat.avisa();
@@ -437,7 +435,7 @@ void PantallaEstudi::paint (juce::Graphics& g)
         g.drawFittedText (text, zonaInfo, juce::Justification::centredLeft, 1, 0.8f);
     }
 
-    if (! estat.vistaMescles)
+    if (! estat.foraTreball())
     {
         auto titol = [&] (juce::Rectangle<int> r, const juce::String& t)
         {
@@ -453,7 +451,7 @@ void PantallaEstudi::paint (juce::Graphics& g)
 void PantallaEstudi::colocaSeccions()
 {
     auto r = getLocalBounds().withTrimmedTop (alcadaBarra);
-    const bool m = estat.vistaMescles;
+    const bool m = estat.foraTreball();
 
     const bool ambEditor = estat.pianoRoll && ! m;   // amb un editor obert, la columna esquerra té el panell d'harmonia
     int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
@@ -484,7 +482,9 @@ void PantallaEstudi::colocaSeccions()
     }
     const int baixSeccions = r.getBottom();
 
-    mescles.setVisible (m);
+    mescles.setVisible (estat.vistaMescles);
+    taulaEstructura.setVisible (estat.vistaEstructura);
+    panell.setVisible (! estat.vistaEstructura);
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
         c->setVisible (! m);
     carpetes.setVisible (ambCarpetes);
@@ -494,6 +494,9 @@ void PantallaEstudi::colocaSeccions()
     if (m)
     {
         mescles.setBounds (r);
+        // La taula d'estructura també ocupa el lloc del panell d'info (hi van les parts per arrossegar).
+        taulaEstructura.ampleDreta = panell.getWidth();
+        taulaEstructura.setBounds (r.withRight (panell.getRight()));
         zonaTitolNoms = {};
     }
     else

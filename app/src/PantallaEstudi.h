@@ -5,6 +5,7 @@
 #include "Historial.h"
 #include "Instruments.h"
 #include "PanellCarpetes.h"
+#include "TaulaEstructura.h"
 #include "PanellColor.h"
 #include "PanellHarmonia.h"
 #include "PianoRoll.h"
@@ -146,6 +147,7 @@ private:
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
+    TaulaEstructura taulaEstructura { estat };
     PanellPista panell { estat };
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };

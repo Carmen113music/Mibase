@@ -165,6 +165,9 @@ public:
 
     /** Taula de treball (pistes) o taula de mescles. */
     bool vistaMescles = false;
+    /** 0.15: taula d'estructura (en lloc de la taula de treball). */
+    bool vistaEstructura = false;
+    bool foraTreball() const noexcept { return vistaMescles || vistaEstructura; }
 
     // ---- Transport (la pantalla ho copia del motor unes 30 vegades per segon) ----
     int transport = 0;               // 0 aturat, 1 sonant, 2 comptant, 3 gravant

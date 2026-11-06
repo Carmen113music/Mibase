@@ -1993,21 +1993,23 @@ void Capcaleres::mouseDoubleClick (const juce::MouseEvent& e)
 //==============================================================================
 ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
 {
-    for (auto* b : { &btTreball, &btMescles })
+    for (auto* b : { &btTreball, &btMescles, &btEstructura })
     {
         addAndMakeVisible (b);
         b->setMidaText (12.0f);
         b->setLlum (vintage::ledTaronja);
     }
-    btTreball.onClick = [this] { estat.vistaMescles = false; estat.avisa(); };
-    btMescles.onClick = [this] { estat.vistaMescles = true; estat.avisa(); };
+    btTreball.onClick = [this] { estat.vistaMescles = estat.vistaEstructura = false; estat.avisa(); };
+    btMescles.onClick = [this] { estat.vistaMescles = true; estat.vistaEstructura = false; estat.avisa(); };
+    btEstructura.onClick = [this] { estat.vistaEstructura = true; estat.vistaMescles = false; estat.avisa(); };
     changeListenerCallback (nullptr);
 }
 
 void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    btTreball.setToggleState (! estat.vistaMescles, juce::dontSendNotification);
+    btTreball.setToggleState (! estat.foraTreball(), juce::dontSendNotification);
     btMescles.setToggleState (estat.vistaMescles, juce::dontSendNotification);
+    btEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
     if (panellEditor != nullptr && panellEditor->isVisible() != ambEditor())
     {
         panellEditor->setVisible (ambEditor());
@@ -2022,6 +2024,8 @@ void ColumnaEsquerra::resized()
     btTreball.setBounds (r.removeFromTop (44));
     r.removeFromTop (6);
     btMescles.setBounds (r.removeFromTop (44));
+    r.removeFromTop (6);
+    btEstructura.setBounds (r.removeFromTop (44));
     r.removeFromTop (16);
     if (panellEditor != nullptr) panellEditor->setBounds (r.withTrimmedLeft (-2).withTrimmedRight (-4).withTrimmedBottom (-6));
     zonaNom = r.removeFromTop (44);
@@ -2039,7 +2043,7 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     // A la taula de mescles, cada pista ja té la seva tira: aquí només hi ha les pestanyes.
     // Amb un editor obert, hi ha el seu panell (el d'harmonia) en lloc del fader.
-    if (estat.vistaMescles || ambEditor()) return;
+    if (estat.foraTreball() || ambEditor()) return;
 
     auto* t = estat.pista (estat.pistaTriada);
     auto cap = zonaNom.withTrimmedLeft (2);
@@ -2096,7 +2100,7 @@ void ColumnaEsquerra::mouseDown (const juce::MouseEvent& e)
     movent = Arrossega::Res;
     if (ambEditor()) return;
     auto* t = estat.pista (estat.pistaTriada);
-    if (t == nullptr || estat.vistaMescles) return;
+    if (t == nullptr || estat.foraTreball()) return;
 
     auto tecles = zonaTecles.withSizeKeepingCentre (28 * 3 + 8, 26);
     for (int i = 0; i < 3; ++i)
@@ -2161,7 +2165,7 @@ void ColumnaEsquerra::mouseUp (const juce::MouseEvent&)
 
 void ColumnaEsquerra::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (estat.pista (estat.pistaTriada) == nullptr || estat.vistaMescles || ambEditor()) return;
+    if (estat.pista (estat.pistaTriada) == nullptr || estat.foraTreball() || ambEditor()) return;
     const bool pan = zonaPan.contains (e.getPosition());
     if (! pan && ! zonaFader.contains (e.getPosition())) return;
     comencaCanvi();
@@ -2443,6 +2447,27 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
     addChildComponent (btTreu);
     btDuplica.onClick = [this] { if (onDuplica) onDuplica(); };
     btTreu.onClick = [this] { if (onTreu) onTreu(); };
+    addAndMakeVisible (btEstructura);
+    btEstructura.setTooltip ("Quina estructura sona en fer play: la línia de temps tal com és (lineal) o una de la taula d'estructura"_ca);
+    btEstructura.onClick = [this]
+    {
+        const auto& p = estat.projecte;
+        juce::PopupMenu m;
+        m.addItem (1, "Lineal (la línia de temps tal com és)"_ca, true, p.estructuraActiva.empty());
+        for (int i = 0; i < (int) p.estructures.size(); ++i)
+            m.addItem (10 + i, juce::String (i + 1) + " · " + dibuix::utf8 (p.estructures[(size_t) i].nom)
+                                   + " (" + juce::String ((int) p.estructures[(size_t) i].peces.size()) + " peces)",
+                       true, p.estructures[(size_t) i].id == p.estructuraActiva);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btEstructura), [this] (int r)
+        {
+            if (r <= 0) return;
+            comencaCanvi();
+            restaura();
+            auto& pp = estat.projecte;
+            pp.estructuraActiva = r == 1 ? std::string() : pp.estructures[(size_t) (r - 10)].id;
+            acabaCanvi();
+        });
+    };
 }
 
 void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -2450,6 +2475,10 @@ void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
     const bool hiHaClips = ! estat.triats.empty() || estat.rang.actiu;
     btDuplica.setVisible (hiHaClips);
     btTreu.setVisible (hiHaClips);
+    {
+        const auto* e = ed::estructura (estat.projecte, estat.projecte.estructuraActiva);
+        btEstructura.setButtonText (e == nullptr ? "Estructura: lineal"_ca : "Estructura: "_ca + dibuix::utf8 (e->nom));
+    }
     repaint();
 }
 
@@ -2459,6 +2488,7 @@ void PanellPista::resized()
     btDuplica.setBounds (botons.removeFromLeft (botons.getWidth() / 2 - 5));
     botons.removeFromLeft (10);
     btTreu.setBounds (botons);
+    btEstructura.setBounds (getLocalBounds().reduced (18, 16).removeFromBottom (34));
 }
 
 void PanellPista::paint (juce::Graphics& g)

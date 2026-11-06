@@ -521,6 +521,28 @@ namespace mibase::edicio
         return -1;
     }
 
+    const Estructura* estructuraActiva (const Projecte& p)
+    {
+        for (auto& e : p.estructures)
+            if (! p.estructuraActiva.empty() && e.id == p.estructuraActiva) return e.peces.empty() ? nullptr : &e;
+        return nullptr;
+    }
+
+    Estructura* estructura (Projecte& p, const std::string& id)
+    {
+        for (auto& e : p.estructures) if (e.id == id && ! id.empty()) return &e;
+        return nullptr;
+    }
+
+    std::string creaEstructura (Projecte& p, const std::string& nom)
+    {
+        Estructura e;
+        e.id = idNou (p, 'e');
+        e.nom = nom;
+        p.estructures.push_back (e);
+        return e.id;
+    }
+
     Carpeta* carpeta (Projecte& p, const std::string& id)
     {
         for (auto& c : p.carpetes) if (c.id == id && ! id.empty()) return &c;

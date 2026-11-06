@@ -952,6 +952,38 @@ int main()
         comprova (true, "publicar i recollir molts plans no peta");
     });
 
+    prova ("Estructura: el capçal salta de part en part i silencia pistes (0.15)", [&]
+    {
+        namespace ed = mibase::edicio;
+        Projecte q;   // 120 bpm, 4/4: 2 s per compàs
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 10.0, 0.5f) } };
+        const auto pa = ed::creaPart (q, "A", 0.0, 1.0, 0);   // 0–2 s
+        const auto pb = ed::creaPart (q, "B", 2.0, 3.0, 0);   // 4–6 s
+        const auto e = ed::creaEstructura (q, "1");
+        ed::estructura (q, e)->peces = { { pb, {} }, { pa, { q.pistes[0].id } } };   // B, i A sense la pista
+        q.estructuraActiva = e;
+        comprova (ed::estructuraActiva (q) != nullptr, "estructura activa");
+        MotorEstudi motor;
+        motor.prepara (48000.0, 256);
+        motor.publica (construeixPla (q, m));
+        std::vector<float> o0 (256), o1 (256);
+        float* sort[2] { o0.data(), o1.data() };
+        auto bloc = [&] { std::fill (o0.begin(), o0.end(), 0.0f); std::fill (o1.begin(), o1.end(), 0.0f); motor.processa (nullptr, 0, sort, 2, 256); };
+        motor.reprodueix (3.0);   // fora de cap part de l'estructura → comença a B (4 s)
+        bloc();
+        comprova (motor.getPosicio() > 4.0 && motor.getPosicio() < 4.1 && pic (o0, 0, 256) > 0.2f, "comença a la primera peça (B)");
+        for (int i = 0; i < 380; ++i) bloc();   // ~2 s: ha passat a A (0 s), que no sona
+        comprova (motor.getPosicio() < 1.0 && pic (o0, 0, 256) < 0.01f, "salta a A, amb la pista silenciada (" + std::to_string (motor.getPosicio()) + " " + std::to_string (pic (o0, 0, 256)) + ")");
+        for (int i = 0; i < 400; ++i) bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat, "al final de l'estructura s'atura");
+        q.estructuraActiva.clear();
+        comprova (ed::estructuraActiva (q) == nullptr, "lineal");
+    });
+
     prova ("Gravar: compte d'entrada, entrada triada i fitxer", [&]
     {
         Projecte q;

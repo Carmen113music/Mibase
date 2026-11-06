@@ -362,6 +362,23 @@ namespace mibase::disc
             if (! t.carpeta.empty()
                 && std::none_of (p.carpetes.begin(), p.carpetes.end(), [&t] (const Carpeta& c) { return c.id == t.carpeta; }))
                 t.carpeta.clear();
+        if (j.contains ("estructures") && j["estructures"].is_array())
+            for (auto& e : j["estructures"])
+            {
+                if (! e.is_object()) continue;
+                Estructura es { e.value ("id", std::string()), e.value ("nom", std::string()), {} };
+                if (e.contains ("peces") && e["peces"].is_array())
+                    for (auto& pc : e["peces"])
+                    {
+                        if (! pc.is_object()) continue;
+                        PecaEstructura x { pc.value ("part", std::string()), {} };
+                        if (pc.contains ("silencis") && pc["silencis"].is_array())
+                            for (auto& s : pc["silencis"]) if (s.is_string()) x.silencis.push_back (s.get<std::string>());
+                        es.peces.push_back (x);
+                    }
+                p.estructures.push_back (es);
+            }
+        p.estructuraActiva = j.value ("estructuraActiva", std::string());
         if (j.contains ("parts") && j["parts"].is_array())
             for (auto& e : j["parts"])
                 if (e.is_object())
@@ -460,6 +477,15 @@ namespace mibase::disc
             for (auto& c : p.parts)
                 parts.push_back ({ { "id", c.id }, { "nom", c.nom }, { "de", c.de }, { "a", c.a }, { "rgb", c.rgb } });
             j["parts"] = parts;
+            json estructures = json::array();
+            for (auto& e : p.estructures)
+            {
+                json peces = json::array();
+                for (auto& pc : e.peces) peces.push_back ({ { "part", pc.part }, { "silencis", pc.silencis } });
+                estructures.push_back ({ { "id", e.id }, { "nom", e.nom }, { "peces", peces } });
+            }
+            j["estructures"] = estructures;
+            j["estructuraActiva"] = p.estructuraActiva;
         }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 

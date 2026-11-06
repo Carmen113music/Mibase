@@ -62,6 +62,12 @@ namespace mibase::edicio
     /** La part que hi ha en aquest temps (segons), o -1. Si se'n sobreposen, la de més tard a la llista. */
     int partA (const Projecte& p, double t);
 
+    // ---- Estructures (0.15) ----
+    /** L'estructura que sona (nullptr: lineal, o si no té cap peça). */
+    const Estructura* estructuraActiva (const Projecte& p);
+    Estructura* estructura (Projecte& p, const std::string& id);
+    std::string creaEstructura (Projecte& p, const std::string& nom);
+
     // ---- Carpetes de pistes (0.11) ----
     Carpeta* carpeta (Projecte& p, const std::string& id);
     /** Crea una carpeta (amb les pistes donades, si n'hi ha) i en torna l'id. */

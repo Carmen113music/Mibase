@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bitset>
+
 #include "mibase/ClicDeProva.h"
 #include "mibase/CuaSenseBloqueig.h"
 #include "mibase/Gravadora.h"
@@ -82,6 +84,10 @@ namespace mibase
         int clicSo = 0;
         bool bucle = false;
         double bucleIni = 0.0, bucleFi = 0.0;
+        /** 0.15: estructura (si no és buida): els trams de la línia de temps que sonen, per ordre, i les pistes
+            (slots) que no sonen a cada tram. El capçal salta d'un tram al següent; al final, s'atura. */
+        struct Tram { double ini = 0.0, fi = 0.0; std::bitset<128> silenci; };
+        std::vector<Tram> ruta;
         float master = 1.0f;
         std::vector<Pista> pistes;
         std::vector<std::shared_ptr<const AudioPresa>> audios;   // perquè no s'esborrin mentre sonen
@@ -123,6 +129,8 @@ namespace mibase
         /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc) i apaga les notes que sonen
             (play, situar el capçal, tornar a l'inici del bucle). */
         void reinicia() noexcept;
+        /** Pistes (slots) que no sonen al tram de l'estructura que sona ara (0.15). */
+        void setSilenci (const std::bitset<128>& s) noexcept { silenciAra = s; }
         /** Apaga les notes MIDI que sonen (en aturar). */
         void apagaNotes() noexcept;
         /** Fil d'àudio, just abans de canviar de pla: els instruments que ja no hi seran (o han canviat) s'apaguen
@@ -135,6 +143,7 @@ namespace mibase
         static constexpr int maxEventsBloc = 1024;
 
     private:
+        std::bitset<128> silenciAra;
         struct NotaActiva { long long fi = 0; std::uint8_t to = 0, canal = 0; };
         struct EstatSlot
         {
@@ -235,6 +244,8 @@ namespace mibase
 
         void ordres() noexcept;
         void sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept;
+        void entraARuta() noexcept;
+        int tramRuta = -1;           // tram de l'estructura que sona (-1: lineal)
 
         double fs = 48000.0;
         int maxBloc = 512;

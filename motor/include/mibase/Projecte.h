@@ -99,6 +99,20 @@ namespace mibase
         std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
     };
 
+    /** Estructura de la cançó (0.15): una llista de parts (peces) per provar ordres diferents sense tocar la línia de temps.
+        A cada peça hi pot haver pistes que no sonen. */
+    struct PecaEstructura
+    {
+        std::string part;                    // id de la Part
+        std::vector<std::string> silencis;   // ids de les pistes que no sonen en aquesta peça
+    };
+    struct Estructura
+    {
+        std::string id;                      // «eN»
+        std::string nom;
+        std::vector<PecaEstructura> peces;
+    };
+
     /** Carpeta de pistes (0.11): agrupa pistes (bateria, guitarres…). Plegada: a la taula de treball les seves pistes
         es veuen com una sola fila. Amagada: no es veuen a la taula de treball (però sonen). */
     struct Carpeta
@@ -157,6 +171,8 @@ namespace mibase
         std::vector<Pista> pistes;
         std::vector<Carpeta> carpetes;
         std::vector<Part> parts;
+        std::vector<Estructura> estructures;
+        std::string estructuraActiva;        // id; buit = lineal
         Bucle bucle;
         Snap snap = Snap::Compas;
         bool clic = true;
