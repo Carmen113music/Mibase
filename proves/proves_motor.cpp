@@ -1816,6 +1816,32 @@ int main()
         fs::remove_all (arrel);
     });
 
+    prova ("Parts de la cançó i bucle amb decimals (0.13)", []
+    {
+        namespace ed = mibase::edicio;
+        Projecte p;   // 120 bpm, 4/4: 2 s per compàs
+        const auto a = ed::creaPart (p, "Intro", 3.0, 1.0, 0xff3366);
+        const auto b = ed::creaPart (p, "Tornada", 3.0, 5.5, 0);
+        comprova (p.parts.size() == 2 && ed::part (p, a)->de == 1.0 && ed::part (p, a)->a == 3.0, "part creada (ordre de/a arreglat)");
+        comprova (ed::partA (p, 2.5) == 0 && ed::partA (p, 7.0) == 1 && ed::partA (p, 1.0) == -1 && ed::partA (p, 11.0) == -1, "part en un temps");
+        p.bucle = { true, true, 1.25, 2.5 };
+        comprova (std::abs (ed::iniciBucle (p) - 2.5) < 1e-9 && std::abs (ed::fiBucle (p) - 5.0) < 1e-9, "bucle amb decimals");
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_parts";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Parts";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        mibase::disc::desa (r.fitxer, p, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && l->parts.size() == 2 && l->parts[1].nom == "Tornada" && l->parts[1].a == 5.5 && l->parts[0].rgb == 0xff3366
+                  && l->bucle.de == 1.25 && l->bucle.a == 2.5, "es desen i es llegeixen");
+        ed::esborraPart (p, a);
+        comprova (p.parts.size() == 1 && p.parts[0].id == b, "esborrar una part");
+        fs::remove_all (arrel);
+    });
+
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
 }

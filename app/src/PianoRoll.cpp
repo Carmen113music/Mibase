@@ -366,8 +366,7 @@ juce::Colour PianoRoll::colorFila (int to, juce::Colour fons, const std::vector<
     const auto t = tonalitat();
     if (! harmonia::aEscala (to, t)) fons = fons.darker (0.45f);
     else if (((to - t.to) % 12 + 12) % 12 == 0) fons = fons.interpolatedWith (tema::accent, 0.13f);
-    if (std::find (acordAra.begin(), acordAra.end(), ((to % 12) + 12) % 12) != acordAra.end())
-        fons = fons.interpolatedWith (vintage::ledVerd, 0.16f);
+    (void) acordAra;   // 0.13: ja no es ressalta l'acord que sona (embrutava)
     if (onColorFila) fons = onColorFila (to, fons);
     return fons;
 }
@@ -1515,9 +1514,9 @@ void PianoRoll::pintaGraella (juce::Graphics& g)
             g.fillRect (juce::Rectangle<float> (xTick (k) - gruixLinia / 2.0f, (float) zg.getY(), gruixLinia, (float) zg.getHeight()));
         }
     };
-    if (pg > 0 && pg < ticksPerNegra) linies ((double) pg, tema::linia.withAlpha (0.35f), 1.0f);
-    linies ((double) ticksPerNegra, tema::linia.withAlpha (0.9f), 1.0f);
-    linies (tpc, tema::linia2, 1.5f);
+    if (pg > 0 && pg < ticksPerNegra) linies ((double) pg, tema::linia2.withAlpha (0.45f), 1.0f);
+    linies ((double) ticksPerNegra, tema::linia2.withAlpha (0.85f), 1.0f);
+    linies (tpc, tema::linia2.brighter (0.35f), 1.5f);
 
     // Bucle.
     if (p.bucle.marcat)

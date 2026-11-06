@@ -54,6 +54,14 @@ namespace mibase::edicio
     int colorLliure (const Projecte& p);
     void mouPista (Projecte& p, int de, int a);
 
+    // ---- Parts de la cançó (0.13) ----
+    /** Crea una part (de i a en compassos interns, en qualsevol ordre) i en torna l'id. */
+    std::string creaPart (Projecte& p, const std::string& nom, double de, double a, std::uint32_t rgb);
+    Part* part (Projecte& p, const std::string& id);
+    void esborraPart (Projecte& p, const std::string& id);
+    /** La part que hi ha en aquest temps (segons), o -1. Si se'n sobreposen, la de més tard a la llista. */
+    int partA (const Projecte& p, double t);
+
     // ---- Carpetes de pistes (0.11) ----
     Carpeta* carpeta (Projecte& p, const std::string& id);
     /** Crea una carpeta (amb les pistes donades, si n'hi ha) i en torna l'id. */

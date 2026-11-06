@@ -451,6 +451,37 @@ namespace mibase::edicio
         p.pistes.insert (p.pistes.begin() + a, t);
     }
 
+    std::string creaPart (Projecte& p, const std::string& nom, double de, double a, std::uint32_t rgb)
+    {
+        Part x;
+        x.id = idNou (p, 'm');
+        x.nom = nom;
+        x.de = std::max (0.0, std::min (de, a));
+        x.a = std::max (de, a);
+        x.rgb = rgb;
+        p.parts.push_back (x);
+        return x.id;
+    }
+
+    Part* part (Projecte& p, const std::string& id)
+    {
+        for (auto& x : p.parts) if (x.id == id && ! id.empty()) return &x;
+        return nullptr;
+    }
+
+    void esborraPart (Projecte& p, const std::string& id)
+    {
+        p.parts.erase (std::remove_if (p.parts.begin(), p.parts.end(), [&id] (const Part& x) { return x.id == id; }), p.parts.end());
+    }
+
+    int partA (const Projecte& p, double t)
+    {
+        const double c = t / segonsPerCompas (p);
+        for (int i = (int) p.parts.size() - 1; i >= 0; --i)
+            if (c >= p.parts[(size_t) i].de && c < p.parts[(size_t) i].a) return i;
+        return -1;
+    }
+
     Carpeta* carpeta (Projecte& p, const std::string& id)
     {
         for (auto& c : p.carpetes) if (c.id == id && ! id.empty()) return &c;

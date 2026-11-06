@@ -362,12 +362,17 @@ namespace mibase::disc
             if (! t.carpeta.empty()
                 && std::none_of (p.carpetes.begin(), p.carpetes.end(), [&t] (const Carpeta& c) { return c.id == t.carpeta; }))
                 t.carpeta.clear();
+        if (j.contains ("parts") && j["parts"].is_array())
+            for (auto& e : j["parts"])
+                if (e.is_object())
+                    p.parts.push_back ({ e.value ("id", std::string()), e.value ("nom", std::string()), e.value ("de", 0.0), e.value ("a", 0.0),
+                                         e.value ("rgb", (std::uint32_t) 0) });
         if (j.contains ("bucle") && j["bucle"].is_object())
         {
             p.bucle.marcat = j["bucle"].value ("marcat", false);
             p.bucle.actiu = j["bucle"].value ("actiu", false);
-            p.bucle.de = j["bucle"].value ("de", 0);
-            p.bucle.a = j["bucle"].value ("a", 0);
+            p.bucle.de = j["bucle"].value ("de", 0.0);
+            p.bucle.a = j["bucle"].value ("a", 0.0);
         }
 
         if (j.contains ("tonalitat") && j["tonalitat"].is_object())
@@ -451,6 +456,10 @@ namespace mibase::disc
             for (auto& c : p.carpetes)
                 carpetes.push_back ({ { "id", c.id }, { "nom", c.nom }, { "plegada", c.plegada }, { "amagada", c.amagada } });
             j["carpetes"] = carpetes;
+            json parts = json::array();
+            for (auto& c : p.parts)
+                parts.push_back ({ { "id", c.id }, { "nom", c.nom }, { "de", c.de }, { "a", c.a }, { "rgb", c.rgb } });
+            j["parts"] = parts;
         }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 

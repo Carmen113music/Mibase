@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DialegText.h"
+
 #include "Controls.h"
 #include "EstatEstudi.h"
 
@@ -65,14 +67,31 @@ class Regla : public SeccioEstudi
 public:
     using SeccioEstudi::SeccioEstudi;
     void paint (juce::Graphics& g) override;
+    void mouseMove (const juce::MouseEvent& e) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
 
 private:
-    int compas0 = 0;
-    bool marcant = false;
+    // 0.13: meitat de baix = capçal; meitat de dalt = bucle (selecció) i parts de la cançó.
+    struct Lloc { int vora = 0; int part = -1; };   // vora: -1 inici, 1 final (del bucle si part = -1)
+    enum class Accio { Res, Capcal, Vora, Seleccio, Seleccionant };
+    Lloc queHiHa (juce::Point<int> p) const;
+    double compas (double t) const;
+    std::pair<double, double> seleccio (double ta, double tb) const;
+    double vora (double t) const;
+    juce::String textRang (double de, double a) const;
+    void menu (const juce::MouseEvent& e, Lloc q);
+public:
+    void demanaNom (const std::string& idPart);
+private:
+
+    Accio accio = Accio::Res;
+    Lloc llocVora;
+    int partClicada = -1;
+    juce::Point<int> inici;
+    std::unique_ptr<DialegText> dialeg;
 };
 
 /** Les pistes amb els clips: el lloc on s'edita, amb les eines de la caixa d'eines. */
