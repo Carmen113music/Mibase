@@ -140,6 +140,10 @@ namespace mibase::edicio
 
     /** Tisores: talla el clip a «t» (absolut). Retorna false si «t» no cau prou dins el clip. */
     bool talla (Projecte& p, int pista, int clip, double t);
+    /** Crossfade (0.14) al tram [t0, t1) d'una pista d'àudio on el clip de dalt se sobreposa al de sota. Si el de dalt
+        hi entra (el seu començament), el de sota fa fade out i el de dalt fade in; si en surt (el seu final), al revès.
+        El clip de sota es parteix si cal (no destructiu). Torna false si no hi ha dos clips sobreposats al tram. */
+    bool crossfade (Projecte& p, int pista, double t0, double t1);
 
     struct ResultatCola
     {

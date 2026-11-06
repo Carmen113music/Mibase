@@ -47,6 +47,7 @@ public:
     int estatTransport() const noexcept { return estat.transport; }
     /** Botó del bucle del transport (0.11): encén o apaga el bucle (si no n'hi ha, en marca un de 4 compassos al capçal). */
     void commutaBucle();
+    void fesCrossfade();
     bool bucleActiu() const noexcept { return estat.projecte.bucle.marcat && estat.projecte.bucle.actiu; }
     std::pair<juce::String, juce::String> textPosicio() const;
 

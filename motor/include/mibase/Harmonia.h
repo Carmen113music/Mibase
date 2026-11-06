@@ -162,6 +162,10 @@ namespace mibase::harmonia
     std::string nomPad (const AcordPad& a);
     /** Com es desa un pad: el nom i, si està invertit, «^n» al final («Am^1», «G7^-1»). */
     std::string textPad (const AcordPad& a);
+    /** Quants graus de l'escala hi ha de «de» a «a» (totes dues de l'escala; negatiu si «a» és més greu). */
+    int grausEntre (int de, int a, const Tonalitat& t);
+    /** Mou una nota n graus de l'escala (n negatiu: avall). Si la nota no és de l'escala, primer s'hi ajusta. */
+    int mouGraus (int to, const Tonalitat& t, int n);
     constexpr int maxInversio = 3;
     /** Llegeix un nom d'acord («Ebmaj7», «C#m7», «Bb/D», «G7(b9)», «F#m7b5», «Dsus4», «E9»…). Si no s'entén, un pad buit. */
     AcordPad llegeixAcord (const std::string& text);

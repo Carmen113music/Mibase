@@ -681,6 +681,21 @@ namespace mibase::harmonia
         return nom;
     }
 
+    int grausEntre (int de, int a, const Tonalitat& t)
+    {
+        int n = 0, x = de;
+        const int sentit = a >= de ? 1 : -1;
+        for (int k = 0; k < 128 && (sentit > 0 ? x < a : x > a); ++k) { x = grau (x, t, sentit); n += sentit; }
+        return n;
+    }
+
+    int mouGraus (int to, const Tonalitat& t, int n)
+    {
+        int x = aEscala (to, t) ? to : ajusta (to, t);
+        for (int k = 0; k < std::abs (n); ++k) x = grau (x, t, n > 0 ? 1 : -1);
+        return std::clamp (x, 0, 127);
+    }
+
     std::string textPad (const AcordPad& a)
     {
         if (a.buit() || a.inversio == 0) return nomPad (a);

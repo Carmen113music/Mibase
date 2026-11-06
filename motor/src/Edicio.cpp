@@ -190,6 +190,45 @@ namespace mibase::edicio
         return true;
     }
 
+    bool crossfade (Projecte& p, int pista, double t0, double t1)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size() || t1 - t0 < 0.0005) return false;
+        auto& cl = p.pistes[(size_t) pista].clips;
+        auto toca = [&] (const Clip& c) { return ! c.midi && ! c.presa.empty() && c.iniciVisible() < t1 && c.fiVisible() > t0; };
+        int u = -1, l = -1;
+        for (int i = (int) cl.size() - 1; i >= 0; --i)
+            if (toca (cl[(size_t) i])) { if (u < 0) u = i; else { l = i; break; } }
+        if (u < 0 || l < 0) return false;
+        const double len = t1 - t0;
+        const auto& U = cl[(size_t) u];
+        const auto& L = cl[(size_t) l];
+        const bool entra = U.iniciVisible() > L.iniciVisible() + 1e-9
+                        && (U.fiVisible() >= L.fiVisible() - 1e-9 || std::abs (t0 - U.iniciVisible()) <= std::abs (t1 - U.fiVisible()));
+        if (entra)
+        {
+            // El tros de sota que hi ha després només es conserva (partint) si torna a sonar quan el de dalt s'acaba.
+            if (L.fiVisible() > U.fiVisible() + longitudMinima && talla (p, pista, l, t1) && u > l) ++u;
+            auto& lo = cl[(size_t) l];
+            lo.fi = t1 - lo.pos;
+            lo.fadeOut = std::min (len, lo.longitud());
+            auto& up = cl[(size_t) u];
+            up.inici = t0 - up.pos;
+            up.fadeIn = std::min (len, up.longitud());
+        }
+        else
+        {
+            int peca = l;
+            if (L.iniciVisible() < U.iniciVisible() - longitudMinima && talla (p, pista, l, t0)) { peca = l + 1; if (u > l) ++u; }
+            auto& lo = cl[(size_t) peca];
+            lo.inici = t0 - lo.pos;
+            lo.fadeIn = std::min (len, lo.longitud());
+            auto& up = cl[(size_t) u];
+            up.fi = t1 - up.pos;
+            up.fadeOut = std::min (len, up.longitud());
+        }
+        return true;
+    }
+
     namespace
     {
         /** Retalla la finestra del clip a [a, b) (absolut). Retorna false si no en queda res. */

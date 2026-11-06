@@ -409,6 +409,8 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void PantallaEstudi::triaEina (Eina e)
 {
+    // 0.14: la X amb un tros triat fa el crossfade (i no canvia d'eina).
+    if (e == Eina::Silenci && estat.rang.actiu) { fesCrossfade(); estat.avisa(); return; }
     estat.eina = e;
     if (e != Eina::Fletxa && (estat.triats.size() > 1 || estat.rang.actiu)) estat.capTriat();
     estat.avisa();
@@ -1527,6 +1529,26 @@ void PantallaEstudi::demanaNomCarpeta (std::vector<int> v, const std::string& id
     DialegText::mostra (*this, dialeg);
 }
 
+void PantallaEstudi::fesCrossfade()
+{
+    // 0.14: X amb un tros triat (requadre «només el tros») on dos clips d'àudio se sobreposen.
+    auto copia = estat.projecte;
+    int fets = 0;
+    for (int i = estat.rang.pistaDe; i <= estat.rang.pistaFins; ++i)
+        if (ed::crossfade (copia, i, estat.rang.t0, estat.rang.t1)) ++fets;
+    if (fets == 0)
+    {
+        estat.info = "Per fer un crossfade, tria (en Lliure) el tros on se sobreposen dos clips d'àudio i prem X"_ca;
+        estat.avisa();
+        return;
+    }
+    const int ms = juce::roundToInt ((estat.rang.t1 - estat.rang.t0) * 1000.0);
+    estat.desfes.abans (estat.projecte);
+    estat.projecte = std::move (copia);
+    estat.rang = {};
+    estat.canviat ("Crossfade de "_ca + juce::String (ms) + " ms");
+}
+
 void PantallaEstudi::commutaBucle()
 {
     auto& b = estat.projecte.bucle;
@@ -1630,6 +1652,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { treu(); return true; }
     if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
     if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
+    if (cap && lletra ('X') && estat.rang.actiu) { fesCrossfade(); return true; }
     if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
     if (codi == juce::KeyPress::insertKey) { canviaInsereix (! estat.insereix); return true; }
     if (cap && lletra ('M')) { silenciaTriat(); return true; }

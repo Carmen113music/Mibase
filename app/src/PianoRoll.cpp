@@ -1135,8 +1135,28 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
             const double iniAbs = enganxa (posTicks() + (double) ini0 + dT);
             const long long dTicks = (long long) std::llround (iniAbs - posTicks()) - ini0;
             int dTo = toY (e.position.y) - toY (inici.y);
-            if (escalaActiva() && dTo != 0) dTo = dToEscala (*clip(), triadesNotes, dTo);   // assistit o bloquejat: només a notes de l'escala
-            midi::mou (*clip(), triadesNotes, dTicks, dTo, -(long long) std::llround (posTicks()));
+            if (escalaActiva() && dTo != 0 && triadesNotes.size() > 1)
+            {
+                // 0.14: un grup en assistit o bloquejat es mou per graus de l'escala: cada nota va on toca dins la
+                // tonalitat (algunes pugen o baixen un semitò més o menys que d'altres).
+                const auto t = tonalitat();
+                const int base = harmonia::aEscala (to0, t) ? to0 : harmonia::ajusta (to0, t);
+                const int desti = harmonia::ajusta (juce::jlimit (0, 127, to0 + dTo), t);
+                const int graus = harmonia::grausEntre (base, desti, t);
+                midi::mou (*clip(), triadesNotes, dTicks, 0, -(long long) std::llround (posTicks()));
+                for (int i : triadesNotes)
+                {
+                    auto& n = clip()->notes[(size_t) i];
+                    n.to = harmonia::aEscala (n.to, t) ? harmonia::mouGraus (n.to, t, graus) : juce::jlimit (0, 127, n.to + desti - base);
+                }
+                midi::ordena (clip()->notes, triadesNotes);
+                dTo = desti - to0;
+            }
+            else
+            {
+                if (escalaActiva() && dTo != 0) dTo = dToEscala (*clip(), triadesNotes, dTo);   // una nota: només a notes de l'escala
+                midi::mou (*clip(), triadesNotes, dTicks, dTo, -(long long) std::llround (posTicks()));
+            }
             midi::encabeix (estat.projecte, *clip());
             const int toAra = juce::jlimit (0, 127, to0 + dTo);
             if (toAra != toSonant && toSonant >= 0) notaOn (toAra, velNova.getValor());

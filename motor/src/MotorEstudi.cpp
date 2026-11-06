@@ -149,7 +149,10 @@ namespace mibase
                 std::vector<std::pair<double, double>> trams { { c.pos + c.inici, c.pos + c.fi } };
                 for (size_t j = k + 1; j < pp.clips.size(); ++j)
                 {
-                    const double a = pp.clips[j].pos + pp.clips[j].inici, b = pp.clips[j].pos + pp.clips[j].fi;
+                    // 0.14: durant els fades del de dalt (crossfade), el de sota també sona.
+                    const double a = pp.clips[j].pos + pp.clips[j].inici + pp.clips[j].fadeIn,
+                                 b = pp.clips[j].pos + pp.clips[j].fi - pp.clips[j].fadeOut;
+                    if (b <= a) continue;
                     std::vector<std::pair<double, double>> nous;
                     for (auto& t : trams)
                     {

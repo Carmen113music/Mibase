@@ -1842,6 +1842,38 @@ int main()
         fs::remove_all (arrel);
     });
 
+    prova ("Moure grups per graus i crossfade (0.14)", []
+    {
+        using namespace harmonia;
+        const Tonalitat doM { 0, 0 };
+        comprova (grausEntre (60, 64, doM) == 2 && grausEntre (64, 60, doM) == -2 && grausEntre (60, 72, doM) == 7, "graus entre notes");
+        // C E G (Do major) dos graus amunt → E G B: la distància canvia (tercera major → menor).
+        comprova (mouGraus (60, doM, 2) == 64 && mouGraus (64, doM, 2) == 67 && mouGraus (67, doM, 2) == 71, "acord C → Em per graus");
+        comprova (mouGraus (71, doM, -1) == 69 && mouGraus (61, doM, 1) == 62, "avall, i una nota fora de l'escala s'hi ajusta");
+
+        namespace ed = mibase::edicio;
+        Projecte p;
+        auto& t = ed::afegeixPista (p, "Guitarra", "audio");
+        Clip a; a.presa = "s1"; a.pos = 0; a.inici = 0; a.fi = 10;
+        Clip b; b.presa = "s2"; b.pos = 6; b.inici = 0; b.fi = 10;   // de 6 a 16, a sobre
+        t.clips = { a, b };
+        comprova (ed::crossfade (p, 0, 5.9, 6.1), "crossfade a l'entrada del de dalt");
+        const auto& c = p.pistes[0].clips;
+        comprova (c.size() == 2 && std::abs (c[0].fiVisible() - 6.1) < 1e-9 && std::abs (c[0].fadeOut - 0.2) < 1e-9
+                  && std::abs (c[1].iniciVisible() - 5.9) < 1e-9 && std::abs (c[1].fadeIn - 0.2) < 1e-9, "sota: fade out; dalt: fade in");
+        // Un clip de dalt dins d'un de sota, a la sortida: el de sota es parteix.
+        Projecte q;
+        auto& u = ed::afegeixPista (q, "Veu", "audio");
+        Clip x; x.presa = "s1"; x.pos = 0; x.fi = 20;
+        Clip y; y.presa = "s2"; y.pos = 5; y.fi = 5;   // de 5 a 10, a sobre
+        u.clips = { x, y };
+        comprova (ed::crossfade (q, 0, 9.95, 10.0), "crossfade a la sortida");
+        const auto& d = q.pistes[0].clips;
+        comprova (d.size() == 3 && std::abs (d[1].iniciVisible() - 9.95) < 1e-9 && d[1].fadeIn > 0.04 && std::abs (d[2].fiVisible() - 10.0) < 1e-9
+                  && d[2].fadeOut > 0.04 && std::abs (d[0].fiVisible() - 9.95) < 1e-9, "el de sota es parteix; dalt fade out, sota fade in");
+        comprova (! ed::crossfade (q, 0, 15.0, 16.0), "sense sobreposició: res");
+    });
+
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
 }
