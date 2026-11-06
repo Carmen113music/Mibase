@@ -53,6 +53,28 @@ namespace mibase::edicio
     constexpr int colorsPista = 8;
     int colorLliure (const Projecte& p);
     void mouPista (Projecte& p, int de, int a);
+
+    // ---- Parts de la cançó (0.13) ----
+    /** Crea una part (de i a en compassos interns, en qualsevol ordre) i en torna l'id. */
+    std::string creaPart (Projecte& p, const std::string& nom, double de, double a, std::uint32_t rgb);
+    Part* part (Projecte& p, const std::string& id);
+    void esborraPart (Projecte& p, const std::string& id);
+    /** La part que hi ha en aquest temps (segons), o -1. Si se'n sobreposen, la de més tard a la llista. */
+    int partA (const Projecte& p, double t);
+
+    // ---- Carpetes de pistes (0.11) ----
+    Carpeta* carpeta (Projecte& p, const std::string& id);
+    /** Crea una carpeta (amb les pistes donades, si n'hi ha) i en torna l'id. */
+    std::string creaCarpeta (Projecte& p, const std::string& nom, const std::vector<int>& pistes = {});
+    /** Posa una pista a una carpeta (id buit: fora de qualsevol carpeta). Les pistes d'una carpeta queden seguides:
+        la pista es mou just després de l'última de la carpeta. Torna on ha anat a parar la pista. */
+    int posaACarpeta (Projecte& p, int pista, const std::string& id);
+    /** Esborra la carpeta; les pistes queden fora de cap carpeta (no s'esborren). */
+    void esborraCarpeta (Projecte& p, const std::string& id);
+    std::vector<int> pistesDeCarpeta (const Projecte& p, const std::string& id);
+    /** Com es veu cada pista a la taula de treball: 0 = amagada, 1 = normal, 2 = fila de la carpeta plegada
+        (la primera pista de la carpeta; la resta, amagades). */
+    std::vector<int> filesVisibles (const Projecte& p);
     /** Només una pista pot tenir el botó de gravar encès. */
     void triaGravacio (Projecte& p, int pista);
     std::string nomPistaLliure (const Projecte& p, const std::string& base);

@@ -10,7 +10,11 @@
     (adaptacions pràctiques per tenir 8 canvis; no són transcripcions literals). */
 namespace mibase::pads
 {
-    constexpr int numPads = 16;   // dues files de 8
+    /** 12 pads com les tecles d'una octava de piano (0.10): l'índex és la nota, de C (0) a B (11).
+        Les blanques (C D E F G A B) a baix, les negres (C# D# F# G# A#) a dalt. Una tecla del teclat MIDI toca el pad
+        de la seva nota (en qualsevol octava). */
+    constexpr int numPads = 12;
+    constexpr bool esNegre (int i) noexcept { const int n = ((i % 12) + 12) % 12; return n == 1 || n == 3 || n == 6 || n == 8 || n == 10; }
 
     struct Preset
     {
@@ -23,9 +27,12 @@ namespace mibase::pads
     };
     const std::vector<Preset>& presets();
 
-    /** Els 16 pads d'un preset: la fila de dalt, la seqüència; la de baix, els acords de la seva tonalitat (amb setenes)
-        i el V7. */
+    /** Els 12 pads d'un preset (0.12): els acords de la seqüència per ordre a partir de la C (C, C#, D…), sense repetir;
+        la resta de pads, buits. */
     std::vector<std::string> padsDePreset (int preset);
-    /** Els 16 pads «de la tonalitat»: a dalt les tríades (I a vii i la I una octava amunt no: el V7), a baix les setenes. */
+    /** Els 12 pads «de la tonalitat»: a les blanques, els graus I a vii (C = I, D = ii…); a les negres, acords de color.
+        Major: C# V7, D# ii7, F# iv, G# bVI, A# bVII. Menor: C# V7, D# im7, F# IV, G# V, A# bII. */
     std::vector<std::string> padsDeTonalitat (const Tonalitat& t);
+    /** Adapta uns pads desats amb una altra disposició (la 0.9 en tenia 16) a la de 12. */
+    std::vector<std::string> adapta (const std::vector<std::string>& pads, const std::string& preset);
 }
