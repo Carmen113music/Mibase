@@ -2,6 +2,7 @@
 
 #include "Historial.h"
 #include "EscanerPlugins.h"
+#include "Plugins.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>

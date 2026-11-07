@@ -15,7 +15,8 @@ target_sources(Mibase PRIVATE
     src/PantallaEstudi.cpp
     src/PianoRoll.cpp
     src/PanellHarmonia.cpp
-    src/EscanerPlugins.cpp)
+    src/EscanerPlugins.cpp
+    src/Plugins.cpp)
 
 target_compile_definitions(Mibase PRIVATE
     MIBASE_VERSIO="${PROJECT_VERSION}"

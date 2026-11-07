@@ -161,6 +161,13 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
 {
     // Fil d'àudio: només el motor, que no demana memòria ni s'espera mai.
     motorDiag.processa (entrades, numEntrades, sortides, numSortides, numMostres);
+    {
+        // 0.19: on és la cançó, per als plugins (tempo i compàs els posa la pantalla de l'estudi).
+        auto& r = RellotgePlugins::global();
+        const auto e = motorEstudi.getEstat();
+        r.sonant.store (e == mibase::MotorEstudi::Estat::Sonant || e == mibase::MotorEstudi::Estat::Gravant, std::memory_order_relaxed);
+        r.segons.store (motorEstudi.getPosicio(), std::memory_order_relaxed);
+    }
     motorEstudi.processa (entrades, numEntrades, sortides, numSortides, numMostres);
 }
 

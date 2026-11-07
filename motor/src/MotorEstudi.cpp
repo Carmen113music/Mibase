@@ -100,7 +100,8 @@ namespace mibase
         }
     }
 
-    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments)
+    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments,
+                                        const ProveidorEfectes& efectes)
     {
         auto pla = std::make_unique<Pla>();
         pla->tempo = p.tempo > 1.0 ? p.tempo : 120.0;
@@ -110,6 +111,10 @@ namespace mibase
         pla->clicSo = p.clicSo;
         pla->master = guanyDb (p.masterDb);
         pla->sortidaMaster = std::clamp (p.sortidaMaster, 0, 31);
+        if (efectes)
+            for (const auto& x : p.insertsMaster)
+                if (x.actiu)
+                    if (auto e = efectes (x)) pla->insertsMaster.push_back (std::move (e));
         const double spcRuta = 60.0 / pla->tempo * pla->compasNum;
         if (const auto* es = edicio::estructuraActiva (p))
             for (auto& pc : es->peces)
@@ -186,6 +191,10 @@ namespace mibase
                 if (pp.instrument != nullptr)
                     notesDePista (t, 60.0 / pla->tempo / ticksPerNegra, pp);
             }
+            if (efectes)
+                for (const auto& x : t.inserts)
+                    if (x.actiu)
+                        if (auto e = efectes (x)) pp.inserts.push_back (std::move (e));
             pla->pistes.push_back (std::move (pp));
         }
         return pla;
@@ -432,7 +441,15 @@ namespace mibase
                         sonaClip (c, t.canals, pos, n);
             }
 
-            const float* fontR = t.canals == 2 ? pR.data() : pL.data();
+            bool estereo = t.canals == 2 || instrumentFet;
+            if (! t.inserts.empty())
+            {
+                // 0.19: efectes de la pista (abans del fader). Una pista mono hi entra pels dos costats.
+                if (! estereo) std::copy (pL.begin(), pL.begin() + n, pR.begin());
+                estereo = true;
+                for (const auto& e : t.inserts) e->processa (pL.data(), pR.data(), n);
+            }
+            const float* fontR = estereo ? pR.data() : pL.data();
             const float dl = (objL - l0) / (float) n, dr = (objR - r0) / (float) n;
             for (int i = 0; i < n; ++i)
             {
@@ -449,6 +466,9 @@ namespace mibase
                 vus[s * 2 + 1].processa (pR.data(), n);
             }
         }
+
+        // 0.19: cadena de màstering (abans del volum del màster).
+        for (const auto& e : pla.insertsMaster) e->processa (L, R, n);
 
         // Volum de la sortida.
         if (! masterFet) { gMaster = pla.master; masterFet = true; }
@@ -520,7 +540,12 @@ namespace mibase
         // Els instruments del pla que sona, a la freqüència nova (el fil d'àudio no corre ara).
         if (pla != nullptr)
             for (auto& t : pla->pistes)
+            {
                 if (t.instrument != nullptr) t.instrument->prepara (fs, maxBloc);
+                for (auto& e : t.inserts) e->prepara (fs, maxBloc);
+            }
+        if (pla != nullptr)
+            for (auto& e : pla->insertsMaster) e->prepara (fs, maxBloc);
         estat.store ((int) Estat::Aturat, std::memory_order_release);
     }
 

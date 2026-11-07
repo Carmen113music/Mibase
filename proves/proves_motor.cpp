@@ -1964,6 +1964,57 @@ int main()
         comprova (l && l->sortidaMaster == 1, "es desa al projecte");
     });
 
+    prova ("Inserts d'efectes a les pistes i al màster (0.19)", [&]
+    {
+        struct Meitat : mibase::Efecte
+        {
+            int cops = 0;
+            void prepara (double, int) override {}
+            void processa (float* L, float* R, int n) noexcept override { ++cops; for (int i = 0; i < n; ++i) { L[i] *= 0.5f; R[i] *= 0.5f; } }
+        };
+        Projecte q;
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 10.0, 0.5f) } };
+        auto efPista = std::make_shared<Meitat>(), efMaster = std::make_shared<Meitat>();
+        q.pistes[0].inserts.push_back ({ "i1", "proves:meitat", "Meitat", true, "" });
+        q.insertsMaster.push_back ({ "i2", "proves:meitat", "Meitat", true, "" });
+        q.insertsMaster.push_back ({ "i3", "proves:meitat", "Apagat", false, "" });
+        mibase::ProveidorEfectes prov = [&] (const mibase::Insert& x) -> std::shared_ptr<mibase::Efecte>
+        {
+            if (x.id == "i1") return efPista;
+            if (x.id == "i2") return efMaster;
+            return std::make_shared<Meitat>();
+        };
+        auto mesura = [&] (bool ambEfectes)
+        {
+            MotorEstudi motor;
+            motor.prepara (48000.0, 256);
+            motor.publica (construeixPla (q, m, {}, ambEfectes ? prov : mibase::ProveidorEfectes {}));
+            std::vector<float> o0 (256), o1 (256);
+            float* sort[2] { o0.data(), o1.data() };
+            motor.reprodueix (1.0);
+            for (int k = 0; k < 3; ++k) { std::fill (o0.begin(), o0.end(), 0.0f); std::fill (o1.begin(), o1.end(), 0.0f); motor.processa (nullptr, 0, sort, 2, 256); }
+            return pic (o1, 0, 256);
+        };
+        const float sense = mesura (false), amb = mesura (true);
+        comprova (sense > 0.2f && std::abs (amb - sense * 0.25f) < 0.01f, "pista mono amb inserts: a la dreta (R) també, i a un quart (" + std::to_string (sense) + " → " + std::to_string (amb) + ")");
+        comprova (efPista->cops > 0 && efMaster->cops > 0, "els dos efectes han treballat");
+
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves19";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        q.nom = "Inserts";
+        q.pistes[0].inserts[0].estat = "QUJD";
+        auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T12:00:00", "07/11/2026 12:00");
+        auto l = mibase::disc::llegeix (rc.fitxer);
+        comprova (l && l->pistes[0].inserts.size() == 1 && l->pistes[0].inserts[0].estat == "QUJD" && l->insertsMaster.size() == 2
+                  && ! l->insertsMaster[1].actiu, "els inserts es desen al projecte");
+    });
+
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
 }

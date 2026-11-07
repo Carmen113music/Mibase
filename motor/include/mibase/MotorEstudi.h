@@ -73,6 +73,7 @@ namespace mibase
 
             /** Pistes MIDI: l'instrument (el fa servir el fil d'àudio; la interfície el manté viu) i les notes ordenades. */
             std::shared_ptr<Instrument> instrument;
+            std::vector<std::shared_ptr<Efecte>> inserts;   // 0.19: els actius, per ordre
             std::vector<Nota> notes;
             std::vector<Event> events;
         };
@@ -90,6 +91,7 @@ namespace mibase
         std::vector<Tram> ruta;
         float master = 1.0f;
         int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
+        std::vector<std::shared_ptr<Efecte>> insertsMaster;   // 0.19: cadena de màstering (abans del volum del màster)
         std::vector<Pista> pistes;
         std::vector<std::shared_ptr<const AudioPresa>> audios;   // perquè no s'esborrin mentre sonen
     };
@@ -102,9 +104,12 @@ namespace mibase
     /** Qui dona l'instrument de cada pista MIDI (fil de la interfície). Ha de tornar sempre el mateix objecte per a la mateixa
         pista mentre no canviï el so, perquè les notes que sonen no es tallin. nullptr: la pista no sona. */
     using ProveidorInstruments = std::function<std::shared_ptr<Instrument> (const Pista&)>;
+    /** 0.19: qui dona el plugin viu de cada insert (nullptr si no s'ha pogut obrir: el so hi passa de llarg). */
+    using ProveidorEfectes = std::function<std::shared_ptr<Efecte> (const Insert&)>;
 
     /** Fa el pla del projecte (fil de la interfície). Els clips sense àudio a la memòria no sonen. */
-    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {});
+    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {},
+                                     const ProveidorEfectes& efectes = {});
 
     /** Un missatge MIDI en directe (del piano roll o del teclat) per a l'instrument d'una pista. */
     struct EventDirecte

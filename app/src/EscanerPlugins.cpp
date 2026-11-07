@@ -36,6 +36,8 @@ void EscanerPlugins::comenca (bool tot)
         nous.clear(); errsNous.clear(); mirats.clear(); acabat = false;
         textProgres = "Buscant plugins…"_ca;
     }
+    fitxersErrors.clear();
+    for (const auto& e : errs) fitxersErrors.add (e.fitxer);
     startThread();
     if (onCanvi) onCanvi();
 }
@@ -68,8 +70,7 @@ void EscanerPlugins::run()
     for (const auto& t : plugins.getTypes())
         if (juce::File (t.fileOrIdentifier).getLastModificationTime() == t.lastFileModTime)
             saltar.addIfNotAlreadyThere (t.fileOrIdentifier);
-    for (const auto& e : errs)
-        saltar.addIfNotAlreadyThere (e.fitxer);
+    saltar.addArray (fitxersErrors);
 
     const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName();
     const auto temporal = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("mibase-plugin.xml");
@@ -133,6 +134,10 @@ void EscanerPlugins::run()
             for (const auto& t : plugins.getTypes())
                 if (! fitxers.contains (t.fileOrIdentifier))
                     errsNous.push_back ({ t.fileOrIdentifier, "__treu" });
+        if (! threadShouldExit())
+            for (const auto& f : fitxersErrors)
+                if (! fitxers.contains (f))
+                    errsNous.push_back ({ f, "__treu" });
     }
     triggerAsyncUpdate();
 }

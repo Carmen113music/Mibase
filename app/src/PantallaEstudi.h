@@ -9,6 +9,7 @@
 #include "PanellColor.h"
 #include "PanellHarmonia.h"
 #include "PianoRoll.h"
+#include "Plugins.h"
 #include "ServeiAudio.h"
 #include "VistesEstudi.h"
 
@@ -124,6 +125,7 @@ private:
     ServeiAudio& servei;
     EstatEstudi estat;
     Instruments instruments;   // els de les pistes MIDI (viu abans que el pla que els fa servir)
+    GestorPlugins plugins { servei.escaner().llista() };   // 0.19: VST3 (inserts i instruments)
     juce::AudioFormatManager formats;
 
     // Barra d'eines.

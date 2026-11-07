@@ -43,6 +43,7 @@ private:
     juce::KnownPluginList plugins;
     std::vector<Error> errs;
     bool tornaTot = false;
+    juce::StringArray fitxersErrors;   // còpia per al fil
 
     // Resultats del fil (es passen a la llista al fil de la interfície).
     juce::CriticalSection seccio;

@@ -73,6 +73,16 @@ namespace mibase
         double longitud() const noexcept     { return fi - inici; }
     };
 
+    /** 0.19: un plugin d'efecte en un insert (d'una pista o del màster). */
+    struct Insert
+    {
+        std::string id;          // «i1», «i2»… (no canvia: serveix per retrobar el plugin viu)
+        std::string plugin;      // identificador del plugin (el de la llista de plugins)
+        std::string nom;         // per mostrar-lo encara que no s'hagi pogut obrir
+        bool actiu = true;       // apagat: el so hi passa de llarg
+        std::string estat;       // ajustos del plugin (base64)
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
@@ -97,6 +107,8 @@ namespace mibase
         double pan = 0.0;        // de -1 (tot a l'esquerra) a +1 (tot a la dreta)
         int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
         std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
+        std::vector<Insert> inserts;           // 0.19: efectes, per ordre
+        std::string nomInstrument, estatInstrument;   // 0.19: instrument VST3 («vst3:…»): nom i ajustos (base64)
     };
 
     /** Estructura de la cançó (0.15): una llista de parts (peces) per provar ordres diferents sense tocar la línia de temps.
@@ -179,6 +191,7 @@ namespace mibase
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
+        std::vector<Insert> insertsMaster;   // 0.19: cadena de màstering
         int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
         int comptador = 0;       // per fer identificadors únics
 

@@ -268,6 +268,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (zonaEditors);
     esquerra.setPanellEditor (&panellHarmonia);
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
+    esquerra.opcions.plugins = &plugins;
     esquerra.opcions.sortides = [this]
     {
         juce::StringArray noms;
@@ -339,6 +340,7 @@ PantallaEstudi::~PantallaEstudi()
     motor.publica (std::make_unique<Pla>());   // ja no ha de sonar res d'aquest projecte
     previsualitzaClic (false);
     estat.removeChangeListener (this);
+    if (plugins.desaEstats (estat.projecte)) calDesar = true;   // 0.19: ajustos dels plugins
     if (calDesar) desaAra();
     ajustos.setValue ("estudi.zoom", estat.pxPerSegon);
     ajustos.setValue ("estudi.altPista", estat.altPista);
@@ -350,6 +352,7 @@ void PantallaEstudi::desaAra()
     stopTimer();
     const auto ara = juce::Time::currentTimeMillis();
     const bool ferCopia = ara - ultimaCopia > 10 * 60 * 1000;
+    plugins.desaEstats (estat.projecte);
     const auto r = disc::desa (dibuix::cami (estat.fitxer), estat.projecte, dibuix::araIso().toStdString(),
                                dibuix::araPerNom().toStdString(), ferCopia);
     if (r.correcte)
@@ -711,7 +714,21 @@ void PantallaEstudi::transport (int accio)
 void PantallaEstudi::publicaPla()
 {
     instruments.neteja (estat.projecte);
-    servei.estudi().publica (construeixPla (estat.projecte, audioPreses, instruments.proveidor (servei.estudi().getFs(), 2048)));
+    plugins.neteja (estat.projecte);
+    RellotgePlugins::global().tempo.store (estat.projecte.tempo > 1.0 ? estat.projecte.tempo : 120.0);
+    RellotgePlugins::global().num.store (estat.projecte.compasNum);
+    RellotgePlugins::global().den.store (estat.projecte.compasDen);
+    const double fs = servei.estudi().getFs();
+    auto interns = instruments.proveidor (fs, 2048);
+    const auto errorAbans = plugins.getUltimError();
+    servei.estudi().publica (construeixPla (estat.projecte, audioPreses,
+        [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrument (t, fs, 2048) : interns (t); },
+        [this, fs] (const mibase::Insert& x) { return plugins.efecte (x, fs, 2048); }));
+    if (plugins.getUltimError() != errorAbans && plugins.getUltimError().isNotEmpty())
+    {
+        historial.afegeix (plugins.getUltimError());
+        estat.info = plugins.getUltimError();
+    }
 }
 
 void PantallaEstudi::avisDeTargeta (const juce::String& titol, const juce::String& text)
@@ -1004,7 +1021,10 @@ void PantallaEstudi::exportaMescla()
         const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
         std::string error;
         juce::MouseCursor::showWaitCursor();
-        const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses, Instruments::perExportar (fs, 4096)),
+        auto interns = Instruments::perExportar (fs, 4096);
+        const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses,
+                                                    [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096) : interns (t); },
+                                                    [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; }),
                                                 fs, tros.first, tros.second, dibuix::cami (desti), error);
         juce::MouseCursor::hideWaitCursor();
         if (! fet)
