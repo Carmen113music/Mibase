@@ -204,6 +204,7 @@ private:
 
     static juce::String titol (const mibase::Insert& x) { return juce::String::fromUTF8 (x.nom.c_str()); }
 
+public:
     /** 0.20: obre el panell de l'instrument de la pista triada: el del VST3 o el del sinte intern, amb l'escala al costat. */
     void obreInstrument()
     {
@@ -221,6 +222,7 @@ private:
         finestresSinte[id] = std::make_unique<FinestraSinte> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · sinte intern"_ca,
                                                               [this, id] { finestresSinte.erase (id); });
     }
+private:
     void menuInstrument()
     {
         auto* t = estat.pista (estat.pistaTriada);

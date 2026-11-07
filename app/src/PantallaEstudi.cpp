@@ -269,6 +269,13 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     esquerra.setPanellEditor (&panellEditor);
     esquerra.opcions.onObreKits = [this] { obreKits(); };
     panellBateria.onObreKits = [this] { obreKits(); };
+    capcaleres.onObreInstrument = [this] (int fila)
+    {
+        auto* t = estat.pista (fila);
+        if (t == nullptr) return;
+        if (t->tipus == "bateria") obreKits();
+        else esquerra.opcions.obreInstrument();   // la pista ja és la triada
+    };
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
     esquerra.opcions.setPlugins (&plugins);
     mescles.plugins = &plugins;

@@ -1788,7 +1788,15 @@ void Capcaleres::paint (juce::Graphics& g)
         dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 2), {}, t.grava, vintage::ledVermell, true);
 
-        const auto zonaCanals = juce::Rectangle<int> (rectTecla (i, 2).getRight() + 8, rectTecla (i, 2).getY(), getWidth() - rectTecla (i, 2).getRight() - 30, 24);
+        auto zonaCanals = juce::Rectangle<int> (rectTecla (i, 2).getRight() + 8, rectTecla (i, 2).getY(), getWidth() - rectTecla (i, 2).getRight() - 30, 24);
+        if (mibase::esMidi (t) && zonaCanals.getWidth() > 50)
+        {
+            // 0.20: botonet per obrir l'instrument (o els kits, a la bateria).
+            const auto rb = rectObreInstrument (i).toFloat();
+            vintage::tecla (g, rb, false, false, EstatEstudi::colorPista (t));
+            dibuix::pintaIcona (g, t.tipus == "bateria" ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
+            zonaCanals.removeFromLeft (rb.toNearestInt().getWidth() + 6);
+        }
         if (zonaCanals.getWidth() > 30)
         {
             g.setColour (t.grava ? vintage::ledVermell.withAlpha (0.85f) : tema::suau);
@@ -1891,6 +1899,12 @@ void Capcaleres::menu (int pista)
     });
 }
 
+juce::Rectangle<int> Capcaleres::rectObreInstrument (int fila) const
+{
+    const auto r = rectTecla (fila, 2);
+    return { r.getRight() + 8, r.getY(), 26, r.getHeight() };
+}
+
 void Capcaleres::mouseDown (const juce::MouseEvent& e)
 {
     const int fila = estat.pistaA (e.y);
@@ -1958,6 +1972,14 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
 
     if (estat.pistaTriada != fila) estat.capTriat();
     estat.pistaTriada = fila;
+
+    if (! e.mods.isPopupMenu() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && rectObreInstrument (fila).contains (e.getPosition())
+        && getWidth() - rectTecla (fila, 2).getRight() - 30 > 50)
+    {
+        estat.avisa();
+        if (onObreInstrument) onObreInstrument (fila);
+        return;
+    }
 
     if (e.mods.isPopupMenu())
     {
