@@ -18,6 +18,7 @@ public:
 
     std::function<void()> onTanca, onCommutaAB;
     std::function<void (bool refer)> onDesfes;
+    std::function<void()> onSolo;   // 0.24
     /** S'obre una altra presa: la vista es tornarà a encaixar. */
     void novaPresa() { vistaFeta = false; corbesValides = false; }
     /** Encaixa la vista a les notes del clip. */
@@ -50,6 +51,8 @@ private:
                              { "Deriva", std::nullopt, Boto::Estil::Tecla }, { "Formant", std::nullopt, Boto::Estil::Tecla },
                              { "Volum", std::nullopt, Boto::Estil::Tecla } };
     Boto btOna { "Ona", std::nullopt, Boto::Estil::Tecla };
+    Boto btSolo { "S", std::nullopt, Boto::Estil::Tecla };            // 0.24
+    Segmentat selMode { { "Visual", "Assistit", "Bloquejat" } };     // 0.24: el mateix mode d'escala que el Piano Roll
     Boto btAjusta { "Encaixa", std::nullopt, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Subtil };
 
@@ -103,7 +106,7 @@ private:
     float rmsMax = 1e-6f;
 
     // Gest en curs.
-    enum class Gest { Res, Notes, Requadre, Capcal };
+    enum class Gest { Res, Notes, Requadre, Capcal, Bucle };
     Gest gest = Gest::Res;
     juce::Point<int> inici, ratoli;
     std::vector<mibase::NotaVeu> notesInici;
@@ -148,4 +151,8 @@ private:
     void menuTo();
     void menuEscala();
     void aplicaTonalitat (int modeTon, int to, int escala);
+    // 0.24: segons el mode d'escala (Visual: semitons; Assistit i Bloquejat: dins la tonalitat).
+    int objectiu (double midi);
+    int grau (double midi, int dir);
+    bool lliure (const juce::ModifierKeys& m) const;
 };

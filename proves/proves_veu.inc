@@ -199,6 +199,33 @@ namespace
             comprova (pk > 0.6f * pkx && pk < 1.6f * pkx, "el volum es manté en baixar");
         });
 
+        prova ("veu: en moure molt la nota no queda l'original a sota (sense veu doblada)", [fs]
+        {
+            const double m0 = vv::midiDeHz (200.0);
+            const auto x = veuSintetica (corbaNotes ({ { NAN, 0.1 }, { m0, 1.2 }, { NAN, 0.1 } }, fs), fs);
+            const auto a = vv::analitza (x.data(), (long long) x.size(), fs);
+            mibase::VeuPresa v; v.notes = vv::detectaNotes (a); v.analitzada = true;
+            comprova (v.notes.size() == 1, "una nota");
+            if (v.notes.size() != 1) return;
+            const size_t de = (size_t) (0.4 * fs), n = 16384;
+            for (double st : { -8.0, -7.0, -3.0, 4.0, 7.0 })
+            {
+                v.notes[0].desplac = st;
+                const auto y = renderitzaTot (x, fs, a, v);
+                const double f1 = vv::hzDeMidi (m0 + st);
+                // Energia als harmònics nous i als de l'original (els que no coincideixen amb els nous).
+                double nous = 0.0, vells = 0.0;
+                for (int h = 1; h <= 8; ++h) nous += dft (y, de, n, h * f1, fs);
+                for (int h = 1; h <= 8; ++h)
+                {
+                    const double fh = h * 200.0;
+                    const double dist = std::abs (fh / f1 - std::round (fh / f1)) * f1;
+                    if (dist > 25.0) vells += dft (y, de, n, fh, fs);
+                }
+                comprova (vells < 0.15 * nous, std::to_string ((int) st) + " st: harmònics de l'original " + std::to_string (vells / nous));
+            }
+        });
+
         prova ("veu: treure el vibrato i corregir la deriva", [fs]
         {
             std::vector<double> c = corbaNotes ({ { NAN, 0.1 } }, fs);

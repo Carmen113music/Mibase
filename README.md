@@ -142,11 +142,17 @@ Per afinar i retocar veus gravades nota a nota, sense tocar mai l'àudio origina
 2. S'obre a baix (al lloc del Piano Roll). La primera vegada analitza la veu (uns segons; l'anàlisi es desa al costat de l'àudio, `….wav.veu`).
 3. Cada nota cantada és un bloc sobre el teclat, amb la línia d'afinació a dins. Color: **verd** afinada, **groc** una mica, **taronja** desafinada. Les files i les tecles de la tonalitat triada es veuen més clares.
 4. **Tonalitat** (consola de baix, a l'esquerra): la de la cançó, cromàtica (tots els semitons) o una de concreta (nota + escala).
-5. **Clica una nota i arrossega-la** amunt o avall: salta per les notes de la tonalitat (amb **Alt**, lliure). **Doble clic**: queda afinada. **Fletxes**: un grau de l'escala (Alt: 10 cents). **Supr**: torna a l'original.
+5. **Mode d'escala** (el mateix que al Piano Roll): **Visual** (les notes es mouen per semitons), **Assistit** (salten per les notes de la tonalitat; Alt = lliure) o **Bloquejat** (només notes de la tonalitat).
+   **Clica una nota i arrossega-la** amunt o avall. **Doble clic**: queda afinada. **Fletxes**: un grau de l'escala (Alt: 10 cents). **Supr**: torna a l'original.
 6. **Poms** (actuen sobre les notes triades o, si no n'hi ha cap, sobre totes): **Correcció** (quant van cap a la nota de la tonalitat), **Vibrato**, **Treu deriva**, **Formant**, **Volum** i **Transició** (com de suau passa d'una nota a l'altra). Arrossega amunt/avall (Maj = fi); doble clic = valor de sempre.
 7. **Botons**: Tria-les totes, Cap, **Corregeix** (afina del tot), **A l'original**, Desfés, Refés, i **Corregit/Original** per comparar (A/B, també la tecla B).
 8. Eines de dalt (tecles 1–5) per arrossegar directament afinació, vibrato, deriva, formant o volum.
 Encara no: moure notes en el temps, dividir i unir notes, crear un clip nou corregit (fase 2).
+
+### Dreceres comunes dels editors (0.24)
+- **Arrossegar a la regla** (la franja dels compassos) del Piano Roll, del Drumpad o del Vocal Editor fa el **bucle** (enganxat a la graella). Un clic sol mou el capçal.
+- **/** del teclat numèric: encén o apaga el bucle.
+- **S** (o **\*** del teclat numèric): **solo** de la pista de l'editor. En apagar-lo, totes les pistes tornen al solo que tenien. Si l'editor canvia de pista, el solo la segueix.
 
 ### Preferències (abans, Diagnòstic)
 
@@ -192,6 +198,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.24.0** — Vocal Editor amb el mode d'escala del projecte (Visual / Assistit / Bloquejat). Als editors (Piano Roll, Drumpad i Vocal Editor): arrossegar a la regla fa el bucle i es veu el bucle; botó **S** de solo de la pista de l'editor (tecla * del teclat numèric) que, en apagar-lo, torna els solos d'abans; tecla / del teclat numèric per al bucle. Prova nova: en moure molt una nota no queda l'original a sota.
 - **0.23.0** — **Vocal Editor amb consola**: selector de tonalitat a l'editor (la de la cançó, cromàtica o una de concreta), les notes es mouen dins la tonalitat (arrossegant o amb les fletxes, per graus), poms de Correcció, Vibrato, Treu deriva, Formant, Volum i Transició sobre les notes triades, i botons (Tria-les totes, Cap, Corregeix, A l'original, Desfés, Refés, A/B) a la mateixa consola. El panell de la dreta torna a ser el de sempre.
 - **0.22.0** — **Vocal Editor (fase 1)**: efecte intern per a pistes d'àudio que detecta les notes cantades (pYIN, sense notes falses pel vibrato, la deriva, les consonants ni els harmònics) i les deixa afinar una per una o totes alhora (centre, vibrato, deriva, formant i volum, correcció automàtica regulable, cap a semitons o a l'escala de la cançó). So real amb PSOLA que conserva els formants, fet en un fil a part i només als trossos que canvien; A/B, desfer i desat amb el projecte. Editor a baix i inspector al panell de la dreta.
 - **0.21.0** — **Taula d'estructura**: amb zoom, les peces ja no es dibuixen per sobre de la columna «Parts de la cançó» de la dreta, i clicar en aquella columna ja no toca peces amagades a sota.

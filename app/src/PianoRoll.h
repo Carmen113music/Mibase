@@ -59,6 +59,7 @@ public:
     /** Un missatge MIDI cap a l'instrument de la pista (per escoltar les notes en dibuixar-les i amb el teclat). */
     std::function<void (int pista, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2)> onDirecte;
     std::function<void (bool refer)> onDesfes;
+    std::function<void()> onSolo;   // 0.24: solo de la pista de l'editor (tecla * del teclat numèric)
     /** Les tecles que el Piano Roll no fa servir (Espai, R…), per quan és en una finestra a part. */
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
     std::function<void()> onDesenganxa, onTanca;
@@ -300,6 +301,9 @@ private:
     CaixaNumero velNova { "Vel", 1, 127, 100 };
     Boto btFantasmes { {}, dibuix::Icona::Fantasma, Boto::Estil::Tecla };
     Boto btBloqueja { {}, dibuix::Icona::Cadenat, Boto::Estil::Tecla };
+    Boto btSolo { "S", std::nullopt, Boto::Estil::Tecla };   // 0.24
+    float reglaX0 = 0.0f;                                    // 0.24: on s'ha clicat la regla
+    bool reglaBucle = false;                                 // 0.24: arrossegant la regla es fa el bucle
     juce::Point<float> ratoli { -1.0f, -1.0f };   // per dibuixar el segell
 
     Segmentat selMode { { "Notes", "Chord Pad" } };

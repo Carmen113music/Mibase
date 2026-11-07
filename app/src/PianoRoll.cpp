@@ -93,6 +93,10 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
         info = ed.bloquejat ? "Bloquejat: es queda amb aquest clip"_ca : "Desbloquejat: hi obrirà el clip MIDI on facis doble clic"_ca;
         estat.avisa();
     };
+    btSolo.setLlum (vintage::ledGroc);
+    btSolo.setTooltip ("Solo: només sona la pista d'aquest editor; en apagar-lo, les pistes tornen com estaven (tecla * del teclat numèric)"_ca);
+    btSolo.onClick = [this] { if (onSolo) onSolo(); };
+    addAndMakeVisible (btSolo);
     btDesenganxa.setTooltip ("Desenganxa el Piano Roll en una finestra a part (per portar-lo a una altra pantalla)"_ca);
     btDesenganxa.onClick = [this] { if (onDesenganxa) onDesenganxa(); };
     btTanca.setTooltip ("Amaga el Piano Roll (doble clic a un clip MIDI el torna a obrir)"_ca);
@@ -332,6 +336,7 @@ void PianoRoll::changeListenerCallback (juce::ChangeBroadcaster*)
     {
         const bool bloquejat = index >= 0 && index < (int) estat.editors.size() && estat.editors[(size_t) index].bloquejat;
         btBloqueja.setToggleState (bloquejat, juce::dontSendNotification);
+        btSolo.setToggleState (estat.soloEditor.actiu, juce::dontSendNotification);
     }
     actualitzaControlsPads();
     actualitzaFantasmes();
@@ -602,11 +607,12 @@ void PianoRoll::resized()
     // Primer els botons de la dreta (bloqueja, desenganxa, amaga): no s'han de tapar mai.
     btTanca.setBounds (b.removeFromRight (36)); b.removeFromRight (3);
     btDesenganxa.setBounds (b.removeFromRight (36)); b.removeFromRight (3);
-    btBloqueja.setBounds (b.removeFromRight (36));
+    btBloqueja.setBounds (b.removeFromRight (36)); b.removeFromRight (3);
+    btSolo.setBounds (b.removeFromRight (36));
     b.removeFromRight (10);
 
     // Si l'editor és estret, els botons de graella, durada i quantitza s'estrenyen.
-    const int fixos = eines.size() * 39 + 12 + 8 + 10 + 86 + 46 + selMode.ampladaIdeal() + 16;
+    const int fixos = eines.size() * 39 + 12 + 8 + 10 + 86 + 46 + selMode.ampladaIdeal() + 16 + 39;
     const int ideal = 112 + btQuantitza.ampladaIdeal() + 8;
     const float fs = juce::jlimit (0.55f, 1.0f, (float) (b.getWidth() - fixos) / (float) ideal);
     for (auto* t : eines) { t->setBounds (b.removeFromLeft (36)); b.removeFromLeft (3); }
@@ -1021,6 +1027,8 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     if (z == Zona::Regla)
     {
         mode = Mode::Regla;
+        reglaX0 = e.position.x;
+        reglaBucle = false;
         estat.mouCapcal (juce::jmax (0.0, midi::segons (estat.projecte, tickX (e.position.x))), true);
         estat.avisa();
         return;
@@ -1193,7 +1201,15 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
         }
 
         case Mode::Regla:
-            estat.mouCapcal (juce::jmax (0.0, midi::segons (estat.projecte, tickX (e.position.x))), true);
+            // 0.24: arrossegant la regla es fa el bucle (enganxat a la graella del projecte).
+            if (! reglaBucle && std::abs (e.position.x - reglaX0) > 5.0f) { reglaBucle = true; comencaCanvi(); }
+            if (reglaBucle)
+            {
+                restaura();
+                estat.bucleEntre (midi::segons (estat.projecte, tickX (reglaX0)), midi::segons (estat.projecte, tickX (e.position.x)));
+                info = "Bucle"_ca;
+            }
+            else estat.mouCapcal (juce::jmax (0.0, midi::segons (estat.projecte, tickX (e.position.x))), true);
             estat.avisa();
             return;
 
@@ -1412,6 +1428,13 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
 void PianoRoll::mouseUp (const juce::MouseEvent& e)
 {
     octavaPremuda = 0;
+    if (mode == Mode::Regla && reglaBucle)
+    {
+        reglaBucle = false;
+        mode = Mode::Res;
+        acabaCanvi ("Bucle des de l'editor"_ca);
+        return;
+    }
     switch (mode)
     {
         case Mode::Pad:
@@ -1834,6 +1857,12 @@ void PianoRoll::pintaRegla (juce::Graphics& g)
     const double tpc = (double) midi::ticksPerCompas (p);
     const double t0 = tickX ((float) zr.getX()), t1 = tickX ((float) zr.getRight());
     const int cada = tpc * pxPerTick < 36.0 ? (tpc * pxPerTick < 12.0 ? 8 : 2) : 1;
+    if (p.bucle.marcat && p.bucle.a > p.bucle.de)   // 0.24: el bucle també es veu (i es fa) aquí
+    {
+        const float xa = xTick (p.bucle.de * tpc), xb = xTick (p.bucle.a * tpc);
+        g.setColour ((p.bucle.actiu ? tema::guitarra : tema::suau).withAlpha (p.bucle.actiu ? 0.35f : 0.18f));
+        g.fillRect (juce::Rectangle<float> (xa, (float) zr.getY() + 2.0f, xb - xa, (float) zr.getHeight() - 4.0f));
+    }
     g.setFont (dibuix::mono (11.5f));
     for (long long k = (long long) std::floor (t0 / tpc); k * tpc <= t1; ++k)
     {

@@ -73,6 +73,24 @@ EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (
     btAB.setTooltip ("Encès: sona la veu corregida. Apagat: sona l'original (comparació A/B). Tecla B."_ca);
     btAB.onClick = [this] { if (onCommutaAB) onCommutaAB(); };
 
+    btSolo.setLlum (vintage::ledGroc);
+    btSolo.setTooltip ("Solo: només sona aquesta pista; en apagar-lo, les pistes tornen com estaven (tecla * del teclat numèric)"_ca);
+    btSolo.onClick = [this] { if (onSolo) onSolo(); };
+    addAndMakeVisible (btSolo);
+    selMode.setLlum (vintage::ledTaronja);
+    selMode.setTooltip ("Visual: les notes es mouen per semitons. Assistit: salten per les notes de la tonalitat (Alt = lliure). "
+                        "Bloquejat: només notes de la tonalitat. És el mateix ajust que al Piano Roll."_ca);
+    selMode.onCanvi = [this] (int i)
+    {
+        estat.desfes.abans (estat.projecte);
+        estat.projecte.modeEscala = (mibase::ModeEscala) i;
+        estat.info = i == 0 ? "Escala: només es marca"_ca
+                   : i == 1 ? "Escala assistida: les notes salten per la tonalitat (Alt = lliure)"_ca
+                            : "Escala bloquejada: només notes de la tonalitat"_ca;
+        estat.canviat();
+    };
+    addAndMakeVisible (selMode);
+
     // Consola.
     for (auto* b : { &btTo, &btEscalaTon, &btTotes, &btCap, &btCorregeix, &btOriginal, &btDesfes, &btRefes }) addAndMakeVisible (b);
     btTo.setTooltip ("La nota de la tonalitat (les notes es mouen dins d'aquesta tonalitat)"_ca);
@@ -97,7 +115,7 @@ EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (
         for (int k : ns)
         {
             auto& n = p->veu.notes[(size_t) k];
-            n.desplac = vv::notaObjectiu (vv::centreFinal (n), p->veu, tonCanco()) - n.centre;
+            n.desplac = objectiu (vv::centreFinal (n)) - n.centre;
         }
         acabaCanvi ("Vocal Editor: notes afinades"_ca);
     };
@@ -151,6 +169,8 @@ void EditorVeu::actualitzaBotons()
 {
     for (int i = 0; i < numEines; ++i) btEines[i].setToggleState (estat.veu.eina == i, juce::dontSendNotification);
     btOna.setToggleState (estat.veu.ona, juce::dontSendNotification);
+    btSolo.setToggleState (estat.soloEditor.actiu, juce::dontSendNotification);
+    selMode.setTriat ((int) estat.projecte.modeEscala);
     auto* p = presa();
     const auto ton = p != nullptr ? vv::tonalitatDe (p->veu, tonCanco()) : tonCanco();
     btTo.setButtonText (juce::String::fromUTF8 (mibase::harmonia::nomTo (ton.to).c_str()));
@@ -174,7 +194,7 @@ void EditorVeu::actualitzaBotons()
         };
         valor (pCorreccio, [&] (const NotaVeu& n)
         {
-            const double obj = vv::notaObjectiu (vv::centreFinal (n), p->veu, tonCanco()) - n.centre;
+            const double obj = objectiu (vv::centreFinal (n)) - n.centre;
             return std::abs (obj) < 1e-6 ? 100.0 : juce::jlimit (0.0, 100.0, n.desplac / obj * 100.0);
         });
         valor (pVibrato, [] (const NotaVeu& n) { return n.modulacio * 100.0; });
@@ -207,6 +227,8 @@ void EditorVeu::resized()
     btAjusta.setBounds (r.removeFromRight (70));
     r.removeFromRight (6);
     btOna.setBounds (r.removeFromRight (52));
+    r.removeFromRight (6);
+    btSolo.setBounds (r.removeFromRight (34));
     r.removeFromLeft (150);   // el títol
     for (int i = 0; i < numEines; ++i)
     {
@@ -219,13 +241,15 @@ void EditorVeu::resized()
     zTon = c.removeFromLeft (190);
     {
         auto t = zTon;
-        t.removeFromTop (18);
-        auto fila = t.removeFromTop (28);
+        t.removeFromTop (16);
+        auto fila = t.removeFromTop (26);
         btTo.setBounds (fila.removeFromLeft (52));
         fila.removeFromLeft (6);
         btEscalaTon.setBounds (fila);
-        t.removeFromTop (12);
-        btAB.setBounds (t.removeFromTop (30));
+        t.removeFromTop (4);
+        selMode.setBounds (t.removeFromTop (22));
+        t.removeFromTop (4);
+        btAB.setBounds (t.removeFromTop (24));
     }
     c.removeFromLeft (14);
     zBotons = c.removeFromRight (232);
@@ -602,6 +626,15 @@ void EditorVeu::pintaRegla (juce::Graphics& g)
     const double spc = mibase::edicio::segonsPerCompas (estat.projecte);
     int cada = 1;
     while (spc * cada * pxs < 50.0) cada *= 2;
+    if (const auto& bu = estat.projecte.bucle; bu.marcat && bu.a > bu.de)   // 0.24
+    {
+        const float xa = juce::jmax ((float) r.getX(), xDe (bu.de * spc)), xb = juce::jmin ((float) r.getRight(), xDe (bu.a * spc));
+        if (xb > xa)
+        {
+            g.setColour ((bu.actiu ? tema::guitarra : tema::suau).withAlpha (bu.actiu ? 0.35f : 0.18f));
+            g.fillRect (juce::Rectangle<float> (xa, (float) r.getY() + 2.0f, xb - xa, (float) r.getHeight() - 4.0f));
+        }
+    }
     g.setFont (dibuix::mono (10.5f));
     const double tf = tDe ((float) r.getRight());
     for (long long k = (long long) std::floor (t0 / spc); k * spc <= tf; ++k)
@@ -675,9 +708,9 @@ void EditorVeu::mouseDown (const juce::MouseEvent& e)
     inici = ratoli = e.getPosition();
     gest = Gest::Res;
     auto* s = presa();
-    if (zonaRegla().contains (e.getPosition()) || (zonaTeclat().contains (e.getPosition()) && false))
+    if (zonaRegla().contains (e.getPosition()))
     {
-        gest = Gest::Capcal;
+        gest = Gest::Capcal;   // si s'arrossega, es fa el bucle (0.24)
         estat.mouCapcal (juce::jmax (0.0, tDe ((float) e.x)), true);
         return;
     }
@@ -704,7 +737,16 @@ void EditorVeu::mouseDown (const juce::MouseEvent& e)
 void EditorVeu::mouseDrag (const juce::MouseEvent& e)
 {
     ratoli = e.getPosition();
+    if (gest == Gest::Capcal && std::abs (e.x - inici.x) > 5) { gest = Gest::Bucle; comencaCanvi(); }
     if (gest == Gest::Capcal) { estat.mouCapcal (juce::jmax (0.0, tDe ((float) e.x)), true); return; }
+    if (gest == Gest::Bucle)
+    {
+        restaura();
+        estat.bucleEntre (tDe ((float) inici.x), tDe ((float) e.x));
+        estat.info = "Bucle"_ca;
+        estat.avisa();
+        return;
+    }
     if (gest == Gest::Requadre)
     {
         auto* s = presa();
@@ -738,7 +780,7 @@ void EditorVeu::aplicaArrossegament (const juce::MouseEvent& e)
             case Fletxa:
             {
                 double desti = vv::centreFinal (n0) - dy / altSemi;
-                if (! e.mods.isAltDown()) desti = vv::notaObjectiu (desti, s->veu, tonCanco());   // dins la tonalitat
+                if (! lliure (e.mods)) desti = objectiu (desti);   // semitons o dins la tonalitat, segons el mode
                 n.desplac = juce::jlimit (-24.0, 24.0, desti - n.centre);
                 if (k == notaSota) info = nomNota (desti) + "  " + textCents ((desti - std::round (desti)) * 100.0);
                 break;
@@ -769,6 +811,7 @@ void EditorVeu::aplicaArrossegament (const juce::MouseEvent& e)
 void EditorVeu::mouseUp (const juce::MouseEvent&)
 {
     if (gest == Gest::Notes) acabaCanvi ("Vocal Editor: notes editades"_ca);
+    if (gest == Gest::Bucle) acabaCanvi ("Bucle des de l'editor"_ca);
     gest = Gest::Res;
     notaSota = -1;
     repaint();
@@ -782,7 +825,7 @@ void EditorVeu::restableix (int k)
     switch (estat.veu.eina)
     {
         case Fletxa:
-            n.desplac = vv::notaObjectiu (vv::centreFinal (n), s->veu, tonCanco()) - n.centre;
+            n.desplac = objectiu (vv::centreFinal (n)) - n.centre;
             break;
         case Vibrato: n.modulacio = 1.0; break;
         case Deriva: n.deriva = 1.0; break;
@@ -813,8 +856,7 @@ void EditorVeu::mouTriades (double semitons, bool lliure, const juce::String& ev
     {
         if (k < 0 || k >= (int) s->veu.notes.size()) continue;
         auto& n = s->veu.notes[(size_t) k];
-        const double desti = lliure ? vv::centreFinal (n) + semitons
-                                    : (double) vv::mouGraus (vv::centreFinal (n), semitons > 0 ? 1 : -1, s->veu, tonCanco());
+        const double desti = lliure ? vv::centreFinal (n) + semitons : (double) grau (vv::centreFinal (n), semitons > 0 ? 1 : -1);
         n.desplac = juce::jlimit (-24.0, 24.0, desti - n.centre);
     }
     acabaCanvi (evolucio);
@@ -851,8 +893,9 @@ bool EditorVeu::keyPressed (const juce::KeyPress& k)
     if (codi >= '1' && codi < '1' + numEines && ! mods.isAnyModifierKeyDown()) { estat.veu.eina = codi - '1'; actualitzaBotons(); repaint(); return true; }
     if (codi == juce::KeyPress::upKey || codi == juce::KeyPress::downKey)
     {
-        const double d = (codi == juce::KeyPress::upKey ? 1.0 : -1.0) * (mods.isAltDown() ? 0.1 : 1.0);
-        mouTriades (d, mods.isAltDown(), "Vocal Editor: notes mogudes"_ca);
+        const bool fi = lliure (mods);
+        const double d = (codi == juce::KeyPress::upKey ? 1.0 : -1.0) * (fi ? 0.1 : 1.0);
+        mouTriades (d, fi, "Vocal Editor: notes mogudes"_ca);
         return true;
     }
     if (mods.isCommandDown() && (codi == 'A' || codi == 'a'))
@@ -984,7 +1027,7 @@ void EditorVeu::comencaPom()
     objectiusInici.clear();
     if (auto* p = presa())
         for (int k : notesConsola())
-            objectiusInici.push_back (vv::notaObjectiu (vv::centreFinal (p->veu.notes[(size_t) k]), p->veu, tonCanco()));
+            objectiusInici.push_back (objectiu (vv::centreFinal (p->veu.notes[(size_t) k])));
 }
 
 void EditorVeu::canviaPom (const std::function<void (NotaVeu&, size_t)>& f)
@@ -1061,4 +1104,23 @@ void EditorVeu::pintaConsola (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.06f));
         g.fillRect (x + 1, r.getY() + 10, 1, r.getHeight() - 20);
     }
+}
+
+int EditorVeu::objectiu (double midi)
+{
+    auto* p = presa();
+    if (p == nullptr || estat.projecte.modeEscala == mibase::ModeEscala::Visual) return (int) std::lround (midi);
+    return vv::notaObjectiu (midi, p->veu, tonCanco());
+}
+
+int EditorVeu::grau (double midi, int dir)
+{
+    auto* p = presa();
+    if (p == nullptr || estat.projecte.modeEscala == mibase::ModeEscala::Visual) return (int) std::lround (midi) + dir;
+    return vv::mouGraus (midi, dir, p->veu, tonCanco());
+}
+
+bool EditorVeu::lliure (const juce::ModifierKeys& m) const
+{
+    return m.isAltDown() && estat.projecte.modeEscala != mibase::ModeEscala::Bloquejat;
 }

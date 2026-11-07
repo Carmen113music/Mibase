@@ -103,6 +103,11 @@ private:
     void sincronitzaVeu();
     /** Recull el que el ServeiVeu ha acabat (anàlisis i so corregit). */
     void recullVeu();
+    // 0.24: solo dels editors.
+    std::string pistaEditor() const;
+    void commutaSoloEditor();
+    void seguixSoloEditor();
+    void restauraSolos();
     void configuraEditor (PianoRoll& pr);
     void tancaEditor (int index);
     void mostraPianoRoll (bool visible);

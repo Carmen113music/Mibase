@@ -217,6 +217,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     editorVeu.onTanca = [this] { tancaVeu(); };
     editorVeu.onCommutaAB = [this] { commutaVeuAB(); };
     editorVeu.onDesfes = [this] (bool refer) { desfes (refer); };
+    editorVeu.onSolo = [this] { commutaSoloEditor(); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -473,6 +474,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
     actualitzaBarres();
     repaint (zonaBarra);
     sincronitzaVeu();
+    seguixSoloEditor();
     publicaPla();
 }
 
@@ -1778,6 +1780,9 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (cap && lletra ('X') && estat.rang.actiu) { fesCrossfade(); return true; }
     if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
     if (codi == juce::KeyPress::insertKey) { canviaInsereix (! estat.insereix); return true; }
+    // 0.24: / i * del teclat numèric (a Linux arriben com a «/» i «*»).
+    if (codi == juce::KeyPress::numberPadDivide || (codi == '/' && ! mods.isCommandDown())) { commutaBucle(); return true; }
+    if (codi == juce::KeyPress::numberPadMultiply || (codi == '*' && ! mods.isCommandDown())) { commutaSoloEditor(); return true; }
     if (cap && lletra ('M')) { silenciaTriat(); return true; }
     if (mods.isCommandDown() && lletra ('G')) { demanaNomCarpeta (estat.indexsTriades(), {}); return true; }
     if (cap && lletra ('L')) { commutaBucle(); return true; }
@@ -1817,6 +1822,7 @@ void PantallaEstudi::configuraEditor (PianoRoll& pr)
         if (auto* t = estat.pista (pista)) servei.estudi().enviaDirecte ({ slotDePista (*t), e, d1, d2 });
     };
     pr.onDesfes = [this] (bool refer) { desfes (refer); };
+    pr.onSolo = [this] { commutaSoloEditor(); };
     pr.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
     pr.onDesenganxa = [this]
     {
@@ -2157,4 +2163,61 @@ void PantallaEstudi::recullVeu()
     if (notesNoves) estat.canviat ("Vocal Editor: notes detectades"_ca);
     else publicaPla();
     editorVeu.repaint();
+}
+
+//==============================================================================
+// 0.24: solo dels editors
+//==============================================================================
+std::string PantallaEstudi::pistaEditor() const
+{
+    if (estat.veu.obert && estat.veu.pista >= 0 && estat.veu.pista < (int) estat.projecte.pistes.size())
+        return estat.projecte.pistes[(size_t) estat.veu.pista].id;
+    if (estat.pianoRoll && estat.editorActiu >= 0 && estat.editorActiu < (int) estat.editors.size())
+        return estat.editors[(size_t) estat.editorActiu].idPista;
+    return {};
+}
+
+void PantallaEstudi::restauraSolos()
+{
+    for (auto& [id, solo] : estat.soloEditor.abans)
+        for (auto& t : estat.projecte.pistes)
+            if (t.id == id) t.solo = solo;
+    estat.soloEditor = {};
+}
+
+void PantallaEstudi::commutaSoloEditor()
+{
+    auto& s = estat.soloEditor;
+    if (s.actiu)
+    {
+        restauraSolos();
+        estat.info = "Solo de l'editor apagat: les pistes tornen com estaven"_ca;
+        estat.avisa();
+        return;
+    }
+    const auto id = pistaEditor();
+    if (id.empty())
+    {
+        estat.info = "Obre un editor (Piano Roll, Drumpad o Vocal Editor) per fer-ne solo"_ca;
+        estat.avisa();
+        return;
+    }
+    s.abans.clear();
+    for (auto& t : estat.projecte.pistes) s.abans.push_back ({ t.id, t.solo });
+    for (auto& t : estat.projecte.pistes) t.solo = t.id == id;
+    s.pista = id;
+    s.actiu = true;
+    for (auto& t : estat.projecte.pistes) if (t.id == id) estat.info = "Solo de l'editor: "_ca + dibuix::utf8 (t.nom);
+    estat.avisa();
+}
+
+void PantallaEstudi::seguixSoloEditor()
+{
+    auto& s = estat.soloEditor;
+    if (! s.actiu) return;
+    const auto id = pistaEditor();
+    if (id.empty()) { restauraSolos(); return; }   // l'editor s'ha tancat
+    if (id == s.pista) return;
+    for (auto& t : estat.projecte.pistes) t.solo = t.id == id;   // l'editor ha canviat de pista: el solo la segueix
+    s.pista = id;
 }

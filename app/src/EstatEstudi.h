@@ -114,6 +114,35 @@ public:
         bool ona = true;            // l'ona de fons
     };
     EditorVeu veu;
+
+    /** 0.24: «Solo» dels editors (tecla * del teclat numèric): només sona la pista de l'editor; en apagar-lo,
+        cada pista torna al solo que tenia. */
+    struct SoloEditor
+    {
+        bool actiu = false;
+        std::string pista;                                    // la que fa solo ara
+        std::vector<std::pair<std::string, bool>> abans;      // (id de pista, solo) d'abans d'encendre'l
+    };
+    SoloEditor soloEditor;
+
+    /** 0.24: posa el bucle entre dos temps (segons), enganxat a la graella del projecte, i l'encén (des de la regla
+        dels editors). */
+    void bucleEntre (double ta, double tb)
+    {
+        namespace ed = mibase::edicio;
+        double a = std::max (0.0, std::min (ta, tb)), b = std::max (0.0, std::max (ta, tb));
+        const double pas = projecte.snap == mibase::Snap::Compas ? ed::segonsPerCompas (projecte)
+                         : projecte.snap == mibase::Snap::Temps ? ed::segonsPerTemps (projecte) : 0.0;
+        if (pas > 0.0)
+        {
+            a = std::floor (a / pas + 1e-9) * pas;
+            b = std::max (a + pas, std::ceil (b / pas - 1e-9) * pas);
+        }
+        const double spc = ed::segonsPerCompas (projecte);
+        projecte.bucle.marcat = projecte.bucle.actiu = true;
+        projecte.bucle.de = a / spc;
+        projecte.bucle.a = b / spc;
+    }
     /** La presa que edita el Vocal Editor (nullptr si no n'hi ha). */
     mibase::Presa* presaVeu()
     {
