@@ -1,4 +1,5 @@
 #include "PantallaEstudi.h"
+#include "Inserts.h"
 
 using namespace mibase;
 namespace ed = mibase::edicio;
@@ -133,6 +134,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     for (auto& presa : estat.projecte.preses)
         carregaOna (presa);
+    sincronitzaVeu();   // 0.22: les preses corregides es preparen encara que no s'obri el Vocal Editor
 
     estat.nomsEntrades = servei.getNomsEntrades();
     estat.onCapcalMogut = [this] (double t) { if (estat.transport == 1) servei.estudi().situa (t); };
@@ -209,6 +211,13 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onDemanaImportar = [this] (int pista, double on) { demanaImportar (pista, on); };
     pistes.onConsolida = [this] (int pista, int clipA, int clipB) { consolida (pista, clipA, clipB); };
     pistes.onObreMidi = [this] (int pista, int clip) { obrePianoRoll (pista, clip); };
+    pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
+    inserts::obreVeu() = [this] (int pista) { obreVeuDePista (pista); };
+    addChildComponent (editorVeu);
+    addChildComponent (panellVeu);
+    editorVeu.onTanca = [this] { tancaVeu(); };
+    editorVeu.onCommutaAB = [this] { commutaVeuAB(); };
+    panellVeu.onCommutaAB = [this] { commutaVeuAB(); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -300,10 +309,10 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (divPianoRoll);
     altPianoRoll = ajustos.getIntValue ("estudi.altPianoRoll", 430);
     divPianoRoll.setTooltip ("Arrossega per fer el Piano Roll més alt o més baix. Doble clic: mida inicial."_ca);
-    divPianoRoll.onComenca = [this] { altInici = zonaEditors.getHeight(); };
+    divPianoRoll.onComenca = [this] { altInici = estat.veu.obert ? editorVeu.getHeight() : zonaEditors.getHeight(); };
     divPianoRoll.onArrossega = [this] (int dy)
     {
-        altPianoRoll = juce::jmax (160, altInici - dy - (juce::jmax (1, zonaEditors.quants()) - 1) * 250);
+        altPianoRoll = juce::jmax (160, altInici - dy - (estat.veu.obert ? 0 : (juce::jmax (1, zonaEditors.quants()) - 1) * 250));
         colocaSeccions();
     };
     divPianoRoll.onDobleClic = [this] { altPianoRoll = 430; colocaSeccions(); divPianoRoll.onAcaba(); };
@@ -324,6 +333,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
 PantallaEstudi::~PantallaEstudi()
 {
+    inserts::obreVeu() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);
     pistes.removeMouseListener (&focusPistes);
@@ -463,6 +473,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         colocaSeccions();
     actualitzaBarres();
     repaint (zonaBarra);
+    sincronitzaVeu();
     publicaPla();
 }
 
@@ -527,9 +538,18 @@ void PantallaEstudi::colocaSeccions()
     panell.setBounds (r.removeFromRight (pan));
 
     // Piano Roll a baix (si és obert i no és en una finestra a part).
-    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m;
-    divPianoRoll.setVisible (prBaix);
+    const bool veuBaix = estat.veu.obert && ! m;   // 0.22: o el Vocal Editor, al mateix lloc
+    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m && ! veuBaix;
+    divPianoRoll.setVisible (prBaix || veuBaix);
     if (finestraPianoRoll == nullptr) zonaEditors.setVisible (prBaix);
+    editorVeu.setVisible (veuBaix);
+    if (veuBaix)
+    {
+        const int alt = juce::jlimit (160, juce::jmax (160, r.getHeight() - 140), altPianoRoll);
+        auto zona = r.removeFromBottom (alt);
+        editorVeu.setBounds (zona.withTrimmedTop (4));
+        divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
+    }
     if (prBaix)
     {
         // Amb diversos editors, la zona creix (cada un ha de tenir lloc per treballar); les pistes en conserven una mica.
@@ -543,7 +563,9 @@ void PantallaEstudi::colocaSeccions()
 
     mescles.setVisible (estat.vistaMescles);
     taulaEstructura.setVisible (estat.vistaEstructura);
-    panell.setVisible (! estat.vistaEstructura);
+    panell.setVisible (! estat.vistaEstructura && ! estat.veu.obert);
+    panellVeu.setVisible (! estat.vistaEstructura && estat.veu.obert);
+    panellVeu.setBounds (panell.getBounds());
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
         c->setVisible (! m);
     carpetes.setVisible (ambCarpetes);
@@ -749,7 +771,7 @@ void PantallaEstudi::publicaPla()
     const auto errorAbans = plugins.getUltimError();
     servei.estudi().publica (construeixPla (estat.projecte, audioPreses,
         [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrument (t, fs, 2048) : interns (t); },
-        [this, fs] (const mibase::Insert& x) { return plugins.efecte (x, fs, 2048); }));
+        [this, fs] (const mibase::Insert& x) { return plugins.efecte (x, fs, 2048); }, &serveiVeu.corregides()));
     if (plugins.getUltimError() != errorAbans && plugins.getUltimError().isNotEmpty())
     {
         historial.afegeix (plugins.getUltimError());
@@ -988,6 +1010,10 @@ void PantallaEstudi::tic()
         zonaEditors.ticTransport();
         if (taulaEstructura.isVisible()) taulaEstructura.repaint();
     }
+    recullVeu();
+    if (editorVeu.isVisible()) editorVeu.tic();
+    if (panellVeu.isVisible())
+        if (auto* pv = estat.presaVeu(); pv != nullptr && (serveiVeu.progres (pv->id) >= 0.0f || serveiVeu.treballant (pv->id))) panellVeu.tic();
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
     auto cau = [] (float& v, float nou) { v = juce::jmax (nou, v * 0.82f); if (v < 1.0e-4f) v = 0.0f; };
@@ -1050,7 +1076,8 @@ void PantallaEstudi::exportaMescla()
         auto interns = Instruments::perExportar (fs, 4096);
         const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses,
                                                     [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096) : interns (t); },
-                                                    [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; }),
+                                                    [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
+                                                    &serveiVeu.corregides()),
                                                 fs, tros.first, tros.second, dibuix::cami (desti), error);
         juce::MouseCursor::hideWaitCursor();
         if (! fet)
@@ -1861,6 +1888,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 
 void PantallaEstudi::mostraPianoRoll (bool visible)
 {
+    if (visible && estat.veu.obert) estat.veu.obert = false;   // 0.22: comparteixen el lloc de baix
     if (visible && estat.editors.empty())
     {
         // Un editor (amb el clip MIDI triat, si n'hi ha un).
@@ -2014,4 +2042,124 @@ void PantallaEstudi::acabaGravacioMidi()
     historial.afegeix (estat.info);
     estat.canviat ("Gravat MIDI ("_ca + juce::String (quantes) + " notes) a la pista «"_ca + nomPista + "»"_ca);
     obrePianoRoll (pista, idx);
+}
+
+//==============================================================================
+// 0.22: Vocal Editor
+//==============================================================================
+void PantallaEstudi::obreVeu (int pista, int clip)
+{
+    auto* t = estat.pista (pista);
+    auto* c = estat.clip ({ pista, clip });
+    if (t == nullptr || c == nullptr || c->midi || c->presa.empty() || mibase::esMidi (*t)) return;
+    if (audioPreses.find (c->presa) == audioPreses.end())
+    {
+        estat.info = "Aquest clip no té l'àudio carregat"_ca;
+        estat.avisa();
+        return;
+    }
+    if (! mibase::teVeu (*t))
+    {
+        // Es posa el Vocal Editor al primer insert de la pista (es pot desfer).
+        estat.desfes.abans (estat.projecte);
+        mibase::Insert x;
+        x.id = "i" + std::to_string (++estat.projecte.comptador);
+        x.plugin = mibase::pluginVeu;
+        x.nom = "Vocal Editor";
+        t->inserts.insert (t->inserts.begin(), x);
+        estat.canviat ("Vocal Editor a la pista "_ca + dibuix::utf8 (t->nom));
+        t = estat.pista (pista);
+        c = estat.clip ({ pista, clip });
+        if (t == nullptr || c == nullptr) return;
+    }
+    if (estat.pianoRoll) mostraPianoRoll (false);
+    const bool mateixa = estat.veu.obert && estat.veu.presa == c->presa;
+    estat.veu.obert = true;
+    estat.veu.pista = pista;
+    estat.veu.clip = clip;
+    estat.veu.presa = c->presa;
+    if (! mateixa)
+    {
+        estat.veu.triades.clear();
+        editorVeu.novaPresa();
+    }
+    estat.triaClip (pista, clip);
+    colocaSeccions();
+    sincronitzaVeu();
+    estat.avisa();
+    editorVeu.grabKeyboardFocus();
+}
+
+void PantallaEstudi::obreVeuDePista (int pista)
+{
+    auto* t = estat.pista (pista);
+    if (t == nullptr) return;
+    for (auto& r : estat.triats)
+        if (r.pista == pista)
+            if (auto* c = estat.clip (r); c != nullptr && ! c->presa.empty()) { obreVeu (pista, r.clip); return; }
+    for (int k = 0; k < (int) t->clips.size(); ++k)
+        if (! t->clips[(size_t) k].presa.empty()) { obreVeu (pista, k); return; }
+    estat.info = "Aquesta pista encara no té cap gravació per editar"_ca;
+    estat.avisa();
+}
+
+void PantallaEstudi::tancaVeu()
+{
+    estat.veu.obert = false;
+    colocaSeccions();
+    estat.avisa();
+    grabKeyboardFocus();
+}
+
+void PantallaEstudi::commutaVeuAB()
+{
+    auto* t = estat.pista (estat.veu.pista);
+    if (t == nullptr) return;
+    for (int k = 0; k < (int) t->inserts.size(); ++k)
+        if (mibase::esInsertVeu (t->inserts[(size_t) k]))
+        {
+            inserts::commuta (estat, &plugins, estat.veu.pista, k);
+            estat.info = mibase::veuActiva (estat.projecte.pistes[(size_t) estat.veu.pista]) ? "Sona la veu corregida"_ca : "Sona la veu original"_ca;
+            estat.avisa();
+            return;
+        }
+}
+
+void PantallaEstudi::sincronitzaVeu()
+{
+    for (auto& t : estat.projecte.pistes)
+    {
+        if (mibase::esMidi (t) || ! mibase::teVeu (t)) continue;
+        for (auto& c : t.clips)
+        {
+            if (c.presa.empty()) continue;
+            auto* s = mibase::edicio::presa (estat.projecte, c.presa);
+            auto it = audioPreses.find (c.presa);
+            if (s == nullptr || it == audioPreses.end()) continue;
+            // Només les preses que ja s'han obert al Vocal Editor (o la que s'hi obre ara).
+            if (! s->veu.analitzada && ! (estat.veu.obert && estat.veu.presa == s->id)) continue;
+            serveiVeu.actualitza (s->id, it->second, juce::File (fitxerPresa (*s).getFullPathName() + ".veu"), s->veu);
+        }
+    }
+}
+
+void PantallaEstudi::recullVeu()
+{
+    std::vector<std::string> fetes;
+    if (! serveiVeu.recull (fetes)) return;
+    bool notesNoves = false;
+    for (auto& id : fetes)
+    {
+        auto* s = mibase::edicio::presa (estat.projecte, id);
+        auto a = serveiVeu.analisi (id);
+        if (s == nullptr || a == nullptr || s->veu.analitzada) continue;
+        s->veu.notes = mibase::veu::detectaNotes (*a);
+        s->veu.analitzada = true;
+        historial.afegeix ("Vocal Editor: "_ca + juce::String ((int) s->veu.notes.size()) + " notes a "_ca + dibuix::utf8 (s->nom));
+        notesNoves = true;
+    }
+    if (notesNoves) estat.canviat ("Vocal Editor: notes detectades"_ca);
+    else publicaPla();
+    editorVeu.repaint();
+    panellVeu.repaint();
 }

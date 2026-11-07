@@ -300,6 +300,22 @@ namespace mibase::disc
                 s.nom = e.value ("nom", s.fitxer);
                 s.durada = e.value ("durada", 0.0);
                 s.primer = e.value ("primer", -1.0);
+                if (e.contains ("veu") && e["veu"].is_object())
+                {
+                    const auto& v = e["veu"];
+                    s.veu.analitzada = v.value ("analitzada", false);
+                    s.veu.transicio = std::clamp (v.value ("transicio", 0.06), 0.0, 0.5);
+                    if (v.contains ("notes") && v["notes"].is_array())
+                        for (auto& n : v["notes"])
+                        {
+                            if (! n.is_array() || n.size() < 8) continue;
+                            NotaVeu x;
+                            x.ini = n[0].get<double>(); x.fi = n[1].get<double>(); x.centre = n[2].get<double>();
+                            x.desplac = n[3].get<double>(); x.modulacio = n[4].get<double>(); x.deriva = n[5].get<double>();
+                            x.formant = n[6].get<double>(); x.guanyDb = n[7].get<double>();
+                            if (x.fi > x.ini) s.veu.notes.push_back (x);
+                        }
+                }
                 if (! s.id.empty()) p.preses.push_back (s);
             }
         }
@@ -548,7 +564,17 @@ namespace mibase::disc
 
         json preses = json::array();
         for (auto& s : p.preses)
-            preses.push_back ({ { "id", s.id }, { "fitxer", s.fitxer }, { "nom", s.nom }, { "durada", s.durada }, { "primer", s.primer } });
+        {
+            json e = { { "id", s.id }, { "fitxer", s.fitxer }, { "nom", s.nom }, { "durada", s.durada }, { "primer", s.primer } };
+            if (s.veu.analitzada || ! s.veu.notes.empty())
+            {
+                json notes = json::array();
+                for (auto& n : s.veu.notes)
+                    notes.push_back ({ n.ini, n.fi, n.centre, n.desplac, n.modulacio, n.deriva, n.formant, n.guanyDb });
+                e["veu"] = { { "analitzada", s.veu.analitzada }, { "transicio", s.veu.transicio }, { "notes", notes } };
+            }
+            preses.push_back (e);
+        }
         j["preses"] = preses;
 
         json pistes = json::array();

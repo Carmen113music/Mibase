@@ -108,8 +108,9 @@ namespace mibase
     using ProveidorEfectes = std::function<std::shared_ptr<Efecte> (const Insert&)>;
 
     /** Fa el pla del projecte (fil de la interfície). Els clips sense àudio a la memòria no sonen. */
+    /** «corregides» (0.22): preses passades pel Vocal Editor; les fan servir les pistes amb el Vocal Editor encès. */
     std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {},
-                                     const ProveidorEfectes& efectes = {});
+                                     const ProveidorEfectes& efectes = {}, const MapaAudios* corregides = nullptr);
 
     /** Un missatge MIDI en directe (del piano roll o del teclat) per a l'instrument d'una pista. */
     struct EventDirecte

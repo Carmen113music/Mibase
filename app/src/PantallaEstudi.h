@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DialegText.h"
+#include "EditorVeu.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
@@ -93,6 +94,15 @@ private:
 
     void pistaNova (const juce::String& tipus, int canals);
     void obrePianoRoll (int pista, int clip);
+    // 0.22: Vocal Editor.
+    void obreVeu (int pista, int clip);
+    void obreVeuDePista (int pista);
+    void tancaVeu();
+    void commutaVeuAB();
+    /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
+    void sincronitzaVeu();
+    /** Recull el que el ServeiVeu ha acabat (anàlisis i so corregit). */
+    void recullVeu();
     void configuraEditor (PianoRoll& pr);
     void tancaEditor (int index);
     void mostraPianoRoll (bool visible);
@@ -126,6 +136,7 @@ private:
     Historial& historial;
     ServeiAudio& servei;
     EstatEstudi estat;
+    ServeiVeu serveiVeu;       // 0.22: abans dels components que el fan servir
     Instruments instruments;   // els de les pistes MIDI (viu abans que el pla que els fa servir)
     GestorPlugins plugins { servei.escaner().llista() };   // 0.19: VST3 (inserts i instruments)
     juce::AudioFormatManager formats;
@@ -164,6 +175,8 @@ private:
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
+    EditorVeu editorVeu { estat, serveiVeu };            // 0.22
+    PanellVeu panellVeu { estat, serveiVeu, editorVeu };
     PanellEditor panellEditor { estat, panellHarmonia, panellBateria, [this] { return zonaEditors.actiu(); } };
     std::unique_ptr<FinestraKits> finestraKits;
     void obreKits();

@@ -101,7 +101,7 @@ namespace mibase
     }
 
     std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments,
-                                        const ProveidorEfectes& efectes)
+                                        const ProveidorEfectes& efectes, const MapaAudios* corregides)
     {
         auto pla = std::make_unique<Pla>();
         pla->tempo = p.tempo > 1.0 ? p.tempo : 120.0;
@@ -144,13 +144,18 @@ namespace mibase
             pp.guany = guanyDb (t.faderDb);
             pp.pan = (float) std::clamp (t.pan, -1.0, 1.0);
             pp.sona = ! t.mut && (! hiHaSolo || t.solo);
+            const bool ambVeu = corregides != nullptr && ! esMidi (t) && veuActiva (t);
             for (const auto& c : t.clips)
             {
                 if (c.mut || c.presa.empty()) continue;
-                auto it = audios.find (c.presa);
-                if (it == audios.end() || it->second == nullptr || it->second->longitud <= 0) continue;
+                const std::shared_ptr<const AudioPresa>* au = nullptr;
+                if (auto it0 = audios.find (c.presa); it0 != audios.end()) au = &it0->second;
+                if (ambVeu)
+                    if (auto ic = corregides->find (c.presa); ic != corregides->end() && ic->second != nullptr && ic->second->longitud > 0) au = &ic->second;
+                if (au == nullptr || *au == nullptr || (*au)->longitud <= 0) continue;
+                const auto audio = *au;
                 Pla::Clip k;
-                k.audio = it->second.get();
+                k.audio = audio.get();
                 k.pos = c.pos;
                 k.inici = c.inici;
                 k.fi = c.fi;
@@ -158,8 +163,8 @@ namespace mibase
                 k.fadeOut = std::max (0.0, c.fadeOut);
                 k.guany = guanyDb (c.guanyDb);
                 pp.clips.push_back (k);
-                if (std::find (pla->audios.begin(), pla->audios.end(), it->second) == pla->audios.end())
-                    pla->audios.push_back (it->second);
+                if (std::find (pla->audios.begin(), pla->audios.end(), audio) == pla->audios.end())
+                    pla->audios.push_back (audio);
             }
             // Com a la pantalla: el clip de més amunt tapa els de sota (no se sumen).
             for (size_t k = 0; k < pp.clips.size(); ++k)
@@ -193,7 +198,7 @@ namespace mibase
             }
             if (efectes)
                 for (const auto& x : t.inserts)
-                    if (x.actiu)
+                    if (x.actiu && ! esInsertVeu (x))
                         if (auto e = efectes (x)) pp.inserts.push_back (std::move (e));
             pla->pistes.push_back (std::move (pp));
         }

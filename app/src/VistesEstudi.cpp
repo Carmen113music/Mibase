@@ -1152,6 +1152,11 @@ void VistaPistes::menuClip (int pista, int clip, double t)
         m.addItem (20, "Obre al Piano Roll   (doble clic)"_ca);
         m.addSeparator();
     }
+    else if (s != nullptr)
+    {
+        m.addItem (21, "Obre al Vocal Editor"_ca + (mibase::teVeu (estat.projecte.pistes[(size_t) pista]) ? "   (doble clic)"_ca : juce::String()));
+        m.addSeparator();
+    }
     m.addItem (8, "Copia   (Ctrl+C)");
     m.addItem (1, molts ? "Duplica els clips   (Ctrl+D)" : "Duplica   (Ctrl+D)");
     m.addItem (2, molts ? "Treu els clips   (Supr)" : "Treu   (Supr)");
@@ -1172,6 +1177,7 @@ void VistaPistes::menuClip (int pista, int clip, double t)
         if (r == 0 || pista >= estat.numPistes() || clip >= (int) estat.projecte.pistes[(size_t) pista].clips.size()) return;
         if (r == 8) { estat.portaretalls = ed::copiaClips (estat.projecte, estat.triats); estat.info = "Copiat"; estat.avisa(); return; }
         if (r == 20) { if (onObreMidi) onObreMidi (pista, clip); return; }
+        if (r == 21) { if (onObreVeu) onObreVeu (pista, clip); return; }
         comencaCanvi();
         restaura();
         auto& c = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];
@@ -1669,6 +1675,12 @@ void VistaPistes::mouseDoubleClick (const juce::MouseEvent& e)
     if (l.pista >= 0 && l.clip >= 0 && estat.projecte.pistes[(size_t) l.pista].clips[(size_t) l.clip].midi)
     {
         if (onObreMidi) onObreMidi (l.pista, l.clip);
+        return;
+    }
+    if (l.pista >= 0 && l.clip >= 0 && mibase::teVeu (estat.projecte.pistes[(size_t) l.pista])
+        && ! estat.projecte.pistes[(size_t) l.pista].clips[(size_t) l.clip].presa.empty())
+    {
+        if (onObreVeu) onObreVeu (l.pista, l.clip);
         return;
     }
     if (l.pista < 0 && ! l.pistaNova && e.y > estat.yPista (estat.numPistes()))

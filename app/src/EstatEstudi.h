@@ -103,6 +103,29 @@ public:
     int filaBateria = 0;            // 0.20: la fila del Drumpad triada (el panell de la bateria l'edita)
     bool pianoRoll = false;         // la zona dels editors es veu
 
+    /** 0.22: Vocal Editor obert a baix, sobre la presa d'un clip d'àudio (les edicions són de la presa). */
+    struct EditorVeu
+    {
+        bool obert = false;
+        int pista = -1, clip = -1;
+        std::string presa;
+        std::vector<int> triades;   // notes triades (índexs)
+        int eina = 0;               // EditorVeu::Eina
+        bool ona = true;            // l'ona de fons
+        bool escala = true;         // marca les notes de l'escala
+        // Correcció automàtica (el panell de la dreta).
+        double corrCentre = 1.0, corrDeriva = 0.0, corrVibrato = 1.0;
+        int corrDesti = 0;          // 0 cromàtic, 1 escala del projecte
+    };
+    EditorVeu veu;
+    /** La presa que edita el Vocal Editor (nullptr si no n'hi ha). */
+    mibase::Presa* presaVeu()
+    {
+        if (! veu.obert) return nullptr;
+        for (auto& s : projecte.preses) if (s.id == veu.presa) return &s;
+        return nullptr;
+    }
+
     /** Vista horitzontal comuna a tots els editors (així tenen les mateixes referències de temps). */
     struct VistaEditors
     {

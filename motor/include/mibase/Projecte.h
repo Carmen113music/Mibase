@@ -38,6 +38,29 @@ namespace mibase
         bool operator== (const EventMidi&) const = default;
     };
 
+    /** 0.22: una nota del Vocal Editor dins d'una presa: on és (segons dins el fitxer), què s'hi ha detectat i què
+        s'hi ha canviat. L'àudio original no es toca mai: aquests valors diuen com s'ha de transformar. */
+    struct NotaVeu
+    {
+        double ini = 0.0, fi = 0.0;   // segons dins el fitxer
+        double centre = 60.0;         // afinació detectada (MIDI amb decimals: 60,25 = C4 + 25 cents)
+        double desplac = 0.0;         // semitons sumats al centre (Pitch Center)
+        double modulacio = 1.0;       // vibrato: 0 = treure'l, 1 = l'original, 2 = el doble (Pitch Modulation)
+        double deriva = 1.0;          // deriva lenta dins la nota: 0 = recta, 1 = l'original (Pitch Drift)
+        double formant = 0.0;         // semitons (0 = es conserven els formants originals)
+        double guanyDb = 0.0;         // volum de la nota
+        bool operator== (const NotaVeu&) const = default;
+    };
+
+    /** 0.22: el que el Vocal Editor sap i ha canviat d'una presa. */
+    struct VeuPresa
+    {
+        bool analitzada = false;          // les notes ja s'han detectat (l'anàlisi fina és a «<fitxer>.veu»)
+        double transicio = 0.06;          // segons que tarda a passar d'una nota corregida a la següent
+        std::vector<NotaVeu> notes;       // per ordre de temps
+        bool operator== (const VeuPresa&) const = default;
+    };
+
     /** Una gravació (un fitxer d'Àudios). Tots els temps, en segons. */
     struct Presa
     {
@@ -46,6 +69,7 @@ namespace mibase
         std::string nom;         // el que es mostra (no canvia el nom del fitxer)
         double durada = 0.0;
         double primer = -1.0;    // bandera del primer temps, dins el fitxer (negatiu: no en té)
+        VeuPresa veu;            // 0.22: Vocal Editor
     };
 
     /** Un tros d'una presa col·locat a la línia de temps (una «finestra»). No toca mai el fitxer.
@@ -134,6 +158,21 @@ namespace mibase
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+
+    /** 0.22: identificador de l'insert intern del Vocal Editor. */
+    inline constexpr const char* pluginVeu = "intern:veu";
+    inline bool esInsertVeu (const Insert& x) noexcept { return x.plugin == pluginVeu; }
+    /** La pista té el Vocal Editor encès (fa sonar les preses corregides). */
+    inline bool veuActiva (const Pista& t) noexcept
+    {
+        for (auto& x : t.inserts) if (esInsertVeu (x)) return x.actiu;
+        return false;
+    }
+    inline bool teVeu (const Pista& t) noexcept
+    {
+        for (auto& x : t.inserts) if (esInsertVeu (x)) return true;
+        return false;
+    }
 
     /** Estructura de la cançó (0.15): una llista de parts (peces) per provar ordres diferents sense tocar la línia de temps.
         A cada peça hi pot haver pistes que no sonen. */

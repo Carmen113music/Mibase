@@ -27,6 +27,7 @@
 #include <functional>
 #include <random>
 #include <sstream>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,8 @@ namespace
 
     void prova (const char* nom, const std::function<void()>& f)
     {
+        // MIBASE_PROVES=text: només les proves que contenen el text (per anar més de pressa).
+        if (const char* filtre = std::getenv ("MIBASE_PROVES"); filtre != nullptr && std::string (nom).find (filtre) == std::string::npos) return;
         const int abans = fallades;
         f();
         std::printf ("%s %s\n", fallades == abans ? "[ok]   " : "[FALLA]", nom);
@@ -129,6 +132,8 @@ namespace
         int offs() const { int k = 0; for (auto& r : rebuts) if ((r.estat & 0xF0) == 0x80 || ((r.estat & 0xF0) == 0x90 && r.d2 == 0)) ++k; return k; }
     };
 }
+
+#include "proves_veu.inc"
 
 int main()
 {
@@ -2245,6 +2250,8 @@ int main()
         for (int k = 0; k < 40; ++k) { std::fill (o0.begin(), o0.end(), 0.0f); std::fill (o1.begin(), o1.end(), 0.0f); motor.processa (nullptr, 0, sort, 2, 256); tot.insert (tot.end(), o0.begin(), o0.end()); }
         comprova (pic (tot, 0, tot.size()) > 0.05f && totFinit (tot), "el ritme sona");
     });
+
+    provesVeu();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

@@ -18,6 +18,9 @@ namespace inserts
 
     inline juce::String titol (const mibase::Insert& x) { return juce::String::fromUTF8 (x.nom.c_str()); }
 
+    /** 0.22: qui obre el Vocal Editor d'una pista (el posa la pantalla de l'estudi). */
+    inline std::function<void (int pista)>& obreVeu() { static std::function<void (int)> f; return f; }
+
     inline void canvia (EstatEstudi& estat, GestorPlugins* plugins, int pista, const std::function<void (std::vector<mibase::Insert>&)>& f,
                         const juce::String& evolucio)
     {
@@ -31,8 +34,10 @@ namespace inserts
     inline void obre (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k)
     {
         auto* v = llista (estat, pista);
-        if (v == nullptr || plugins == nullptr || k < 0 || k >= (int) v->size()) return;
+        if (v == nullptr || k < 0 || k >= (int) v->size()) return;
         const auto x = (*v)[(size_t) k];
+        if (mibase::esInsertVeu (x)) { if (obreVeu()) obreVeu() (pista); return; }
+        if (plugins == nullptr) return;
         plugins->obreFinestra (x.id, titol (x));
     }
 
@@ -49,12 +54,21 @@ namespace inserts
     inline void tria (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k, juce::Component* on)
     {
         auto* v = llista (estat, pista);
-        if (v == nullptr || plugins == nullptr) return;
+        if (v == nullptr) return;
         auto tipus = std::make_shared<juce::Array<juce::PluginDescription>>();
-        auto efectes = plugins->menu (false, 1000, *tipus);
+        juce::PopupMenu efectes;
+        if (plugins != nullptr) efectes = plugins->menu (false, 1000, *tipus);
         const bool nou = k >= (int) v->size();
         juce::PopupMenu m;
         m.addSectionHeader (nou ? "Efecte nou"_ca : "Canvia " + titol ((*v)[(size_t) k]) + " per…"_ca);
+        // 0.22: el Vocal Editor (intern), només a les pistes d'àudio i un per pista.
+        if (auto* t = estat.pista (pista); t != nullptr && ! mibase::esMidi (*t))
+        {
+            bool jaHiEs = false;
+            for (int i = 0; i < (int) v->size(); ++i) if (i != k && mibase::esInsertVeu ((*v)[(size_t) i])) jaHiEs = true;
+            m.addItem (1, "Vocal Editor (Mibase): afina i edita la veu"_ca, ! jaHiEs);
+            m.addSeparator();
+        }
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
             auto& i = it.getItem();
@@ -63,6 +77,20 @@ namespace inserts
         }
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [&estat, plugins, pista, k, nou, tipus] (int r)
         {
+            if (r == 1)
+            {
+                canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
+                {
+                    mibase::Insert x;
+                    x.id = "i" + std::to_string (++estat.projecte.comptador);
+                    x.plugin = mibase::pluginVeu;
+                    x.nom = "Vocal Editor";
+                    if (nou || k >= (int) l.size()) l.push_back (x);
+                    else l[(size_t) k] = x;
+                }, "Efecte: Vocal Editor"_ca);
+                juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
+                return;
+            }
             if (r < 1000 || r - 1000 >= tipus->size()) return;
             const auto d = (*tipus)[r - 1000];
             std::string id;
@@ -86,7 +114,7 @@ namespace inserts
         if (v == nullptr || k < 0 || k >= (int) v->size()) return;
         const auto x = (*v)[(size_t) k];
         juce::PopupMenu m;
-        m.addItem (1, "Obre la finestra del plugin"_ca);
+        m.addItem (1, mibase::esInsertVeu (x) ? "Obre el Vocal Editor"_ca : "Obre la finestra del plugin"_ca);
         m.addItem (2, x.actiu ? "Apaga'l (el so hi passa de llarg)"_ca : "Encén-lo"_ca);
         m.addItem (6, "Canvia'l per un altre…"_ca);
         m.addSeparator();
