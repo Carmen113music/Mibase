@@ -183,7 +183,7 @@ namespace mibase
                 }
                 c.trams = std::move (trams);
             }
-            if (t.tipus == "midi")
+            if (esMidi (t))
             {
                 pp.canals = 2;
                 pp.clips.clear();
@@ -821,7 +821,7 @@ namespace mibase
             if (t.mut || (hiHaSolo && ! t.solo)) continue;
             for (const auto& c : t.clips)
             {
-                if (c.midi && ! c.mut && t.tipus == "midi" && ! c.notes.empty())
+                if (c.midi && ! c.mut && esMidi (t) && ! c.notes.empty())
                 {
                     // De la primera nota que sona a l'última (més una mica de cua perquè s'apagui).
                     const double spt = 60.0 / (p.tempo > 1.0 ? p.tempo : 120.0) / ticksPerNegra;

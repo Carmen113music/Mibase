@@ -334,7 +334,27 @@ namespace mibase::disc
                 t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
-                if (t.tipus == "midi") t.canals = 2;
+                t.escalaTeclat = e.value ("escalaTeclat", true);
+                t.kit = e.value ("kit", std::string());
+                t.padsPerOrdre = e.value ("padsPerOrdre", false);
+                if (e.contains ("files") && e["files"].is_array())
+                    for (auto& f : e["files"])
+                    {
+                        if (! f.is_object()) continue;
+                        FilaBateria x;
+                        x.tipus = f.value ("tipus", std::string ("altres"));
+                        x.so = f.value ("so", std::string());
+                        x.nom = f.value ("nom", std::string());
+                        x.nota = std::clamp (f.value ("nota", 36), 0, 127);
+                        x.volumDb = std::clamp (f.value ("volumDb", 0.0), -40.0, 6.0);
+                        x.pan = std::clamp (f.value ("pan", 0.0), -1.0, 1.0);
+                        x.afina = std::clamp (f.value ("afina", 0.0), -12.0, 12.0);
+                        x.decai = std::clamp (f.value ("decai", 1.0), 0.05, 1.0);
+                        x.talla = std::clamp (f.value ("talla", 0), 0, 8);
+                        x.mut = f.value ("mut", false);
+                        t.files.push_back (x);
+                    }
+                if (esMidi (t)) t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -562,6 +582,17 @@ namespace mibase::disc
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
+            if (! t.escalaTeclat) pista["escalaTeclat"] = false;
+            if (t.tipus == "bateria")
+            {
+                json filesJ = json::array();
+                for (auto& f : t.files)
+                    filesJ.push_back ({ { "tipus", f.tipus }, { "so", f.so }, { "nom", f.nom }, { "nota", f.nota }, { "volumDb", f.volumDb },
+                                    { "pan", f.pan }, { "afina", f.afina }, { "decai", f.decai }, { "talla", f.talla }, { "mut", f.mut } });
+                pista["files"] = filesJ;
+                pista["kit"] = t.kit;
+                pista["padsPerOrdre"] = t.padsPerOrdre;
+            }
             pistes.push_back (pista);
         }
         j["pistes"] = pistes;

@@ -83,11 +83,27 @@ namespace mibase
         std::string estat;       // ajustos del plugin (base64)
     };
 
+    /** 0.20: una fila del Drumpad (pista de bateria): un so del kit tocat per una nota MIDI. */
+    struct FilaBateria
+    {
+        std::string tipus = "altres";   // kick, snare, hihat… (bateria::tipus())
+        std::string so;                 // «intern:kick» o camí relatiu a la carpeta de kits («Kit rock/Kick 01.wav»)
+        std::string nom;                // el que es mostra a la fila
+        int nota = 36;                  // nota MIDI que la toca (General MIDI)
+        double volumDb = 0.0;           // de -40 a +6
+        double pan = 0.0;               // de -1 a +1
+        double afina = 0.0;             // semitons, de -12 a +12
+        double decai = 1.0;             // 0,05..1: quina part del so sona (1 = sencer)
+        int talla = 0;                  // grup de tall (0 = cap): un cop d'un grup talla els altres sons del mateix grup
+        bool mut = false;
+        bool operator== (const FilaBateria&) const = default;
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // audio, midi (més endavant: bateria, acords, bus)
+        std::string tipus = "audio";   // audio, midi, bateria (0.20; és MIDI amb el sampler de bateria). Més endavant: bus
         /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
             més endavant «vst3:<identificador>». */
         std::string instrument;
@@ -109,7 +125,15 @@ namespace mibase
         std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
         std::vector<Insert> inserts;           // 0.19: efectes, per ordre
         std::string nomInstrument, estatInstrument;   // 0.19: instrument VST3 («vst3:…»): nom i ajustos (base64)
+        // ---- 0.20 ----
+        bool escalaTeclat = true;                  // el teclat MIDI d'aquesta pista segueix l'escala (assistit/bloquejat)
+        std::vector<FilaBateria> files;            // bateria: les files del Drumpad (de dalt a baix)
+        std::string kit;                           // bateria: nom del kit d'on surten els sons
+        bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
     };
+
+    /** 0.20: és una pista de notes MIDI (instrument o bateria). */
+    inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
 
     /** Estructura de la cançó (0.15): una llista de parts (peces) per provar ordres diferents sense tocar la línia de temps.
         A cada peça hi pot haver pistes que no sonen. */

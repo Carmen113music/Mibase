@@ -385,7 +385,7 @@ namespace mibase::midi
         p.tempo = nou;
     }
 
-    bool compatible (const Pista& t, const Clip& c) { return c.midi == (t.tipus == "midi"); }
+    bool compatible (const Pista& t, const Clip& c) { return c.midi == esMidi (t); }
 
     //==========================================================================
     const std::vector<SoIntern>& sonsInterns()

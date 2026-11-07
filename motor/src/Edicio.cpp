@@ -163,7 +163,7 @@ namespace mibase::edicio
         c.pos = std::max (0.0, std::min (de, a));
         c.inici = 0.0;
         c.fi = std::max (longitudMinima, std::abs (a - de));
-        c.midi = p.pistes[(size_t) pista].tipus == "midi";   // a una pista MIDI, el llapis fa un clip MIDI buit
+        c.midi = esMidi (p.pistes[(size_t) pista]);   // a una pista MIDI, el llapis fa un clip MIDI buit
         auto& clips = p.pistes[(size_t) pista].clips;
         clips.push_back (c);
         return (int) clips.size() - 1;
