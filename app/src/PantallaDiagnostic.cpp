@@ -129,6 +129,76 @@ void LlistaMidi::afegeix (const juce::String& text)
     repaint();
 }
 
+void LlistaCanals::setCanals (const juce::StringArray& n, const juce::BigInteger& a)
+{
+    if (n == noms && a == actius)
+        return;
+    noms = n;
+    actius = a;
+    repaint();
+}
+
+void LlistaCanals::setNivell (int canal, float pic, bool saturat)
+{
+    if (canal < 0 || canal >= noms.size()) return;
+    if ((int) nivells.size() != noms.size()) { nivells.assign ((size_t) noms.size(), 0.0f); vermells.assign ((size_t) noms.size(), 0); }
+    auto& n = nivells[(size_t) canal];
+    n = pic >= n ? pic : n * 0.85f;
+    auto& v = vermells[(size_t) canal];
+    v = saturat ? 60 : juce::jmax (0, v - 1);
+}
+
+int LlistaCanals::canalA (juce::Point<int> p) const
+{
+    const int fila = p.y / 24, col = p.x < getWidth() / 2 ? 0 : 1;
+    const int i = fila + col * numFiles();
+    return fila >= 0 && fila < numFiles() && i < noms.size() ? i : -1;
+}
+
+void LlistaCanals::paint (juce::Graphics& g)
+{
+    if (noms.isEmpty())
+    {
+        g.setColour (tema::suau);
+        g.setFont (juce::FontOptions (13.0f));
+        g.drawText ("Cap canal (la targeta és aturada)."_ca, getLocalBounds(), juce::Justification::topLeft);
+        return;
+    }
+    const int ample = getWidth() / 2;
+    for (int i = 0; i < noms.size(); ++i)
+    {
+        const int col = i / juce::jmax (1, numFiles()), fila = i % juce::jmax (1, numFiles());
+        auto r = juce::Rectangle<int> (col * ample, fila * 24, ample - 6, 22);
+        const bool on = actius[i];
+        auto caixa = r.removeFromLeft (22).reduced (4).toFloat();
+        g.setColour (on ? tema::veu : tema::suau.withAlpha (0.6f));
+        g.drawRoundedRectangle (caixa, 3.0f, 1.4f);
+        if (on)
+            g.fillRoundedRectangle (caixa.reduced (3.0f), 2.0f);
+        if (on && i < (int) nivells.size())
+        {
+            // Vúmetre a sota del nom (vermell si ha saturat fa poc).
+            const float db = juce::Decibels::gainToDecibels (nivells[(size_t) i], -60.0f);
+            const float f = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
+            auto barra = r.withTrimmedLeft (4).removeFromBottom (3).toFloat();
+            g.setColour (tema::linia);
+            g.fillRect (barra);
+            g.setColour (vermells[(size_t) i] > 0 ? juce::Colours::red : (db > -6.0f ? tema::guitarra : tema::veu));
+            g.fillRect (barra.withWidth (barra.getWidth() * f));
+        }
+        g.setColour (on ? tema::text : tema::suau);
+        g.setFont (juce::FontOptions (13.0f));
+        g.drawText (noms[i], r.withTrimmedLeft (4), juce::Justification::centredLeft, true);
+    }
+}
+
+void LlistaCanals::mouseDown (const juce::MouseEvent& e)
+{
+    const int i = canalA (e.getPosition());
+    if (i >= 0 && onCanvi)
+        onCanvi (i, ! actius[i]);
+}
+
 void LlistaMidi::paint (juce::Graphics& g)
 {
     g.setColour (tema::superficie2);
@@ -230,6 +300,22 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
     addAndMakeVisible (etAjudaLatencia);
 
     addAndMakeVisible (btLatencia);
+    // Plugins VST3 (0.18).
+    preparaEtiqueta (etPlugins, {}, tema::text);
+    etPlugins.setJustificationType (juce::Justification::topLeft);
+    addAndMakeVisible (etPlugins);
+    addAndMakeVisible (btBuscaPlugins);
+    addAndMakeVisible (btLlistaPlugins);
+    btBuscaPlugins.onClick = [this]
+    {
+        auto& e = servei.escaner();
+        if (e.buscant()) e.atura(); else e.comenca (false);
+        refrescaPlugins();
+    };
+    btLlistaPlugins.onClick = [this] { menuPlugins(); };
+    servei.escaner().onCanvi = [this] { refrescaPlugins(); };
+    refrescaPlugins();
+
     btLatencia.onClick = [this]
     {
         if (servei.motor().latencia().estaMesurant())
@@ -247,7 +333,40 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
     etResultatLatencia.setJustificationType (juce::Justification::topLeft);
     addAndMakeVisible (etResultatLatencia);
 
-    addAndMakeVisible (vumetres);
+    addAndMakeVisible (llistaEntrades);
+    llistaEntrades.onCanvi = [this] (int canal, bool actiu)
+    {
+        auto& gestor = servei.dispositius();
+        auto setup = gestor.getAudioDeviceSetup();
+        if (auto* d = gestor.getCurrentAudioDevice())
+            setup.inputChannels = d->getActiveInputChannels();
+        setup.useDefaultInputChannels = false;
+        setup.inputChannels.setBit (canal, actiu);
+        const auto error = gestor.setAudioDeviceSetup (setup, true);
+        if (error.isNotEmpty())
+            historial.afegeix ("No s'ha pogut canviar les entrades: " + error);
+        else
+            servei.desaAjustos();
+        refrescaControls();
+    };
+    addAndMakeVisible (llistaSortides);
+    llistaSortides.onCanvi = [this] (int canal, bool actiu)
+    {
+        auto& gestor = servei.dispositius();
+        auto setup = gestor.getAudioDeviceSetup();
+        if (auto* d = gestor.getCurrentAudioDevice())
+            setup.outputChannels = d->getActiveOutputChannels();
+        setup.useDefaultOutputChannels = false;
+        setup.outputChannels.setBit (canal, actiu);
+        if (setup.outputChannels.isZero())
+            return;   // com a mínim una sortida
+        const auto error = gestor.setAudioDeviceSetup (setup, true);
+        if (error.isNotEmpty())
+            historial.afegeix ("No s'ha pogut canviar les sortides: " + error);
+        else
+            servei.desaAjustos();
+        refrescaControls();
+    };
 
     preparaEtiqueta (etTeclats, {});
     addAndMakeVisible (etTeclats);
@@ -279,6 +398,7 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
 
 PantallaDiagnostic::~PantallaDiagnostic()
 {
+    servei.escaner().onCanvi = nullptr;
     servei.dispositius().removeChangeListener (this);
 }
 
@@ -305,7 +425,9 @@ void PantallaDiagnostic::paint (juce::Graphics& g)
     seccio (zonaAudio,     "Targeta d'àudio"_ca,          tema::accent);
     seccio (zonaProves,    "Proves de so",             tema::sinte);
     seccio (zonaLatencia,  "Latència real"_ca,            tema::guitarra);
-    seccio (zonaEntrades,  "Entrades",                 tema::veu);
+    seccio (zonaPlugins,   "Plugins VST3",             tema::sinte);
+    seccio (zonaEntrades,  "Entrades (clica per activar-les)", tema::veu);
+    seccio (zonaSortides,  "Sortides (clica per activar-les)", tema::veu);
     seccio (zonaMidi,      "Teclat MIDI",              tema::midi);
     seccio (zonaEstat,     "Estat",                    tema::bateria);
     seccio (zonaHistorial, "Historial (el més recent a dalt)"_ca, tema::suau);
@@ -379,13 +501,27 @@ void PantallaDiagnostic::resized()
     }
 
     // Columna dreta.
-    zonaEntrades = dreta.removeFromTop (alcadaTitol + 8 * 26 + 14);
+    zonaEntrades = dreta.removeFromTop (alcadaTitol + juce::jlimit (1, 8, llistaEntrades.numFiles()) * 24 + 14);
     dreta.removeFromTop (marge);
+    zonaSortides = dreta.removeFromTop (alcadaTitol + juce::jlimit (1, 8, llistaSortides.numFiles()) * 24 + 14);
+    dreta.removeFromTop (marge);
+    {
+        zonaPlugins = dreta.removeFromTop (alcadaTitol + 2 * (alcadaFila + 6) + 14);
+        dreta.removeFromTop (marge);
+        auto z = zonaPlugins.reduced (14, 0).withTrimmedTop (alcadaTitol + 4);
+        auto f = z.removeFromTop (alcadaFila);
+        btBuscaPlugins.setBounds (f.removeFromLeft (180));
+        f.removeFromLeft (8);
+        btLlistaPlugins.setBounds (f.removeFromLeft (110));
+        z.removeFromTop (6);
+        etPlugins.setBounds (z.removeFromTop (alcadaFila + 6));
+    }
     zonaEstat = dreta.removeFromBottom (150);
     dreta.removeFromBottom (marge);
     zonaMidi = dreta;
 
-    vumetres.setBounds (zonaEntrades.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (10));
+    llistaEntrades.setBounds (zonaEntrades.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (10));
+    llistaSortides.setBounds (zonaSortides.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (10));
     {
         auto z = zonaMidi.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (12);
         etTeclats.setBounds (z.removeFromTop (24));
@@ -467,17 +603,19 @@ void PantallaDiagnostic::refrescaControls()
     cbFreq.setEnabled (d != nullptr);
     cbBuffer.setEnabled (d != nullptr);
 
-    // Vúmetres: noms de les entrades actives.
-    juce::StringArray nomsEntrades;
-    if (d != nullptr)
+    const int filesAbans = llistaSortides.numFiles() * 100 + llistaEntrades.numFiles();
+    if (d != nullptr) llistaEntrades.setCanals (d->getInputChannelNames(), d->getActiveInputChannels());
+    else llistaEntrades.setCanals ({}, {});
+
+    // 0.17: totes les sortides de la targeta, amb les actives marcades.
     {
-        const auto noms = d->getInputChannelNames();
-        const auto actives = d->getActiveInputChannels();
-        for (int i = 0; i < noms.size() && nomsEntrades.size() < mibase::MotorDiagnostic::maxEntrades; ++i)
-            if (actives[i])
-                nomsEntrades.add (noms[i]);
+        if (d != nullptr)
+            llistaSortides.setCanals (d->getOutputChannelNames(), d->getActiveOutputChannels());
+        else
+            llistaSortides.setCanals ({}, {});
+        if (llistaSortides.numFiles() * 100 + llistaEntrades.numFiles() != filesAbans)
+            resized();
     }
-    vumetres.setCanals (nomsEntrades);
 
     const auto desada = servei.getLatenciaDesada();
     if (ultimResultatLatencia.isEmpty())
@@ -592,15 +730,16 @@ void PantallaDiagnostic::timerCallback()
     // Vúmetres.
     const int numActives = d != nullptr ? juce::jmin (d->getActiveInputChannels().countNumberOfSetBits(),
                                                       mibase::MotorDiagnostic::maxEntrades) : 0;
-    for (int c = 0; c < numActives; ++c)
+    const auto actives = d != nullptr ? d->getActiveInputChannels() : juce::BigInteger();
+    for (int c = 0, canal = actives.findNextSetBit (0); c < numActives && canal >= 0; ++c, canal = actives.findNextSetBit (canal + 1))
     {
         auto& m = motor.mesurador (c);
         const float pic = m.llegeixIReinicia();
         const bool saturat = m.getSaturacions() > 0;
         m.reiniciaSaturacions();
-        vumetres.setNivell (c, pic, saturat);
+        llistaEntrades.setNivell (canal, pic, saturat);
     }
-    vumetres.repaint();
+    llistaEntrades.repaint();
 
     // MIDI rebut.
     mibase::EsdevenimentMidi e;
@@ -783,4 +922,43 @@ juce::String PantallaDiagnostic::textDiagnostic()
         t << linies[i] << "\n";
 
     return t;
+}
+
+//==============================================================================
+// Plugins VST3 (0.18)
+//==============================================================================
+void PantallaDiagnostic::refrescaPlugins()
+{
+    auto& e = servei.escaner();
+    btBuscaPlugins.setButtonText (e.buscant() ? "Atura la cerca" : "Busca plugins");
+    btLlistaPlugins.setEnabled (! e.buscant());
+    juce::String text = e.buscant() ? e.progres()
+        : juce::String (e.numInstruments()) + " instruments i " + juce::String (e.numEfectes()) + " efectes"
+          + (e.errors().empty() ? juce::String() : " · "_ca + juce::String ((int) e.errors().size()) + " amb errors (mira la llista)");
+    if (! e.buscant() && e.llista().getNumTypes() == 0 && e.errors().empty())
+        text = "Encara no s'han buscat. Pot trigar uns minuts la primera vegada."_ca;
+    etPlugins.setText (text, juce::dontSendNotification);
+}
+
+void PantallaDiagnostic::menuPlugins()
+{
+    auto& e = servei.escaner();
+    juce::PopupMenu m, instruments, efectes, errors;
+    std::map<juce::String, juce::PopupMenu> perFabricantI, perFabricantE;
+    for (const auto& t : e.llista().getTypes())
+        (t.isInstrument ? perFabricantI : perFabricantE)[t.manufacturerName.isEmpty() ? "(sense fabricant)"_ca : t.manufacturerName]
+            .addItem (t.name + "  ·  "_ca + t.version, false, false, {});
+    for (auto& [f, sub] : perFabricantI) instruments.addSubMenu (f, sub);
+    for (auto& [f, sub] : perFabricantE) efectes.addSubMenu (f, sub);
+    for (const auto& x : e.errors())
+        errors.addItem (juce::File (x.fitxer).getFileName() + ": " + x.motiu, false, false, {});
+    m.addSubMenu ("Instruments (" + juce::String (e.numInstruments()) + ")", instruments, e.numInstruments() > 0);
+    m.addSubMenu ("Efectes (" + juce::String (e.numEfectes()) + ")", efectes, e.numEfectes() > 0);
+    m.addSubMenu ("Amb errors (" + juce::String ((int) e.errors().size()) + ")", errors, ! e.errors().empty());
+    m.addSeparator();
+    m.addItem (1, "Torna-ho a mirar tot (també els que ja coneix i els que fallaven)"_ca);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btLlistaPlugins), [this] (int r)
+    {
+        if (r == 1) { servei.escaner().comenca (true); refrescaPlugins(); }
+    });
 }
