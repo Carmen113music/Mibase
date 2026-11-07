@@ -12,11 +12,28 @@ class Vumetres : public juce::Component
 public:
     void setCanals (const juce::StringArray& noms);
     void setNivell (int canal, float pic, bool saturat);
+    int numCanals() const { return (int) canals.size(); }
     void paint (juce::Graphics& g) override;
 
 private:
     struct Canal { juce::String nom; float nivell = 0.0f, retingut = 0.0f; int retencio = 0; int vermell = 0; };
     std::vector<Canal> canals;
+};
+
+/** 0.17: llista de canals (sortides) amb una casella per activar-los o no. Dues columnes. */
+class LlistaCanals : public juce::Component
+{
+public:
+    void setCanals (const juce::StringArray& noms, const juce::BigInteger& actius);
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    std::function<void (int canal, bool actiu)> onCanvi;
+    int numFiles() const { return (noms.size() + 1) / 2; }
+
+private:
+    juce::StringArray noms;
+    juce::BigInteger actius;
+    int canalA (juce::Point<int> p) const;
 };
 
 /** Últims missatges MIDI rebuts, el més recent a dalt. */
@@ -63,7 +80,7 @@ private:
     Historial& historial;
 
     // Seccions (per dibuixar-ne el fons i el títol).
-    juce::Rectangle<int> zonaAudio, zonaProves, zonaLatencia, zonaEntrades, zonaMidi, zonaEstat, zonaHistorial;
+    juce::Rectangle<int> zonaAudio, zonaProves, zonaLatencia, zonaEntrades, zonaSortides, zonaMidi, zonaEstat, zonaHistorial;
 
     juce::Label etTipus, etSortida, etEntrada, etFreq, etBuffer;
     juce::ComboBox cbTipus, cbSortida, cbEntrada, cbFreq, cbBuffer;
@@ -77,6 +94,7 @@ private:
     juce::Label etAjudaLatencia, etResultatLatencia;
 
     Vumetres vumetres;
+    LlistaCanals llistaSortides;
     juce::Label etTeclats;
     LlistaMidi llistaMidi;
 
