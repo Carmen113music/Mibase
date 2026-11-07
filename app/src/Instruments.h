@@ -8,6 +8,7 @@
 #include <mibase/Midi.h>
 #include <mibase/MotorEstudi.h>
 #include <mibase/SinteIntern.h>
+#include "Kits.h"
 
 /** Els instruments de les pistes MIDI del projecte obert (un per pista, viu mentre la pista hi és).
     És l'únic lloc que sap crear-los: ara el sinte intern; quan arribin els VST3, aquí es crearà
@@ -18,6 +19,21 @@ public:
     /** El de la pista (el mateix objecte mentre no canviï el tipus d'instrument). Fil de la interfície. */
     std::shared_ptr<mibase::Instrument> obte (const mibase::Pista& t, double fs, int maxBloc)
     {
+        if (t.tipus == "bateria")
+        {
+            // 0.20: el sampler de bateria. Si canvien els sons, un de nou; si només canvien volums, afinació… s'hi posen sense parar.
+            auto& e = llista[t.id];
+            const auto sig = mibase::bateria::SamplerBateria::signatura (t);
+            auto* s = dynamic_cast<mibase::bateria::SamplerBateria*> (e.instrument.get());
+            if (s == nullptr || e.tipus != sig)
+            {
+                e.instrument = kits::sampler (t, fs, maxBloc);
+                e.tipus = sig;
+                e.fs = fs;
+            }
+            else s->posaParams (t.files);
+            return e.instrument;
+        }
         if (t.tipus != "midi") return nullptr;
         const auto desc = descripcio (t);
         auto& e = llista[t.id];
@@ -50,6 +66,7 @@ public:
     {
         return [fs, bloc] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
         {
+            if (t.tipus == "bateria") return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
             return crea (descripcio (t), fs, bloc);
         };
@@ -60,7 +77,7 @@ public:
     {
         for (auto it = llista.begin(); it != llista.end();)
         {
-            const bool hiEs = std::any_of (p.pistes.begin(), p.pistes.end(), [&] (const mibase::Pista& t) { return t.id == it->first && t.tipus == "midi"; });
+            const bool hiEs = std::any_of (p.pistes.begin(), p.pistes.end(), [&] (const mibase::Pista& t) { return t.id == it->first && mibase::esMidi (t); });
             it = hiEs ? std::next (it) : llista.erase (it);
         }
     }

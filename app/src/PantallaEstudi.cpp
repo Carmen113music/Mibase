@@ -268,7 +268,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (zonaEditors);
     esquerra.setPanellEditor (&panellHarmonia);
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
-    esquerra.opcions.plugins = &plugins;
+    esquerra.opcions.setPlugins (&plugins);
+    mescles.plugins = &plugins;
     esquerra.opcions.sortides = [this]
     {
         juce::StringArray noms;
@@ -377,14 +378,14 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
     {
         int slot = -1;
         if (gravacio.midi && gravacio.pista >= 0) { if (auto* t = estat.pista (gravacio.pista)) slot = slotDePista (*t); }
-        else if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") slot = slotDePista (*t);
+        else if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && mibase::esMidi (*t)) slot = slotDePista (*t);
         servei.estudi().setSlotTeclat (slot);
         // Teclats assignats a pistes concretes; i el de la pista triada (si en té un d'assignat, només aquell la toca).
         std::vector<std::pair<juce::String, int>> mapa;
         for (auto& t : estat.projecte.pistes)
-            if (t.tipus == "midi" && ! t.entradaMidi.empty()) mapa.push_back ({ juce::String (t.entradaMidi), slotDePista (t) });
+            if (mibase::esMidi (t) && ! t.entradaMidi.empty()) mapa.push_back ({ juce::String (t.entradaMidi), slotDePista (t) });
         juce::String teclatTriada;
-        if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && t->tipus == "midi") teclatTriada = juce::String (t->entradaMidi);
+        if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && mibase::esMidi (*t)) teclatTriada = juce::String (t->entradaMidi);
         servei.setMapaTeclats (mapa, teclatTriada);
 
         // Chord Pad (0.10): el de l'editor actiu (o el primer que el tingui obert) fa que el teclat de la seva pista toqui acords.
@@ -403,7 +404,10 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
             const auto t = harmonia::tonalitatEfectiva (estat.projecte);
             std::array<bool, 12> esc {};
             for (int n = 0; n < 12; ++n) esc[(size_t) n] = harmonia::aEscala (n, t);
-            servei.setEscalaTeclat ((int) estat.projecte.modeEscala, esc);
+            // 0.20: una pista que toca lliure (o la bateria) no fa cas de l'escala.
+            const auto* tt = estat.pista (estat.pistaTriada);
+            const bool lliure = tt != nullptr && (! tt->escalaTeclat || tt->tipus == "bateria");
+            servei.setEscalaTeclat (lliure ? 0 : (int) estat.projecte.modeEscala, esc);
         }
     }
     {
@@ -793,7 +797,7 @@ void PantallaEstudi::grava()
     const auto& t = estat.projecte.pistes[(size_t) pista];
     auto& motor = servei.estudi();
 
-    if (t.tipus == "midi")
+    if (mibase::esMidi (t))
     {
         // Pista MIDI: es grava el que es toca al teclat (no la targeta).
         publicaPla();
@@ -1055,6 +1059,20 @@ std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
 void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
 {
     estat.desfes.abans (estat.projecte);
+    if (tipus == "bateria")
+    {
+        // 0.20: pista de bateria amb el kit intern (o el darrer que s'ha fet servir) i un clip de 4 compassos amb un ritme bàsic.
+        const auto nom = ed::nomPistaLliure (estat.projecte, "Bateria");
+        auto& t = ed::afegeixPista (estat.projecte, nom, "bateria");
+        t.canals = 2;
+        t.instrument = "intern:bateria";
+        kits::posaKit (t, kits::ultimKit());
+        estat.pistaTriada = estat.numPistes() - 1;
+        estat.capTriat();
+        estat.info = "Pista de bateria: fes un clip amb el llapis (2) i fes-hi doble clic per obrir el Drumpad"_ca;
+        estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (bateria)"_ca);
+        return;
+    }
     if (tipus == "midi")
     {
         const auto nom = ed::nomPistaLliure (estat.projecte, "Piano");
@@ -1896,7 +1914,7 @@ void PantallaEstudi::acabaGravacioMidi()
     estat.info.clear();
 
     auto* t = estat.pista (pista);
-    if (t == nullptr || t->tipus != "midi") return;
+    if (t == nullptr || ! mibase::esMidi (*t)) return;
 
     // Notes: cada encesa amb la seva apagada (les que encara sonaven en aturar, s'acaben on s'ha aturat).
     const auto& p = estat.projecte;

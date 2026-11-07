@@ -27,6 +27,47 @@ struct RellotgePlugins : public juce::AudioPlayHead
     static RellotgePlugins& global() { static RellotgePlugins r; return r; }
 };
 
+/** 0.20: una finestra d'instrument amb un panell enganxat a la dreta (l'escala del teclat). El contingut principal
+    (l'editor del plugin o el panell del sinte intern) mana l'alçada; si canvia de mida, tot s'hi adapta. */
+class AmbLateral : public juce::Component, private juce::ComponentListener
+{
+public:
+    static constexpr int ampleLateral = 236;
+    AmbLateral (juce::Component* principalPropi, std::unique_ptr<juce::Component> lat)
+        : principal (principalPropi), lateral (std::move (lat))
+    {
+        addAndMakeVisible (*principal);
+        if (lateral != nullptr) addAndMakeVisible (*lateral);
+        principal->addComponentListener (this);
+        ajusta();
+    }
+    ~AmbLateral() override { if (principal != nullptr) principal->removeComponentListener (this); }
+    juce::Component* getPrincipal() const noexcept { return principal.get(); }
+    void resized() override
+    {
+        const int l = lateral != nullptr ? ampleLateral : 0;
+        if (lateral != nullptr) lateral->setBounds (getWidth() - l, 0, l, getHeight());
+        if (! dinsAjusta)
+        {
+            const juce::ScopedValueSetter<bool> s (dinsAjusta, true);
+            principal->setBounds (0, 0, juce::jmax (40, getWidth() - l), getHeight());
+        }
+    }
+    void paint (juce::Graphics& g) override { g.fillAll (juce::Colour (0xff1b1b20)); }
+
+private:
+    void componentMovedOrResized (juce::Component&, bool, bool wasResized) override { if (wasResized && ! dinsAjusta) ajusta(); }
+    void ajusta()
+    {
+        const juce::ScopedValueSetter<bool> s (dinsAjusta, true);
+        const int l = lateral != nullptr ? ampleLateral : 0;
+        setSize (principal->getWidth() + l, juce::jmax (principal->getHeight(), lateral != nullptr ? 330 : 0));
+        if (lateral != nullptr) lateral->setBounds (getWidth() - l, 0, l, getHeight());
+    }
+    std::unique_ptr<juce::Component> principal, lateral;
+    bool dinsAjusta = false;
+};
+
 /** 0.19: un plugin VST3 vist pel motor. Fa d'efecte (insert) o d'instrument (pista MIDI): el motor només coneix
     mibase::Efecte i mibase::Instrument. El buffer i el MIDI es preparen fora del fil d'àudio. */
 class AdaptadorPlugin : public mibase::Efecte, public mibase::Instrument
@@ -77,7 +118,8 @@ public:
     void neteja (const mibase::Projecte& p);
 
     /** Obre (o porta davant) la finestra del plugin d'un insert (clau = id) o d'una pista (clau = «inst:» + id). */
-    void obreFinestra (const std::string& clau, const juce::String& titol);
+    /** 0.20: «lateral» (si n'hi ha) fa el panell que va enganxat a la dreta de l'editor (l'escala del teclat). */
+    void obreFinestra (const std::string& clau, const juce::String& titol, std::function<std::unique_ptr<juce::Component>()> lateral = {});
 
     const juce::KnownPluginList& llista() const noexcept { return plugins; }
     /** Menú dels plugins (instruments o efectes), per fabricant. Els ids dels ítems comencen a «base». */

@@ -43,6 +43,7 @@ namespace
 
     juce::String textCanals (const Pista& t)
     {
+        if (t.tipus == "bateria") return "Bateria";
         if (t.tipus == "midi") return "MIDI";
         return t.canals == 2 ? juce::String::fromUTF8 ("estèreo") : juce::String ("mono");
     }
@@ -56,6 +57,7 @@ namespace
     /** «MIDI · Piano» o «mono · E1». */
     juce::String textPistaCurt (const Pista& t)
     {
+        if (t.tipus == "bateria") return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
         if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "intern:piano" : t.instrument)).c_str());
         return textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t);
     }
@@ -1123,8 +1125,8 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
     m.addItem (1, "Àudio mono"_ca);
     m.addItem (2, "Àudio estèreo"_ca);
     m.addSeparator();
-    m.addItem (10, "Instrument MIDI (sinte intern; VST3 aviat)"_ca);
-    m.addItem (11, "Bateria  · més endavant"_ca, false);
+    m.addItem (10, "Instrument MIDI (sinte intern o VST3)"_ca);
+    m.addItem (11, "Bateria (Drumpad)"_ca);
     m.addItem (12, "Acords  · més endavant"_ca, false);
     m.addItem (13, "Bus d'efectes  · més endavant"_ca, false);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&on).withMousePosition(), [tria] (int r)
@@ -1132,6 +1134,7 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
         if (r == 1) tria ("audio", 1);
         else if (r == 2) tria ("audio", 2);
         else if (r == 10) tria ("midi", 2);
+        else if (r == 11) tria ("bateria", 2);
     });
 }
 
@@ -1845,7 +1848,7 @@ void Capcaleres::menu (int pista)
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
             sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k);
         sons.addSeparator();
-        sons.addItem (59, "Plugins VST3  · a la versió següent"_ca, false);
+        sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
     }
 
     juce::PopupMenu m;
@@ -1853,6 +1856,7 @@ void Capcaleres::menu (int pista)
     m.addSubMenu ("Color", colors);
     if (t.tipus == "midi")
         m.addSubMenu ("Instrument (sinte intern)", sons);
+    else if (t.tipus == "bateria") {}
     else
     {
         m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
@@ -1984,7 +1988,7 @@ void Capcaleres::mouseDrag (const juce::MouseEvent& e)
     if (arrossegant < 0) return;
     // 0.10: una pista MIDI arrossegada fora dels noms es pot deixar al botó de notes fantasma d'un Piano Roll.
     if (! getLocalBounds().contains (e.getPosition()) && arrossegant < estat.numPistes()
-        && estat.projecte.pistes[(size_t) arrossegant].tipus == "midi")
+        && mibase::esMidi (estat.projecte.pistes[(size_t) arrossegant]))
         if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
         {
             const auto& t = estat.projecte.pistes[(size_t) arrossegant];
@@ -2343,7 +2347,27 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
         g.drawText (juce::String::fromUTF8 ("—"), z, juce::Justification::centred);
     };
     etiqueta (ge.etInserts, "INSERTS");
-    for (auto& z : ge.inserts) ranura (z);
+    {
+        // 0.20: els inserts de veritat (llumeta, nom, canviar). Si n'hi ha més de 4, l'últim diu quants en falten.
+        const auto& v = master ? p.insertsMaster : t->inserts;
+        for (int k = 0; k < numInserts; ++k)
+        {
+            const auto z = ge.inserts[(size_t) k];
+            if (k == numInserts - 1 && (int) v.size() > numInserts)
+            {
+                ranura (z);
+                g.setColour (tema::suau);
+                g.fillRect (z.reduced (1));
+                g.setColour (juce::Colours::black.withAlpha (0.6f));
+                g.fillRoundedRectangle (z.toFloat(), 3.0f);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (10.5f));
+                g.drawText ("+" + juce::String ((int) v.size() - numInserts + 1) + " (columna esquerra)"_ca, z, juce::Justification::centred);
+                continue;
+            }
+            inserts::pinta (g, z, k < (int) v.size() ? &v[(size_t) k] : nullptr, k == (int) v.size(), true);
+        }
+    }
 
     if (! master)
     {
@@ -2369,7 +2393,7 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
         vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
-        g.drawText (juce::String (i + 1) + "  " + (t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
+        g.drawText (juce::String (i + 1) + "  " + (t->tipus == "bateria" ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
     }
     else
     {
@@ -2425,7 +2449,7 @@ bool TaulaMescles::troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla
     else if (ge.fader.contains (p)) zona = Zona::Fader;
     else
     {
-        for (auto& z : ge.inserts) if (z.contains (p)) zona = Zona::Ranura;
+        for (int k = 0; k < numInserts; ++k) if (ge.inserts[(size_t) k].contains (p)) { zona = Zona::Insert; tecla = k; }
         if (quina >= 0) for (auto& z : ge.envia) if (z.contains (p)) zona = Zona::Ranura;
     }
     return true;
@@ -2455,9 +2479,25 @@ void TaulaMescles::mouseDown (const juce::MouseEvent& e)
         acabaCanvi();
         return;
     }
+    if (z == Zona::Insert)
+    {
+        const auto ge = geo (i < 0 ? rectMaster() : rectTira (i), i < 0);
+        auto r = ge.inserts[(size_t) k];
+        const auto* v = inserts::llista (estat, i);
+        if (v != nullptr && k == numInserts - 1 && (int) v->size() > numInserts)
+        {
+            estat.info = "Aquesta pista té més efectes: els veuràs tots a la columna esquerra (pestanya Taula de treball)."_ca;
+            estat.avisa();
+            return;
+        }
+        inserts::clic (estat, plugins, i, k, r, e.getPosition(), e.mods.isPopupMenu(), this);
+        estat.info = inserts::ajuda();
+        estat.avisa();
+        return;
+    }
     if (z == Zona::Ranura)
     {
-        estat.info = "Els efectes (inserts) i els enviaments a busos arriben més endavant."_ca;
+        estat.info = "Els enviaments a busos arriben més endavant."_ca;
         estat.avisa();
         return;
     }

@@ -107,15 +107,17 @@ namespace
     class FinestraPlugin : public juce::DocumentWindow
     {
     public:
-        FinestraPlugin (const juce::String& titol, juce::AudioProcessor& p, std::function<void()> enTancar)
+        FinestraPlugin (const juce::String& titol, juce::AudioProcessor& p, std::function<void()> enTancar, std::unique_ptr<juce::Component> lateral)
             : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
               tancar (std::move (enTancar))
         {
             setUsingNativeTitleBar (true);
             juce::AudioProcessorEditor* ed = p.hasEditor() ? p.createEditorIfNeeded() : nullptr;
             if (ed == nullptr) ed = new juce::GenericAudioProcessorEditor (p);
-            setContentOwned (ed, true);
-            setResizable (ed->isResizable(), false);
+            const bool redim = ed->isResizable();
+            if (lateral != nullptr) setContentOwned (new AmbLateral (ed, std::move (lateral)), true);
+            else setContentOwned (ed, true);
+            setResizable (redim, false);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
         }
@@ -251,7 +253,7 @@ void GestorPlugins::neteja (const mibase::Projecte& p)
     }
 }
 
-void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& titol)
+void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& titol, std::function<std::unique_ptr<juce::Component>()> lateral)
 {
     if (auto f = finestres.find (clau); f != finestres.end())
     {
@@ -260,7 +262,7 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
     }
     auto* a = viu (clau);
     if (a == nullptr) return;
-    finestres[clau] = std::make_unique<FinestraPlugin> (titol, a->instancia(), [this, clau] { finestres.erase (clau); });
+    finestres[clau] = std::make_unique<FinestraPlugin> (titol, a->instancia(), [this, clau] { finestres.erase (clau); }, lateral ? lateral() : nullptr);
 }
 
 juce::PopupMenu GestorPlugins::menu (bool instruments, int base, juce::Array<juce::PluginDescription>& tipus) const

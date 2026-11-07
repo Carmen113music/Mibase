@@ -233,6 +233,7 @@ public:
 
     static constexpr int ampleTira = 100;
     static constexpr int numInserts = 4, numEnvia = 2;
+    GestorPlugins* plugins = nullptr;   // 0.20: per als inserts
 
 private:
     struct Geo
@@ -242,7 +243,7 @@ private:
         std::array<juce::Rectangle<int>, numEnvia> envia;
         std::array<juce::Rectangle<int>, 3> tecles;
     };
-    enum class Zona { Res, Tecla, Pan, Fader, Ranura };
+    enum class Zona { Res, Tecla, Pan, Fader, Ranura, Insert };
 
     Geo geo (juce::Rectangle<int> tira, bool master) const;
     void pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i);   // i < 0: la sortida

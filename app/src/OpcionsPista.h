@@ -4,6 +4,8 @@
 #include "Controls.h"
 #include "EstatEstudi.h"
 #include "Plugins.h"
+#include "FinestraInstrument.h"
+#include "Inserts.h"
 #include <mibase/Midi.h>
 
 /** Opcions de la pista triada (o del màster), a la columna esquerra sobre el fader (0.16).
@@ -16,19 +18,22 @@ public:
 
     explicit OpcionsPista (EstatEstudi& e) : estat (e)
     {
-        for (auto* b : { &btInstrument, &btSo, &btTeclat, &btSortida })
+        for (auto* b : { &btInstrument, &btSo, &btTeclat, &btSortida, &btObre, &btKit })
         {
             b->setMidaText (12.0f);
             addChildComponent (b);
         }
         for (int k = 0; k < maxInserts; ++k)
         {
-            auto& b = *inserts.add (new Boto ({}, std::nullopt, Boto::Estil::Discontinu));
-            b.setMidaText (11.5f);
-            b.onClick = [this, k] { menuInsert (k); };
+            auto& b = *inserts.add (new FilaInsert (estat, k));
+            b.pista = [this] { return estat.masterTriat() ? -1 : estat.pistaTriada; };
             addChildComponent (b);
         }
         btInstrument.onClick = [this] { menuInstrument(); };
+        btObre.setTooltip ("Obre el panell de l'instrument (amb l'escala del teclat al costat)"_ca);
+        btObre.onClick = [this] { obreInstrument(); };
+        btKit.setTooltip ("Kits de bateria: tria'n un, importa'n de nous o revisa'n els sons"_ca);
+        btKit.onClick = [this] { if (onObreKits) onObreKits(); };
         btSo.onClick = [this] { menuSo(); };
         btTeclat.onClick = [this] { menuTeclat(); };
         btSortida.setTooltip ("On va el so"_ca);
@@ -66,6 +71,9 @@ public:
     std::function<juce::StringArray()> sortides;
     /** Els plugins del projecte obert (0.19). */
     GestorPlugins* plugins = nullptr;
+    void setPlugins (GestorPlugins* p) { plugins = p; for (auto* f : inserts) f->plugins = p; }
+    /** 0.20: obre la finestra dels kits de bateria (per a la pista triada). */
+    std::function<void()> onObreKits;
 
     /** Alçada que necessita per a la pista triada. */
     int alcada() const
@@ -74,6 +82,7 @@ public:
         if (estat.masterTriat()) return 16 + slots * 26 + 28 + 8;
         const auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return 0;
+        if (t->tipus == "bateria") return 2 * 32 + 16 + slots * 26 + 6;
         if (t->tipus == "midi") return (GestorPlugins::esVst3 (t->instrument) ? 2 : 3) * 32 + 16 + slots * 26 + 6;
         return 16 + slots * 26 + 28 + 10;
     }
@@ -83,10 +92,18 @@ public:
         const auto* t = estat.pista (estat.pistaTriada);
         const bool master = estat.masterTriat();
         const bool midiPista = ! master && t != nullptr && t->tipus == "midi";
-        const bool audio = ! master && t != nullptr && ! midiPista;
+        const bool bateria = ! master && t != nullptr && t->tipus == "bateria";
+        const bool audio = ! master && t != nullptr && ! midiPista && ! bateria;
         const bool vst = midiPista && GestorPlugins::esVst3 (t->instrument);
         btInstrument.setVisible (midiPista);
-        btTeclat.setVisible (midiPista);
+        btObre.setVisible (midiPista);
+        btKit.setVisible (bateria);
+        btTeclat.setVisible (midiPista || bateria);
+        if (bateria)
+        {
+            btKit.setButtonText ("Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()));
+            btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
+        }
         btSo.setVisible (midiPista && ! vst);
         btSortida.setVisible (audio || master);
 
@@ -96,23 +113,8 @@ public:
         {
             auto& b = *inserts[k];
             b.setVisible (v != nullptr && k < slots);
-            if (v == nullptr || k >= slots) continue;
-            if (k < (int) v->size())
-            {
-                const auto& x = (*v)[(size_t) k];
-                b.setButtonText (juce::String::fromUTF8 (x.nom.c_str()) + (x.actiu ? juce::String() : " (apagat)"));
-                b.setEstil (Boto::Estil::Secundari);
-                b.setTooltip ("Clica: obrir, apagar, canviar o treure"_ca);
-            }
-            else
-            {
-                b.setButtonText (k == (int) v->size() ? "+ Efecte"_ca : "Insert " + juce::String (k + 1) + " · buit"_ca);
-                b.setEstil (Boto::Estil::Discontinu);
-                b.setTooltip ("Clica per posar-hi un efecte VST3"_ca);
-            }
-            b.setEnabled (k <= (int) v->size());
+            b.repaint();
         }
-
         if (midiPista)
         {
             btInstrument.setButtonText ("Instrument: "_ca + (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : "sinte intern"_ca));
@@ -137,8 +139,16 @@ public:
         auto fila = [&r] (int h) { auto f = r.removeFromTop (h); r.removeFromTop (4); return f; };
         if (btInstrument.isVisible())
         {
-            btInstrument.setBounds (fila (28));
+            auto f = fila (28);
+            btObre.setBounds (f.removeFromRight (34));
+            f.removeFromRight (4);
+            btInstrument.setBounds (f);
             if (btSo.isVisible()) btSo.setBounds (fila (28));
+            btTeclat.setBounds (fila (28));
+        }
+        else if (btKit.isVisible())
+        {
+            btKit.setBounds (fila (28));
             btTeclat.setBounds (fila (28));
         }
         yTitol = r.getY();
@@ -192,57 +202,23 @@ private:
 
     static juce::String titol (const mibase::Insert& x) { return juce::String::fromUTF8 (x.nom.c_str()); }
 
-    void menuInsert (int k)
+    /** 0.20: obre el panell de l'instrument de la pista triada: el del VST3 o el del sinte intern, amb l'escala al costat. */
+    void obreInstrument()
     {
-        auto* v = llistaInserts();
-        if (v == nullptr || plugins == nullptr) return;
-        auto* boto = inserts[k];
-        auto tipus = std::make_shared<juce::Array<juce::PluginDescription>>();
-        auto efectes = plugins->menu (false, 1000, *tipus);
-
-        auto posa = [this, k, tipus] (int r, bool nou)
+        auto* t = estat.pista (estat.pistaTriada);
+        if (t == nullptr || t->tipus != "midi") return;
+        const auto id = t->id;
+        if (GestorPlugins::esVst3 (t->instrument))
         {
-            if (r < 1000 || r - 1000 >= tipus->size()) return;
-            const auto d = (*tipus)[r - 1000];
-            std::string id;
-            canviaInserts ([&] (std::vector<mibase::Insert>& l)
-            {
-                mibase::Insert x;
-                x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                x.plugin = d.createIdentifierString().toStdString();
-                x.nom = d.name.toStdString();
-                if (nou || k >= (int) l.size()) l.push_back (x);
-                else l[(size_t) k] = x;
-            }, "Efecte: "_ca + d.name);
-            juce::MessageManager::callAsync ([this, id, nom = d.name] { if (plugins != nullptr) plugins->obreFinestra (id, nom); });
-        };
-
-        if (k >= (int) v->size())
-        {
-            efectes.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (boto), [posa] (int r) { posa (r, true); });
+            if (plugins != nullptr)
+                plugins->obreFinestra ("inst:" + id, juce::String::fromUTF8 (t->nomInstrument.c_str()),
+                                       [this, id] { return std::make_unique<PanellEscala> (estat, id); });
             return;
         }
-        const auto x = (*v)[(size_t) k];
-        juce::PopupMenu m;
-        m.addItem (1, "Obre la finestra del plugin");
-        m.addItem (2, x.actiu ? "Apaga'l (el so hi passa de llarg)"_ca : "Encén-lo"_ca);
-        m.addSubMenu ("Canvia'l per", efectes);
-        m.addSeparator();
-        m.addItem (3, "Mou amunt", k > 0);
-        m.addItem (4, "Mou avall", k + 1 < (int) v->size());
-        m.addSeparator();
-        m.addItem (5, "Treu-lo");
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (boto), [this, k, x, posa] (int r)
-        {
-            if (r == 1) { if (plugins != nullptr) plugins->obreFinestra (x.id, titol (x)); }
-            else if (r == 2) canviaInserts ([k] (std::vector<mibase::Insert>& l) { if (k < (int) l.size()) l[(size_t) k].actiu = ! l[(size_t) k].actiu; }, {});
-            else if (r == 3) canviaInserts ([k] (std::vector<mibase::Insert>& l) { if (k > 0 && k < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k - 1]); }, {});
-            else if (r == 4) canviaInserts ([k] (std::vector<mibase::Insert>& l) { if (k + 1 < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k + 1]); }, {});
-            else if (r == 5) canviaInserts ([k] (std::vector<mibase::Insert>& l) { if (k < (int) l.size()) l.erase (l.begin() + k); }, "Treu efecte: "_ca + titol (x));
-            else posa (r, false);
-        });
+        if (auto f = finestresSinte.find (id); f != finestresSinte.end()) { f->second->toFront (true); return; }
+        finestresSinte[id] = std::make_unique<FinestraSinte> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · sinte intern"_ca,
+                                                              [this, id] { finestresSinte.erase (id); });
     }
-
     void menuInstrument()
     {
         auto* t = estat.pista (estat.pistaTriada);
@@ -258,7 +234,7 @@ private:
             auto* p = estat.pista (estat.pistaTriada);
             if (p == nullptr) return;
             const auto id = p->id;
-            if (r == 2 && plugins != nullptr) plugins->obreFinestra ("inst:" + id, juce::String::fromUTF8 (p->nomInstrument.c_str()));
+            if (r == 2) obreInstrument();
             else if (r == 1 && GestorPlugins::esVst3 (p->instrument))
                 canvia ([] (mibase::Pista& q) { q.instrument = "intern:piano"; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: sinte intern"_ca);
             else if (r >= 1000 && r - 1000 < tipus->size())
@@ -270,7 +246,7 @@ private:
                     q.nomInstrument = d.name.toStdString();
                     q.estatInstrument.clear();
                 }, "Instrument: "_ca + d.name);
-                juce::MessageManager::callAsync ([this, id, nom = d.name] { if (plugins != nullptr) plugins->obreFinestra ("inst:" + id, nom); });
+                juce::MessageManager::callAsync ([this] { obreInstrument(); });
             }
         });
     }
@@ -318,6 +294,9 @@ private:
     Boto btSo { "So", std::nullopt, Boto::Estil::Secundari };
     Boto btTeclat { "Teclat", std::nullopt, Boto::Estil::Secundari };
     Boto btSortida { "Sortida", std::nullopt, Boto::Estil::Secundari };
-    juce::OwnedArray<Boto> inserts;
+    Boto btObre { {}, dibuix::Icona::Finestra, Boto::Estil::Secundari };
+    Boto btKit { "Kit", dibuix::Icona::Bateria, Boto::Estil::Secundari };
+    juce::OwnedArray<FilaInsert> inserts;
+    std::map<std::string, std::unique_ptr<FinestraSinte>> finestresSinte;
     int yTitol = 0;
 };

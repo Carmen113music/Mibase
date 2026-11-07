@@ -1558,7 +1558,7 @@ void PianoRoll::pintaGraella (juce::Graphics& g)
         for (int i = 0; i < estat.numPistes(); ++i)
         {
             const auto& pt = p.pistes[(size_t) i];
-            const bool totaLaPista = pt.tipus == "midi" && std::find (fs->begin(), fs->end(), pt.id) != fs->end();
+            const bool totaLaPista = mibase::esMidi (pt) && std::find (fs->begin(), fs->end(), pt.id) != fs->end();
             const auto col = EstatEstudi::colorPista (pt);
             for (int k = 0; k < (int) pt.clips.size(); ++k)
             {
@@ -1950,7 +1950,7 @@ void PianoRoll::menuFantasmes()
     for (int i = 0; i < estat.numPistes(); ++i)
     {
         const auto& t = estat.projecte.pistes[(size_t) i];
-        if (t.tipus != "midi") continue;
+        if (! mibase::esMidi (t)) continue;
         const bool hi = std::find (fs->begin(), fs->end(), t.id) == fs->end() ? false : true;
         m.addItem (100 + i, dibuix::utf8 (t.nom) + (i == pistaEditor() ? " (altres clips)"_ca : juce::String()), true, hi);
         ++n;
