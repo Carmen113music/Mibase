@@ -79,11 +79,12 @@ EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (
     addAndMakeVisible (btSolo);
     selMode.setLlum (vintage::ledTaronja);
     selMode.setTooltip ("Visual: les notes es mouen per semitons. Assistit: salten per les notes de la tonalitat (Alt = lliure). "
-                        "Bloquejat: només notes de la tonalitat. És el mateix ajust que al Piano Roll."_ca);
+                        "Bloquejat: només notes de la tonalitat. Cada pista té el seu."_ca);
     selMode.onCanvi = [this] (int i)
     {
         estat.desfes.abans (estat.projecte);
-        estat.projecte.modeEscala = (mibase::ModeEscala) i;
+        if (auto* t = estat.pista (estat.veu.pista)) t->modeEscala = i;   // 0.25: el de la pista
+        else estat.projecte.modeEscala = (mibase::ModeEscala) i;
         estat.info = i == 0 ? "Escala: només es marca"_ca
                    : i == 1 ? "Escala assistida: les notes salten per la tonalitat (Alt = lliure)"_ca
                             : "Escala bloquejada: només notes de la tonalitat"_ca;
@@ -170,7 +171,7 @@ void EditorVeu::actualitzaBotons()
     for (int i = 0; i < numEines; ++i) btEines[i].setToggleState (estat.veu.eina == i, juce::dontSendNotification);
     btOna.setToggleState (estat.veu.ona, juce::dontSendNotification);
     btSolo.setToggleState (estat.soloEditor.actiu, juce::dontSendNotification);
-    selMode.setTriat ((int) estat.projecte.modeEscala);
+    selMode.setTriat ((int) mode());
     auto* p = presa();
     const auto ton = p != nullptr ? vv::tonalitatDe (p->veu, tonCanco()) : tonCanco();
     btTo.setButtonText (juce::String::fromUTF8 (mibase::harmonia::nomTo (ton.to).c_str()));
@@ -1109,18 +1110,24 @@ void EditorVeu::pintaConsola (juce::Graphics& g)
 int EditorVeu::objectiu (double midi)
 {
     auto* p = presa();
-    if (p == nullptr || estat.projecte.modeEscala == mibase::ModeEscala::Visual) return (int) std::lround (midi);
+    if (p == nullptr || mode() == mibase::ModeEscala::Visual) return (int) std::lround (midi);
     return vv::notaObjectiu (midi, p->veu, tonCanco());
 }
 
 int EditorVeu::grau (double midi, int dir)
 {
     auto* p = presa();
-    if (p == nullptr || estat.projecte.modeEscala == mibase::ModeEscala::Visual) return (int) std::lround (midi) + dir;
+    if (p == nullptr || mode() == mibase::ModeEscala::Visual) return (int) std::lround (midi) + dir;
     return vv::mouGraus (midi, dir, p->veu, tonCanco());
 }
 
 bool EditorVeu::lliure (const juce::ModifierKeys& m) const
 {
-    return m.isAltDown() && estat.projecte.modeEscala != mibase::ModeEscala::Bloquejat;
+    return m.isAltDown() && mode() != mibase::ModeEscala::Bloquejat;
+}
+
+mibase::ModeEscala EditorVeu::mode() const
+{
+    const auto* t = estat.veu.pista >= 0 && estat.veu.pista < (int) estat.projecte.pistes.size() ? &estat.projecte.pistes[(size_t) estat.veu.pista] : nullptr;
+    return t != nullptr ? mibase::modeEscalaDe (estat.projecte, *t) : estat.projecte.modeEscala;
 }

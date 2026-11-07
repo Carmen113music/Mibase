@@ -213,6 +213,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onObreMidi = [this] (int pista, int clip) { obrePianoRoll (pista, clip); };
     pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
     inserts::obreVeu() = [this] (int pista) { obreVeuDePista (pista); };
+    informePlugins() = [this] { return plugins.informe (estat.projecte); };
     addChildComponent (editorVeu);
     editorVeu.onTanca = [this] { tancaVeu(); };
     editorVeu.onCommutaAB = [this] { commutaVeuAB(); };
@@ -334,6 +335,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     inserts::obreVeu() = nullptr;
+    informePlugins() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);
     pistes.removeMouseListener (&focusPistes);
@@ -439,7 +441,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
             // 0.20: una pista que toca lliure (o la bateria) no fa cas de l'escala.
             const auto* tt = estat.pista (estat.pistaTriada);
             const bool lliure = tt != nullptr && (! tt->escalaTeclat || tt->tipus == "bateria");
-            servei.setEscalaTeclat (lliure ? 0 : (int) estat.projecte.modeEscala, esc);
+            servei.setEscalaTeclat (lliure ? 0 : (int) (tt != nullptr ? mibase::modeEscalaDe (estat.projecte, *tt) : estat.projecte.modeEscala), esc);
         }
     }
     {

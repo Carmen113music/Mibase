@@ -52,7 +52,8 @@ public:
         mode.onCanvi = [this] (int i)
         {
             estat.desfes.abans (estat.projecte);
-            estat.projecte.modeEscala = (ModeEscala) i;
+            if (auto* t = pistaEditor()) t->modeEscala = i;   // 0.25: cada pista (editor) té el seu
+            else estat.projecte.modeEscala = (ModeEscala) i;
             estat.info = i == 0 ? "Escala: només es ressalta"_ca
                        : i == 1 ? "Escala assistida: les notes de fora van a la més propera de l'escala"_ca
                                 : "Escala bloquejada: no es poden posar notes de fora de l'escala"_ca;
@@ -198,7 +199,7 @@ public:
         btEscala.setButtonText (txt (hm::escales()[(size_t) t.escala].nom));
         btAuto.setToggleState (estat.projecte.tonalitatAuto, juce::dontSendNotification);
         btAuto.setButtonText (estat.projecte.tonalitatAuto ? "Automàtica"_ca : "A mà (clica per detectar-la)"_ca);
-        mode.setTriat ((int) estat.projecte.modeEscala);
+        mode.setTriat ((int) (pistaEditor() != nullptr ? mibase::modeEscalaDe (estat.projecte, *pistaEditor()) : estat.projecte.modeEscala));
         btAcord.setToggleState (estat.projecte.ressaltaAcord, juce::dontSendNotification);
 
         const auto acords = hm::acordsDeTonalitat (t, setenes.getTriat() == 1);

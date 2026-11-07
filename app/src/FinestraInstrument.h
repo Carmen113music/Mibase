@@ -28,7 +28,8 @@ public:
         modes.onCanvi = [this] (int i)
         {
             estat.desfes.abans (estat.projecte);
-            estat.projecte.modeEscala = (mibase::ModeEscala) i;
+            if (auto* t = pista()) t->modeEscala = i;   // 0.25: de la pista
+            else estat.projecte.modeEscala = (mibase::ModeEscala) i;
             estat.canviat();
         };
         estat.addChangeListener (this);
@@ -78,12 +79,12 @@ private:
         const bool aplica = t != nullptr && t->escalaTeclat;
         btAplica.setButtonText (aplica ? "Aquesta pista segueix l'escala"_ca : "Aquesta pista toca lliure"_ca);
         btAplica.setToggleState (aplica, juce::dontSendNotification);
-        modes.setTriat ((int) estat.projecte.modeEscala);
+        const int m = (int) (t != nullptr ? mibase::modeEscalaDe (estat.projecte, *t) : estat.projecte.modeEscala);
+        modes.setTriat (m);
         modes.setEnabled (aplica);
         const auto ton = mibase::harmonia::tonalitatEfectiva (estat.projecte);
         textTonalitat = juce::String::fromUTF8 (mibase::harmonia::nomTonalitat (ton).c_str())
                         + (estat.projecte.tonalitatAuto ? " (automàtica)"_ca : juce::String());
-        const int m = (int) estat.projecte.modeEscala;
         ajuda = ! aplica ? "El teclat MIDI toca totes les notes tal qual, encara que el projecte tingui l'escala en Assistit o Bloquejat."_ca
               : m == 0 ? "Visual: el teclat toca lliure; al Piano Roll només es ressalten les notes de l'escala."_ca
               : m == 1 ? "Assistit: una tecla fora de l'escala toca la nota de l'escala més propera (en el sentit que va la mà)."_ca

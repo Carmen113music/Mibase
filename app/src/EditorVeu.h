@@ -52,7 +52,7 @@ private:
                              { "Volum", std::nullopt, Boto::Estil::Tecla } };
     Boto btOna { "Ona", std::nullopt, Boto::Estil::Tecla };
     Boto btSolo { "S", std::nullopt, Boto::Estil::Tecla };            // 0.24
-    Segmentat selMode { { "Visual", "Assistit", "Bloquejat" } };     // 0.24: el mateix mode d'escala que el Piano Roll
+    Segmentat selMode { { "Visual", "Assistit", "Bloquejat" } };     // 0.24 (0.25: el de la pista)
     Boto btAjusta { "Encaixa", std::nullopt, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Subtil };
 
@@ -155,4 +155,5 @@ private:
     int objectiu (double midi);
     int grau (double midi, int dir);
     bool lliure (const juce::ModifierKeys& m) const;
+    mibase::ModeEscala mode() const;   // 0.25: el de la pista
 };

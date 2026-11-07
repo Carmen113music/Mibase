@@ -921,6 +921,9 @@ juce::String PantallaDiagnostic::textDiagnostic()
     for (int i = 0; i < juce::jmin (40, linies.size()); ++i)
         t << linies[i] << "\n";
 
+    // 0.25: com estan els efectes VST3 del projecte obert (si n'hi ha cap d'obert).
+    if (informePlugins())
+        t << "\n-- Efectes VST3 del projecte obert (fes sonar la cançó abans de copiar) --\n" << informePlugins()();
     return t;
 }
 

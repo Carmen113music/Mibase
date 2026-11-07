@@ -357,6 +357,7 @@ namespace mibase::disc
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
                 t.escalaTeclat = e.value ("escalaTeclat", true);
+                t.modeEscala = std::clamp (e.value ("modeEscala", -1), -1, 2);
                 t.kit = e.value ("kit", std::string());
                 t.padsPerOrdre = e.value ("padsPerOrdre", false);
                 if (e.contains ("files") && e["files"].is_array())
@@ -616,6 +617,7 @@ namespace mibase::disc
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             if (! t.escalaTeclat) pista["escalaTeclat"] = false;
+            if (t.modeEscala >= 0) pista["modeEscala"] = t.modeEscala;
             if (t.tipus == "bateria")
             {
                 json filesJ = json::array();

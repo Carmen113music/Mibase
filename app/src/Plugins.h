@@ -86,6 +86,11 @@ public:
     std::string estat() const;
     void posaEstat (const std::string& base64);
 
+    /** 0.25: per al diagnòstic (el fil d'àudio ho apunta sense bloquejos): quantes vegades s'ha cridat com a efecte
+        i el pic que hi entra i en surt (l'últim bloc). */
+    std::atomic<long long> crides { 0 };
+    std::atomic<float> picEntrada { 0.0f }, picSortida { 0.0f };
+
 private:
     void corre (int n) noexcept;
 
@@ -95,6 +100,9 @@ private:
     int canals = 2, maxBloc = 0;
     std::atomic<bool> apagar { false };
 };
+
+/** 0.25: el diagnòstic demana l'informe dels plugins del projecte obert (el posa la pantalla de l'estudi). */
+inline std::function<juce::String()>& informePlugins() { static std::function<juce::String()> f; return f; }
 
 /** Els plugins vius del projecte obert: un per insert (per id) i un per pista d'instrument VST3.
     Fil de la interfície. També obre i tanca les seves finestres. */
@@ -127,6 +135,8 @@ public:
 
     static bool esVst3 (const std::string& instrument) { return instrument.rfind ("vst3:", 0) == 0; }
     juce::String getUltimError() const { return ultimError; }
+    /** 0.25: com estan els efectes i instruments VST3 del projecte (per al diagnòstic). */
+    juce::String informe (const mibase::Projecte& p) const;
 
 private:
     std::shared_ptr<AdaptadorPlugin> crea (const std::string& id, const std::string& estat, double fs, int maxBloc);

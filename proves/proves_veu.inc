@@ -348,6 +348,15 @@ namespace
             auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T16:00:00", "07/11/2026 16:00");
             auto l = mibase::disc::llegeix (rc.fitxer);
             comprova (l && l->preses.size() == 1 && l->preses[0].veu == s.veu, "les notes i els canvis es desen i es llegeixen igual");
+            // 0.25: el mode d'escala és de cada pista.
+            mibase::Pista ta; ta.id = "t1"; ta.modeEscala = 2;
+            mibase::Pista tb; tb.id = "t2";
+            q.modeEscala = mibase::ModeEscala::Assistit;
+            q.pistes = { ta, tb };
+            mibase::disc::desa (rc.fitxer, q, "2026-11-07T21:30:00", "2026-11-07 213000", false);
+            auto l2 = mibase::disc::llegeix (rc.fitxer);
+            comprova (l2 && l2->pistes.size() == 2 && mibase::modeEscalaDe (*l2, l2->pistes[0]) == mibase::ModeEscala::Bloquejat
+                      && mibase::modeEscalaDe (*l2, l2->pistes[1]) == mibase::ModeEscala::Assistit, "mode d'escala per pista (i el del projecte per a les velles)");
             const auto x = veuSintetica (corbaNotes ({ { NAN, 0.1 }, { 60.0, 0.4 } }, fs), fs);
             const auto a = vv::analitza (x.data(), (long long) x.size(), fs);
             vv::Analisi b;

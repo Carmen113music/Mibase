@@ -415,7 +415,14 @@ void PianoRoll::zoomTriades()
 }
 
 mibase::Tonalitat PianoRoll::tonalitat() const { return harmonia::tonalitatEfectiva (estat.projecte); }
-bool PianoRoll::escalaActiva() const { return estat.projecte.modeEscala != ModeEscala::Visual && ! bateria(); }
+bool PianoRoll::escalaActiva() const { return modeEscala() != ModeEscala::Visual && ! bateria(); }
+
+ModeEscala PianoRoll::modeEscala() const
+{
+    const int i = pistaEditor();
+    return i >= 0 && i < (int) estat.projecte.pistes.size() ? mibase::modeEscalaDe (estat.projecte, estat.projecte.pistes[(size_t) i])
+                                                            : estat.projecte.modeEscala;
+}
 
 juce::Colour PianoRoll::colorFila (int to, juce::Colour fons, const std::vector<int>& acordAra) const
 {
@@ -1132,13 +1139,13 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     {
         // Nota nova on es clica (enganxada a la graella), amb la durada triada.
         int to = to0;
-        if (estat.projecte.modeEscala == ModeEscala::Bloquejat && ! bateria() && ! harmonia::aEscala (to, tonalitat()))
+        if (modeEscala() == ModeEscala::Bloquejat && ! bateria() && ! harmonia::aEscala (to, tonalitat()))
         {
             info = "Bloquejat: "_ca + txt (midi::nomNota (to)) + " no és de l'escala ("_ca + txt (harmonia::nomTonalitat (tonalitat())) + ")";
             repaint();
             return;
         }
-        if (estat.projecte.modeEscala == ModeEscala::Assistit && ! bateria()) to = harmonia::ajusta (to, tonalitat());
+        if (modeEscala() == ModeEscala::Assistit && ! bateria()) to = harmonia::ajusta (to, tonalitat());
         if (bateria()) estat.filaBateria = filaY (e.position.y);
         comencaCanvi();
         restaura();
@@ -1477,13 +1484,13 @@ void PianoRoll::mouseDoubleClick (const juce::MouseEvent& e)
         return;
     }
     int to = toY (e.position.y);
-    if (estat.projecte.modeEscala == ModeEscala::Bloquejat && ! harmonia::aEscala (to, tonalitat()))
+    if (modeEscala() == ModeEscala::Bloquejat && ! harmonia::aEscala (to, tonalitat()))
     {
         info = "Bloquejat: "_ca + txt (midi::nomNota (to)) + " no és de l'escala"_ca;
         repaint();
         return;
     }
-    if (estat.projecte.modeEscala == ModeEscala::Assistit) to = harmonia::ajusta (to, tonalitat());
+    if (modeEscala() == ModeEscala::Assistit) to = harmonia::ajusta (to, tonalitat());
     const long long ini = enganxaAbs (tickX (e.position.x), true);
     aplica ([this, ini, to] (Clip& k) { triadesNotes = { midi::afegeix (k, { ini, duradaNova(), to, velNova.getValor(), 0 }) }; },
             "Nota nova: " + txt (midi::nomNota (to)));

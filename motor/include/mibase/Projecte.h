@@ -153,6 +153,7 @@ namespace mibase
         std::string nomInstrument, estatInstrument;   // 0.19: instrument VST3 («vst3:…»): nom i ajustos (base64)
         // ---- 0.20 ----
         bool escalaTeclat = true;                  // el teclat MIDI d'aquesta pista segueix l'escala (assistit/bloquejat)
+        int modeEscala = -1;                       // 0.25: Visual/Assistit/Bloquejat d'aquesta pista (-1: el del projecte, com abans)
         std::vector<FilaBateria> files;            // bateria: les files del Drumpad (de dalt a baix)
         std::string kit;                           // bateria: nom del kit d'on surten els sons
         bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
@@ -271,4 +272,10 @@ namespace mibase
         /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */
         std::string jsonOriginal;
     };
+
+    /** 0.25: el mode d'escala d'una pista (cada editor té el seu; si la pista no en té, el del projecte). */
+    inline ModeEscala modeEscalaDe (const Projecte& p, const Pista& t) noexcept
+    {
+        return t.modeEscala >= 0 ? (ModeEscala) t.modeEscala : p.modeEscala;
+    }
 }

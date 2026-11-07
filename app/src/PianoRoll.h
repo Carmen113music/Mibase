@@ -170,6 +170,7 @@ private:
     const mibase::Clip* clip() const;
     mibase::Pista* pista();
     int pistaEditor() const;
+    mibase::ModeEscala modeEscala() const;   // 0.25: el de la pista de l'editor
     int altCarrilEf() const;
     double posTicks() const;        // on cau Clip::pos, en ticks absoluts
     double tickAbs (const mibase::Nota& n) const { return posTicks() + (double) n.ini; }

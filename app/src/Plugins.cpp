@@ -39,6 +39,8 @@ void AdaptadorPlugin::corre (int n) noexcept
 
 void AdaptadorPlugin::processa (float* L, float* R, int n) noexcept
 {
+    float pe = 0.0f;
+    for (int i = 0; i < n; ++i) pe = juce::jmax (pe, std::abs (L[i]), std::abs (R[i]));
     for (int fet = 0; fet < n;)
     {
         const int m = juce::jmin (n - fet, maxBloc);
@@ -57,6 +59,11 @@ void AdaptadorPlugin::processa (float* L, float* R, int n) noexcept
         }
         fet += m;
     }
+    float ps = 0.0f;
+    for (int i = 0; i < n; ++i) ps = juce::jmax (ps, std::abs (L[i]), std::abs (R[i]));
+    picEntrada.store (pe, std::memory_order_relaxed);
+    picSortida.store (ps, std::memory_order_relaxed);
+    crides.fetch_add (1, std::memory_order_relaxed);
 }
 
 void AdaptadorPlugin::processa (const mibase::EventInstrument* ev, int num, float* L, float* R, int n) noexcept
@@ -279,4 +286,32 @@ juce::PopupMenu GestorPlugins::menu (bool instruments, int base, juce::Array<juc
     if (perFabricant.empty())
         m.addItem (base - 1, "Cap plugin: busca'ls a Fitxer > Preferències"_ca, false);
     return m;
+}
+
+juce::String GestorPlugins::informe (const mibase::Projecte& p) const
+{
+    auto dB = [] (float v) { return v < 1e-6f ? juce::String ("-inf") : juce::String (20.0f * std::log10 (v), 1); };
+    juce::String t;
+    auto linia = [&] (const juce::String& on, const mibase::Insert& x)
+    {
+        t << "  " << on << " · " << juce::String::fromUTF8 (x.nom.c_str()) << (x.actiu ? " (encès)"_ca : " (apagat)"_ca) << ": ";
+        if (mibase::esInsertVeu (x)) { t << "intern (Vocal Editor)\n"; return; }
+        auto it = vius.find (x.id);
+        if (it != vius.end() && it->second.a != nullptr)
+        {
+            auto& a = *it->second.a;
+            auto& in = const_cast<AdaptadorPlugin&> (a).instancia();
+            t << "obert · E/S " << in.getTotalNumInputChannels() << "/" << in.getTotalNumOutputChannels()
+              << " · latència "_ca << in.getLatencySamples() << " · " << (in.isSuspended() ? "SUSPÈS · "_ca : juce::String())
+              << "crides " << (juce::int64) a.crides.load() << " · entra " << dB (a.picEntrada.load()) << " dB · surt " << dB (a.picSortida.load()) << " dB\n";
+        }
+        else if (auto f = fallats.find (x.id); f != fallats.end()) t << "NO S'HA POGUT OBRIR\n";
+        else t << (x.actiu ? "encara no s'ha creat\n" : "no es crea (apagat)\n");
+    };
+    for (auto& x : p.insertsMaster) linia ("Màster"_ca, x);
+    for (auto& tr : p.pistes)
+        for (auto& x : tr.inserts) linia (juce::String::fromUTF8 (tr.nom.c_str()), x);
+    if (t.isEmpty()) t << "  (cap efecte al projecte)\n";
+    if (ultimError.isNotEmpty()) t << "  Últim error: "_ca << ultimError << "\n";
+    return t;
 }
