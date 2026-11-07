@@ -69,7 +69,7 @@ public:
             ordre ([=, this] (mibase::Clip& k, std::vector<int>& sel, long long d, long long, long long)
             {
                 mibase::bateria::humanitza (k, sel, ms, pv, llavor, fixa, estat.projecte.tempo, mibase::midi::ticksPerCompas (estat.projecte), d);
-            }, "Humanitzat (±"_ca + juce::String ((int) ms) + " ms, ±" + juce::String ((int) pv) + " %)");
+            }, "Humanitzat (±"_ca + juce::String ((int) ms) + " ms, ±"_ca + juce::String ((int) pv) + " %)");
         };
         swingPas.setTriat (1);
         btSwing.onClick = [this]
@@ -422,7 +422,7 @@ private:
                 talla { "Tall", 0, 8, 0 }, nota { "Nota", 0, 127, 36 };
     Boto btFilaNova { "+ Fila", std::nullopt, Boto::Estil::Secundari };
     Boto btTreuFila { "Treu la fila", std::nullopt, Boto::Estil::Secundari };
-    CaixaNumero msTemps { "± ms", 0, 40, 8 }, pctVel { "± vel %", 0, 50, 10 };
+    CaixaNumero msTemps { "± ms"_ca, 0, 40, 8 }, pctVel { "± vel %"_ca, 0, 50, 10 };
     Boto btPrimer { "1r temps quiet", std::nullopt, Boto::Estil::Tecla };
     Boto btHumanitza { "Humanitza", std::nullopt, Boto::Estil::Primari };
     CaixaNumero swingPct { "Swing %", 50, 75, 58 };

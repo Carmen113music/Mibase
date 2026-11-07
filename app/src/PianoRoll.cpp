@@ -1733,7 +1733,8 @@ void PianoRoll::pintaNotes (juce::Graphics& g)
     g.reduceClipRegion (zg);
 
     const auto base = c->rgb != 0 ? juce::Colour (c->rgb) : (t != nullptr ? EstatEstudi::colorPista (*t) : tema::midi);
-    const auto trep = midi::trepitjades (c->notes);
+    auto trep = midi::trepitjades (c->notes);
+    if (bateria()) std::fill (trep.begin(), trep.end(), false);   // 0.20: a la bateria els cops sonen sencers: no es trepitgen
     const double a = posTicks() + midi::ticks (p, c->inici), b = posTicks() + midi::ticks (p, c->fi);
     const double t0 = tickX ((float) zg.getX()), t1 = tickX ((float) zg.getRight());
     std::vector<bool> triada (c->notes.size(), false);

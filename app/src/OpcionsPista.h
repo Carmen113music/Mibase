@@ -117,7 +117,9 @@ public:
         }
         if (midiPista)
         {
-            btInstrument.setButtonText ("Instrument: "_ca + (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : "sinte intern"_ca));
+            // 0.20: només el nom (al costat hi ha el botó per obrir-lo); el detall, a la bafarada.
+            btInstrument.setButtonText (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : "Sinte intern"_ca);
+            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern o VST3)"_ca);
             btSo.setButtonText ("So: "_ca + juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "intern:piano" : t->instrument).c_str()));
             btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
         }

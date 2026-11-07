@@ -31,8 +31,8 @@ private:
     public:
         Contingut (EstatEstudi& e, ServeiAudio& s) : estat (e), servei (s)
         {
-            llistaSons.setModel (&modelSons);
             modelSons.pare = this;
+            llistaSons.setModel (&modelSons);
             llistaKits.setModel (this);
             for (auto* l : { &llistaKits, &llistaSons })
             {
@@ -100,7 +100,7 @@ private:
         struct ModelSons : public juce::ListBoxModel
         {
             Contingut* pare = nullptr;
-            int getNumRows() override { auto* k = pare->kitTriat(); return k != nullptr ? (int) k->sons.size() : 0; }
+            int getNumRows() override { auto* k = pare != nullptr ? pare->kitTriat() : nullptr; return k != nullptr ? (int) k->sons.size() : 0; }
             void paintListBoxItem (int fila, juce::Graphics& g, int w, int h, bool triat) override
             {
                 auto* k = pare->kitTriat();

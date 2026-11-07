@@ -838,7 +838,8 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         const float xn = juce::jmax (r.getX(), 0.0f) + 8.0f;
         if (xn < r.getRight() - 24.0f)
         {
-            juce::String nom = c.midi ? "MIDI · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " nota" : " notes")
+            juce::String nom = c.midi && t.tipus == "bateria" ? "Bateria · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " cop" : " cops")
+                             : c.midi ? "MIDI · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " nota" : " notes")
                              : (s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida"));
             if (c.midi && estat.pianoRoll && estat.editorDe ({ pista, indexClip }) >= 0) nom += "  (Piano Roll)";
             if (c.mut) nom = "(silenciat) " + nom;
