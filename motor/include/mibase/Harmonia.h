@@ -154,14 +154,22 @@ namespace mibase::harmonia
         int tipus = 0;
         unsigned tensions = 0;
         int baix = -1;            // nota greu (0..11); -1 = la fonamental
+        int inversio = 0;         // 0.10: +1 = la nota de baix puja una octava (1a inversió); -1 = la de dalt baixa (-3..+3)
         bool buit() const noexcept { return arrel < 0; }
         bool operator== (const AcordPad&) const = default;
     };
     /** «Am7», «G7/b9», «C/E», «Fmaj9»… (buit: «»). */
     std::string nomPad (const AcordPad& a);
+    /** Com es desa un pad: el nom i, si està invertit, «^n» al final («Am^1», «G7^-1»). */
+    std::string textPad (const AcordPad& a);
+    /** Quants graus de l'escala hi ha de «de» a «a» (totes dues de l'escala; negatiu si «a» és més greu). */
+    int grausEntre (int de, int a, const Tonalitat& t);
+    /** Mou una nota n graus de l'escala (n negatiu: avall). Si la nota no és de l'escala, primer s'hi ajusta. */
+    int mouGraus (int to, const Tonalitat& t, int n);
+    constexpr int maxInversio = 3;
     /** Llegeix un nom d'acord («Ebmaj7», «C#m7», «Bb/D», «G7(b9)», «F#m7b5», «Dsus4», «E9»…). Si no s'entén, un pad buit. */
     AcordPad llegeixAcord (const std::string& text);
     /** Notes del pad: fonamental a l'octava «octava» (4 = la del C4; les fonamentals de A a B, una octava avall),
-        voicing tancat o obert, i la nota greu (si n'hi ha) per sota. */
+        voicing tancat o obert, la inversió i la nota greu (si n'hi ha) per sota. */
     std::vector<int> notesPad (const AcordPad& a, int octava = 4, Voicing v = Voicing::Tancat);
 }

@@ -681,11 +681,39 @@ namespace mibase::harmonia
         return nom;
     }
 
+    int grausEntre (int de, int a, const Tonalitat& t)
+    {
+        int n = 0, x = de;
+        const int sentit = a >= de ? 1 : -1;
+        for (int k = 0; k < 128 && (sentit > 0 ? x < a : x > a); ++k) { x = grau (x, t, sentit); n += sentit; }
+        return n;
+    }
+
+    int mouGraus (int to, const Tonalitat& t, int n)
+    {
+        int x = aEscala (to, t) ? to : ajusta (to, t);
+        for (int k = 0; k < std::abs (n); ++k) x = grau (x, t, n > 0 ? 1 : -1);
+        return std::clamp (x, 0, 127);
+    }
+
+    std::string textPad (const AcordPad& a)
+    {
+        if (a.buit() || a.inversio == 0) return nomPad (a);
+        return nomPad (a) + "^" + std::to_string (a.inversio);
+    }
+
     AcordPad llegeixAcord (const std::string& text)
     {
         AcordPad a;
         std::string s;
         for (char c : text) if (c != ' ' && c != '\t') s += c;
+        // Inversió: «^n» al final.
+        int inversio = 0;
+        if (auto k = s.rfind ('^'); k != std::string::npos)
+        {
+            try { inversio = std::clamp (std::stoi (s.substr (k + 1)), -maxInversio, maxInversio); } catch (...) { return {}; }
+            s = s.substr (0, k);
+        }
         substitueix (s, "\xE2\x99\xAD", "b");   // ♭
         substitueix (s, "\xE2\x99\xAF", "#");   // ♯
         substitueix (s, "\xC2\xB0", "dim");     // °
@@ -746,6 +774,7 @@ namespace mibase::harmonia
                 }
             if (! trobat) return {};   // no s'entén
         }
+        a.inversio = inversio;
         return a;
     }
 
@@ -778,6 +807,8 @@ namespace mibase::harmonia
             n[n.size() - 2] -= 12;
             std::sort (n.begin(), n.end());
         }
+        for (int k = 0; k < a.inversio; ++k) { n.front() += 12; std::sort (n.begin(), n.end()); }
+        for (int k = 0; k > a.inversio; --k) { n.back() -= 12; std::sort (n.begin(), n.end()); }
         if (a.baix >= 0 && a.baix != a.arrel)
         {
             int b = n.front() - 1;

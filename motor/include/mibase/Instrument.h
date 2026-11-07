@@ -38,4 +38,16 @@ namespace mibase
         /** Retard propi, en mostres (els VST3 en poden tenir; el sinte intern, cap). */
         virtual int latencia() const noexcept { return 0; }
     };
+
+    /** 0.19: un efecte d'un insert (un plugin VST3 a la pràctica). Mateixes normes de fils que l'Instrument.
+        El so és sempre estèreo i es transforma al lloc. */
+    class Efecte
+    {
+    public:
+        virtual ~Efecte() = default;
+        virtual void prepara (double fs, int maxBloc) = 0;
+        /** Fil d'àudio: transforma n mostres de L i R. No pot demanar memòria ni esperar-se. */
+        virtual void processa (float* L, float* R, int n) noexcept = 0;
+        virtual int latencia() const noexcept { return 0; }
+    };
 }

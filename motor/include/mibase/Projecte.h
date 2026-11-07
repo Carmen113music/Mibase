@@ -73,6 +73,16 @@ namespace mibase
         double longitud() const noexcept     { return fi - inici; }
     };
 
+    /** 0.19: un plugin d'efecte en un insert (d'una pista o del màster). */
+    struct Insert
+    {
+        std::string id;          // «i1», «i2»… (no canvia: serveix per retrobar el plugin viu)
+        std::string plugin;      // identificador del plugin (el de la llista de plugins)
+        std::string nom;         // per mostrar-lo encara que no s'hagi pogut obrir
+        bool actiu = true;       // apagat: el so hi passa de llarg
+        std::string estat;       // ajustos del plugin (base64)
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
@@ -96,6 +106,32 @@ namespace mibase
         double faderDb = 0.0;    // de -60 (silenci) a +6
         double pan = 0.0;        // de -1 (tot a l'esquerra) a +1 (tot a la dreta)
         int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
+        std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
+        std::vector<Insert> inserts;           // 0.19: efectes, per ordre
+        std::string nomInstrument, estatInstrument;   // 0.19: instrument VST3 («vst3:…»): nom i ajustos (base64)
+    };
+
+    /** Estructura de la cançó (0.15): una llista de parts (peces) per provar ordres diferents sense tocar la línia de temps.
+        A cada peça hi pot haver pistes que no sonen. */
+    struct PecaEstructura
+    {
+        std::string part;                    // id de la Part
+        std::vector<std::string> silencis;   // ids de les pistes que no sonen en aquesta peça
+    };
+    struct Estructura
+    {
+        std::string id;                      // «eN»
+        std::string nom;
+        std::vector<PecaEstructura> peces;
+    };
+
+    /** Carpeta de pistes (0.11): agrupa pistes (bateria, guitarres…). Plegada: a la taula de treball les seves pistes
+        es veuen com una sola fila. Amagada: no es veuen a la taula de treball (però sonen). */
+    struct Carpeta
+    {
+        std::string id;          // «fN»
+        std::string nom;
+        bool plegada = false, amagada = false;
     };
 
     /** Tonalitat: nota fonamental (0 = C … 11 = B) i escala (índex de harmonia::escales()). */
@@ -121,7 +157,16 @@ namespace mibase
     struct Bucle
     {
         bool marcat = false, actiu = false;
-        int de = 0, a = 0;
+        double de = 0, a = 0;    // en compassos interns (0.13: amb decimals, per a seleccions a Temps o Lliure)
+    };
+
+    /** Part de la cançó (0.13): intro, estrofa, tornada… marcada a la regla. En compassos interns. */
+    struct Part
+    {
+        std::string id;          // «mN»
+        std::string nom;
+        double de = 0, a = 0;
+        std::uint32_t rgb = 0;
     };
 
     struct Projecte
@@ -136,12 +181,18 @@ namespace mibase
 
         std::vector<Presa> preses;
         std::vector<Pista> pistes;
+        std::vector<Carpeta> carpetes;
+        std::vector<Part> parts;
+        std::vector<Estructura> estructures;
+        std::string estructuraActiva;        // id; buit = lineal
         Bucle bucle;
         Snap snap = Snap::Compas;
         bool clic = true;
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
+        std::vector<Insert> insertsMaster;   // 0.19: cadena de màstering
+        int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
         int comptador = 0;       // per fer identificadors únics
 
         // ---- Harmonia (0.8) ----

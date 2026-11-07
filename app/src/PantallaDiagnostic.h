@@ -12,11 +12,32 @@ class Vumetres : public juce::Component
 public:
     void setCanals (const juce::StringArray& noms);
     void setNivell (int canal, float pic, bool saturat);
+    int numCanals() const { return (int) canals.size(); }
     void paint (juce::Graphics& g) override;
 
 private:
     struct Canal { juce::String nom; float nivell = 0.0f, retingut = 0.0f; int retencio = 0; int vermell = 0; };
     std::vector<Canal> canals;
+};
+
+/** Llista de canals amb una casella per activar-los o no (0.17 sortides; 0.18 també entrades, amb vúmetre). Dues columnes. */
+class LlistaCanals : public juce::Component
+{
+public:
+    void setCanals (const juce::StringArray& noms, const juce::BigInteger& actius);
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    std::function<void (int canal, bool actiu)> onCanvi;
+    int numFiles() const { return (noms.size() + 1) / 2; }
+    /** Vúmetre d'un canal (índex de la targeta). */
+    void setNivell (int canal, float pic, bool saturat);
+
+private:
+    juce::StringArray noms;
+    juce::BigInteger actius;
+    std::vector<float> nivells;
+    std::vector<int> vermells;
+    int canalA (juce::Point<int> p) const;
 };
 
 /** Últims missatges MIDI rebuts, el més recent a dalt. */
@@ -63,7 +84,7 @@ private:
     Historial& historial;
 
     // Seccions (per dibuixar-ne el fons i el títol).
-    juce::Rectangle<int> zonaAudio, zonaProves, zonaLatencia, zonaEntrades, zonaMidi, zonaEstat, zonaHistorial;
+    juce::Rectangle<int> zonaAudio, zonaProves, zonaLatencia, zonaEntrades, zonaSortides, zonaPlugins, zonaMidi, zonaEstat, zonaHistorial;
 
     juce::Label etTipus, etSortida, etEntrada, etFreq, etBuffer;
     juce::ComboBox cbTipus, cbSortida, cbEntrada, cbFreq, cbBuffer;
@@ -76,7 +97,12 @@ private:
     juce::TextButton btLatencia { "Mesura la latència"_ca };
     juce::Label etAjudaLatencia, etResultatLatencia;
 
-    Vumetres vumetres;
+    LlistaCanals llistaEntrades;
+    juce::Label etPlugins;
+    juce::TextButton btBuscaPlugins { "Busca plugins" }, btLlistaPlugins { "Llista..." };
+    void refrescaPlugins();
+    void menuPlugins();
+    LlistaCanals llistaSortides;
     juce::Label etTeclats;
     LlistaMidi llistaMidi;
 

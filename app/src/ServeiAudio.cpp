@@ -17,10 +17,11 @@ namespace
 ServeiAudio::ServeiAudio (Historial& h) : historial (h)
 {
     ajustos = std::make_unique<juce::PropertiesFile> (opcionsAjustos());
+    plugins = std::make_unique<EscanerPlugins> (ajustos->getFile().getSiblingFile ("Plugins.xml"));
 
-    // Fins a 8 entrades i 2 sortides. Si hi ha ajustos desats, es fan servir.
+    // Fins a 32 entrades i 2 sortides (0.18; les altres s'activen a Preferències). Si hi ha ajustos desats, es fan servir.
     auto desat = ajustos->getXmlValue ("dispositiu");
-        const auto error = gestor.initialise (8, 2, desat.get(), true);
+        const auto error = gestor.initialise (32, 2, desat.get(), true);
 
     if (error.isNotEmpty())
     {
@@ -160,6 +161,13 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
 {
     // Fil d'àudio: només el motor, que no demana memòria ni s'espera mai.
     motorDiag.processa (entrades, numEntrades, sortides, numSortides, numMostres);
+    {
+        // 0.19: on és la cançó, per als plugins (tempo i compàs els posa la pantalla de l'estudi).
+        auto& r = RellotgePlugins::global();
+        const auto e = motorEstudi.getEstat();
+        r.sonant.store (e == mibase::MotorEstudi::Estat::Sonant || e == mibase::MotorEstudi::Estat::Gravant, std::memory_order_relaxed);
+        r.segons.store (motorEstudi.getPosicio(), std::memory_order_relaxed);
+    }
     motorEstudi.processa (entrades, numEntrades, sortides, numSortides, numMostres);
 }
 
@@ -229,6 +237,21 @@ void ServeiAudio::setMapaTeclats (const std::vector<std::pair<juce::String, int>
     teclatTriada = triada;
 }
 
+void ServeiAudio::setEscalaTeclat (int mode, const std::array<bool, 12>& escala)
+{
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    escalaTeclat.set (mode, escala);
+}
+
+void ServeiAudio::setChordPadTeclat (int slot, const std::array<std::vector<int>, 12>& acords)
+{
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    if (slot == slotChordPad && acords == acordsChordPad) return;
+    slotChordPad = slot;
+    acordsChordPad = acords;
+    for (int i = 0; i < 12; ++i) teclatAcords.setAcord (i, acords[(size_t) i]);
+}
+
 void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce::MidiMessage& m)
 {
     if (m.getRawDataSize() > 3 || m.isMidiClock() || m.isActiveSense())
@@ -242,15 +265,30 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
 
     // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
-    // Un teclat assignat a una pista la toca sempre; la resta toquen la pista MIDI triada (si l'accepta).
-    // Si no hi ha cap pista que el vulgui, el so de prova del Diagnòstic.
+    // 0.17: mana la pista MIDI triada (si no té assignat un altre teclat); si no, la pista a què el teclat està
+    // assignat; si no n'hi ha cap, el so de prova de les Preferències.
     const auto id = origen != nullptr ? origen->getIdentifier() : juce::String();
     int desti = -2;
-    for (auto& [teclat, slot] : mapaTeclats)
-        if (teclat == id) desti = slot;
-    if (desti == -2 && teclatTriada.isNotEmpty() && teclatTriada != id) desti = -1;
-    if (! motorEstudi.enviaTeclat (e.estat, e.dada1, e.dada2, desti))
-        motorDiag.enviaMidi (e);
+    const bool triadaAccepta = motorEstudi.getSlotTeclat() >= 0 && (teclatTriada.isEmpty() || teclatTriada == id);
+    if (! triadaAccepta)
+    {
+        desti = -1;
+        for (auto& [teclat, slot] : mapaTeclats)
+            if (teclat == id) desti = slot;
+    }
+    // Chord Pad: si la pista on va el teclat el té obert, cada tecla toca l'acord del seu pad.
+    const int slot = desti == -2 ? motorEstudi.getSlotTeclat() : desti;
+    const bool acords = slotChordPad >= 0 && slot == slotChordPad;
+    auto envia = [this, desti] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    {
+        if (! motorEstudi.enviaTeclat (es, d1, d2, desti))
+            motorDiag.enviaMidi ({ es, d1, d2 });
+    };
+    // Primer el Chord Pad; el que hi passa tal qual, per l'escala (bloquejat / assistit).
+    teclatAcords.tradueix (e.estat, e.dada1, e.dada2, acords, [this, &envia] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    {
+        escalaTeclat.tradueix (es, d1, d2, envia);
+    });
     cuaMostrar.posa (e);
 }
 
