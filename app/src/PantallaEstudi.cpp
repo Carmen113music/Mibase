@@ -214,10 +214,9 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
     inserts::obreVeu() = [this] (int pista) { obreVeuDePista (pista); };
     addChildComponent (editorVeu);
-    addChildComponent (panellVeu);
     editorVeu.onTanca = [this] { tancaVeu(); };
     editorVeu.onCommutaAB = [this] { commutaVeuAB(); };
-    panellVeu.onCommutaAB = [this] { commutaVeuAB(); };
+    editorVeu.onDesfes = [this] (bool refer) { desfes (refer); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -545,7 +544,7 @@ void PantallaEstudi::colocaSeccions()
     editorVeu.setVisible (veuBaix);
     if (veuBaix)
     {
-        const int alt = juce::jlimit (160, juce::jmax (160, r.getHeight() - 140), altPianoRoll);
+        const int alt = juce::jlimit (300, juce::jmax (300, r.getHeight() - 140), juce::jmax (altPianoRoll, 380));
         auto zona = r.removeFromBottom (alt);
         editorVeu.setBounds (zona.withTrimmedTop (4));
         divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
@@ -563,9 +562,7 @@ void PantallaEstudi::colocaSeccions()
 
     mescles.setVisible (estat.vistaMescles);
     taulaEstructura.setVisible (estat.vistaEstructura);
-    panell.setVisible (! estat.vistaEstructura && ! estat.veu.obert);
-    panellVeu.setVisible (! estat.vistaEstructura && estat.veu.obert);
-    panellVeu.setBounds (panell.getBounds());
+    panell.setVisible (! estat.vistaEstructura);
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
         c->setVisible (! m);
     carpetes.setVisible (ambCarpetes);
@@ -1012,8 +1009,7 @@ void PantallaEstudi::tic()
     }
     recullVeu();
     if (editorVeu.isVisible()) editorVeu.tic();
-    if (panellVeu.isVisible())
-        if (auto* pv = estat.presaVeu(); pv != nullptr && (serveiVeu.progres (pv->id) >= 0.0f || serveiVeu.treballant (pv->id))) panellVeu.tic();
+
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
     auto cau = [] (float& v, float nou) { v = juce::jmax (nou, v * 0.82f); if (v < 1.0e-4f) v = 0.0f; };
@@ -2161,5 +2157,4 @@ void PantallaEstudi::recullVeu()
     if (notesNoves) estat.canviat ("Vocal Editor: notes detectades"_ca);
     else publicaPla();
     editorVeu.repaint();
-    panellVeu.repaint();
 }

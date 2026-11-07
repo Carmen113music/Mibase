@@ -305,6 +305,12 @@ namespace mibase::disc
                     const auto& v = e["veu"];
                     s.veu.analitzada = v.value ("analitzada", false);
                     s.veu.transicio = std::clamp (v.value ("transicio", 0.06), 0.0, 0.5);
+                    if (v.contains ("tonalitat") && v["tonalitat"].is_array() && v["tonalitat"].size() == 3)
+                    {
+                        s.veu.modeTon = std::clamp (v["tonalitat"][0].get<int>(), 0, 2);
+                        s.veu.to = std::clamp (v["tonalitat"][1].get<int>(), 0, 11);
+                        s.veu.escala = std::max (0, v["tonalitat"][2].get<int>());
+                    }
                     if (v.contains ("notes") && v["notes"].is_array())
                         for (auto& n : v["notes"])
                         {
@@ -571,7 +577,8 @@ namespace mibase::disc
                 json notes = json::array();
                 for (auto& n : s.veu.notes)
                     notes.push_back ({ n.ini, n.fi, n.centre, n.desplac, n.modulacio, n.deriva, n.formant, n.guanyDb });
-                e["veu"] = { { "analitzada", s.veu.analitzada }, { "transicio", s.veu.transicio }, { "notes", notes } };
+                e["veu"] = { { "analitzada", s.veu.analitzada }, { "transicio", s.veu.transicio },
+                             { "tonalitat", { s.veu.modeTon, s.veu.to, s.veu.escala } }, { "notes", notes } };
             }
             preses.push_back (e);
         }

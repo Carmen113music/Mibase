@@ -248,6 +248,20 @@ namespace
             comprova (! vv::teCanvis (v), "es torna a l'original");
         });
 
+        prova ("veu: tonalitat de la presa i moure per graus", []
+        {
+            mibase::VeuPresa v;
+            const mibase::Tonalitat canco { 0, 0 };   // C major
+            comprova (vv::notaObjectiu (61.2, v, canco) == 62, "de la cançó: C# → D");
+            comprova (vv::mouGraus (64.1, 1, v, canco) == 65 && vv::mouGraus (64.1, -1, v, canco) == 62, "E +1 grau = F, -1 grau = D");
+            comprova (vv::mouGraus (60.0, 2, v, canco) == 64, "C +2 graus = E");
+            v.modeTon = 1;
+            comprova (vv::notaObjectiu (61.2, v, canco) == 61 && vv::mouGraus (61.0, 1, v, canco) == 62, "cromàtic: semitons");
+            v.modeTon = 2; v.to = 9; v.escala = 1;   // A menor natural
+            comprova (vv::tonalitatDe (v, canco).to == 9 && vv::notaObjectiu (68.4, v, canco) == 69, "A menor: G# 68,4 → A");
+            comprova (vv::mouGraus (69.0, 1, v, canco) == 71, "A +1 grau = B");
+        });
+
         prova ("veu: només es refà el que canvia", [fs]
         {
             const auto x = veuSintetica (corbaNotes ({ { NAN, 0.1 }, { 60.0, 0.5 }, { NAN, 0.3 }, { 64.0, 0.5 }, { NAN, 0.1 } }, fs), fs);
@@ -301,7 +315,7 @@ namespace
             mibase::Projecte q;
             q.nom = "Veu";
             mibase::Presa s; s.id = "s1"; s.fitxer = "Àudios/Veu - presa 01.wav"; s.nom = "Veu"; s.durada = 2.0;
-            s.veu.analitzada = true; s.veu.transicio = 0.08;
+            s.veu.analitzada = true; s.veu.transicio = 0.08; s.veu.modeTon = 2; s.veu.to = 4; s.veu.escala = 1;
             s.veu.notes = { { 0.1, 0.6, 60.12, 0.5, 0.3, 0.2, 1.5, -3.0 } };
             q.preses.push_back (s);
             auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T16:00:00", "07/11/2026 16:00");

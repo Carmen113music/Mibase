@@ -51,7 +51,13 @@ juce::String EditorVeu::textCents (double c)
     return (v > 0 ? "+" : "") + juce::String (v) + " cents";
 }
 
-EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (s)
+EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (s),
+    pCorreccio ("Correcció"_ca, 0.0, 100.0, 100.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; }),
+    pVibrato ("Vibrato", 0.0, 200.0, 100.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; }),
+    pRecta ("Treu deriva", 0.0, 100.0, 0.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; }),
+    pFormant ("Formant", -12.0, 12.0, 0.0, true, [] (double v) { return (v > 0.04 ? "+" : "") + num (v, 1) + " st"; }),
+    pVolum ("Volum", -24.0, 12.0, 0.0, true, [] (double v) { return (v > 0.04 ? "+" : "") + num (v, 1) + " dB"; }),
+    pTransicio ("Transició"_ca, 0.0, 300.0, 60.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " ms"; })
 {
     setWantsKeyboardFocus (true);
     for (int i = 0; i < numEines; ++i)
@@ -61,13 +67,79 @@ EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (
         b.setTooltip (nomEina (i) + " (tecla "_ca + juce::String (i + 1) + ")");
         b.onClick = [this, i] { estat.veu.eina = i; actualitzaBotons(); repaint(); };
     }
-    for (auto* b : { &btOna, &btEscala, &btAB, &btAjusta, &btTanca }) addAndMakeVisible (b);
+    for (auto* b : { &btOna, &btAB, &btAjusta, &btTanca }) addAndMakeVisible (b);
     btOna.setTooltip ("Mostra l'ona de la gravació de fons"_ca);
     btOna.onClick = [this] { estat.veu.ona = ! estat.veu.ona; actualitzaBotons(); repaint(); };
-    btEscala.setTooltip ("Marca les notes de l'escala de la cançó"_ca);
-    btEscala.onClick = [this] { estat.veu.escala = ! estat.veu.escala; actualitzaBotons(); repaint(); };
     btAB.setTooltip ("Encès: sona la veu corregida. Apagat: sona l'original (comparació A/B). Tecla B."_ca);
     btAB.onClick = [this] { if (onCommutaAB) onCommutaAB(); };
+
+    // Consola.
+    for (auto* b : { &btTo, &btEscalaTon, &btTotes, &btCap, &btCorregeix, &btOriginal, &btDesfes, &btRefes }) addAndMakeVisible (b);
+    btTo.setTooltip ("La nota de la tonalitat (les notes es mouen dins d'aquesta tonalitat)"_ca);
+    btTo.onClick = [this] { menuTo(); };
+    btEscalaTon.setTooltip ("L'escala: la de la cançó, cromàtica (tots els semitons) o una de concreta"_ca);
+    btEscalaTon.onClick = [this] { menuEscala(); };
+    btTotes.onClick = [this]
+    {
+        if (auto* p = presa()) { estat.veu.triades.clear(); for (int k = 0; k < (int) p->veu.notes.size(); ++k) estat.veu.triades.push_back (k); estat.avisa(); }
+    };
+    btCap.onClick = [this] { estat.veu.triades.clear(); estat.avisa(); };
+    btCorregeix.setTooltip ("Afina del tot les notes triades (o totes) a la nota de la tonalitat més propera"_ca);
+    btCorregeix.onClick = [this]
+    {
+        auto* p = presa();
+        if (p == nullptr) return;
+        const auto ns = notesConsola();
+        comencaCanvi();
+        restaura();
+        p = presa();
+        if (p == nullptr) return;
+        for (int k : ns)
+        {
+            auto& n = p->veu.notes[(size_t) k];
+            n.desplac = vv::notaObjectiu (vv::centreFinal (n), p->veu, tonCanco()) - n.centre;
+        }
+        acabaCanvi ("Vocal Editor: notes afinades"_ca);
+    };
+    btOriginal.setTooltip ("Torna les notes triades (o totes) a com es van cantar"_ca);
+    btOriginal.onClick = [this]
+    {
+        const auto ns = notesConsola();
+        comencaCanvi();
+        restaura();
+        if (auto* p = presa()) vv::restaura (p->veu, ns);
+        acabaCanvi ("Vocal Editor: notes a l'original"_ca);
+    };
+    btDesfes.onClick = [this] { if (onDesfes) onDesfes (false); };
+    btRefes.onClick = [this] { if (onDesfes) onDesfes (true); };
+
+    auto pct = [] (double v) { return juce::String ((int) std::lround (v)) + " %"; };
+    auto pom = [this] (Pom& p, const juce::String& ajuda)
+    {
+        addAndMakeVisible (p);
+        p.setHelpText (ajuda);
+        p.onComenca = [this] { comencaPom(); };
+        p.onAcaba = [this] { acabaCanvi ("Vocal Editor: notes editades"_ca); };
+    };
+    pom (pCorreccio, {}); pom (pVibrato, {}); pom (pRecta, {}); pom (pFormant, {}); pom (pVolum, {});
+    (void) pct;
+    pCorreccio.onCanvi = [this] (double v)
+    {
+        canviaPom ([this, v] (NotaVeu& n, size_t i) { if (i < objectiusInici.size()) n.desplac = (objectiusInici[i] - n.centre) * v / 100.0; });
+    };
+    pVibrato.onCanvi = [this] (double v) { canviaPom ([v] (NotaVeu& n, size_t) { n.modulacio = v / 100.0; }); };
+    pRecta.onCanvi = [this] (double v) { canviaPom ([v] (NotaVeu& n, size_t) { n.deriva = 1.0 - v / 100.0; }); };
+    pFormant.onCanvi = [this] (double v) { canviaPom ([v] (NotaVeu& n, size_t) { n.formant = v; }); };
+    pVolum.onCanvi = [this] (double v) { canviaPom ([v] (NotaVeu& n, size_t) { n.guanyDb = v; }); };
+    addAndMakeVisible (pTransicio);
+    pTransicio.onComenca = [this] { comencaCanvi(); };
+    pTransicio.onCanvi = [this] (double v)
+    {
+        restaura();
+        if (auto* p = presa()) p->veu.transicio = v / 1000.0;
+        estat.avisa();
+    };
+    pTransicio.onAcaba = [this] { acabaCanvi ("Vocal Editor: transició entre notes"_ca); };
     btAjusta.setTooltip ("Encaixa la vista a les notes"_ca);
     btAjusta.onClick = [this] { ajustaVista(); };
     btTanca.setTooltip ("Amaga el Vocal Editor"_ca);
@@ -79,7 +151,42 @@ void EditorVeu::actualitzaBotons()
 {
     for (int i = 0; i < numEines; ++i) btEines[i].setToggleState (estat.veu.eina == i, juce::dontSendNotification);
     btOna.setToggleState (estat.veu.ona, juce::dontSendNotification);
-    btEscala.setToggleState (estat.veu.escala, juce::dontSendNotification);
+    auto* p = presa();
+    const auto ton = p != nullptr ? vv::tonalitatDe (p->veu, tonCanco()) : tonCanco();
+    btTo.setButtonText (juce::String::fromUTF8 (mibase::harmonia::nomTo (ton.to).c_str()));
+    btTo.setEnabled (p != nullptr && ! vv::cromatic (p->veu));
+    juce::String nomEsc = "Cromàtica"_ca;
+    if (p == nullptr || ! vv::cromatic (p->veu))
+        nomEsc = juce::String::fromUTF8 (mibase::harmonia::escales()[(size_t) juce::jlimit (0, (int) mibase::harmonia::escales().size() - 1, ton.escala)].nom);
+    if (p != nullptr && p->veu.modeTon == 0) nomEsc += " (cançó)"_ca;
+    btEscalaTon.setButtonText (nomEsc);
+    // Els poms mostren les notes on actuen.
+    const auto ns = notesConsola();
+    for (auto* x : { &pCorreccio, &pVibrato, &pRecta, &pFormant, &pVolum }) x->setEnabled (! ns.empty());
+    if (p != nullptr && ! ns.empty())
+    {
+        auto valor = [&] (Pom& pm, const std::function<double (const NotaVeu&)>& f)
+        {
+            const double v0 = f (p->veu.notes[(size_t) ns[0]]);
+            bool igual = true;
+            for (int k : ns) if (std::abs (f (p->veu.notes[(size_t) k]) - v0) > 0.5) igual = false;
+            pm.setValor (v0, igual);
+        };
+        valor (pCorreccio, [&] (const NotaVeu& n)
+        {
+            const double obj = vv::notaObjectiu (vv::centreFinal (n), p->veu, tonCanco()) - n.centre;
+            return std::abs (obj) < 1e-6 ? 100.0 : juce::jlimit (0.0, 100.0, n.desplac / obj * 100.0);
+        });
+        valor (pVibrato, [] (const NotaVeu& n) { return n.modulacio * 100.0; });
+        valor (pRecta, [] (const NotaVeu& n) { return (1.0 - n.deriva) * 100.0; });
+        valor (pFormant, [] (const NotaVeu& n) { return n.formant; });
+        valor (pVolum, [] (const NotaVeu& n) { return n.guanyDb; });
+    }
+    pTransicio.setEnabled (p != nullptr);
+    if (p != nullptr) pTransicio.setValor (p->veu.transicio * 1000.0, true);
+    const bool triades = ! estat.veu.triades.empty();
+    btCorregeix.setButtonText (triades ? "Corregeix"_ca : "Corregeix-les totes"_ca);
+    btOriginal.setButtonText (triades ? "A l'original"_ca : "Totes a l'original"_ca);
     bool actiu = false;
     if (auto* t = estat.pista (estat.veu.pista)) actiu = mibase::veuActiva (*t);
     btAB.setToggleState (actiu, juce::dontSendNotification);
@@ -99,16 +206,52 @@ void EditorVeu::resized()
     r.removeFromRight (6);
     btAjusta.setBounds (r.removeFromRight (70));
     r.removeFromRight (6);
-    btAB.setBounds (r.removeFromRight (84));
-    r.removeFromRight (6);
-    btEscala.setBounds (r.removeFromRight (66));
-    r.removeFromRight (4);
     btOna.setBounds (r.removeFromRight (52));
     r.removeFromLeft (150);   // el títol
     for (int i = 0; i < numEines; ++i)
     {
         btEines[i].setBounds (r.removeFromLeft (76));
         r.removeFromLeft (3);
+    }
+
+    // Consola: tonalitat i A/B | poms | botons.
+    auto c = zonaConsola().reduced (12, 8);
+    zTon = c.removeFromLeft (190);
+    {
+        auto t = zTon;
+        t.removeFromTop (18);
+        auto fila = t.removeFromTop (28);
+        btTo.setBounds (fila.removeFromLeft (52));
+        fila.removeFromLeft (6);
+        btEscalaTon.setBounds (fila);
+        t.removeFromTop (12);
+        btAB.setBounds (t.removeFromTop (30));
+    }
+    c.removeFromLeft (14);
+    zBotons = c.removeFromRight (232);
+    {
+        auto t = zBotons.withTrimmedTop (4);
+        const int h = (t.getHeight() - 10) / 3;
+        auto fila = [&] (Boto& a, Boto& b)
+        {
+            auto f = t.removeFromTop (h);
+            a.setBounds (f.removeFromLeft ((f.getWidth() - 6) / 2));
+            f.removeFromLeft (6);
+            b.setBounds (f);
+            t.removeFromTop (5);
+        };
+        fila (btTotes, btCap);
+        fila (btCorregeix, btOriginal);
+        fila (btDesfes, btRefes);
+    }
+    c.removeFromRight (14);
+    zPoms = c;
+    {
+        auto t = zPoms.withTrimmedTop (16);
+        Pom* poms[] { &pCorreccio, &pVibrato, &pRecta, &pFormant, &pVolum, &pTransicio };
+        const int w = juce::jmin (92, t.getWidth() / 6);
+        t = t.withSizeKeepingCentre (w * 6, t.getHeight());
+        for (auto* pm : poms) pm->setBounds (t.removeFromLeft (w));
     }
 }
 
@@ -233,6 +376,7 @@ void EditorVeu::paint (juce::Graphics& g)
         g.setFont (dibuix::lletra (13.0f));
         g.drawFittedText ("Fes doble clic en un clip d'una pista amb el Vocal Editor (o obre'l des dels inserts de la pista)."_ca,
                           zona.reduced (20), juce::Justification::centred, 3);
+        pintaConsola (g);
         return;
     }
 
@@ -259,6 +403,7 @@ void EditorVeu::paint (juce::Graphics& g)
     }
     pintaRegla (g);
     pintaTeclat (g);
+    pintaConsola (g);
 
     // Estat de l'anàlisi.
     const float p = servei.progres (s->id);
@@ -288,14 +433,18 @@ void EditorVeu::paint (juce::Graphics& g)
 void EditorVeu::pintaGraella (juce::Graphics& g, const mibase::Clip& c)
 {
     const auto zona = zonaNotes();
-    const auto ton = mibase::harmonia::tonalitatEfectiva (estat.projecte);
+    auto* pv = presa();
+    const auto ton = pv != nullptr ? vv::tonalitatDe (pv->veu, tonCanco()) : tonCanco();
+    const bool totes = pv == nullptr || vv::cromatic (pv->veu);
     const int nDalt = (int) std::ceil (midiDalt), nBaix = (int) std::floor (midiDe ((float) zona.getBottom()));
     for (int n = nBaix; n <= nDalt; ++n)
     {
         const float y0 = yDe (n + 0.5), y1 = yDe (n - 0.5);
         const bool negra = mibase::midi::esNegra (n);
+        // Les files de la tonalitat, més clares; la resta, fosques (les notes s'hi mouen per dins).
         juce::Colour col = negra ? tema::fons.darker (0.25f) : tema::fons;
-        if (estat.veu.escala && mibase::harmonia::aEscala (n, ton)) col = col.brighter (0.12f);
+        if (! totes && mibase::harmonia::aEscala (n, ton)) col = juce::Colour (0xff2b3240);
+        else if (! totes) col = tema::fons.darker (0.35f);
         g.setColour (col);
         g.fillRect ((float) zona.getX(), y0, (float) zona.getWidth(), y1 - y0);
         g.setColour (juce::Colours::white.withAlpha ((((n % 12) + 12) % 12) == 0 ? 0.10f : 0.03f));
@@ -482,6 +631,9 @@ void EditorVeu::pintaTeclat (juce::Graphics& g)
     g.fillRect (getLocalBounds().withTrimmedTop (altBarra).removeFromTop (altRegla).removeFromLeft (ampleTeclat));
     juce::Graphics::ScopedSaveState ss (g);
     g.reduceClipRegion (r);
+    auto* pv = presa();
+    const auto ton = pv != nullptr ? vv::tonalitatDe (pv->veu, tonCanco()) : tonCanco();
+    const bool totes = pv == nullptr || vv::cromatic (pv->veu);
     const int nDalt = (int) std::ceil (midiDalt), nBaix = (int) std::floor (midiDe ((float) r.getBottom()));
     for (int n = nBaix; n <= nDalt; ++n)
     {
@@ -489,6 +641,11 @@ void EditorVeu::pintaTeclat (juce::Graphics& g)
         const bool negra = mibase::midi::esNegra (n);
         g.setColour (negra ? juce::Colour (0xff202026) : juce::Colour (0xffd9d7de));
         g.fillRect ((float) r.getX(), y0, (float) r.getWidth() - (negra ? 18.0f : 0.0f), y1 - y0);
+        if (! totes && mibase::harmonia::aEscala (n, ton))
+        {
+            g.setColour (tema::accent.withAlpha (negra ? 0.55f : 0.35f));
+            g.fillRect ((float) r.getX(), y0, (float) r.getWidth() - (negra ? 18.0f : 0.0f), y1 - y0);
+        }
         g.setColour (juce::Colours::black.withAlpha (0.35f));
         g.fillRect ((float) r.getX(), y1 - 0.5f, (float) r.getWidth(), 0.5f);
         if ((((n % 12) + 12) % 12) == 0 && altSemi >= 8.0f)
@@ -581,7 +738,7 @@ void EditorVeu::aplicaArrossegament (const juce::MouseEvent& e)
             case Fletxa:
             {
                 double desti = vv::centreFinal (n0) - dy / altSemi;
-                if (! e.mods.isAltDown()) desti = std::round (desti);
+                if (! e.mods.isAltDown()) desti = vv::notaObjectiu (desti, s->veu, tonCanco());   // dins la tonalitat
                 n.desplac = juce::jlimit (-24.0, 24.0, desti - n.centre);
                 if (k == notaSota) info = nomNota (desti) + "  " + textCents ((desti - std::round (desti)) * 100.0);
                 break;
@@ -625,11 +782,8 @@ void EditorVeu::restableix (int k)
     switch (estat.veu.eina)
     {
         case Fletxa:
-        {
-            const auto ton = mibase::harmonia::tonalitatEfectiva (estat.projecte);
-            n.desplac = vv::notaObjectiu (n.centre, estat.veu.corrDesti == 1 ? vv::Desti::Escala : vv::Desti::Cromatic, ton) - n.centre;
+            n.desplac = vv::notaObjectiu (vv::centreFinal (n), s->veu, tonCanco()) - n.centre;
             break;
-        }
         case Vibrato: n.modulacio = 1.0; break;
         case Deriva: n.deriva = 1.0; break;
         case Formant: n.formant = 0.0; break;
@@ -659,8 +813,8 @@ void EditorVeu::mouTriades (double semitons, bool lliure, const juce::String& ev
     {
         if (k < 0 || k >= (int) s->veu.notes.size()) continue;
         auto& n = s->veu.notes[(size_t) k];
-        double desti = vv::centreFinal (n) + semitons;
-        if (! lliure) desti = std::round (desti);
+        const double desti = lliure ? vv::centreFinal (n) + semitons
+                                    : (double) vv::mouGraus (vv::centreFinal (n), semitons > 0 ? 1 : -1, s->veu, tonCanco());
         n.desplac = juce::jlimit (-24.0, 24.0, desti - n.centre);
     }
     acabaCanvi (evolucio);
@@ -722,332 +876,189 @@ bool EditorVeu::keyPressed (const juce::KeyPress& k)
     return false;
 }
 
+
 //==============================================================================
-// PanellVeu
+// 0.23: consola de baix
 //==============================================================================
-PanellVeu::Camp::Camp (const juce::String& etiqueta, double minim, double maxim, double p, int decimals, const juce::String& u)
-    : text (etiqueta), unitat (u), mn (minim), mx (maxim), pas (p), dec (decimals)
+EditorVeu::Pom::Pom (const juce::String& n, double minim, double maxim, double perDefecte, bool bi, std::function<juce::String (double)> t)
+    : nom (n), mn (minim), mx (maxim), defecte (perDefecte), valor (perDefecte), bipolar (bi), text (std::move (t))
 {
     setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
 }
 
-void PanellVeu::Camp::paint (juce::Graphics& g)
+void EditorVeu::Pom::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds();
+    auto r = getLocalBounds().toFloat();
     const float alfa = isEnabled() ? 1.0f : 0.4f;
     g.setColour (tema::suau.withAlpha (alfa));
-    g.setFont (dibuix::lletra (12.0f));
-    g.drawText (text, r.removeFromLeft (r.getWidth() - 96), juce::Justification::centredLeft, true);
-    auto caixa = r.reduced (0, 2).toFloat();
-    g.setColour (juce::Colours::black.withAlpha (0.35f * alfa));
-    g.fillRoundedRectangle (caixa, 3.0f);
-    g.setColour ((arrossega ? tema::accent : tema::linia2).withAlpha (alfa));
-    g.drawRoundedRectangle (caixa.reduced (0.5f), 3.0f, 1.0f);
-    if (editor != nullptr) return;
-    g.setColour (tema::text.withAlpha (alfa));
-    g.setFont (dibuix::mono (12.0f));
-    const auto v = igual && isEnabled() ? num (valor, dec) + " " + unitat : juce::String::fromUTF8 ("—");
-    g.drawText (v, caixa.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredRight);
+    g.setFont (dibuix::lletra (10.5f, true));
+    g.drawText (dibuix::majuscules (nom), r.removeFromTop (14.0f), juce::Justification::centred);
+    auto valorR = r.removeFromBottom (18.0f).reduced (6.0f, 1.0f);
+    auto c = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), r.getHeight()), juce::jmin (r.getWidth(), r.getHeight()));
+    const auto centre = c.getCentre();
+    const float radi = c.getWidth() * 0.5f;
+    const float pi = juce::MathConstants<float>::pi;
+    auto angle = [&] (double v) { return -0.75f * pi + (float) ((v - mn) / (mx - mn)) * 1.5f * pi; };
+    juce::Path fons;
+    fons.addCentredArc (centre.x, centre.y, radi - 2.0f, radi - 2.0f, 0.0f, -0.75f * pi, 0.75f * pi, true);
+    g.setColour (juce::Colour (0xff09090b));
+    g.strokePath (fons, juce::PathStrokeType (3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    const float a0 = bipolar ? angle (defecte) : -0.75f * pi, a1 = angle (valor);
+    if (std::abs (a1 - a0) > 0.01f && isEnabled())
+    {
+        juce::Path arc;
+        arc.addCentredArc (centre.x, centre.y, radi - 2.0f, radi - 2.0f, 0.0f, juce::jmin (a0, a1), juce::jmax (a0, a1), true);
+        g.setColour (igual ? tema::accent : tema::suau);
+        g.strokePath (arc, juce::PathStrokeType (3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+    auto cos = c.reduced (7.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.5f));
+    g.fillEllipse (cos.translated (0.0f, 2.0f));
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff55555f), cos.getX(), cos.getY(), juce::Colour (0xff1f1f25), cos.getX(), cos.getBottom(), false));
+    g.fillEllipse (cos);
+    g.setColour (juce::Colours::white.withAlpha (0.14f));
+    g.drawEllipse (cos.reduced (0.5f), 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    for (int i = 0; i < 20; ++i)
+    {
+        const float a = (float) i / 20.0f * juce::MathConstants<float>::twoPi;
+        g.drawLine ({ centre.getPointOnCircumference (cos.getWidth() * 0.5f - 0.5f, a), centre.getPointOnCircumference (cos.getWidth() * 0.5f - 3.0f, a) }, 1.0f);
+    }
+    g.setColour (isEnabled() ? juce::Colour (0xffeeeef2) : tema::suau);
+    g.drawLine ({ centre.getPointOnCircumference (cos.getWidth() * 0.15f, a1), centre.getPointOnCircumference (cos.getWidth() * 0.5f - 3.0f, a1) }, 2.2f);
+    // Valor (pantalleta).
+    g.setColour (juce::Colours::black.withAlpha (0.45f * alfa));
+    g.fillRoundedRectangle (valorR, 3.0f);
+    g.setColour ((arrossega ? tema::accent : tema::guitarra).withAlpha (alfa));
+    g.setFont (dibuix::mono (11.0f));
+    g.drawText (isEnabled() ? (igual ? text (valor) : juce::String::fromUTF8 ("—")) : juce::String::fromUTF8 ("—"), valorR, juce::Justification::centred);
 }
 
-void PanellVeu::Camp::resized()
+void EditorVeu::Pom::posa (double v)
 {
-    if (editor != nullptr) editor->setBounds (getLocalBounds().removeFromRight (96).reduced (1, 3));
-}
-
-void PanellVeu::Camp::mouseDown (const juce::MouseEvent&) { valor0 = valor; arrossega = false; }
-
-void PanellVeu::Camp::mouseDrag (const juce::MouseEvent& e)
-{
-    if (! arrossega && e.getDistanceFromDragStart() < 3) return;
-    if (! arrossega) { arrossega = true; if (onComenca) onComenca(); }
-    const double fi = e.mods.isShiftDown() ? 0.1 : 1.0;
-    double v = valor0 - e.getDistanceFromDragStartY() * pas * fi * (pas < 0.05 ? 2.0 : 0.5);
-    v = juce::jlimit (mn, mx, std::round (v / (pas * fi)) * pas * fi);
-    valor = v;
+    valor = juce::jlimit (mn, mx, v);
     igual = true;
-    if (onCanvi) onCanvi (v);
+    if (onCanvi) onCanvi (valor);
     repaint();
 }
 
-void PanellVeu::Camp::mouseUp (const juce::MouseEvent&)
+void EditorVeu::Pom::mouseDown (const juce::MouseEvent&) { valor0 = valor; arrossega = false; }
+
+void EditorVeu::Pom::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! isEnabled()) return;
+    if (! arrossega && e.getDistanceFromDragStart() < 2) return;
+    if (! arrossega) { arrossega = true; if (onComenca) onComenca(); }
+    const double rang = (mx - mn) * (e.mods.isShiftDown() ? 0.1 : 1.0);
+    posa (valor0 - e.getDistanceFromDragStartY() * rang / 180.0);
+}
+
+void EditorVeu::Pom::mouseUp (const juce::MouseEvent&)
 {
     if (arrossega) { arrossega = false; if (onAcaba) onAcaba(); repaint(); }
 }
 
-void PanellVeu::Camp::mouseDoubleClick (const juce::MouseEvent&)
+void EditorVeu::Pom::mouseDoubleClick (const juce::MouseEvent&)
 {
     if (! isEnabled()) return;
-    editor = std::make_unique<juce::TextEditor>();
-    editor->setFont (dibuix::mono (12.0f));
-    editor->setJustification (juce::Justification::centredRight);
-    editor->setText (num (valor, dec), false);
-    editor->selectAll();
-    addAndMakeVisible (*editor);
-    resized();
-    editor->grabKeyboardFocus();
-    juce::Component::SafePointer<Camp> jo (this);
-    auto tanca = [jo] (bool aplica)
-    {
-        juce::MessageManager::callAsync ([jo, aplica]
-        {
-            if (jo == nullptr || jo->editor == nullptr) return;
-            const auto t = jo->editor->getText().replaceCharacter (',', '.').trim();
-            jo->editor.reset();
-            if (aplica && t.isNotEmpty() && t.containsAnyOf ("0123456789"))
-            {
-                const double v = juce::jlimit (jo->mn, jo->mx, t.getDoubleValue());
-                jo->valor = v; jo->igual = true;
-                if (jo->onComenca) jo->onComenca();
-                if (jo->onCanvi) jo->onCanvi (v);
-                if (jo->onAcaba) jo->onAcaba();
-            }
-            jo->repaint();
-        });
-    };
-    editor->onReturnKey = [tanca] { tanca (true); };
-    editor->onEscapeKey = [tanca] { tanca (false); };
-    editor->onFocusLost = [tanca] { tanca (true); };
-    repaint();
+    if (onComenca) onComenca();
+    posa (defecte);
+    if (onAcaba) onAcaba();
 }
 
-//==============================================================================
-PanellVeu::PanellVeu (EstatEstudi& e, ServeiVeu& s, EditorVeu& ed) : SeccioEstudi (e), servei (s), editor (ed)
-{
-    auto objectiu = [this] (const NotaVeu& n)
-    {
-        return vv::notaObjectiu (n.centre, estat.veu.corrDesti == 1 ? vv::Desti::Escala : vv::Desti::Cromatic,
-                                 mibase::harmonia::tonalitatEfectiva (estat.projecte));
-    };
-    struct Def { Camp* c; std::function<void (NotaVeu&, double)> f; };
-    for (auto& d : { Def { &cDesplac, [] (NotaVeu& n, double v) { n.desplac = v; } },
-                     Def { &cCentre, [objectiu] (NotaVeu& n, double v) { n.desplac = (objectiu (n) - n.centre) * v / 100.0; } },
-                     Def { &cModulacio, [] (NotaVeu& n, double v) { n.modulacio = v / 100.0; } },
-                     Def { &cDeriva, [] (NotaVeu& n, double v) { n.deriva = v / 100.0; } },
-                     Def { &cFormant, [] (NotaVeu& n, double v) { n.formant = v; } },
-                     Def { &cVolum, [] (NotaVeu& n, double v) { n.guanyDb = v; } } })
-    {
-        addAndMakeVisible (d.c);
-        auto f = d.f;
-        d.c->onComenca = [this] { enCampComenca(); };
-        d.c->onCanvi = [this, f] (double v) { enCampCanvi ([f, v] (NotaVeu& n) { f (n, v); }); };
-        d.c->onAcaba = [this] { acabaCanvi ("Vocal Editor: valors de nota"_ca); };
-    }
-    for (auto* c : { &aCentre, &aDeriva, &aVibrato, &aTransicio }) addAndMakeVisible (c);
-    aCentre.onCanvi = [this] (double v) { estat.veu.corrCentre = v / 100.0; };
-    aDeriva.onCanvi = [this] (double v) { estat.veu.corrDeriva = v / 100.0; };
-    aVibrato.onCanvi = [this] (double v) { estat.veu.corrVibrato = v / 100.0; };
-    aTransicio.onComenca = [this] { comencaCanvi(); };
-    aTransicio.onCanvi = [this] (double v)
-    {
-        restaura();
-        if (auto* p = estat.presaVeu()) p->veu.transicio = v / 1000.0;
-        estat.avisa();
-    };
-    aTransicio.onAcaba = [this] { acabaCanvi ("Vocal Editor: transició entre notes"_ca); };
+mibase::Tonalitat EditorVeu::tonCanco() const { return mibase::harmonia::tonalitatEfectiva (estat.projecte); }
 
-    for (auto* b : { &btDesti, &btCorregeix, &btRestaura, &btAB }) addAndMakeVisible (b);
-    btDesti.setTooltip ("On van les notes: al semitò més proper (cromàtic) o a la nota més propera de l'escala de la cançó"_ca);
-    btDesti.onClick = [this] { estat.veu.corrDesti = estat.veu.corrDesti == 1 ? 0 : 1; actualitzaCamps(); };
-    btCorregeix.setTooltip ("Aplica la correcció a les notes triades (o a totes, si no n'hi ha cap de triada)"_ca);
-    btCorregeix.onClick = [this]
-    {
-        auto* p = estat.presaVeu();
-        if (p == nullptr) return;
-        vv::Correccio c;
-        c.centre = estat.veu.corrCentre;
-        c.deriva = estat.veu.corrDeriva;
-        c.vibrato = estat.veu.corrVibrato;
-        c.desti = estat.veu.corrDesti == 1 ? vv::Desti::Escala : vv::Desti::Cromatic;
-        c.tonalitat = mibase::harmonia::tonalitatEfectiva (estat.projecte);
-        comencaCanvi();
-        restaura();
-        p = estat.presaVeu();
-        if (p != nullptr) vv::corregeix (p->veu, triades(), c);
-        acabaCanvi ("Vocal Editor: correcció automàtica"_ca);
-    };
-    btRestaura.setTooltip ("Torna les notes triades (o totes) a com es van cantar"_ca);
-    btRestaura.onClick = [this]
-    {
-        comencaCanvi();
-        restaura();
-        if (auto* p = estat.presaVeu()) vv::restaura (p->veu, triades());
-        acabaCanvi ("Vocal Editor: tornat a l'original"_ca);
-    };
-    btAB.setTooltip ("Escolta la gravació original sense cap correcció (tecla B a l'editor)"_ca);
-    btAB.onClick = [this] { if (onCommutaAB) onCommutaAB(); };
-    actualitzaCamps();
-}
-
-std::vector<int> PanellVeu::triades()
+std::vector<int> EditorVeu::notesConsola()
 {
     std::vector<int> t;
-    auto* p = estat.presaVeu();
+    auto* p = presa();
     if (p == nullptr) return t;
     for (int k : estat.veu.triades) if (k >= 0 && k < (int) p->veu.notes.size()) t.push_back (k);
+    if (t.empty()) for (int k = 0; k < (int) p->veu.notes.size(); ++k) t.push_back (k);
     return t;
 }
 
-void PanellVeu::enCampComenca() { comencaCanvi(); }
+void EditorVeu::comencaPom()
+{
+    comencaCanvi();
+    objectiusInici.clear();
+    if (auto* p = presa())
+        for (int k : notesConsola())
+            objectiusInici.push_back (vv::notaObjectiu (vv::centreFinal (p->veu.notes[(size_t) k]), p->veu, tonCanco()));
+}
 
-void PanellVeu::enCampCanvi (const std::function<void (NotaVeu&)>& f)
+void EditorVeu::canviaPom (const std::function<void (NotaVeu&, size_t)>& f)
 {
     restaura();
-    auto* p = estat.presaVeu();
+    auto* p = presa();
     if (p == nullptr) return;
-    for (int k : triades()) f (p->veu.notes[(size_t) k]);
+    const auto ns = notesConsola();
+    for (size_t i = 0; i < ns.size(); ++i) f (p->veu.notes[(size_t) ns[i]], i);
     estat.avisa();
 }
 
-void PanellVeu::changeListenerCallback (juce::ChangeBroadcaster*)
+void EditorVeu::aplicaTonalitat (int modeTon, int to, int escala)
 {
-    actualitzaCamps();
-    repaint();
+    comencaCanvi();
+    restaura();
+    if (auto* p = presa()) { p->veu.modeTon = modeTon; p->veu.to = to; p->veu.escala = escala; }
+    acabaCanvi ("Vocal Editor: tonalitat"_ca);
 }
 
-void PanellVeu::actualitzaCamps()
+void EditorVeu::menuTo()
 {
-    auto* p = estat.presaVeu();
-    const auto t = triades();
-    const bool hiHa = p != nullptr && ! t.empty();
-    for (auto* c : { &cDesplac, &cCentre, &cModulacio, &cDeriva, &cFormant, &cVolum }) c->setEnabled (hiHa);
-    if (hiHa)
+    auto* p = presa();
+    if (p == nullptr) return;
+    const auto ton = vv::tonalitatDe (p->veu, tonCanco());
+    juce::PopupMenu m;
+    for (int i = 0; i < 12; ++i) m.addItem (i + 1, juce::String::fromUTF8 (mibase::harmonia::nomTo (i).c_str()), true, i == ton.to);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btTo), [this, ton] (int r)
     {
-        const auto ton = mibase::harmonia::tonalitatEfectiva (estat.projecte);
-        auto valor = [&] (Camp& c, const std::function<double (const NotaVeu&)>& f)
-        {
-            const double v0 = f (p->veu.notes[(size_t) t[0]]);
-            bool igual = true;
-            for (int k : t) if (std::abs (f (p->veu.notes[(size_t) k]) - v0) > 1e-6) igual = false;
-            c.setValor (v0, igual);
-        };
-        valor (cDesplac, [] (const NotaVeu& n) { return n.desplac; });
-        valor (cCentre, [&] (const NotaVeu& n)
-        {
-            const double obj = vv::notaObjectiu (n.centre, estat.veu.corrDesti == 1 ? vv::Desti::Escala : vv::Desti::Cromatic, ton) - n.centre;
-            return std::abs (obj) < 1e-6 ? 100.0 : juce::jlimit (0.0, 100.0, std::round (n.desplac / obj * 100.0));
-        });
-        valor (cModulacio, [] (const NotaVeu& n) { return std::round (n.modulacio * 100.0); });
-        valor (cDeriva, [] (const NotaVeu& n) { return std::round (n.deriva * 100.0); });
-        valor (cFormant, [] (const NotaVeu& n) { return n.formant; });
-        valor (cVolum, [] (const NotaVeu& n) { return n.guanyDb; });
-    }
-    aCentre.setValor (estat.veu.corrCentre * 100.0);
-    aDeriva.setValor (estat.veu.corrDeriva * 100.0);
-    aVibrato.setValor (estat.veu.corrVibrato * 100.0);
-    aTransicio.setEnabled (p != nullptr);
-    if (p != nullptr) aTransicio.setValor (p->veu.transicio * 1000.0);
-    const auto nomTon = juce::String::fromUTF8 (mibase::harmonia::nomTonalitat (mibase::harmonia::tonalitatEfectiva (estat.projecte)).c_str());
-    btDesti.setButtonText (estat.veu.corrDesti == 1 ? "Destí: escala ("_ca + nomTon + ")" : "Destí: semitò més proper"_ca);
-    btCorregeix.setButtonText (t.empty() ? "Corregeix-les totes"_ca : "Corregeix les triades"_ca);
-    btRestaura.setButtonText (t.empty() ? "Totes a l'original"_ca : "Triades a l'original"_ca);
-    bool actiu = false;
-    if (auto* tr = estat.pista (estat.veu.pista)) actiu = mibase::veuActiva (*tr);
-    btAB.setToggleState (! actiu, juce::dontSendNotification);
+        if (r >= 1) aplicaTonalitat (2, r - 1, ton.escala);
+    });
 }
 
-void PanellVeu::resized()
+void EditorVeu::menuEscala()
 {
-    auto r = getLocalBounds().reduced (14, 12);
-    zonaInfo = r.removeFromTop (62);
-    r.removeFromTop (6);
-    zonaInspector = r.removeFromTop (20 + 6 * 16 + 4);
-    for (auto* c : { &cDesplac, &cCentre, &cModulacio, &cDeriva, &cFormant, &cVolum }) c->setBounds (r.removeFromTop (26));
-    r.removeFromTop (10);
-    zonaAuto = r.removeFromTop (22);
-    for (auto* c : { &aCentre, &aDeriva, &aVibrato, &aTransicio }) c->setBounds (r.removeFromTop (26));
-    r.removeFromTop (4);
-    btDesti.setBounds (r.removeFromTop (26));
-    r.removeFromTop (6);
-    btCorregeix.setBounds (r.removeFromTop (30));
-    r.removeFromTop (6);
-    btRestaura.setBounds (r.removeFromTop (26));
-    r.removeFromTop (12);
-    btAB.setBounds (r.removeFromTop (28));
-}
-
-void PanellVeu::paint (juce::Graphics& g)
-{
-    g.fillAll (tema::lateral);
-    g.setColour (tema::linia);
-    g.fillRect (0, 0, 1, getHeight());
-
-    auto* p = estat.presaVeu();
-    auto r = zonaInfo;
-    dibuix::pintaEtiquetaSeccio (g, "Vocal Editor", r.removeFromTop (20));
-    g.setFont (dibuix::lletra (12.5f));
-    g.setColour (tema::text);
-    g.drawText (p != nullptr ? dibuix::utf8 (p->nom) : juce::String(), r.removeFromTop (20), juce::Justification::centredLeft, true);
-    juce::String estatText;
-    if (p != nullptr)
+    auto* p = presa();
+    if (p == nullptr) return;
+    const auto ton = vv::tonalitatDe (p->veu, tonCanco());
+    juce::PopupMenu m;
+    m.addItem (1, "La de la cançó ("_ca + juce::String::fromUTF8 (mibase::harmonia::nomTonalitat (tonCanco()).c_str()) + ")", true, p->veu.modeTon == 0);
+    m.addItem (2, "Cromàtica (tots els semitons)"_ca, true, p->veu.modeTon == 1);
+    m.addSeparator();
+    const auto& esc = mibase::harmonia::escales();
+    for (int i = 0; i < (int) esc.size(); ++i)
+        m.addItem (100 + i, juce::String::fromUTF8 (esc[(size_t) i].nom), true, p->veu.modeTon == 2 && p->veu.escala == i);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btEscalaTon), [this, ton] (int r)
     {
-        const float pr = servei.progres (p->id);
-        bool actiu = false;
-        if (auto* t = estat.pista (estat.veu.pista)) actiu = mibase::veuActiva (*t);
-        if (pr >= 0.0f) estatText = "Analitzant… "_ca + juce::String ((int) (pr * 100.0f)) + " %";
-        else if (! p->veu.analitzada) estatText = "Preparant l'anàlisi…"_ca;
-        else if (servei.treballant (p->id)) estatText = juce::String (p->veu.notes.size()) + " notes · preparant el so…"_ca;
-        else estatText = juce::String (p->veu.notes.size()) + " notes · "_ca + (actiu ? "sona corregit"_ca : "sona l'original (apagat)"_ca);
-    }
+        if (r == 1) aplicaTonalitat (0, ton.to, ton.escala);
+        else if (r == 2) aplicaTonalitat (1, ton.to, ton.escala);
+        else if (r >= 100) aplicaTonalitat (2, ton.to, r - 100);
+    });
+}
+
+void EditorVeu::pintaConsola (juce::Graphics& g)
+{
+    auto r = zonaConsola();
+    vintage::panell (g, r.toFloat());
+    g.setColour (juce::Colours::black.withAlpha (0.5f));
+    g.fillRect (r.getX(), r.getY(), r.getWidth(), 1);
+    g.setFont (dibuix::lletra (10.5f, true));
     g.setColour (tema::suau);
-    g.setFont (dibuix::lletra (11.5f));
-    g.drawText (estatText, r.removeFromTop (18), juce::Justification::centredLeft, true);
-
-    // Inspector.
-    auto z = zonaInspector;
-    const auto t = triades();
-    dibuix::pintaEtiquetaSeccio (g, t.size() > 1 ? juce::String ((int) t.size()) + " notes triades"_ca : juce::String ("Nota triada"), z.removeFromTop (20));
-    auto linia = [&] (const juce::String& a, const juce::String& b)
+    g.drawText ("TONALITAT", zTon.withHeight (16), juce::Justification::centredLeft);
+    auto* p = presa();
+    juce::String quines;
+    if (p != nullptr)
+        quines = estat.veu.triades.empty() ? "TOTES LES NOTES (CAP DE TRIADA)"_ca
+                                           : juce::String ((int) estat.veu.triades.size()) + (estat.veu.triades.size() == 1 ? " NOTA TRIADA"_ca : " NOTES TRIADES"_ca);
+    g.drawText (quines, zPoms.withHeight (16), juce::Justification::centred);
+    // Separadors gravats.
+    for (int x : { zTon.getRight() + 7, zBotons.getX() - 7 })
     {
-        auto f = z.removeFromTop (16);
-        g.setColour (tema::suau);
-        g.setFont (dibuix::lletra (11.5f));
-        g.drawText (a, f.removeFromLeft (92), juce::Justification::centredLeft);
-        g.setColour (tema::text);
-        g.drawText (b, f, juce::Justification::centredLeft, true);
-    };
-    if (p == nullptr || t.empty())
-    {
-        g.setColour (tema::suau);
-        g.setFont (dibuix::lletra (11.5f));
-        g.drawFittedText ("Clica una nota (Ctrl o Maj per triar-ne més, o fes un requadre). Ctrl+A les tria totes."_ca,
-                          z, juce::Justification::topLeft, 4);
-    }
-    else
-    {
-        const auto& n = p->veu.notes[(size_t) t[0]];
-        const double cf = vv::centreFinal (n);
-        const auto* c = estat.clip ({ estat.veu.pista, estat.veu.clip });
-        const double pos = (c != nullptr ? c->pos : 0.0) + n.ini;
-        if (t.size() == 1)
-        {
-            linia ("Nota cantada"_ca, EditorVeu::nomNota (n.centre) + "  (" + EditorVeu::textCents ((n.centre - std::round (n.centre)) * 100.0) + ")");
-            linia ("Freqüència"_ca, num (vv::hzDeMidi (n.centre), 1) + " Hz");
-            linia ("Sonarà"_ca, EditorVeu::nomNota (cf) + "  (" + EditorVeu::textCents ((cf - std::round (cf)) * 100.0) + ")");
-            linia ("Objectiu"_ca, EditorVeu::nomNota (vv::notaObjectiu (n.centre, estat.veu.corrDesti == 1 ? vv::Desti::Escala : vv::Desti::Cromatic,
-                                                                         mibase::harmonia::tonalitatEfectiva (estat.projecte))));
-            linia ("Posició"_ca, juce::String (mibase::edicio::textPosicio (estat.projecte, pos, true)) + "  ·  "_ca + num (pos, 2) + " s");
-            linia ("Durada"_ca, num (n.fi - n.ini, 2) + " s");
-        }
-        else
-        {
-            double ini = 1e9, fi = -1e9;
-            for (int k : t) { ini = std::min (ini, p->veu.notes[(size_t) k].ini); fi = std::max (fi, p->veu.notes[(size_t) k].fi); }
-            linia ("Des de"_ca, juce::String (mibase::edicio::textPosicio (estat.projecte, (c != nullptr ? c->pos : 0.0) + ini, true)));
-            linia ("Durada"_ca, num (fi - ini, 2) + " s");
-        }
-    }
-
-    dibuix::pintaEtiquetaSeccio (g, "Correcció automàtica"_ca, zonaAuto);
-
-    // Ajuda de baix.
-    auto ajuda = getLocalBounds().reduced (14, 12).withTop (btAB.getBottom() + 12);
-    if (ajuda.getHeight() > 40)
-    {
-        g.setColour (tema::suau.withAlpha (0.8f));
-        g.setFont (dibuix::lletra (11.0f));
-        g.drawFittedText ("Eines: 1 afinació · 2 vibrato · 3 deriva · 4 formant · 5 volum. Fletxes amunt/avall = un semitò (Alt = 10 cents). "
-                          "Supr = la nota torna a l'original. Doble clic en un valor per escriure'l."_ca,
-                          ajuda, juce::Justification::topLeft, 6);
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRect (x, r.getY() + 10, 1, r.getHeight() - 20);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRect (x + 1, r.getY() + 10, 1, r.getHeight() - 20);
     }
 }

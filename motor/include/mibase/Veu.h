@@ -74,6 +74,14 @@ namespace mibase::veu
     int notaObjectiu (double midi, Desti d, const Tonalitat& t);
     /** Aplica la correcció a les notes indicades (totes si «quines» és buit). */
     void corregeix (VeuPresa& v, const std::vector<int>& quines, const Correccio& c);
+    /** 0.23: la tonalitat on van les notes d'una presa (segons el selector del Vocal Editor; «canco» = la de la cançó)
+        i si és cromàtica (totes les notes valen). */
+    Tonalitat tonalitatDe (const VeuPresa& v, const Tonalitat& canco) noexcept;
+    inline bool cromatic (const VeuPresa& v) noexcept { return v.modeTon == 1; }
+    /** La nota objectiu (MIDI enter) d'una afinació, dins la tonalitat de la presa. */
+    int notaObjectiu (double midi, const VeuPresa& v, const Tonalitat& canco);
+    /** La nota de la tonalitat que hi ha «graus» graus amunt (o avall) de la més propera a «midi». */
+    int mouGraus (double midi, int graus, const VeuPresa& v, const Tonalitat& canco);
     /** La nota tal com sonarà (centre + desplaçament). */
     inline double centreFinal (const NotaVeu& n) noexcept { return n.centre + n.desplac; }
     bool teCanvis (const VeuPresa& v) noexcept;

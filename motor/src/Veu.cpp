@@ -843,6 +843,31 @@ namespace mibase::veu
         return millor;
     }
 
+    Tonalitat tonalitatDe (const VeuPresa& v, const Tonalitat& canco) noexcept
+    {
+        if (v.modeTon == 2) return { std::clamp (v.to, 0, 11), std::clamp (v.escala, 0, (int) harmonia::escales().size() - 1) };
+        return canco;
+    }
+
+    int notaObjectiu (double midi, const VeuPresa& v, const Tonalitat& canco)
+    {
+        return notaObjectiu (midi, cromatic (v) ? Desti::Cromatic : Desti::Escala, tonalitatDe (v, canco));
+    }
+
+    int mouGraus (double midi, int graus, const VeuPresa& v, const Tonalitat& canco)
+    {
+        int n = notaObjectiu (midi, v, canco);
+        const auto t = tonalitatDe (v, canco);
+        const int pas = graus > 0 ? 1 : -1;
+        for (int g = 0; g != graus; g += pas)
+        {
+            int k = n + pas;
+            for (int i = 0; i < 12 && ! cromatic (v) && ! harmonia::aEscala (k, t); ++i) k += pas;
+            n = k;
+        }
+        return n;
+    }
+
     void corregeix (VeuPresa& v, const std::vector<int>& quines, const Correccio& c)
     {
         auto fes = [&] (NotaVeu& n)

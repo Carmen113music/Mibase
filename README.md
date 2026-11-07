@@ -136,16 +136,16 @@ Cada secció es **plega i es desplega clicant-ne el títol** (es recorda).
   - **Pads del teclat**: *per nota* (cada pad o tecla toca la fila de la seva nota General MIDI) o *per ordre de files* (el pad 1 = nota 36 toca la primera fila, el pad 2 la segona…: ideal per als 8 pads de l'AKAI).
 - **Kits** (finestra): a l'esquerra els kits, a la dreta els seus sons (clic: sona; clic al **tipus**: el canvies si la classificació s'ha equivocat). **Importa una carpeta…**: tria la carpeta d'un kit o una que en contingui uns quants; cada carpeta amb sons (WAV, MP3, AIFF, FLAC, OGG) es converteix en un kit a `Documents\Mibase\Kits\`. Els sons es passen a WAV, se'ls treu el silenci del principi i del final, i es classifiquen **pel nom** (kick, bd, bombo, snare, sd, hh, open, ride, crash, tom hi/mid/low…) i, si el nom no ho diu, **pel so** (greus i curt = bombo, soroll brillant = hihat o plat…). Els teus fitxers originals no es toquen. **Baixa els de Riffs**: baixa els kits de Riffs de GitHub i els importa. **Posa'l a la pista**: la pista de bateria triada sona amb aquell kit (les files guarden el volum, l'afinació…).
 
-### Vocal Editor (0.22)
-Per afinar i retocar veus gravades nota a nota (com Melodyne), sense tocar mai l'àudio original.
+### Vocal Editor (0.22–0.23)
+Per afinar i retocar veus gravades nota a nota, sense tocar mai l'àudio original.
 1. A la pista de veu, **+ Efecte → Vocal Editor** (o botó dret al clip → **Obre al Vocal Editor**, que el posa sol).
 2. S'obre a baix (al lloc del Piano Roll). La primera vegada analitza la veu (uns segons; l'anàlisi es desa al costat de l'àudio, `….wav.veu`).
-3. Cada nota cantada és un bloc sobre el teclat, amb la línia d'afinació a dins. Color: **verd** afinada, **groc** una mica, **taronja** desafinada.
-4. **Arrossega** una nota amunt o avall: s'enganxa al semitò (amb **Alt**, lliure). **Doble clic**: la nota queda afinada. **Fletxes** amunt/avall: un semitò (Alt: 10 cents). **Supr**: torna a l'original.
-5. Eines (tecles 1–5): **Afinació**, **Vibrato** (més o menys), **Deriva** (aplanar una nota que puja o baixa sense treure el vibrato), **Formant** (timbre) i **Volum**.
-6. Panell de la dreta: les dades exactes de la nota triada (es poden escriure amb doble clic) i la **correcció automàtica** (quant s'afina, quanta deriva es treu, vibrato, transició entre notes i destí: semitò més proper o escala de la cançó).
-7. **A/B**: el botó «Corregit/Original» (o la tecla B, o la llumeta de l'insert) fa sonar l'original per comparar.
-8. Desfés amb Ctrl+Z. Els canvis es desen amb el projecte. Els formants es conserven: la veu no canvia de persona en moure-la.
+3. Cada nota cantada és un bloc sobre el teclat, amb la línia d'afinació a dins. Color: **verd** afinada, **groc** una mica, **taronja** desafinada. Les files i les tecles de la tonalitat triada es veuen més clares.
+4. **Tonalitat** (consola de baix, a l'esquerra): la de la cançó, cromàtica (tots els semitons) o una de concreta (nota + escala).
+5. **Clica una nota i arrossega-la** amunt o avall: salta per les notes de la tonalitat (amb **Alt**, lliure). **Doble clic**: queda afinada. **Fletxes**: un grau de l'escala (Alt: 10 cents). **Supr**: torna a l'original.
+6. **Poms** (actuen sobre les notes triades o, si no n'hi ha cap, sobre totes): **Correcció** (quant van cap a la nota de la tonalitat), **Vibrato**, **Treu deriva**, **Formant**, **Volum** i **Transició** (com de suau passa d'una nota a l'altra). Arrossega amunt/avall (Maj = fi); doble clic = valor de sempre.
+7. **Botons**: Tria-les totes, Cap, **Corregeix** (afina del tot), **A l'original**, Desfés, Refés, i **Corregit/Original** per comparar (A/B, també la tecla B).
+8. Eines de dalt (tecles 1–5) per arrossegar directament afinació, vibrato, deriva, formant o volum.
 Encara no: moure notes en el temps, dividir i unir notes, crear un clip nou corregit (fase 2).
 
 ### Preferències (abans, Diagnòstic)
@@ -192,6 +192,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.23.0** — **Vocal Editor amb consola**: selector de tonalitat a l'editor (la de la cançó, cromàtica o una de concreta), les notes es mouen dins la tonalitat (arrossegant o amb les fletxes, per graus), poms de Correcció, Vibrato, Treu deriva, Formant, Volum i Transició sobre les notes triades, i botons (Tria-les totes, Cap, Corregeix, A l'original, Desfés, Refés, A/B) a la mateixa consola. El panell de la dreta torna a ser el de sempre.
 - **0.22.0** — **Vocal Editor (fase 1)**: efecte intern per a pistes d'àudio que detecta les notes cantades (pYIN, sense notes falses pel vibrato, la deriva, les consonants ni els harmònics) i les deixa afinar una per una o totes alhora (centre, vibrato, deriva, formant i volum, correcció automàtica regulable, cap a semitons o a l'escala de la cançó). So real amb PSOLA que conserva els formants, fet en un fil a part i només als trossos que canvien; A/B, desfer i desat amb el projecte. Editor a baix i inspector al panell de la dreta.
 - **0.21.0** — **Taula d'estructura**: amb zoom, les peces ja no es dibuixen per sobre de la columna «Parts de la cançó» de la dreta, i clicar en aquella columna ja no toca peces amagades a sota.
 - **0.20.0** — **Drumpad i plugins més còmodes**. Pistes de **bateria** amb el Drumpad (una fila per so, pintar cops arrossegant, velocitat), **sampler de bateria** propi (volum, panorama, afinació, llarg, grup de tall, silenci per fila), **kit intern** i **kits** importats de carpetes (WAV o MP3, classificats sols pel nom o pel so, corregibles), baixar els kits de Riffs, **humanitzar**, **swing**, **redobles**, **flams**, **18 ritmes de partida**, **fills** automàtics i **pads de l'AKAI** per ordre de files. Botó per **obrir l'instrument** (VST3 o sinte intern) amb el panell **Escala del teclat** enganxat al costat i l'opció de tocar lliure per pista. **Inserts** amb llumeta d'encendre, nom que obre el plugin i fletxes per canviar-lo, també a la taula de mescles.

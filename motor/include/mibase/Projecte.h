@@ -57,6 +57,8 @@ namespace mibase
     {
         bool analitzada = false;          // les notes ja s'han detectat (l'anàlisi fina és a «<fitxer>.veu»)
         double transicio = 0.06;          // segons que tarda a passar d'una nota corregida a la següent
+        int modeTon = 0;                  // 0.23: on van les notes: 0 tonalitat de la cançó, 1 cromàtic, 2 la triada aquí
+        int to = 0, escala = 0;           // 0.23: tonalitat triada (modeTon = 2): to 0..11 i índex de harmonia::escales()
         std::vector<NotaVeu> notes;       // per ordre de temps
         bool operator== (const VeuPresa&) const = default;
     };

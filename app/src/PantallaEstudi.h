@@ -176,7 +176,6 @@ private:
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
     EditorVeu editorVeu { estat, serveiVeu };            // 0.22
-    PanellVeu panellVeu { estat, serveiVeu, editorVeu };
     PanellEditor panellEditor { estat, panellHarmonia, panellBateria, [this] { return zonaEditors.actiu(); } };
     std::unique_ptr<FinestraKits> finestraKits;
     void obreKits();
