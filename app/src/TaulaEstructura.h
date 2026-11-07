@@ -76,7 +76,10 @@ public:
                                            : "Arrossega aquí les parts de la cançó de la dreta, en l'ordre que vulguis."_ca,
                               zona.reduced (20), juce::Justification::centred, 3);
         }
-        else
+        // 0.21: amb zoom, les peces no poden passar per sobre de la columna de les parts.
+        g.saveState();
+        g.reduceClipRegion (zonaEsquerra().withTrimmedLeft (zonaNoms().getRight() + 1));
+        if (e != nullptr)
             for (int k = 0; k < (int) e->peces.size(); ++k)
                 pintaPeca (g, k);
 
@@ -107,6 +110,7 @@ public:
             g.setColour (tema::accent);
             g.fillRect (x - 1, zona.getY() + 4, 3, zona.getHeight() - 8);
         }
+        g.restoreState();
         if (arrossegant.actiu)
         {
             const int i = indexPart (arrossegant.part);
@@ -148,7 +152,7 @@ public:
         if (es == nullptr) return;
         for (int k = 0; k < (int) es->peces.size(); ++k)
         {
-            const auto r = rectPeca (k);
+            const auto r = rectPeca (k).getIntersection (zonaEsquerra());
             if (! r.contains (e.getPosition())) continue;
             pecaTriada = k;
             if (e.y < r.getY() + altCap)
