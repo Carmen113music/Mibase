@@ -169,12 +169,45 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
         r.segons.store (motorEstudi.getPosicio(), std::memory_order_relaxed);
     }
     motorEstudi.processa (entrades, numEntrades, sortides, numSortides, numMostres);
+
+    // 0.20: el so que s'escolta (kits de bateria), sumat a les dues primeres sortides.
+    if (const int gen = previaGen.load (std::memory_order_acquire); gen != previaVista) { previaVista = gen; previaPos = 0.0; }
+    if (const auto* m = previa.load (std::memory_order_acquire); m != nullptr && ! m->L.empty() && numSortides > 0)
+    {
+        const double pas = m->fs / fsDispositiu;
+        const auto& R = m->R.empty() ? m->L : m->R;
+        const double len = (double) m->L.size() - 1.0;
+        for (int i = 0; i < numMostres && previaPos < len; ++i, previaPos += pas)
+        {
+            const int p0 = (int) previaPos;
+            const float f = (float) (previaPos - p0);
+            if (sortides[0] != nullptr) sortides[0][i] += 0.8f * (m->L[(size_t) p0] + f * (m->L[(size_t) p0 + 1] - m->L[(size_t) p0]));
+            if (numSortides > 1 && sortides[1] != nullptr) sortides[1][i] += 0.8f * (R[(size_t) p0] + f * (R[(size_t) p0 + 1] - R[(size_t) p0]));
+        }
+    }
+}
+
+void ServeiAudio::escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m)
+{
+    previa.store (m.get(), std::memory_order_release);
+    previaGen.fetch_add (1, std::memory_order_acq_rel);
+    previaIdx = (previaIdx + 1) % (int) previesVives.size();
+    previesVives[(size_t) previaIdx] = std::move (m);
+}
+
+void ServeiAudio::setMapaBateria (int slot, const std::vector<int>& notesFiles)
+{
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    slotBateria = slot;
+    for (int n = 0; n < 128; ++n) mapaBateria[(size_t) n] = n;
+    for (int k = 0; k < (int) notesFiles.size() && 36 + k < 128; ++k) mapaBateria[(size_t) (36 + k)] = notesFiles[(size_t) k];
 }
 
 void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
 {
     motorDiag.prepara (d->getCurrentSampleRate(), d->getCurrentBufferSizeSamples());
     motorEstudi.prepara (d->getCurrentSampleRate(), juce::jmax (d->getCurrentBufferSizeSamples(), 2048));
+    fsDispositiu = d->getCurrentSampleRate() > 0 ? d->getCurrentSampleRate() : 48000.0;
 
     // Les entrades actives arriben juntes a la crida d'àudio: per a cada entrada, la seva posició.
     std::vector<int> mapa;
@@ -278,6 +311,9 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     }
     // Chord Pad: si la pista on va el teclat el té obert, cada tecla toca l'acord del seu pad.
     const int slot = desti == -2 ? motorEstudi.getSlotTeclat() : desti;
+    // 0.20: bateria amb els pads per ordre de files: la nota 36 + k toca la fila k.
+    if (slotBateria >= 0 && slot == slotBateria && ((e.estat & 0xE0) == 0x80 || (e.estat & 0xF0) == 0xA0))
+        e.dada1 = (std::uint8_t) mapaBateria[(size_t) (e.dada1 & 127)];
     const bool acords = slotChordPad >= 0 && slot == slotChordPad;
     auto envia = [this, desti] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
     {

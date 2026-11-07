@@ -100,6 +100,7 @@ public:
     static constexpr int maxEditors = 3;
     std::vector<EditorMidi> editors;
     int editorActiu = 0;            // el que fan servir el panell d'harmonia i les dreceres
+    int filaBateria = 0;            // 0.20: la fila del Drumpad triada (el panell de la bateria l'edita)
     bool pianoRoll = false;         // la zona dels editors es veu
 
     /** Vista horitzontal comuna a tots els editors (així tenen les mateixes referències de temps). */

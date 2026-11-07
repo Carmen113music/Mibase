@@ -8,6 +8,8 @@
 #include "TaulaEstructura.h"
 #include "PanellColor.h"
 #include "PanellHarmonia.h"
+#include "PanellBateria.h"
+#include "FinestraKits.h"
 #include "PianoRoll.h"
 #include "Plugins.h"
 #include "ServeiAudio.h"
@@ -161,6 +163,10 @@ private:
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
+    PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
+    PanellEditor panellEditor { estat, panellHarmonia, panellBateria, [this] { return zonaEditors.actiu(); } };
+    std::unique_ptr<FinestraKits> finestraKits;
+    void obreKits();
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;

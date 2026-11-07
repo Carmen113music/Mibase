@@ -266,7 +266,9 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     // Piano Roll: a baix (amb un separador per fer-lo més alt) o en una finestra a part.
     addChildComponent (zonaEditors);
-    esquerra.setPanellEditor (&panellHarmonia);
+    esquerra.setPanellEditor (&panellEditor);
+    esquerra.opcions.onObreKits = [this] { obreKits(); };
+    panellBateria.onObreKits = [this] { obreKits(); };
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
     esquerra.opcions.setPlugins (&plugins);
     mescles.plugins = &plugins;
@@ -398,6 +400,19 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
             if (auto* t = estat.pista (pr->pistaDeLEditor())) { slotPads = slotDePista (*t); acords = pr->acordsTeclat(); }
         }
         servei.setChordPadTeclat (slotPads, acords);
+
+        // 0.20: bateria amb els pads per ordre de files (la triada, o la que grava).
+        {
+            int slotBat = -1;
+            std::vector<int> notesFiles;
+            const auto* tb = gravacio.midi && gravacio.pista >= 0 ? estat.pista (gravacio.pista) : estat.pista (estat.pistaTriada);
+            if (tb != nullptr && tb->tipus == "bateria" && tb->padsPerOrdre)
+            {
+                slotBat = slotDePista (*tb);
+                for (auto& f : tb->files) notesFiles.push_back (f.nota);
+            }
+            servei.setMapaBateria (slotBat, notesFiles);
+        }
 
         // 0.17: el teclat respecta l'escala (assistit o bloquejat).
         {
@@ -1054,6 +1069,12 @@ std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
     const double seg = t - min * 60.0;
     return { dibuix::utf8 (ed::textPosicio (estat.projecte, t)),
              juce::String::formatted ("%02d:%06.3f", min, seg) };
+}
+
+void PantallaEstudi::obreKits()
+{
+    if (finestraKits != nullptr) { finestraKits->toFront (true); return; }
+    finestraKits = std::make_unique<FinestraKits> (estat, servei, [this] { finestraKits.reset(); });
 }
 
 void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)

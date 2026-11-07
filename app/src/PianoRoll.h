@@ -126,7 +126,7 @@ public:
 
     enum class EinaPR { Fletxa = 0, Llapis, Goma };
 
-    static constexpr int alcadaBarra = 46, ampleTeclat = 92, ampleOctava = 18, alcadaRegla = 22, gruix = 10;
+    static constexpr int alcadaBarra = 46, ampleOctava = 18, alcadaRegla = 22, gruix = 10;
 
 protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -150,6 +150,19 @@ private:
     double tickX (float x) const;
     float yTo (int to) const;       // dalt de la fila
     int toY (float y) const;
+    // 0.20: Drumpad. A una pista de bateria les files són les del kit (FilaBateria), no les 128 notes.
+public:
+    bool bateria() const;
+    /** Amplada de la columna del teclat (al Drumpad, més ample: hi ha els noms dels sons). */
+    int ampleTeclat() const { return bateria() ? 132 : 92; }
+private:
+    int numFiles() const;
+    int filaDeTo (int to) const;    // -1 si la nota no té fila
+    int toDeFila (int f) const;
+    int filaY (float y) const;
+    void pintaFilesBateria (juce::Graphics& g);
+    void pintaNomsBateria (juce::Graphics& g);
+    void mouFiles (mibase::Clip& k, std::vector<int>& idx, int dFiles);
 
     // Clip obert.
     mibase::Clip* clip();
@@ -201,6 +214,12 @@ private:
     void actualitzaFantasmes();
     void pintaOnaFantasma (juce::Graphics& g, const mibase::Clip& kc, juce::Colour col, double t0, double t1);
 public:
+    /** 0.20 (Drumpad): aplica una eina de bateria (humanitzar, swing, redoble…) als cops triats (o a tots, si no n'hi ha cap).
+        La funció rep el clip, els triats, on cau el començament del clip (ticks absoluts) i la finestra del clip (ticks del clip). */
+    void ordreBateria (const std::function<void (mibase::Clip&, std::vector<int>& triats, long long despl, long long iniT, long long fiT)>& f,
+                       const juce::String& nom);
+    long long pasGraella() const { return pas(); }
+    int numTriades() const { return (int) triadesNotes.size(); }
     /** Posa uns acords als pads de la pista (per ordre, des de la C) i obre el Chord Pad (0.12). */
     void posaPads (const std::vector<std::string>& acords, const std::string& nom);
 private:
