@@ -215,6 +215,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     // Carpetes de pistes (0.11).
     addChildComponent (carpetes);
     addChildComponent (taulaEstructura);
+    taulaEstructura.onTram = [this] { return servei.estudi().getTramRuta(); };
     addChildComponent (divCarpetes);
     estat.panellCarpetes = ajustos.getBoolValue ("estudi.panellCarpetes", false);
     ampleCarpetes = juce::jlimit (130, 400, ajustos.getIntValue ("estudi.ampleCarpetes", 190));
@@ -266,6 +267,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     // Piano Roll: a baix (amb un separador per fer-lo més alt) o en una finestra a part.
     addChildComponent (zonaEditors);
     esquerra.setPanellEditor (&panellHarmonia);
+    esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
+    focusEditor.f = [this] { if (! estat.focusEditor) { estat.focusEditor = true; estat.avisa(); } };
+    focusPistes.f = [this] { if (estat.focusEditor && estat.pianoRoll) { estat.focusEditor = false; estat.avisa(); } };
+    zonaEditors.addMouseListener (&focusEditor, true);
+    pistes.addMouseListener (&focusPistes, true);
+    capcaleres.addMouseListener (&focusPistes, true);
     ampleEsquerraEditor = ajustos.getIntValue ("estudi.ampleEsquerraEditor", 270);
     addChildComponent (divPianoRoll);
     altPianoRoll = ajustos.getIntValue ("estudi.altPianoRoll", 430);
@@ -295,6 +302,9 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     rellotge.stopTimer();
+    zonaEditors.removeMouseListener (&focusEditor);
+    pistes.removeMouseListener (&focusPistes);
+    capcaleres.removeMouseListener (&focusPistes);
     if (finestraPianoRoll != nullptr)
     {
         ajustos.setValue ("pianoRoll.finestra", finestraPianoRoll->getWindowStateAsString());
@@ -913,6 +923,7 @@ void PantallaEstudi::tic()
             regla.repaint (x0, 0, x1 - x0, regla.getHeight());
         }
         zonaEditors.ticTransport();
+        if (taulaEstructura.isVisible()) taulaEstructura.repaint();
     }
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
@@ -1729,6 +1740,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 {
     auto* c = estat.clip ({ pista, clip });
     if (c == nullptr || ! c->midi) return;
+    estat.focusEditor = true;
     estat.triaClip (pista, clip);
     int i = estat.editorDe ({ pista, clip });
     if (i < 0)

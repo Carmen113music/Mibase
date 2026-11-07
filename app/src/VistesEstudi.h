@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DialegText.h"
+#include "OpcionsPista.h"
 
 #include "Controls.h"
 #include "EstatEstudi.h"
@@ -192,7 +193,8 @@ public:
     explicit ColumnaEsquerra (EstatEstudi& e);
     /** Panell per als editors (el d'harmonia): quan hi ha un editor obert, ocupa el lloc del fader de la pista. */
     void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
-    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.foraTreball(); }
+    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.foraTreball() && estat.focusEditor; }
+    OpcionsPista opcions { estat };
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -209,6 +211,7 @@ private:
     Boto btEstructura { "Taula d'estructura", dibuix::Icona::Notes, Boto::Estil::Tecla };
     juce::Component* panellEditor = nullptr;
     juce::Rectangle<int> zonaNom, zonaPan, zonaFader, zonaLcd, zonaTecles;
+    int altOpcions = 0;
     juce::Rectangle<int> rectPom() const;
     enum class Arrossega { Res, Fader, Pan };
     Arrossega movent = Arrossega::Res;

@@ -415,7 +415,7 @@ void Regla::menu (const juce::MouseEvent& e, Lloc q)
     {
         m.addSectionHeader (dibuix::utf8 (p.parts[(size_t) part].nom));
         m.addItem (10, "Fes-ne el bucle");
-        m.addItem (11, "Canvia el nom…"_ca);
+        m.addItem (11, "Canvia el nom i el color…"_ca);
         juce::PopupMenu colors;
         for (int i = 0; i < 8; ++i) colors.addColouredItem (20 + i, "Color " + juce::String (i + 1), coloresParts[i]);
         m.addSubMenu ("Color", colors);
@@ -470,11 +470,18 @@ void Regla::demanaNom (const std::string& idPart)
             comencaCanvi();
             restaura();
             auto& p = estat.projecte;
-            if (auto* y = ed::part (p, idPart)) y->nom = s.trim().toStdString();
-            else ed::creaPart (p, s.trim().toStdString(), p.bucle.de, p.bucle.a, 0);
+            const auto rgb = coloresParts[juce::jlimit (0, 7, dialeg != nullptr ? dialeg->colorTriat : 0)].getARGB() & 0xffffffu;
+            if (auto* y = ed::part (p, idPart)) { y->nom = s.trim().toStdString(); y->rgb = rgb; }
+            else ed::creaPart (p, s.trim().toStdString(), p.bucle.de, p.bucle.a, rgb);
             canviFet = true;
             acabaCanvi();
         }, inicial);
+    // 0.16: el color es tria a la mateixa finestra.
+    int colorInicial = (int) estat.projecte.parts.size() % 8;
+    if (x != nullptr)
+        for (int i = 0; i < 8; ++i)
+            if ((coloresParts[i].getARGB() & 0xffffffu) == x->rgb) colorInicial = i;
+    dialeg->ambColors (std::vector<juce::Colour> (std::begin (coloresParts), std::end (coloresParts)), colorInicial);
     DialegText::mostra (*pare, dialeg);
 }
 
@@ -1993,6 +2000,7 @@ void Capcaleres::mouseDoubleClick (const juce::MouseEvent& e)
 //==============================================================================
 ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
 {
+    addChildComponent (opcions);
     for (auto* b : { &btTreball, &btMescles, &btEstructura })
     {
         addAndMakeVisible (b);
@@ -2007,6 +2015,11 @@ ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
 
 void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    const bool ambOpcions = ! estat.foraTreball() && ! ambEditor();
+    const int alt = ambOpcions ? opcions.alcada() : 0;
+    opcions.setVisible (ambOpcions && alt > 0);
+    if (opcions.isVisible()) opcions.actualitza();
+    if (alt != altOpcions) { altOpcions = alt; resized(); }
     btTreball.setToggleState (! estat.foraTreball(), juce::dontSendNotification);
     btMescles.setToggleState (estat.vistaMescles, juce::dontSendNotification);
     btEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
@@ -2029,6 +2042,8 @@ void ColumnaEsquerra::resized()
     r.removeFromTop (16);
     if (panellEditor != nullptr) panellEditor->setBounds (r.withTrimmedLeft (-2).withTrimmedRight (-4).withTrimmedBottom (-6));
     zonaNom = r.removeFromTop (44);
+    opcions.setBounds (r.removeFromTop (altOpcions));
+    if (altOpcions > 0) r.removeFromTop (8);
     zonaPan = r.removeFromTop (52);
     zonaTecles = r.removeFromBottom (30);
     zonaLcd = r.removeFromBottom (30);

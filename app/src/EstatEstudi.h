@@ -168,6 +168,8 @@ public:
     /** 0.15: taula d'estructura (en lloc de la taula de treball). */
     bool vistaEstructura = false;
     bool foraTreball() const noexcept { return vistaMescles || vistaEstructura; }
+    /** 0.16: el Piano Roll té el «focus» (la columna esquerra hi mostra el seu panell); clicant una altra pista, no. */
+    bool focusEditor = true;
 
     // ---- Transport (la pantalla ho copia del motor unes 30 vegades per segon) ----
     int transport = 0;               // 0 aturat, 1 sonant, 2 comptant, 3 gravant

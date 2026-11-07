@@ -225,6 +225,8 @@ namespace mibase
 
         Estat getEstat() const noexcept { return (Estat) estat.load (std::memory_order_acquire); }
         double getPosicio() const noexcept { return posicio.load (std::memory_order_relaxed); }
+        /** Peça de l'estructura que sona (-1: lineal o aturat). */
+        int getTramRuta() const noexcept { return tramPublic.load (std::memory_order_relaxed); }
 
         Mesurador& vuPista (int slot, int canal) noexcept { return vus[(size_t) ((slot % maxSlots) * 2 + (canal & 1))]; }
         Mesurador& vuSortida (int canal) noexcept { return vusSortida[(size_t) (canal & 1)]; }
@@ -246,6 +248,7 @@ namespace mibase
         void sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept;
         void entraARuta() noexcept;
         int tramRuta = -1;           // tram de l'estructura que sona (-1: lineal)
+        std::atomic<int> tramPublic { -1 };
 
         double fs = 48000.0;
         int maxBloc = 512;

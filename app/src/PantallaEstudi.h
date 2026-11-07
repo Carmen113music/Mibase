@@ -148,6 +148,13 @@ private:
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
     TaulaEstructura taulaEstructura { estat };
+    /** 0.16: qui té el focus (Piano Roll o les pistes) segons on s'ha clicat l'últim cop. */
+    struct Focus : juce::MouseListener
+    {
+        std::function<void()> f;
+        void mouseDown (const juce::MouseEvent&) override { if (f) f(); }
+    };
+    Focus focusEditor, focusPistes;
     PanellPista panell { estat };
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };

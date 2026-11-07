@@ -646,6 +646,7 @@ namespace mibase
             }
         }
         posicio.store ((double) pos / fs, std::memory_order_relaxed);
+        tramPublic.store (getEstat() == Estat::Aturat ? -1 : tramRuta, std::memory_order_relaxed);
     }
 
     void MotorEstudi::processa (const float* const* entrades, int numEntrades, float* const* sortides, int numSortides, int n) noexcept

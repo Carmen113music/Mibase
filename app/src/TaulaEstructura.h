@@ -14,6 +14,28 @@ public:
     explicit TaulaEstructura (EstatEstudi& e) : SeccioEstudi (e) { setWantsKeyboardFocus (true); }
 
     int ampleDreta = 260;   // la columna de les parts (on hi ha el panell d'info a la taula de treball)
+    /** Peça que sona ara (la dona el motor; -1: cap). */
+    std::function<int()> onTram;
+
+    // 0.16: zoom i desplaçament com a les altres pantalles.
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+    {
+        const float d = (std::abs (w.deltaY) > std::abs (w.deltaX) ? w.deltaY : w.deltaX);
+        if (e.mods.isCommandDown())
+        {
+            const double cAbans = compasX (e.x);
+            ppc = juce::jlimit (4.0, 600.0, pxPerCompas() * std::pow (1.25, d * 4.0));
+            ajustat = false;
+            despl = juce::jmax (0.0, cAbans * ppc - (e.x - zonaPeces().getX()));
+        }
+        else
+        {
+            despl = juce::jmax (0.0, despl - d * 300.0);
+            if (ajustat) ppc = pxPerCompas();
+            ajustat = false;
+        }
+        repaint();
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -45,6 +67,7 @@ public:
         g.setColour (tema::linia);
         g.fillRect (zonaNoms().getRight(), zona.getY(), 1, zona.getHeight());
         pintaNoms (g);
+        pintaRegla (g);
         if (e == nullptr || e->peces.empty())
         {
             g.setColour (tema::suau);
@@ -56,6 +79,26 @@ public:
         else
             for (int k = 0; k < (int) e->peces.size(); ++k)
                 pintaPeca (g, k);
+
+        // El capçal, si l'estructura sona.
+        if (e != nullptr && onTram)
+        {
+            const int k = onTram();
+            if (k >= 0 && k < (int) e->peces.size())
+            {
+                const int ip = indexPart (e->peces[(size_t) k].part);
+                if (ip >= 0)
+                {
+                    const auto r = rectPeca (k);
+                    const double spc = mibase::edicio::segonsPerCompas (p);
+                    const auto& part = p.parts[(size_t) ip];
+                    const double f = juce::jlimit (0.0, 1.0, (estat.capcal - part.de * spc) / juce::jmax (1e-6, (part.a - part.de) * spc));
+                    const float x = (float) r.getX() + (float) (f * (r.getWidth() + 3));
+                    g.setColour (tema::text);
+                    g.fillRect (x - 0.5f, (float) zona.getY(), 1.5f, (float) zona.getHeight());
+                }
+            }
+        }
 
         // On anirà la peça que s'arrossega.
         if (arrossegant.actiu && zona.contains (ratoli))
@@ -190,6 +233,23 @@ public:
 
     bool keyPressed (const juce::KeyPress& k) override
     {
+        if (k.getKeyCode() == 'Z' || k.getTextCharacter() == 'z' || k.getTextCharacter() == 'Z')
+        {
+            const auto* es = editada();
+            if (k.getModifiers().isShiftDown() && es != nullptr && pecaTriada >= 0 && pecaTriada < (int) es->peces.size())
+            {
+                // Maj+Z: la peça triada a la pantalla.
+                ajustat = true;
+                double x = 0.0;
+                for (int i = 0; i < pecaTriada; ++i) x += compassosPart (es->peces[(size_t) i].part);
+                ppc = juce::jlimit (4.0, 600.0, (double) zonaPeces().getWidth() * 0.9 / compassosPart (es->peces[(size_t) pecaTriada].part));
+                ajustat = false;
+                despl = juce::jmax (0.0, x * ppc - zonaPeces().getWidth() * 0.05);
+            }
+            else { ajustat = true; despl = 0.0; }   // Z: tota l'estructura
+            repaint();
+            return true;
+        }
         auto* es = editada();
         if ((k == juce::KeyPress::deleteKey || k == juce::KeyPress::backspaceKey) && es != nullptr
             && pecaTriada >= 0 && pecaTriada < (int) es->peces.size())
@@ -206,7 +266,9 @@ public:
 
 private:
     struct Arrossega { bool actiu = false; std::string part; int desDe = -1; };
-    static constexpr int altPestanyes = 44, altCap = 48, ampleNomsPistes = 130;
+    static constexpr int altPestanyes = 44, altCap = 48, ampleNomsPistes = 130, altRegla = 24;
+    double ppc = 40.0, despl = 0.0;
+    bool ajustat = true;   // tota l'estructura cap a la pantalla (fins que es fa zoom)
 
     mibase::Estructura* editada() { return mibase::edicio::estructura (estat.projecte, estat.projecte.estructuraActiva); }
     const mibase::Estructura* editada() const
@@ -245,26 +307,28 @@ private:
     }
     double pxPerCompas() const
     {
+        if (! ajustat) return ppc;
         const double t = totalCompassos();
-        return t <= 0.0 ? 40.0 : juce::jlimit (6.0, 400.0, (double) zonaPeces().getWidth() / t);
+        return t <= 0.0 ? 40.0 : juce::jlimit (4.0, 600.0, (double) zonaPeces().getWidth() / t);
     }
+    double compasX (int x) const { return ((double) (x - zonaPeces().getX()) + despl) / pxPerCompas(); }
     juce::Rectangle<int> rectPeca (int k) const
     {
         const auto* e = editada();
         const auto z = zonaPeces();
         double x = 0.0;
         for (int i = 0; i < k; ++i) x += compassosPart (e->peces[(size_t) i].part);
-        const double ppc = pxPerCompas();
-        const int xa = z.getX() + (int) std::round (x * ppc);
-        const int w = (int) std::round (compassosPart (e->peces[(size_t) k].part) * ppc);
-        return { xa, z.getY(), juce::jmax (8, w - 3), z.getHeight() };
+        const double px = pxPerCompas();
+        const int xa = z.getX() + (int) std::round (x * px - despl);
+        const int w = (int) std::round (compassosPart (e->peces[(size_t) k].part) * px);
+        return { xa, z.getY() + altRegla, juce::jmax (8, w - 3), z.getHeight() - altRegla };
     }
     int altFila() const
     {
         const int n = juce::jmax (1, estat.numPistes());
-        return juce::jlimit (8, 28, (zonaPeces().getHeight() - altCap - 6) / n);
+        return juce::jlimit (8, 28, (zonaPeces().getHeight() - altRegla - altCap - 6) / n);
     }
-    int yFila (int i) const { return zonaPeces().getY() + altCap + 6 + i * altFila(); }
+    int yFila (int i) const { return zonaPeces().getY() + altRegla + altCap + 6 + i * altFila(); }
     int filaPista (int y) const { const int d = y - yFila (0); return d < 0 ? -1 : d / altFila(); }
 
     int indexInsercio (int x) const
@@ -330,6 +394,41 @@ private:
         g.drawText (e != nullptr ? "Estructura «"_ca + dibuix::utf8 (e->nom) + "» · sona en fer play (doble clic: nom; botó dret: més)"_ca
                                  : "Sona la línia de temps tal com és (lineal)"_ca,
                     x, 8, zonaEsquerra().getWidth() - x - 8, 28, juce::Justification::centredLeft, true);
+    }
+
+    /** Regla de l'estructura (compassos des de 1) i graella darrere les peces. */
+    void pintaRegla (juce::Graphics& g) const
+    {
+        const auto z = zonaPeces();
+        const auto& p = estat.projecte;
+        const double px = pxPerCompas();
+        g.saveState();
+        g.reduceClipRegion (z);
+        g.setColour (tema::lateral);
+        g.fillRect (z.withHeight (altRegla));
+        int cada = 1;
+        while (px * cada < 30.0) cada *= 2;
+        const int c0 = juce::jmax (0, (int) std::floor (despl / px)), c1 = (int) std::ceil ((despl + z.getWidth()) / px);
+        for (int c = c0; c <= c1; ++c)
+        {
+            const float x = (float) (z.getX() + c * px - despl);
+            g.setColour (juce::Colours::white.withAlpha (c % cada == 0 ? 0.15f : 0.07f));
+            g.fillRect (x, (float) z.getY() + (c % cada == 0 ? 0.0f : altRegla * 0.6f), 1.0f, (float) z.getHeight());
+            if (c % cada == 0)
+            {
+                g.setColour (tema::textMig);
+                g.setFont (dibuix::mono (11.0f));
+                g.drawText (juce::String (c + 1), juce::Rectangle<float> (x + 4.0f, (float) z.getY(), 40.0f, (float) altRegla), juce::Justification::centredLeft);
+            }
+            // Temps, si n'hi ha lloc.
+            if (px / juce::jmax (1, p.compasNum) >= 10.0)
+                for (int t = 1; t < p.compasNum; ++t)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.05f));
+                    g.fillRect (x + (float) (t * px / p.compasNum), (float) z.getY() + altRegla, 1.0f, (float) z.getHeight() - altRegla);
+                }
+        }
+        g.restoreState();
     }
 
     void pintaNoms (juce::Graphics& g) const
