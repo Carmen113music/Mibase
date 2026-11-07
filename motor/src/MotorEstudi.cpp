@@ -109,6 +109,7 @@ namespace mibase
         pla->clicVolum = (float) p.clicVolum;
         pla->clicSo = p.clicSo;
         pla->master = guanyDb (p.masterDb);
+        pla->sortidaMaster = std::clamp (p.sortidaMaster, 0, 31);
         const double spcRuta = 60.0 / pla->tempo * pla->compasNum;
         if (const auto* es = edicio::estructuraActiva (p))
             for (auto& pc : es->peces)
@@ -765,10 +766,13 @@ namespace mibase
 
     void MotorEstudi::sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept
     {
+        // 0.17: el màster surt pel parell triat; si la targeta no el té, per l'1/2.
+        int c0 = pla != nullptr ? 2 * pla->sortidaMaster : 0;
+        if (c0 + 1 >= numSortides) c0 = 0;
         if (numSortides >= 2)
         {
-            if (sortides[0] != nullptr) for (int i = 0; i < m; ++i) sortides[0][fet + i] = std::clamp (sortides[0][fet + i] + mixL[(size_t) i], -1.0f, 1.0f);
-            if (sortides[1] != nullptr) for (int i = 0; i < m; ++i) sortides[1][fet + i] = std::clamp (sortides[1][fet + i] + mixR[(size_t) i], -1.0f, 1.0f);
+            if (sortides[c0] != nullptr) for (int i = 0; i < m; ++i) sortides[c0][fet + i] = std::clamp (sortides[c0][fet + i] + mixL[(size_t) i], -1.0f, 1.0f);
+            if (sortides[c0 + 1] != nullptr) for (int i = 0; i < m; ++i) sortides[c0 + 1][fet + i] = std::clamp (sortides[c0 + 1][fet + i] + mixR[(size_t) i], -1.0f, 1.0f);
         }
         else if (numSortides == 1 && sortides[0] != nullptr)
             for (int i = 0; i < m; ++i) sortides[0][fet + i] = std::clamp (sortides[0][fet + i] + 0.5f * (mixL[(size_t) i] + mixR[(size_t) i]), -1.0f, 1.0f);

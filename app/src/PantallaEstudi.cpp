@@ -268,6 +268,18 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (zonaEditors);
     esquerra.setPanellEditor (&panellHarmonia);
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
+    esquerra.opcions.sortides = [this]
+    {
+        juce::StringArray noms;
+        if (auto* d = servei.dispositius().getCurrentAudioDevice())
+        {
+            const auto tots = d->getOutputChannelNames();
+            const auto actives = d->getActiveOutputChannels();
+            for (int i = 0; i < tots.size(); ++i)   // el motor rep només les actives, en ordre
+                if (actives[i]) noms.add (tots[i]);
+        }
+        return noms;
+    };
     focusEditor.f = [this] { if (! estat.focusEditor) { estat.focusEditor = true; estat.avisa(); } };
     focusPistes.f = [this] { if (estat.focusEditor && estat.pianoRoll) { estat.focusEditor = false; estat.avisa(); } };
     zonaEditors.addMouseListener (&focusEditor, true);
@@ -382,6 +394,14 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
             if (auto* t = estat.pista (pr->pistaDeLEditor())) { slotPads = slotDePista (*t); acords = pr->acordsTeclat(); }
         }
         servei.setChordPadTeclat (slotPads, acords);
+
+        // 0.17: el teclat respecta l'escala (assistit o bloquejat).
+        {
+            const auto t = harmonia::tonalitatEfectiva (estat.projecte);
+            std::array<bool, 12> esc {};
+            for (int n = 0; n < 12; ++n) esc[(size_t) n] = harmonia::aEscala (n, t);
+            servei.setEscalaTeclat ((int) estat.projecte.modeEscala, esc);
+        }
     }
     {
         const bool volVisible = estat.pianoRoll && finestraPianoRoll == nullptr && ! estat.foraTreball();

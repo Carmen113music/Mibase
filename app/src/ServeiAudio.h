@@ -43,6 +43,8 @@ public:
     /** Chord Pad al teclat (0.10): les tecles que van a la pista «slot» toquen l'acord del pad de la seva nota
         (acords[0] = C … acords[11] = B). slot -1: desactivat. Fil de la interfície. */
     void setChordPadTeclat (int slot, const std::array<std::vector<int>, 12>& acords);
+    /** 0.17: escala del projecte per al teclat (0 visual, 1 assistit, 2 bloquejat). */
+    void setEscalaTeclat (int mode, const std::array<bool, 12>& escala);
 
     /** Missatges MIDI per mostrar a la pantalla (fil de la interfície). */
     bool treuMidiPerMostrar (mibase::EsdevenimentMidi& e) noexcept { return cuaMostrar.treu (e); }
@@ -92,6 +94,7 @@ private:
     int slotChordPad = -1;                                   // protegit per midiEntrant
     std::array<std::vector<int>, 12> acordsChordPad;
     mibase::TeclatAcords teclatAcords;                       // protegit per midiEntrant
+    mibase::EscalaTeclat escalaTeclat;                       // protegit per midiEntrant
     mibase::CuaSenseBloqueig<mibase::EsdevenimentMidi, 512> cuaMostrar;
     juce::StringArray midiConeguts;
     juce::String ultimError, ultimaDescripcio;

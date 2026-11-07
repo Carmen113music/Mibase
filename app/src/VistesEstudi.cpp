@@ -47,6 +47,12 @@ namespace
         return t.canals == 2 ? juce::String::fromUTF8 ("estèreo") : juce::String ("mono");
     }
 
+    /** «sortida 1/2» (0.17). */
+    juce::String textSortidaMaster (const Projecte& p)
+    {
+        return "sortida " + juce::String (2 * p.sortidaMaster + 1) + "/" + juce::String (2 * p.sortidaMaster + 2);
+    }
+
     /** «MIDI · Piano» o «mono · E1». */
     juce::String textPistaCurt (const Pista& t)
     {
@@ -918,6 +924,15 @@ void VistaPistes::paint (juce::Graphics& g)
     const float w = (float) getWidth(), h = (float) getHeight();
     g.fillAll (tema::fons);
 
+    // 0.17: fila del màster (no té clips).
+    {
+        const int y = estat.yMaster();
+        g.setColour (estat.masterTriat() ? tema::triat : juce::Colour (0xff141418));
+        g.fillRect (0, y, getWidth(), estat.altPista);
+        g.setColour (tema::accent.withAlpha (0.35f));
+        g.fillRect (0, y + estat.altPista - 2, getWidth(), 2);
+    }
+
     for (int i = 0; i < estat.numPistes(); ++i)
     {
         const int y = estat.yPista (i);
@@ -1695,6 +1710,27 @@ void Capcaleres::paint (juce::Graphics& g)
     g.fillAll (tema::lateral);
     const auto& p = estat.projecte;
 
+    // 0.17: el màster, sempre a dalt.
+    {
+        const int y = estat.yMaster();
+        auto r = juce::Rectangle<int> (0, y, getWidth(), estat.altPista);
+        g.setColour (estat.masterTriat() ? tema::triat : juce::Colour (0xff1a1a20));
+        g.fillRect (r);
+        g.setColour (tema::accent);
+        g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
+        auto text = r.withTrimmedLeft (14).withTrimmedRight (22).withTrimmedTop (7);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (14.0f, true));
+        g.drawText ("Màster"_ca, text.removeFromTop (20), juce::Justification::centredLeft, true);
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (11.0f));
+        g.drawText ("L+R · "_ca + textSortidaMaster (p) + " · " + EstatEstudi::textDb (p.masterDb), text.removeFromTop (20), juce::Justification::centredLeft, true);
+        dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
+                                estat.nivellsSortida[0], estat.nivellsSortida[1]);
+        g.setColour (tema::accent.withAlpha (0.35f));
+        g.fillRect (0, r.getBottom() - 2, getWidth(), 2);
+    }
+
     for (int i = 0; i < estat.numPistes(); ++i)
     {
         const auto& t = p.pistes[(size_t) i];
@@ -1858,6 +1894,13 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
     if (fila == estat.numPistes() && e.y < estat.yPista (fila) + 44)
     {
         VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
+        return;
+    }
+    if (fila == -1 && e.y >= estat.yMaster())
+    {
+        estat.pistaTriada = EstatEstudi::master;   // 0.17: tria el màster (la columna esquerra en mostra el fader i la sortida)
+        estat.triats.clear();
+        estat.avisa();
         return;
     }
     if (fila < 0 || fila >= estat.numPistes()) return;
@@ -2062,6 +2105,21 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     auto* t = estat.pista (estat.pistaTriada);
     auto cap = zonaNom.withTrimmedLeft (2);
+    if (estat.masterTriat())
+    {
+        // 0.17: el màster: nom, fader i nivell de la sortida (la sortida es tria a les opcions de sobre).
+        g.setColour (tema::accent);
+        g.fillRect (cap.getX(), cap.getY() + 2, 4, 34);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (13.0f, true));
+        g.drawText ("Màster"_ca, cap.withTrimmedLeft (10).removeFromTop (20), juce::Justification::centredLeft, true);
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (11.0f));
+        g.drawText ("L+R · on arriben les pistes"_ca, cap.withTrimmedLeft (10).withTrimmedTop (20), juce::Justification::centredLeft, true);
+        dibuixEstudi::faderVertical (g, zonaFader.toFloat(), estat.projecte.masterDb, tema::accent, true, estat.nivellsSortida[0], estat.nivellsSortida[1]);
+        vintage::lcd (g, zonaLcd.reduced (2, 3).toFloat(), EstatEstudi::textDb (estat.projecte.masterDb), {});
+        return;
+    }
     if (t == nullptr)
     {
         g.setColour (tema::suau);
@@ -2114,6 +2172,15 @@ void ColumnaEsquerra::mouseDown (const juce::MouseEvent& e)
 {
     movent = Arrossega::Res;
     if (ambEditor()) return;
+    if (estat.masterTriat() && ! estat.foraTreball())
+    {
+        if (! zonaFader.contains (e.getPosition())) return;
+        movent = Arrossega::Fader;
+        valor0 = EstatEstudi::posFader (estat.projecte.masterDb);
+        ultimaY = e.position.y;
+        comencaCanvi();
+        return;
+    }
     auto* t = estat.pista (estat.pistaTriada);
     if (t == nullptr || estat.foraTreball()) return;
 
@@ -2152,10 +2219,19 @@ void ColumnaEsquerra::mouseDrag (const juce::MouseEvent& e)
 {
     if (movent == Arrossega::Res) return;
     restaura();
-    auto* t = estat.pista (estat.pistaTriada);
-    if (t == nullptr) return;
     const float dy = e.position.y - ultimaY;
     ultimaY = e.position.y;
+    if (estat.masterTriat())
+    {
+        const auto carril = dibuixEstudi::carrilVertical (zonaFader.toFloat());
+        valor0 = juce::jlimit (0.0f, 1.0f, valor0 - dy / carril.getHeight() * (e.mods.isShiftDown() ? 0.1f : 1.0f));
+        estat.projecte.masterDb = EstatEstudi::dbFader (valor0);
+        estat.info = "Volum del màster: "_ca + EstatEstudi::textDb (estat.projecte.masterDb);
+        estat.avisa();
+        return;
+    }
+    auto* t = estat.pista (estat.pistaTriada);
+    if (t == nullptr) return;
     if (movent == Arrossega::Pan)
     {
         valor0 = juce::jlimit (-1.0f, 1.0f, valor0 - dy / (e.mods.isShiftDown() ? 1500.0f : 150.0f));
@@ -2180,6 +2256,11 @@ void ColumnaEsquerra::mouseUp (const juce::MouseEvent&)
 
 void ColumnaEsquerra::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    if (estat.masterTriat() && ! estat.foraTreball() && ! ambEditor() && zonaFader.contains (e.getPosition()))
+    {
+        comencaCanvi(); restaura(); estat.projecte.masterDb = 0.0; acabaCanvi();
+        return;
+    }
     if (estat.pista (estat.pistaTriada) == nullptr || estat.foraTreball() || ambEditor()) return;
     const bool pan = zonaPan.contains (e.getPosition());
     if (! pan && ! zonaFader.contains (e.getPosition())) return;
@@ -2243,7 +2324,7 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
     g.fillRect (r.getX() + 8, 8, r.getWidth() - 16, 3);
     g.setColour (tema::text);
     g.setFont (dibuix::lletra (12.0f, true));
-    g.drawFittedText (master ? juce::String ("Sortida") : dibuix::utf8 (t->nom), ge.nom, juce::Justification::centred, 1, 0.75f);
+    g.drawFittedText (master ? "Màster"_ca : dibuix::utf8 (t->nom), ge.nom, juce::Justification::centred, 1, 0.75f);
 
     auto etiqueta = [&] (juce::Rectangle<int> z, const juce::String& text)
     {

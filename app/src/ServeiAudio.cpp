@@ -229,6 +229,12 @@ void ServeiAudio::setMapaTeclats (const std::vector<std::pair<juce::String, int>
     teclatTriada = triada;
 }
 
+void ServeiAudio::setEscalaTeclat (int mode, const std::array<bool, 12>& escala)
+{
+    const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
+    escalaTeclat.set (mode, escala);
+}
+
 void ServeiAudio::setChordPadTeclat (int slot, const std::array<std::vector<int>, 12>& acords)
 {
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
@@ -251,20 +257,29 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
 
     // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);
-    // Un teclat assignat a una pista la toca sempre; la resta toquen la pista MIDI triada (si l'accepta).
-    // Si no hi ha cap pista que el vulgui, el so de prova del Diagnòstic.
+    // 0.17: mana la pista MIDI triada (si no té assignat un altre teclat); si no, la pista a què el teclat està
+    // assignat; si no n'hi ha cap, el so de prova de les Preferències.
     const auto id = origen != nullptr ? origen->getIdentifier() : juce::String();
     int desti = -2;
-    for (auto& [teclat, slot] : mapaTeclats)
-        if (teclat == id) desti = slot;
-    if (desti == -2 && teclatTriada.isNotEmpty() && teclatTriada != id) desti = -1;
+    const bool triadaAccepta = motorEstudi.getSlotTeclat() >= 0 && (teclatTriada.isEmpty() || teclatTriada == id);
+    if (! triadaAccepta)
+    {
+        desti = -1;
+        for (auto& [teclat, slot] : mapaTeclats)
+            if (teclat == id) desti = slot;
+    }
     // Chord Pad: si la pista on va el teclat el té obert, cada tecla toca l'acord del seu pad.
     const int slot = desti == -2 ? motorEstudi.getSlotTeclat() : desti;
     const bool acords = slotChordPad >= 0 && slot == slotChordPad;
-    teclatAcords.tradueix (e.estat, e.dada1, e.dada2, acords, [this, desti] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    auto envia = [this, desti] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
     {
         if (! motorEstudi.enviaTeclat (es, d1, d2, desti))
             motorDiag.enviaMidi ({ es, d1, d2 });
+    };
+    // Primer el Chord Pad; el que hi passa tal qual, per l'escala (bloquejat / assistit).
+    teclatAcords.tradueix (e.estat, e.dada1, e.dada2, acords, [this, &envia] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    {
+        escalaTeclat.tradueix (es, d1, d2, envia);
     });
     cuaMostrar.posa (e);
 }

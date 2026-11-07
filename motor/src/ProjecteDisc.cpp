@@ -252,6 +252,7 @@ namespace mibase::disc
         p.clicVolum = std::clamp (j.value ("clicVolum", 1.0), 0.0, 1.5);
         p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
         p.masterDb = std::clamp (j.value ("masterDb", 0.0), -60.0, 6.0);
+        p.sortidaMaster = std::clamp (j.value ("sortidaMaster", 0), 0, 31);
         {
             const auto snap = j.value ("snap", std::string ("compas"));
             p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
@@ -457,6 +458,7 @@ namespace mibase::disc
         j["clicVolum"] = p.clicVolum;
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
+        j["sortidaMaster"] = p.sortidaMaster;
         j["comptador"] = p.comptador;
         {
             json canvis = json::array();

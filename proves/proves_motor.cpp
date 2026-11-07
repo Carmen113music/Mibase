@@ -1906,6 +1906,64 @@ int main()
         comprova (! ed::crossfade (q, 0, 15.0, 16.0), "sense sobreposició: res");
     });
 
+    prova ("Teclat amb l'escala: bloquejat i assistit (0.17)", []
+    {
+        EscalaTeclat t;
+        const std::array<bool, 12> doM { true, false, true, false, true, true, false, true, false, true, false, true };
+        std::vector<std::array<int, 3>> v;
+        auto envia = [&v] (std::uint8_t e, std::uint8_t a, std::uint8_t b) { v.push_back ({ e, a, b }); };
+        t.set (2, doM);
+        t.tradueix (0x90, 61, 100, envia); t.tradueix (0x80, 61, 0, envia);
+        comprova (v.empty(), "bloquejat: C# no sona (ni s'apaga res)");
+        t.tradueix (0x90, 60, 100, envia); t.tradueix (0x80, 60, 0, envia);
+        comprova (v.size() == 2 && v[0][1] == 60 && v[1][0] == 0x80, "bloquejat: C sona");
+        v.clear();
+        t.set (1, doM);
+        t.tradueix (0x90, 64, 90, envia); t.tradueix (0x80, 64, 0, envia);   // E
+        t.tradueix (0x90, 63, 90, envia);                                    // D# venint de dalt → D
+        comprova (v.size() == 3 && v[2][1] == 62, "assistit: venint de dalt, la de sota (D)");
+        t.tradueix (0x80, 63, 0, envia);
+        comprova (v.back()[0] == 0x80 && v.back()[1] == 62, "l'apagada apaga la que va sonar");
+        t.tradueix (0x90, 60, 90, envia); t.tradueix (0x80, 60, 0, envia);   // C
+        t.tradueix (0x90, 61, 90, envia);                                    // C# venint de baix → D
+        comprova (v.back()[1] == 62, "assistit: venint de baix, la de sobre (D)");
+        t.tradueix (0x80, 61, 0, envia);
+        v.clear();
+        t.set (0, doM);
+        t.tradueix (0x90, 61, 90, envia);
+        comprova (v.size() == 1 && v[0][1] == 61, "visual: tal qual");
+    });
+
+    prova ("Sortida del màster per un altre parell (0.17)", [&]
+    {
+        Projecte q;
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 10.0, 0.5f) } };
+        q.sortidaMaster = 1;   // 3/4
+        MotorEstudi motor;
+        motor.prepara (48000.0, 256);
+        motor.publica (construeixPla (q, m));
+        std::vector<std::vector<float>> o (4, std::vector<float> (256));
+        float* sort[4] { o[0].data(), o[1].data(), o[2].data(), o[3].data() };
+        auto bloc = [&] (int n) { for (auto& c : o) std::fill (c.begin(), c.end(), 0.0f); motor.processa (nullptr, 0, sort, n, 256); };
+        motor.reprodueix (1.0);
+        bloc (4); bloc (4);
+        comprova (pic (o[2], 0, 256) > 0.2f && pic (o[3], 0, 256) > 0.2f && pic (o[0], 0, 256) == 0.0f, "surt per 3/4 i no per 1/2");
+        bloc (2);
+        comprova (pic (o[0], 0, 256) > 0.2f, "si la targeta no té el 3/4, surt per l'1/2");
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves17";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        q.nom = "Master";
+        auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T11:00:00", "07/11/2026 11:00");
+        auto l = mibase::disc::llegeix (rc.fitxer);
+        comprova (l && l->sortidaMaster == 1, "es desa al projecte");
+    });
+
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
 }

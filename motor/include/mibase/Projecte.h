@@ -179,6 +179,7 @@ namespace mibase
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
+        int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
         int comptador = 0;       // per fer identificadors únics
 
         // ---- Harmonia (0.8) ----

@@ -129,6 +129,55 @@ void LlistaMidi::afegeix (const juce::String& text)
     repaint();
 }
 
+void LlistaCanals::setCanals (const juce::StringArray& n, const juce::BigInteger& a)
+{
+    if (n == noms && a == actius)
+        return;
+    noms = n;
+    actius = a;
+    repaint();
+}
+
+int LlistaCanals::canalA (juce::Point<int> p) const
+{
+    const int fila = p.y / 24, col = p.x < getWidth() / 2 ? 0 : 1;
+    const int i = fila + col * numFiles();
+    return fila >= 0 && fila < numFiles() && i < noms.size() ? i : -1;
+}
+
+void LlistaCanals::paint (juce::Graphics& g)
+{
+    if (noms.isEmpty())
+    {
+        g.setColour (tema::suau);
+        g.setFont (juce::FontOptions (13.0f));
+        g.drawText ("Cap sortida (la targeta és aturada)."_ca, getLocalBounds(), juce::Justification::topLeft);
+        return;
+    }
+    const int ample = getWidth() / 2;
+    for (int i = 0; i < noms.size(); ++i)
+    {
+        const int col = i / juce::jmax (1, numFiles()), fila = i % juce::jmax (1, numFiles());
+        auto r = juce::Rectangle<int> (col * ample, fila * 24, ample - 6, 22);
+        const bool on = actius[i];
+        auto caixa = r.removeFromLeft (22).reduced (4).toFloat();
+        g.setColour (on ? tema::veu : tema::suau.withAlpha (0.6f));
+        g.drawRoundedRectangle (caixa, 3.0f, 1.4f);
+        if (on)
+            g.fillRoundedRectangle (caixa.reduced (3.0f), 2.0f);
+        g.setColour (on ? tema::text : tema::suau);
+        g.setFont (juce::FontOptions (13.0f));
+        g.drawText (noms[i], r.withTrimmedLeft (4), juce::Justification::centredLeft, true);
+    }
+}
+
+void LlistaCanals::mouseDown (const juce::MouseEvent& e)
+{
+    const int i = canalA (e.getPosition());
+    if (i >= 0 && onCanvi)
+        onCanvi (i, ! actius[i]);
+}
+
 void LlistaMidi::paint (juce::Graphics& g)
 {
     g.setColour (tema::superficie2);
@@ -248,6 +297,24 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
     addAndMakeVisible (etResultatLatencia);
 
     addAndMakeVisible (vumetres);
+    addAndMakeVisible (llistaSortides);
+    llistaSortides.onCanvi = [this] (int canal, bool actiu)
+    {
+        auto& gestor = servei.dispositius();
+        auto setup = gestor.getAudioDeviceSetup();
+        if (auto* d = gestor.getCurrentAudioDevice())
+            setup.outputChannels = d->getActiveOutputChannels();
+        setup.useDefaultOutputChannels = false;
+        setup.outputChannels.setBit (canal, actiu);
+        if (setup.outputChannels.isZero())
+            return;   // com a mínim una sortida
+        const auto error = gestor.setAudioDeviceSetup (setup, true);
+        if (error.isNotEmpty())
+            historial.afegeix ("No s'ha pogut canviar les sortides: " + error);
+        else
+            servei.desaAjustos();
+        refrescaControls();
+    };
 
     preparaEtiqueta (etTeclats, {});
     addAndMakeVisible (etTeclats);
@@ -306,6 +373,7 @@ void PantallaDiagnostic::paint (juce::Graphics& g)
     seccio (zonaProves,    "Proves de so",             tema::sinte);
     seccio (zonaLatencia,  "Latència real"_ca,            tema::guitarra);
     seccio (zonaEntrades,  "Entrades",                 tema::veu);
+    seccio (zonaSortides,  "Sortides (clica per activar-les)", tema::veu);
     seccio (zonaMidi,      "Teclat MIDI",              tema::midi);
     seccio (zonaEstat,     "Estat",                    tema::bateria);
     seccio (zonaHistorial, "Historial (el més recent a dalt)"_ca, tema::suau);
@@ -379,13 +447,16 @@ void PantallaDiagnostic::resized()
     }
 
     // Columna dreta.
-    zonaEntrades = dreta.removeFromTop (alcadaTitol + 8 * 26 + 14);
+    zonaEntrades = dreta.removeFromTop (alcadaTitol + juce::jlimit (2, 8, vumetres.numCanals()) * 26 + 14);
+    dreta.removeFromTop (marge);
+    zonaSortides = dreta.removeFromTop (alcadaTitol + juce::jlimit (1, 8, llistaSortides.numFiles()) * 24 + 14);
     dreta.removeFromTop (marge);
     zonaEstat = dreta.removeFromBottom (150);
     dreta.removeFromBottom (marge);
     zonaMidi = dreta;
 
     vumetres.setBounds (zonaEntrades.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (10));
+    llistaSortides.setBounds (zonaSortides.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (10));
     {
         auto z = zonaMidi.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (12);
         etTeclats.setBounds (z.removeFromTop (24));
@@ -477,7 +548,18 @@ void PantallaDiagnostic::refrescaControls()
             if (actives[i])
                 nomsEntrades.add (noms[i]);
     }
+    const int filesAbans = llistaSortides.numFiles() * 100 + vumetres.numCanals();
     vumetres.setCanals (nomsEntrades);
+
+    // 0.17: totes les sortides de la targeta, amb les actives marcades.
+    {
+        if (d != nullptr)
+            llistaSortides.setCanals (d->getOutputChannelNames(), d->getActiveOutputChannels());
+        else
+            llistaSortides.setCanals ({}, {});
+        if (llistaSortides.numFiles() * 100 + vumetres.numCanals() != filesAbans)
+            resized();
+    }
 
     const auto desada = servei.getLatenciaDesada();
     if (ultimResultatLatencia.isEmpty())

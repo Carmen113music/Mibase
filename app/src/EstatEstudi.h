@@ -236,16 +236,20 @@ public:
     }
     int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista; }
     bool filaCarpeta (int i) const noexcept   { return modeFila (i) == 2; }
+    // 0.17: la primera fila és la del màster (pistaTriada == master quan és la triada).
+    static constexpr int master = -2;
+    bool masterTriat() const noexcept         { return pistaTriada == master; }
+    int yMaster() const noexcept              { return -desplY; }
     int yPista (int i) const noexcept
     {
-        int y = 0;
+        int y = altPista;
         for (int k = 0; k < juce::jmin (i, numPistes()); ++k) y += altDe (k);
         if (i > numPistes()) y += (i - numPistes()) * altPista;
         return y - desplY;
     }
     int pistaA (int y) const noexcept
     {
-        const int yy = y + desplY;
+        const int yy = y + desplY - altPista;
         if (yy < 0) return (int) std::floor ((double) yy / altPista);
         int acc = 0;
         for (int i = 0; i < numPistes(); ++i)

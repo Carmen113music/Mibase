@@ -89,6 +89,7 @@ namespace mibase
         struct Tram { double ini = 0.0, fi = 0.0; std::bitset<128> silenci; };
         std::vector<Tram> ruta;
         float master = 1.0f;
+        int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
         std::vector<Pista> pistes;
         std::vector<std::shared_ptr<const AudioPresa>> audios;   // perquè no s'esborrin mentre sonen
     };
