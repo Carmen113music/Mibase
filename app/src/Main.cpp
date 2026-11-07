@@ -2,6 +2,7 @@
 #include "ComponentPrincipal.h"
 #include "ServeiAudio.h"
 #include "Tema.h"
+#include "EscanerPlugins.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -46,9 +47,20 @@ class MibaseApp : public juce::JUCEApplication
 public:
     const juce::String getApplicationName() override    { return "Mibase"; }
     const juce::String getApplicationVersion() override { return MIBASE_VERSIO; }
-    bool moreThanOneInstanceAllowed() override          { return false; }
+    // El procés que prova un plugin (0.18) és un segon Mibase sense finestra.
+    bool moreThanOneInstanceAllowed() override          { return getCommandLineParameters().contains (EscanerPlugins::argument); }
 
-    void initialise (const juce::String&) override { finestra = std::make_unique<FinestraPrincipal>(); }
+    void initialise (const juce::String&) override
+    {
+        const auto args = getCommandLineParameterArray();
+        if (args.size() >= 3 && args[0] == EscanerPlugins::argument)
+        {
+            setApplicationReturnValue (EscanerPlugins::escanejaUn (args[1], args[2]));
+            quit();
+            return;
+        }
+        finestra = std::make_unique<FinestraPrincipal>();
+    }
     void shutdown() override                       { finestra = nullptr; }
     void systemRequestedQuit() override            { quit(); }
 

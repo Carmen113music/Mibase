@@ -17,10 +17,11 @@ namespace
 ServeiAudio::ServeiAudio (Historial& h) : historial (h)
 {
     ajustos = std::make_unique<juce::PropertiesFile> (opcionsAjustos());
+    plugins = std::make_unique<EscanerPlugins> (ajustos->getFile().getSiblingFile ("Plugins.xml"));
 
-    // Fins a 8 entrades i 2 sortides. Si hi ha ajustos desats, es fan servir.
+    // Fins a 32 entrades i 2 sortides (0.18; les altres s'activen a Preferències). Si hi ha ajustos desats, es fan servir.
     auto desat = ajustos->getXmlValue ("dispositiu");
-        const auto error = gestor.initialise (8, 2, desat.get(), true);
+        const auto error = gestor.initialise (32, 2, desat.get(), true);
 
     if (error.isNotEmpty())
     {

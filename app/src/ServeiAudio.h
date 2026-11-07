@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Historial.h"
+#include "EscanerPlugins.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>
@@ -61,6 +62,9 @@ public:
     /** Ajustos del programa (es desen sols). */
     juce::PropertiesFile& getAjustos() noexcept { return *ajustos; }
 
+    /** Plugins VST3 de l'ordinador (0.18). */
+    EscanerPlugins& escaner() noexcept { return *plugins; }
+
     /** «ASIO · Focusrite USB ASIO · 48 kHz · 128 mostres» (o buit si l'àudio és aturat). */
     juce::String resumDispositiu();
 
@@ -87,6 +91,7 @@ private:
     mibase::MotorDiagnostic motorDiag;
     mibase::MotorEstudi motorEstudi;
     std::unique_ptr<juce::PropertiesFile> ajustos;
+    std::unique_ptr<EscanerPlugins> plugins;
 
     juce::SpinLock midiEntrant;   // només entre fils de MIDI i la interfície (mai al fil d'àudio)
     std::vector<std::pair<juce::String, int>> mapaTeclats;   // protegit per midiEntrant

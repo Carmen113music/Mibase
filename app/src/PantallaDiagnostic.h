@@ -20,7 +20,7 @@ private:
     std::vector<Canal> canals;
 };
 
-/** 0.17: llista de canals (sortides) amb una casella per activar-los o no. Dues columnes. */
+/** Llista de canals amb una casella per activar-los o no (0.17 sortides; 0.18 també entrades, amb vúmetre). Dues columnes. */
 class LlistaCanals : public juce::Component
 {
 public:
@@ -29,10 +29,14 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     std::function<void (int canal, bool actiu)> onCanvi;
     int numFiles() const { return (noms.size() + 1) / 2; }
+    /** Vúmetre d'un canal (índex de la targeta). */
+    void setNivell (int canal, float pic, bool saturat);
 
 private:
     juce::StringArray noms;
     juce::BigInteger actius;
+    std::vector<float> nivells;
+    std::vector<int> vermells;
     int canalA (juce::Point<int> p) const;
 };
 
@@ -80,7 +84,7 @@ private:
     Historial& historial;
 
     // Seccions (per dibuixar-ne el fons i el títol).
-    juce::Rectangle<int> zonaAudio, zonaProves, zonaLatencia, zonaEntrades, zonaSortides, zonaMidi, zonaEstat, zonaHistorial;
+    juce::Rectangle<int> zonaAudio, zonaProves, zonaLatencia, zonaEntrades, zonaSortides, zonaPlugins, zonaMidi, zonaEstat, zonaHistorial;
 
     juce::Label etTipus, etSortida, etEntrada, etFreq, etBuffer;
     juce::ComboBox cbTipus, cbSortida, cbEntrada, cbFreq, cbBuffer;
@@ -93,7 +97,11 @@ private:
     juce::TextButton btLatencia { "Mesura la latència"_ca };
     juce::Label etAjudaLatencia, etResultatLatencia;
 
-    Vumetres vumetres;
+    LlistaCanals llistaEntrades;
+    juce::Label etPlugins;
+    juce::TextButton btBuscaPlugins { "Busca plugins" }, btLlistaPlugins { "Llista..." };
+    void refrescaPlugins();
+    void menuPlugins();
     LlistaCanals llistaSortides;
     juce::Label etTeclats;
     LlistaMidi llistaMidi;

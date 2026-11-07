@@ -1724,7 +1724,7 @@ void Capcaleres::paint (juce::Graphics& g)
         g.drawText ("Màster"_ca, text.removeFromTop (20), juce::Justification::centredLeft, true);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.0f));
-        g.drawText ("L+R · "_ca + textSortidaMaster (p) + " · " + EstatEstudi::textDb (p.masterDb), text.removeFromTop (20), juce::Justification::centredLeft, true);
+        g.drawText ("L+R · "_ca + textSortidaMaster (p) + " · "_ca + EstatEstudi::textDb (p.masterDb), text.removeFromTop (20), juce::Justification::centredLeft, true);
         dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
                                 estat.nivellsSortida[0], estat.nivellsSortida[1]);
         g.setColour (tema::accent.withAlpha (0.35f));
