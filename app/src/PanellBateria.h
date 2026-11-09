@@ -2,6 +2,8 @@
 
 #include "Kits.h"
 #include "PianoRoll.h"
+#include "Pom.h"
+#include "DialegText.h"
 #include <mibase/Bateria.h>
 
 /** 0.20: el panell de la columna esquerra quan l'editor actiu és un Drumpad (pista de bateria).
@@ -16,6 +18,10 @@ public:
         vista.setScrollBarsShown (true, false);
         vista.setScrollBarThickness (8);
         addAndMakeVisible (vista);
+        cont.addAndMakeVisible (btDesaKit);   // 0.28
+        btDesaKit.setMidaText (12.0f);
+        btDesaKit.setTooltip ("Desa els sons d'aquesta bateria (per exemple, els que hi has arrossegat de la biblioteca) com un kit nou, per fer-lo servir en altres pistes i projectes"_ca);
+        btDesaKit.onClick = [this] { desaKit(); };
         for (auto* c : std::initializer_list<juce::Component*> { &btKit, &btSo, &volum, &pan, &afina, &decai, &talla, &nota, &btFilaNova, &btTreuFila,
                                                                   &msTemps, &pctVel, &btPrimer, &btHumanitza, &swingPct, &swingPas, &btSwing,
                                                                   &copsRedoble, &btRedoble, &btFlam, &btRitme, &compassosRitme, &cadaFill, &estilFill,
@@ -32,19 +38,18 @@ public:
             if (f >= 0 && f < (int) t.files.size()) t.files.erase (t.files.begin() + f);
             estat.filaBateria = juce::jmax (0, f - 1);
         }, "Treu una fila del Drumpad"_ca); };
-        auto param = [this] (CaixaNumero& c, std::function<void (mibase::FilaBateria&, int)> f)
+        // 0.28: poms com a la resta de l'app (un pas de desfer per gest)
+        auto param = [this] (Pom& c, std::function<void (mibase::FilaBateria&, int)> f)
         {
-            c.onCanvi = [this, f] (int v)
+            c.onComenca = [this] { estat.desfes.abans (estat.projecte); };
+            c.onCanvi = [this, f] (double v)
             {
                 auto* t = pista();
                 if (t == nullptr || estat.filaBateria >= (int) t->files.size()) return;
-                // Un sol pas de desfer per gest (els canvis seguits en menys d'un segon van junts).
-                const auto ara = juce::Time::getMillisecondCounter();
-                if (ara - ultimDesfes > 1000) estat.desfes.abans (estat.projecte);
-                ultimDesfes = ara;
-                f (t->files[(size_t) estat.filaBateria], v);
-                estat.canviat();
+                f (t->files[(size_t) estat.filaBateria], (int) std::lround (v));
+                estat.avisa();
             };
+            c.onAcaba = [this] { estat.canviat(); };
         };
         param (volum, [] (mibase::FilaBateria& x, int v) { x.volumDb = v; });
         param (pan, [] (mibase::FilaBateria& x, int v) { x.pan = v / 100.0; });
@@ -139,21 +144,20 @@ public:
         auto fila = [&] (int h) { auto r = juce::Rectangle<int> (10, y, w - 20, h); y += h + 6; return r; };
         auto titol = [&] (int& yt) { yt = y; y += 20; };
         titol (yKit);
-        btKit.setBounds (fila (28));
+        {
+            auto r = fila (28);
+            btDesaKit.setBounds (r.removeFromRight (juce::jmin (110, r.getWidth() / 2)));
+            r.removeFromRight (6);
+            btKit.setBounds (r);
+        }
         y += 6;
         titol (yFila);
         btSo.setBounds (fila (28));
+        for (const auto& filaPoms : { std::array<Pom*, 3> { &volum, &pan, &afina }, std::array<Pom*, 3> { &decai, &talla, &nota } })
         {
-            auto r = fila (26); const int m = r.getWidth() / 2 - 3;
-            volum.setBounds (r.removeFromLeft (m)); pan.setBounds (r.removeFromRight (m));
-        }
-        {
-            auto r = fila (26); const int m = r.getWidth() / 2 - 3;
-            afina.setBounds (r.removeFromLeft (m)); decai.setBounds (r.removeFromRight (m));
-        }
-        {
-            auto r = fila (26); const int m = r.getWidth() / 2 - 3;
-            talla.setBounds (r.removeFromLeft (m)); nota.setBounds (r.removeFromRight (m));
+            auto r = fila (64);
+            const int m = r.getWidth() / 3;
+            for (auto* pm : filaPoms) pm->setBounds (r.removeFromLeft (m));
         }
         {
             auto r = fila (26); const int m = r.getWidth() / 2 - 3;
@@ -268,12 +272,12 @@ private:
             auto so = juce::String::fromUTF8 (f.so.c_str());
             so = so.startsWith ("intern:") ? "intern"_ca : so.fromLastOccurrenceOf ("/", false, false).upToLastOccurrenceOf (".", false, false);
             btSo.setButtonText ("So: "_ca + so);
-            volum.setValor ((int) std::lround (f.volumDb));
-            pan.setValor ((int) std::lround (f.pan * 100.0));
-            afina.setValor ((int) std::lround (f.afina));
-            decai.setValor ((int) std::lround (f.decai * 100.0));
-            talla.setValor (f.talla);
-            nota.setValor (f.nota);
+            volum.setValor (std::round (f.volumDb), true);
+            pan.setValor (std::round (f.pan * 100.0), true);
+            afina.setValor (std::round (f.afina), true);
+            decai.setValor (std::round (f.decai * 100.0), true);
+            talla.setValor (f.talla, true);
+            nota.setValor (f.nota, true);
         }
         else nomFila = "-";
         btPadsOrdre.setToggleState (t->padsPerOrdre, juce::dontSendNotification);
@@ -418,8 +422,66 @@ private:
 
     Boto btKit { "Kit", dibuix::Icona::Bateria, Boto::Estil::Secundari };
     Boto btSo { "So", std::nullopt, Boto::Estil::Secundari };
-    CaixaNumero volum { "Vol dB", -40, 6, 0 }, pan { "Pan", -100, 100, 0 }, afina { "Afina", -12, 12, 0 }, decai { "Llarg %", 5, 100, 100 },
-                talla { "Tall", 0, 8, 0 }, nota { "Nota", 0, 127, 36 };
+    Boto btDesaKit { "Desa el kit…"_ca, std::nullopt, Boto::Estil::Secundari };
+    std::unique_ptr<DialegText> dialeg;
+
+    /** 0.28: els sons de les files (els que són fitxers) es copien a Kits\<nom>\ i es desa «kit.json». */
+    void desaKit()
+    {
+        auto* t = pista();
+        if (t == nullptr) return;
+        dialeg = std::make_unique<DialegText> ("Desa el kit"_ca, "Nom del kit nou (es crea una carpeta a Documents\\Mibase\\Kits amb els sons)."_ca, "Desa'l"_ca,
+            [] (const juce::String& n) -> juce::String
+            {
+                if (n.trim().isEmpty()) return "Escriu un nom."_ca;
+                if (kits::carpeta().getChildFile (juce::File::createLegalFileName (n.trim())).exists()) return "Ja hi ha un kit amb aquest nom."_ca;
+                return {};
+            },
+            [this] (const juce::String& n)
+            {
+                auto* tt = pista();
+                if (tt == nullptr) return;
+                const auto nom = juce::File::createLegalFileName (n.trim());
+                const auto dir = kits::carpeta().getChildFile (nom);
+                dir.createDirectory();
+                mibase::bateria::Kit k;
+                k.nom = nom.toStdString();
+                k.carpeta = dir.getFullPathName().toStdString();
+                int interns = 0;
+                for (auto& f : tt->files)
+                {
+                    if (f.so.rfind ("intern:", 0) == 0 || f.so.empty()) { ++interns; continue; }
+                    const auto origen = kits::fitxerSo (f.so);
+                    if (! origen.existsAsFile()) continue;
+                    auto desti = dir.getChildFile (origen.getFileName());
+                    for (int i = 2; desti.existsAsFile(); ++i) desti = dir.getChildFile (origen.getFileNameWithoutExtension() + " " + juce::String (i) + origen.getFileExtension());
+                    if (! origen.copyFileTo (desti)) continue;
+                    k.sons.push_back ({ desti.getFileName().toStdString(), f.nom.empty() ? desti.getFileNameWithoutExtension().toStdString() : f.nom, f.tipus, f.so });
+                }
+                if (k.sons.empty())
+                {
+                    dir.deleteRecursively();
+                    estat.info = "No hi ha cap so de fitxer per desar (els del kit intern no es poden copiar)"_ca;
+                    estat.avisa();
+                    return;
+                }
+                mibase::bateria::desaKit (k);
+                estat.desfes.abans (estat.projecte);
+                tt->kit = k.nom;
+                estat.info = "Kit «"_ca + nom + "» desat (" + juce::String ((int) k.sons.size()) + " sons"
+                             + (interns > 0 ? ", " + juce::String (interns) + " del kit intern no s'hi han posat)" : juce::String (")"));
+                estat.canviat ("Kit nou: «"_ca + nom + "»"_ca);
+            });
+        DialegText::mostra (*this, dialeg);
+    }
+    // 0.28: poms (com al samplejador i al Vocal Editor)
+    Pom volum { "Vol", -40.0, 6.0, 0.0, true, [] (double v) { return juce::String ((int) std::lround (v)) + " dB"; } },
+        pan { "Pan", -100.0, 100.0, 0.0, true, [] (double v) { const int s = (int) std::lround (v); return s == 0 ? juce::String ("C") : (s < 0 ? "L" : "R") + juce::String (std::abs (s)); } },
+        afina { "Afina", -12.0, 12.0, 0.0, true, [] (double v) { const int s = (int) std::lround (v); return (s > 0 ? "+" : "") + juce::String (s) + " st"; } },
+        decai { "Llarg", 5.0, 100.0, 100.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; } },
+        talla { "Tall", 0.0, 8.0, 0.0, false, [] (double v) { const int s = (int) std::lround (v); return s == 0 ? juce::String::fromUTF8 ("—") : juce::String (s); } },
+        nota { "Nota", 0.0, 127.0, 36.0, false, [] (double v) { static const char* n[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+                                                                 const int k = (int) std::lround (v); return juce::String (n[k % 12]) + juce::String (k / 12 - 1) + " (" + juce::String (k) + ")"; } };
     Boto btFilaNova { "+ Fila", std::nullopt, Boto::Estil::Secundari };
     Boto btTreuFila { "Treu la fila", std::nullopt, Boto::Estil::Secundari };
     CaixaNumero msTemps { "± ms"_ca, 0, 40, 8 }, pctVel { "± vel %"_ca, 0, 50, 10 };

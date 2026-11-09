@@ -8,8 +8,23 @@
 namespace mibase::midi
 {
     double segonsPerTick (const Projecte& p) { return edicio::segonsPerTemps (p) / ticksPerNegra; }
-    double segons (const Projecte& p, double t) { return t * segonsPerTick (p); }
-    double ticks (const Projecte& p, double s)  { return s / segonsPerTick (p); }
+    // 0.28: amb el mapa de tempo (tick absolut de la cançó ↔ segons).
+    double segons (const Projecte& p, double t)
+    {
+        if (! edicio::teCanvisTempo (p)) return t * segonsPerTick (p);
+        const auto v = edicio::mapaTempo (p);
+        size_t i = 0;
+        while (i + 1 < v.size() && v[i + 1].tick <= t + 1e-9) ++i;
+        return v[i].segons + (t - v[i].tick) * 60.0 / v[i].tempo / ticksPerNegra;
+    }
+    double ticks (const Projecte& p, double s)
+    {
+        if (! edicio::teCanvisTempo (p)) return s / segonsPerTick (p);
+        const auto v = edicio::mapaTempo (p);
+        size_t i = 0;
+        while (i + 1 < v.size() && v[i + 1].segons <= s + 1e-9) ++i;
+        return v[i].tick + (s - v[i].segons) * v[i].tempo / 60.0 * ticksPerNegra;
+    }
     long long ticksPerCompas (const Projecte& p) { return (long long) ticksPerNegra * std::max (1, p.compasNum); }
     double segonsAbs (const Projecte& p, const Clip& c, double tick) { return c.pos + segons (p, tick); }
     double tickDe (const Projecte& p, const Clip& c, double s) { return ticks (p, s - c.pos); }

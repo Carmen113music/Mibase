@@ -122,6 +122,7 @@ public:
     std::function<void (int pista, int clip)> onObreMidi;
     /** 0.22: obre el clip d'àudio (pista, clip) al Vocal Editor. */
     std::function<void (int, int)> onObreVeu;
+    std::function<void (int pista, int clip, bool nomesBiblioteca)> onEnviaSampler;   // 0.28
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
 

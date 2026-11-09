@@ -4,6 +4,7 @@
 #include "EditorVeu.h"
 #include "EditorSampler.h"
 #include "PanellBiblioteca.h"
+#include "FinestraProgres.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
@@ -110,6 +111,8 @@ private:
     void deixaSample (const juce::File& f, int fila, double temps);
     void sampleAFila (int fila, const juce::File& f);
     int pistaSamplerNova (const juce::File& f);
+    void enviaAlSampler (int pista, int clip, bool nomesBiblioteca);   // 0.28
+    void gravaSampler();                                               // 0.28
     void commutaVeuAB();
     /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
     void sincronitzaVeu();
@@ -132,6 +135,7 @@ private:
     bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);
     void consolida (int pista, int a, int b);
     void carregaOna (const mibase::Presa& s);
+    std::function<void (double)> progresOna;   // 0.28: mentre es llegeix un àudio (0..1)
     juce::File fitxerPresa (const mibase::Presa& s) const;
     juce::File audios() const;
 
@@ -225,6 +229,7 @@ private:
         double desDe = 0.0, cursor = 0.0, retard = 0.0;
         bool retardMesurat = false;
         bool midi = false;                                   // grava el teclat MIDI (no la targeta)
+        bool perSampler = false;                             // 0.28: grava dins el samplejador (un sample nou, no un clip)
         double fins = 0.0;                                   // MIDI: on s'ha aturat
         std::vector<mibase::MotorEstudi::MidiGravat> missatges;
     } gravacio;

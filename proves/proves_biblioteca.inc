@@ -85,6 +85,10 @@ namespace
             comprova (r.busca ("Gooool.wav")->forma == bb::oneShot, "es desa si és one-shot o loop");
             comprova (bb::filtra (r, "", "", bb::Ordre::Nom, false, bb::oneShot).size() == 1 && bb::filtra (r, "loop", "", bb::Ordre::Nom, false).size() == 1,
                       "filtra i cerca per one-shot / loop");
+            comprova (bb::filtra (r, "", std::vector<std::string> { "Bombo", "Veu" }, {}, bb::Ordre::Nom, false).size() == 2
+                      && bb::filtra (r, "", std::vector<std::string> { "Veu" }, std::vector<std::string> { bb::loop }, bb::Ordre::Nom, false).empty()
+                      && bb::filtra (r, "", {}, std::vector<std::string> { bb::oneShot, bb::loop }, bb::Ordre::Nom, false).size() == 2,
+                      "diversos tipus i formes alhora");
             auto d = bb::filtra (r, "", "", bb::Ordre::Durada, true);
             comprova (d.size() == 2 && r.samples[(size_t) d[0]].fitxer == "Gooool.wav", "ordena per durada (de més a menys)");
             auto n = bb::filtra (r, "", "", bb::Ordre::Nom, false);

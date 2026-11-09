@@ -133,8 +133,29 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         startTimer (700);
     };
 
-    for (auto& presa : estat.projecte.preses)
-        carregaOna (presa);
+    {
+        // 0.28: amb la finestra de càrrega (si n'hi ha): quin àudio i el percentatge (pel que ocupen)
+        juce::int64 total = 0, abans = 0;
+        for (auto& presa : estat.projecte.preses) total += juce::jmax ((juce::int64) 1, fitxerPresa (presa).getSize());
+        const int n = (int) estat.projecte.preses.size();
+        int i = 0;
+        for (auto& presa : estat.projecte.preses)
+        {
+            const auto fp = fitxerPresa (presa);
+            const auto mida = juce::jmax ((juce::int64) 1, fp.getSize());
+            const auto text = "Llegint els àudios: "_ca + juce::String (i + 1) + " de " + juce::String (n) + juce::String::fromUTF8 (" · ") + fp.getFileName();
+            progresOna = [text, abans, mida, total] (double x)
+            {
+                if (progresGlobal()) progresGlobal() (text, 0.85 * ((double) abans + (double) mida * x) / (double) juce::jmax ((juce::int64) 1, total));
+            };
+            progresOna (0.0);
+            carregaOna (presa);
+            abans += mida;
+            ++i;
+        }
+        progresOna = nullptr;
+    }
+    if (progresGlobal()) progresGlobal() ("Preparant el Vocal Editor…"_ca, 0.88);
     sincronitzaVeu();   // 0.22: les preses corregides es preparen encara que no s'obri el Vocal Editor
 
     estat.nomsEntrades = servei.getNomsEntrades();
@@ -277,6 +298,9 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     editorSampler.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
     estat.sampler.altConsola = ajustos.getIntValue ("sampler.altConsola", 0);
     editorSampler.onAltConsola = [this] (int alt) { ajustos.setValue ("sampler.altConsola", alt); };
+    editorSampler.onGrava = [this] { gravaSampler(); };
+    editorSampler.entrades = [this] { return servei.getNomsEntrades(); };
+    editorSampler.gravant = [this] { return estat.transport == 2 && gravacio.perSampler; };
     // 0.27: panell de la dreta amb pestanyes (clip / biblioteca)
     addAndMakeVisible (pestDreta);
     addChildComponent (biblioteca);
@@ -292,6 +316,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         else pistaSamplerNova (fs);
     };
     pistes.onSample = [this] (const juce::File& fs, int fila, double t) { deixaSample (fs, fila, t); };
+    pistes.onEnviaSampler = [this] (int pista, int clip, bool nomesBib) { enviaAlSampler (pista, clip, nomesBib); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -427,6 +452,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     ultimaCopia = 0;   // el primer desament de la sessió fa còpia; després, com a molt una cada 10 minuts
     triaEina (Eina::Fletxa);
+    if (progresGlobal()) progresGlobal() ("Obrint els plugins i els instruments…"_ca, 0.92);
     changeListenerCallback (nullptr);
 }
 
@@ -860,13 +886,13 @@ void PantallaEstudi::transport (int accio)
     if (accio == 5) { if (estat.transport == 0) grava(); return; }
     if (estat.transport >= 2) return;   // mentre es grava, el capçal no es toca
 
-    const double compas = ed::segonsPerCompas (estat.projecte);
     double t = estat.capcal;
+    const double c = ed::compasDeSegons (estat.projecte, t);   // 0.28: amb el mapa de tempo
     switch (accio)
     {
         case 0: t = 0.0; estat.iniciVista = 0.0; break;
-        case 1: t = juce::jmax (0.0, std::ceil (t / compas - 1e-6) * compas - compas); break;
-        case 2: t = std::floor (t / compas + 1e-6) * compas + compas; break;
+        case 1: t = ed::segonsDeCompas (estat.projecte, juce::jmax (0.0, std::ceil (c - 1e-6) - 1.0)); break;
+        case 2: t = ed::segonsDeCompas (estat.projecte, std::floor (c + 1e-6) + 1.0); break;
         default: break;
     }
     estat.mouCapcal (t, true);
@@ -977,7 +1003,7 @@ void PantallaEstudi::grava()
         gravacio.midi = true;
         gravacio.missatges.clear();
         gravacio.cursor = estat.capcal;
-        gravacio.desDe = estat.capcal - ed::segonsPerCompas (estat.projecte);
+        gravacio.desDe = estat.capcal - ed::segonsPerCompasA (estat.projecte, juce::jmax (0.0, estat.capcal - 1e-6));
         gravacio.retard = 0.0;
         gravacio.fitxer = juce::File();
         MotorEstudi::MidiGravat buit;
@@ -1021,7 +1047,7 @@ void PantallaEstudi::grava()
     publicaPla();
     gravacio.pista = pista;
     gravacio.cursor = estat.capcal;
-    gravacio.desDe = estat.capcal - ed::segonsPerCompas (estat.projecte);   // un compàs de compte
+    gravacio.desDe = estat.capcal - ed::segonsPerCompasA (estat.projecte, juce::jmax (0.0, estat.capcal - 1e-6));   // un compàs de compte
     gravacio.retard = servei.retardGravacio (gravacio.retardMesurat);
     plugins.buidaCues();
     motor.grava (gravacio.desDe, gravacio.cursor, t.entrada, t.canals);
@@ -1051,6 +1077,28 @@ void PantallaEstudi::acabaGravacio()
     {
         fitxer.deleteFile();
         avisDeTargeta ("La gravació ha fallat", "No s'ha pogut escriure l'àudio al disc."_ca);
+        return;
+    }
+
+    if (gravacio.perSampler)
+    {
+        // 0.28: un sample nou dins el samplejador (el retard es corregeix amb l'inici del fragment)
+        gravacio.perSampler = false;
+        auto& t = estat.projecte.pistes[(size_t) pista];
+        if (r.frames <= 0 || ! mibase::esSampler (t)) { fitxer.deleteFile(); return; }
+        estat.desfes.abans (estat.projecte);
+        auto& p = t.sampler;
+        p.fitxer = ("Samples/" + fitxer.getFileName()).toStdString();
+        p.nom = fitxer.getFileNameWithoutExtension().toStdString();
+        p.inici = juce::jlimit (0.0, (double) r.frames / fs, gravacio.retard);
+        p.fi = -1.0;
+        p.bucleDe = p.bucleA = -1.0;
+        p.speed = 1.0; p.reversa = false; p.bpm = 0.0;
+        if (auto mo = Instruments::mostraSample (fitxer)) { const int n = mibase::sampler::detectaRoot (*mo); p.root = n >= 0 ? n : 60; }
+        estat.sampler.pxPerSeg = 0.0;
+        estat.info = "Gravat al samplejador: "_ca + fitxer.getFileName() + " (" + juce::String ((double) r.frames / fs, 1) + " s)";
+        historial.afegeix ("Sample gravat: "_ca + fitxer.getFileName());
+        estat.canviat ("Samplejador: gravat «"_ca + fitxer.getFileName() + "»"_ca);
         return;
     }
 
@@ -1084,6 +1132,13 @@ void PantallaEstudi::tic()
 {
     auto& motor = servei.estudi();
     motor.recull();
+    if (ed::teCanvisTempo (estat.projecte))   // 0.28: els plugins (delays a tempo…) saben el tempo d'on sona
+    {
+        const auto tr = ed::tramA (estat.projecte, estat.capcal);
+        RellotgePlugins::global().tempo.store (tr.tempo);
+        RellotgePlugins::global().num.store (tr.num);
+        RellotgePlugins::global().den.store (tr.den);
+    }
 
     // Estat del motor.
     const int ara = (int) motor.getEstat();
@@ -1453,6 +1508,7 @@ void PantallaEstudi::carregaOna (const Presa& s)
     {
         const int n = (int) juce::jmin ((juce::int64) tros, ona->longitud - pos);
         lector.read (&buffer, 0, n, pos, true, true);
+        if (progresOna) progresOna ((double) (pos + n) / (double) juce::jmax ((juce::int64) 1, ona->longitud));
         for (int c = 0; c < audio->canals; ++c)
             std::copy (buffer.getReadPointer (c), buffer.getReadPointer (c) + n, audio->dades[c].data() + pos);
         for (int i = 0; i < n; ++i)
@@ -2129,8 +2185,10 @@ void PantallaEstudi::acabaGravacioMidi()
     // Notes: cada encesa amb la seva apagada (les que encara sonaven en aturar, s'acaben on s'ha aturat).
     const auto& p = estat.projecte;
     const double spt = midi::segonsPerTick (p);
-    auto tick = [&] (double tt) { return (long long) std::llround ((tt - cursorRec) / spt); };
-    Clip c = midi::clipNou (cursorRec, cursorRec + ed::segonsPerCompas (p));
+    const double tick0 = midi::ticks (p, cursorRec);   // 0.28: amb el mapa de tempo
+    auto tick = [&] (double tt) { return ed::teCanvisTempo (p) ? (long long) std::llround (midi::ticks (p, tt) - tick0)
+                                                                : (long long) std::llround ((tt - cursorRec) / spt); };
+    Clip c = midi::clipNou (cursorRec, cursorRec + ed::segonsPerCompasA (p, cursorRec));
     std::array<double, 16 * 128> obertes;
     std::array<int, 16 * 128> velocitats {};
     obertes.fill (-1.0);
@@ -2569,4 +2627,116 @@ bool PantallaEstudi::potAgafarFocus() const
     if (dynamic_cast<juce::TextEditor*> (f) != nullptr) return false;
     if (f != nullptr && f->getTopLevelComponent() != getTopLevelComponent()) return false;   // una finestra a part (plugin, Piano Roll desenganxat…)
     return true;
+}
+
+//==============================================================================
+// 0.28: «Envia al samplejador»: el tros d'un clip d'àudio (o el del requadre) es converteix en un sample nou de la
+// biblioteca (còpia: l'original no es toca) i, si cal, en una pista Samplejador nova.
+void PantallaEstudi::enviaAlSampler (int pista, int clip, bool nomesBiblioteca)
+{
+    auto* t = estat.pista (pista);
+    if (t == nullptr || clip < 0 || clip >= (int) t->clips.size()) return;
+    const auto c = t->clips[(size_t) clip];
+    const auto* s = ed::presa (estat.projecte, c.presa);
+    if (s == nullptr) return;
+    auto it = audioPreses.find (s->id);
+    if (it == audioPreses.end() || it->second == nullptr) return;
+    const auto& au = *it->second;
+    // de la línia de temps a dins del fitxer
+    double a = c.iniciVisible(), b = c.fiVisible();
+    if (estat.rang.actiu && pista >= estat.rang.pistaDe && pista <= estat.rang.pistaFins)
+    {
+        a = juce::jmax (a, estat.rang.t0);
+        b = juce::jmin (b, estat.rang.t1);
+    }
+    const auto i0 = (juce::int64) std::llround ((a - c.pos) * au.fs), i1 = (juce::int64) std::llround ((b - c.pos) * au.fs);
+    const auto ia = juce::jlimit ((juce::int64) 0, (juce::int64) au.longitud, i0), ib = juce::jlimit (ia, (juce::int64) au.longitud, i1);
+    if (ib - ia < (juce::int64) (0.01 * au.fs))
+    {
+        estat.info = "El tros és massa curt"_ca;
+        estat.avisa();
+        return;
+    }
+    const auto dir = biblioteca.carpeta();
+    const auto base = juce::File::createLegalFileName (dibuix::utf8 (s->nom) + " tros").toStdString();
+    const auto rel = mibase::biblioteca::nomLliure (dir.getFullPathName().toStdString(), base, ".wav");
+    const auto desti = dir.getChildFile (juce::String::fromUTF8 (rel.c_str()));
+    {
+        juce::AudioBuffer<float> buf (au.canals, (int) (ib - ia));
+        for (int ch = 0; ch < au.canals; ++ch)
+            std::copy (au.dades[ch].begin() + ia, au.dades[ch].begin() + ib, buf.getWritePointer (ch));
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
+        auto w = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}.withSampleRate (au.fs).withNumChannels (au.canals).withBitsPerSample (24))
+                                    : nullptr;
+        if (w == nullptr || ! w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut crear el sample"_ca, desti.getFullPathName());
+            return;
+        }
+    }
+    biblioteca.recarrega();   // l'afegeix a la biblioteca (amb el tipus, la nota…)
+    historial.afegeix ("Sample nou a la biblioteca: "_ca + desti.getFileName());
+    if (nomesBiblioteca)
+    {
+        estat.info = "«"_ca + desti.getFileName() + "» és a la biblioteca"_ca;
+        estat.avisa();
+        return;
+    }
+    pistaSamplerNova (desti);
+}
+
+//==============================================================================
+// 0.28: gravar dins el samplejador: com una presa (amb la gravadora del motor), però el fitxer va a Samples\ i el
+// carrega el samplejador (no fa cap clip).
+void PantallaEstudi::gravaSampler()
+{
+    if (estat.transport == 2) { atura(); return; }
+    int pista = -1;
+    for (int i = 0; i < estat.numPistes(); ++i)
+        if (estat.projecte.pistes[(size_t) i].id == estat.sampler.pista && mibase::esSampler (estat.projecte.pistes[(size_t) i])) pista = i;
+    if (pista < 0) return;
+    if (! servei.enMarxa())
+    {
+        avisDeTargeta ("No es pot gravar", "La targeta d'àudio està aturada. Obre Fitxer → Preferències i tria-la."_ca);
+        return;
+    }
+    if (estat.transport != 0) atura();
+    const auto& t = estat.projecte.pistes[(size_t) pista];
+    const int entrada = t.sampler.entradaGrava, canals = t.sampler.canalsGrava;
+    estat.nomsEntrades = servei.getNomsEntrades();
+    const auto& noms = estat.nomsEntrades;
+    const int darrera = entrada + (canals == 2 ? 1 : 0);
+    if (darrera >= noms.size() || noms[entrada].isEmpty() || noms[darrera].isEmpty())
+    {
+        avisDeTargeta ("No es pot gravar", "El samplejador grava de l'entrada E"_ca + juce::String (entrada + 1)
+                       + ", que no està activa. Tria'n una altra (botó del costat de «Grava») o activa-la a Fitxer → Preferències."_ca);
+        return;
+    }
+    auto& motor = servei.estudi();
+    const auto dir = estat.carpeta.getChildFile ("Samples");
+    dir.createDirectory();
+    const auto rel = mibase::biblioteca::nomLliure (dir.getFullPathName().toStdString(),
+                                                    juce::File::createLegalFileName (dibuix::utf8 (t.nom) + " gravat").toStdString(), ".wav");
+    gravacio.fitxer = dir.getChildFile (juce::String::fromUTF8 (rel.c_str()));
+    if (! motor.gravadora().comenca (dibuix::cami (gravacio.fitxer), canals, motor.getFs()))
+    {
+        avisDeTargeta ("No es pot gravar", "No s'ha pogut crear el fitxer:\n"_ca + gravacio.fitxer.getFullPathName());
+        return;
+    }
+    publicaPla();
+    gravacio.pista = pista;
+    gravacio.midi = false;
+    gravacio.perSampler = true;
+    gravacio.cursor = gravacio.desDe = estat.capcal;   // sense compte d'entrada
+    gravacio.retard = servei.retardGravacio (gravacio.retardMesurat);
+    plugins.buidaCues();
+    motor.grava (gravacio.desDe, gravacio.cursor, entrada, canals);
+    estat.cursorGravacio = gravacio.cursor;
+    estat.transport = 2;
+    estatEsperat = 2;
+    esperantMotor = true;
+    tempsOrdre = juce::Time::currentTimeMillis();
+    estat.info = "Gravant al samplejador… (torna a clicar «Grava» o atura per acabar)"_ca;
+    estat.avisa();
 }

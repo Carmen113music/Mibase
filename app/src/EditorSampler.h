@@ -39,6 +39,9 @@ public:
     std::function<std::shared_ptr<const mibase::sampler::Mostra>()> mostra;   // l'àudio original
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
     std::function<void (int)> onAltConsola;                           // l'alçada dels paràmetres ha canviat (per desar-la)
+    std::function<void()> onGrava;                                    // 0.28: grava (o atura) dins el samplejador
+    std::function<juce::StringArray()> entrades;                      // 0.28: noms de les entrades de la targeta
+    std::function<bool()> gravant;
 
     /** Al ritme del transport (capçal del so). */
     void tic();
@@ -116,12 +119,15 @@ private:
 
     // ---- barra ----
     Boto btCarrega { "Carrega…"_ca, dibuix::Icona::Importa, Boto::Estil::Secundari };
+    Boto btGrava { "Grava", dibuix::Icona::Grava, Boto::Estil::Secundari };
+    Boto btEntrada { "E1", std::nullopt, Boto::Estil::Subtil };
+    void menuEntrada();
     Boto btPlay { "Escolta", dibuix::Icona::Play, Boto::Estil::Secundari };
     bool escoltant = false;
     int ticsSenseSo = 0;
     void commutaEscolta();
     Boto btZero { "Pas per zero", std::nullopt, Boto::Estil::Tecla };
-    Segmentat selBucle { { "Sense", "Endavant", "Ping-pong", "Sustain + release" } };
+    Segmentat selBucle { { "Sense", "Endavant", "Ping-pong", "Sustain" } };   // «Sustain» = sustain + release des del final del bucle
     Boto btConsola { "Paràmetres"_ca, std::nullopt, Boto::Estil::Tecla };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Subtil };
 

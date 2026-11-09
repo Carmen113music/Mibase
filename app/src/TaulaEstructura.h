@@ -2,6 +2,7 @@
 
 #include "VistesEstudi.h"
 #include "DialegText.h"
+#include "TempoPart.h"
 
 /** Taula d'estructura (0.15): per provar ordres diferents de la cançó sense tocar la taula de treball.
     A dalt, les estructures (1, 2, 3, +); al mig, les peces de l'estructura (parts de la cançó, d'amplada proporcional
@@ -93,9 +94,9 @@ public:
                 if (ip >= 0)
                 {
                     const auto r = rectPeca (k);
-                    const double spc = mibase::edicio::segonsPerCompas (p);
                     const auto& part = p.parts[(size_t) ip];
-                    const double f = juce::jlimit (0.0, 1.0, (estat.capcal - part.de * spc) / juce::jmax (1e-6, (part.a - part.de) * spc));
+                    const double s0 = mibase::edicio::segonsDeCompas (p, part.de), s1 = mibase::edicio::segonsDeCompas (p, part.a);
+                    const double f = juce::jlimit (0.0, 1.0, (estat.capcal - s0) / juce::jmax (1e-6, s1 - s0));
                     const float x = (float) r.getX() + (float) (f * (r.getWidth() + 3));
                     g.setColour (tema::text);
                     g.fillRect (x - 0.5f, (float) zona.getY(), 1.5f, (float) zona.getHeight());
@@ -140,10 +141,11 @@ public:
                 return;
             }
 
-        // Una part de la dreta: s'arrossega a l'estructura.
+        // Una part de la dreta: s'arrossega a l'estructura (0.28: botó dret = tempo i compàs de la part).
         for (int i = 0; i < (int) p.parts.size(); ++i)
             if (rectPartDreta (i).contains (e.getPosition()))
             {
+                if (e.mods.isPopupMenu()) { menuPart (p.parts[(size_t) i].id); return; }
                 arrossegant = { true, p.parts[(size_t) i].id, -1 };
                 return;
             }
@@ -155,6 +157,7 @@ public:
             const auto r = rectPeca (k).getIntersection (zonaEsquerra());
             if (! r.contains (e.getPosition())) continue;
             pecaTriada = k;
+            if (e.mods.isPopupMenu() && e.y < r.getY() + altCap) { menuPart (es->peces[(size_t) k].part); return; }
             if (e.y < r.getY() + altCap)
             {
                 // Capçal de la peça: s'arrossega per canviar-la d'ordre.
@@ -468,8 +471,7 @@ private:
         g.setFont (dibuix::lletra (14.0f, true));
         g.drawText (dibuix::utf8 (part.nom), cap.reduced (8.0f, 4.0f).toNearestInt(), juce::Justification::centredLeft, true);
         // Les pistes: els clips en petit, proporcionals, dins el tros de la part.
-        const double spc = mibase::edicio::segonsPerCompas (p);
-        const double t0 = part.de * spc, t1 = part.a * spc;
+        const double t0 = mibase::edicio::segonsDeCompas (p, part.de), t1 = mibase::edicio::segonsDeCompas (p, part.a);
         const double pxs = (double) r.getWidth() / juce::jmax (1e-6, t1 - t0);
         const int h = altFila();
         for (int i = 0; i < estat.numPistes(); ++i)
@@ -503,6 +505,16 @@ private:
         auto& p = estat.projecte;
         p.estructuraActiva = mibase::edicio::creaEstructura (p, std::to_string (p.estructures.size() + 1));
         acabaCanvi ("Estructura nova"_ca);
+    }
+
+    /** 0.28: botó dret sobre una part: el seu tempo i compàs. */
+    void menuPart (const std::string& id)
+    {
+        const auto* x = mibase::edicio::part (estat.projecte, id);
+        if (x == nullptr) return;
+        juce::PopupMenu m;
+        tempoPart::afegeix (m, estat.projecte, *x);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, id] (int r) { tempoPart::tracta (r, *this, estat, id); });
     }
 
     void menuEstructura (const std::string& id)

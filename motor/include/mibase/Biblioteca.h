@@ -63,6 +63,9 @@ namespace mibase::biblioteca
         distingir majúscules ni accents; categoria buida = totes), ordenats. */
     std::vector<int> filtra (const Index& index, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent,
                              const std::string& forma = {});
+    /** 0.28: amb diverses categories i formes triades alhora (llista buida = totes). */
+    std::vector<int> filtra (const Index& index, const std::string& text, const std::vector<std::string>& categories,
+                             const std::vector<std::string>& formes, Ordre ordre, bool descendent);
 
     /** Etiquetes a partir d'un text («veu, crit; futbol» → veu, crit, futbol). */
     std::vector<std::string> etiquetesDeText (const std::string& text);

@@ -56,7 +56,15 @@ public:
         historial.afegeix ("Projecte obert: "_ca + f.getFullPathName());
 
         tancaEstudi();
-        estudi = std::make_unique<PantallaEstudi> (f, *p, servei.getAjustos(), historial, servei);
+        {
+            // 0.28: finestra de càrrega mentre s'obre
+            FinestraProgres finestraCarrega ("Obrint «"_ca + dibuix::utf8 (p->nom) + "»"_ca, false, this);
+            finestraCarrega.posa ("Llegint el projecte…"_ca, 0.0);
+            progresGlobal() = [&finestraCarrega] (const juce::String& t, double x) { finestraCarrega.posa (t, x); };
+            estudi = std::make_unique<PantallaEstudi> (f, *p, servei.getAjustos(), historial, servei);
+            finestraCarrega.posa ("A punt"_ca, 1.0);
+            progresGlobal() = nullptr;
+        }
         estudi->onObre = [this] (const juce::File& altre) { obre (altre); };
         addChildComponent (*estudi);
         capcalera.setProjecte (estudi->getNom());

@@ -1,4 +1,5 @@
 #include "VistesEstudi.h"
+#include "TempoPart.h"
 
 #include <mibase/Midi.h>
 
@@ -143,18 +144,35 @@ namespace
     }
 }
 
-double Regla::compas (double t) const { return t / ed::segonsPerCompas (estat.projecte); }
+double Regla::compas (double t) const { return ed::compasDeSegons (estat.projecte, t); }
+
+namespace
+{
+    /** 0.28: arrodoneix cap avall (o amunt) a la graella, amb el mapa de tempo. */
+    double graellaAvall (const mibase::Projecte& p, double t, bool amunt)
+    {
+        if (p.snap == Snap::Lliure) return t;
+        if (p.snap == Snap::Compas)
+        {
+            const double c = ed::compasDeSegons (p, t);
+            return ed::segonsDeCompas (p, amunt ? std::ceil (c - 1e-9) : std::floor (c + 1e-9));
+        }
+        const auto tr = ed::tramA (p, t);
+        const double pas = tr.segonsPerTemps(), k = (t - tr.segons) / pas;
+        return tr.segons + (amunt ? std::ceil (k - 1e-9) : std::floor (k + 1e-9)) * pas;
+    }
+}
 
 /** Una selecció de la regla ajustada a la graella: a Compàs, compassos sencers; a Temps, temps; a Lliure, exacta. */
 std::pair<double, double> Regla::seleccio (double ta, double tb) const
 {
     const auto& p = estat.projecte;
     double a = juce::jmax (0.0, juce::jmin (ta, tb)), b = juce::jmax (0.0, juce::jmax (ta, tb));
-    const double pas = p.snap == Snap::Compas ? ed::segonsPerCompas (p) : p.snap == Snap::Temps ? ed::segonsPerTemps (p) : 0.0;
-    if (pas > 0.0)
+    if (p.snap != Snap::Lliure)
     {
-        a = std::floor (a / pas + 1e-9) * pas;
-        b = juce::jmax (a + pas, std::ceil (b / pas - 1e-9) * pas);
+        a = graellaAvall (p, a, false);
+        b = graellaAvall (p, b, true);
+        if (b <= a + 1e-9) b = graellaAvall (p, a + 1e-6, true);
     }
     return { compas (a), compas (b) };
 }
@@ -180,7 +198,7 @@ void Regla::paint (juce::Graphics& g)
     for (int i = 0; i < (int) p.parts.size(); ++i)
     {
         const auto& x = p.parts[(size_t) i];
-        const float xa = estat.x (x.de * spc), xb = estat.x (x.a * spc);
+        const float xa = estat.x (ed::segonsDeCompas (p, x.de)), xb = estat.x (ed::segonsDeCompas (p, x.a));
         if (xb < 0.0f || xa > w) continue;
         const auto col = colorPart (x, i);
         auto r = juce::Rectangle<float> (xa, 2.0f, xb - xa, mig - 4.0f);
@@ -205,36 +223,51 @@ void Regla::paint (juce::Graphics& g)
         g.fillRect (juce::Rectangle<float> (xb - 3.0f, 0.0f, 3.0f, mig));
     }
 
-    // Meitat de baix: compassos, temps i el capçal.
-    const double spt = ed::segonsPerTemps (p);
+    // Meitat de baix: compassos, temps i el capçal (0.28: compàs a compàs, amb el mapa de tempo).
     const double pxCompas = spc * estat.pxPerSegon;
     int cada = 1;
     while (pxCompas * cada < 36.0) cada *= 2;
-    const int primerTemps = juce::jmax (0, (int) std::floor (estat.t (0.0f) / spt));
-    const int darrerTemps = (int) std::ceil (estat.t (w) / spt);
-    for (int t = primerTemps; t <= darrerTemps; ++t)
+    const auto mapa = ed::mapaTempo (p);
+    const int primer = juce::jmax (0, (int) std::floor (ed::compasDeSegons (p, juce::jmax (0.0, estat.t (0.0f)))));
+    const int darrer = (int) std::ceil (ed::compasDeSegons (p, juce::jmax (0.0, estat.t (w))));
+    for (int c = primer; c <= darrer && c - primer < 20000; ++c)
     {
-        const float x = estat.x (t * spt);
-        if (t % p.compasNum == 0)
+        const double sc = ed::segonsDeCompas (p, (double) c);
+        const float x = estat.x (sc);
+        const auto tr = ed::tramA (p, sc + 1e-6);
+        const bool numera = c % cada == 0;
+        g.setColour (numera ? tema::linia2 : tema::linia);
+        g.fillRect (juce::Rectangle<float> (x, numera ? mig : h * 0.72f, 1.0f, h));
+        if (numera)
         {
-            const int c = t / p.compasNum;
-            const bool numera = c % cada == 0;
-            g.setColour (numera ? tema::linia2 : tema::linia);
-            g.fillRect (juce::Rectangle<float> (x, numera ? mig : h * 0.72f, 1.0f, h));
-            if (numera)
+            const int n = ed::numCompas (c);
+            g.setColour (n == 0 ? tema::accent : tema::textMig);
+            g.setFont (dibuix::mono (11.5f));
+            g.drawText (juce::String (n), juce::Rectangle<float> (x + 4.0f, mig, 40.0f, h - mig - 2.0f), juce::Justification::centredLeft);
+        }
+        const double spt = tr.segonsPerTemps();
+        if (spt * estat.pxPerSegon >= 7.0)
+            for (int k = 1; k < tr.num; ++k)
             {
-                const int n = ed::numCompas (c);
-                g.setColour (n == 0 ? tema::accent : tema::textMig);
-                g.setFont (dibuix::mono (11.5f));
-                g.drawText (juce::String (n), juce::Rectangle<float> (x + 4.0f, mig, 40.0f, h - mig - 2.0f), juce::Justification::centredLeft);
+                g.setColour (tema::linia);
+                g.fillRect (juce::Rectangle<float> (estat.x (sc + k * spt), h * 0.8f, 1.0f, h * 0.2f));
             }
-        }
-        else if (spt * estat.pxPerSegon >= 7.0)
-        {
-            g.setColour (tema::linia);
-            g.fillRect (juce::Rectangle<float> (x, h * 0.8f, 1.0f, h * 0.2f));
-        }
     }
+    // 0.28: on canvia el tempo o el compàs, ho diu
+    if (mapa.size() > 1)
+        for (size_t i = 0; i < mapa.size(); ++i)
+        {
+            const float x = estat.x (mapa[i].segons);
+            if (x < -60.0f || x > w) continue;
+            const auto txt = juce::String (mapa[i].tempo, 0) + " · " + juce::String (mapa[i].num) + "/" + juce::String (mapa[i].den);
+            g.setFont (dibuix::mono (10.0f));
+            const float tw = (float) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), txt) + 6.0f;
+            auto r = juce::Rectangle<float> (x + 22.0f, mig + 2.0f, tw, 12.0f);
+            g.setColour (tema::guitarra.withAlpha (0.85f));
+            g.fillRoundedRectangle (r, 2.0f);
+            g.setColour (juce::Colours::black);
+            g.drawText (txt, r, juce::Justification::centred);
+        }
 
     const float xc = estat.x (estat.capcal);
     juce::Path tri;
@@ -259,7 +292,6 @@ Regla::Lloc Regla::queHiHa (juce::Point<int> pt) const
     Lloc l;
     if (pt.y >= getHeight() / 2) return l;
     const auto& p = estat.projecte;
-    const double spc = ed::segonsPerCompas (p);
     const float x = (float) pt.x;
     auto prop = [x] (float v) { return std::abs (x - v) <= 5.0f; };
     if (p.bucle.marcat)
@@ -270,8 +302,8 @@ Regla::Lloc Regla::queHiHa (juce::Point<int> pt) const
     for (int i = (int) p.parts.size() - 1; i >= 0; --i)
     {
         const auto& q = p.parts[(size_t) i];
-        if (prop (estat.x (q.de * spc))) { l.vora = -1; l.part = i; return l; }
-        if (prop (estat.x (q.a * spc))) { l.vora = 1; l.part = i; return l; }
+        if (prop (estat.x (ed::segonsDeCompas (p, q.de)))) { l.vora = -1; l.part = i; return l; }
+        if (prop (estat.x (ed::segonsDeCompas (p, q.a)))) { l.vora = 1; l.part = i; return l; }
     }
     l.part = ed::partA (p, estat.t (x));
     return l;
@@ -429,6 +461,8 @@ void Regla::menu (const juce::MouseEvent& e, Lloc q)
         m.addSubMenu ("Color", colors);
         m.addItem (12, "Esborra la part");
         m.addSeparator();
+        tempoPart::afegeix (m, p, p.parts[(size_t) part]);   // 0.28
+        m.addSeparator();
     }
     if (dinsBucle) m.addItem (4, "Fes-ne una part de la cançó (nom i color)…"_ca);
     m.addItem (1, p.bucle.actiu ? "Apaga el bucle" : "Encén el bucle"_ca, p.bucle.marcat);
@@ -439,6 +473,7 @@ void Regla::menu (const juce::MouseEvent& e, Lloc q)
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, idPart] (int r)
     {
         auto& pp = estat.projecte;
+        if (tempoPart::tracta (r, *this, estat, idPart)) return;   // 0.28
         if (r == 3) { estat.mouCapcal (0.0, true); estat.avisa(); return; }
         // El diàleg s'obre un cop el menú s'ha tancat del tot (si no, el menú es queda el teclat).
         if (r == 4 || r == 11)
@@ -618,19 +653,20 @@ VistaPistes::Lloc VistaPistes::llocA (juce::Point<int> p) const
 void VistaPistes::pintaGraella (juce::Graphics& g)
 {
     const auto& p = estat.projecte;
-    const double spt = ed::segonsPerTemps (p);
     const float h = (float) getHeight();
-    const int primer = juce::jmax (0, (int) std::floor (estat.t (0.0f) / spt));
-    const int darrer = (int) std::ceil (estat.t ((float) getWidth()) / spt);
-    const bool temps = spt * estat.pxPerSegon >= 9.0;
-    if (darrer - primer > 20000) return;
-
-    for (int t = primer; t <= darrer; ++t)
+    // 0.28: compàs a compàs, amb el mapa de tempo
+    const int primer = juce::jmax (0, (int) std::floor (ed::compasDeSegons (p, juce::jmax (0.0, estat.t (0.0f)))));
+    const int darrer = (int) std::ceil (ed::compasDeSegons (p, juce::jmax (0.0, estat.t ((float) getWidth()))));
+    if (darrer - primer > 5000) return;
+    for (int c = primer; c <= darrer; ++c)
     {
-        const bool compas = t % p.compasNum == 0;
-        if (! compas && ! temps) continue;
-        g.setColour (juce::Colours::white.withAlpha (compas ? 0.15f : 0.075f));
-        g.fillRect (juce::Rectangle<float> (estat.x (t * spt), 0.0f, 1.0f, h));
+        const double sc = ed::segonsDeCompas (p, (double) c);
+        const auto tr = ed::tramA (p, sc + 1e-6);
+        g.setColour (juce::Colours::white.withAlpha (0.15f));
+        g.fillRect (juce::Rectangle<float> (estat.x (sc), 0.0f, 1.0f, h));
+        if (tr.segonsPerTemps() * estat.pxPerSegon < 9.0) continue;
+        g.setColour (juce::Colours::white.withAlpha (0.075f));
+        for (int k = 1; k < tr.num; ++k) g.fillRect (juce::Rectangle<float> (estat.x (sc + k * tr.segonsPerTemps()), 0.0f, 1.0f, h));
     }
 }
 
@@ -771,10 +807,13 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
                 const int baix = juce::jmax (0, (toMin + toMax) / 2 - rang / 2);
                 const float zonaY = r.getY() + 18.0f, zonaH = juce::jmax (8.0f, r.getHeight() - 22.0f);
                 const float hNota = juce::jlimit (1.5f, 5.0f, zonaH / (float) rang);
+                const double tick0 = midi::ticks (p, c.pos);   // 0.28: amb el mapa de tempo
+                const bool mapa = ed::teCanvisTempo (p);
                 const double spt = midi::segonsPerTick (p);
                 for (auto& n : c.notes)
                 {
-                    const double a = c.pos + spt * (double) n.ini, b = c.pos + spt * (double) (n.ini + n.dur);
+                    const double a = mapa ? midi::segons (p, tick0 + (double) n.ini) : c.pos + spt * (double) n.ini;
+                    const double b = mapa ? midi::segons (p, tick0 + (double) (n.ini + n.dur)) : c.pos + spt * (double) (n.ini + n.dur);
                     const bool dins = a >= c.iniciVisible() - 1e-9 && a < c.fiVisible();
                     const float xa = estat.x (a), xb = juce::jmax (xa + 1.5f, estat.x (juce::jmin (b, dins ? c.fiVisible() : b)));
                     if (xb < 0.0f || xa > (float) getWidth()) continue;
@@ -1167,6 +1206,10 @@ void VistaPistes::menuClip (int pista, int clip, double t)
     else if (s != nullptr)
     {
         m.addItem (21, "Obre al Vocal Editor"_ca + (mibase::teVeu (estat.projecte.pistes[(size_t) pista]) ? "   (doble clic)"_ca : juce::String()));
+        // 0.28: el tros (el clip o, si n'hi ha, el que hi ha dins el requadre) com un sample nou
+        const bool ambRang = estat.rang.actiu && pista >= estat.rang.pistaDe && pista <= estat.rang.pistaFins;
+        m.addItem (22, ambRang ? "Envia el tros triat al samplejador (pista nova)"_ca : "Envia al samplejador (pista nova)"_ca);
+        m.addItem (23, ambRang ? "Envia el tros triat a la biblioteca"_ca : "Envia a la biblioteca"_ca);
         m.addSeparator();
     }
     m.addItem (8, "Copia   (Ctrl+C)");
@@ -1190,6 +1233,7 @@ void VistaPistes::menuClip (int pista, int clip, double t)
         if (r == 8) { estat.portaretalls = ed::copiaClips (estat.projecte, estat.triats); estat.info = "Copiat"; estat.avisa(); return; }
         if (r == 20) { if (onObreMidi) onObreMidi (pista, clip); return; }
         if (r == 21) { if (onObreVeu) onObreVeu (pista, clip); return; }
+        if (r == 22 || r == 23) { if (onEnviaSampler) onEnviaSampler (pista, clip, r == 23); return; }
         comencaCanvi();
         restaura();
         auto& c = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];

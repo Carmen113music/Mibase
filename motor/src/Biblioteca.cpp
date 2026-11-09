@@ -221,16 +221,16 @@ namespace mibase::biblioteca
         return nom;
     }
 
-    std::vector<int> filtra (const Index& idx, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent,
-                             const std::string& forma)
+    std::vector<int> filtra (const Index& idx, const std::string& text, const std::vector<std::string>& cats,
+                             const std::vector<std::string>& formes, Ordre ordre, bool descendent)
     {
         const auto t = pla (text);
         std::vector<int> r;
         for (int i = 0; i < (int) idx.samples.size(); ++i)
         {
             const auto& s = idx.samples[(size_t) i];
-            if (! categoria.empty() && s.categoria != categoria) continue;
-            if (! forma.empty() && s.forma != forma) continue;
+            if (! cats.empty() && std::find (cats.begin(), cats.end(), s.categoria) == cats.end()) continue;
+            if (! formes.empty() && std::find (formes.begin(), formes.end(), s.forma) == formes.end()) continue;
             if (! t.empty())
             {
                 std::string tot = pla (s.nom) + "|" + pla (s.categoria) + "|" + pla (s.tonalitat) + "|" + pla (s.forma);
@@ -265,6 +265,15 @@ namespace mibase::biblioteca
             return descendent ? ! menor : menor;
         });
         return r;
+    }
+
+    std::vector<int> filtra (const Index& idx, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent,
+                             const std::string& forma)
+    {
+        std::vector<std::string> c, f;
+        if (! categoria.empty()) c.push_back (categoria);
+        if (! forma.empty()) f.push_back (forma);
+        return filtra (idx, text, c, f, ordre, descendent);
     }
 
     std::vector<std::string> etiquetesDeText (const std::string& text)

@@ -98,12 +98,17 @@ EditorSampler::ParamPom& EditorSampler::afegeixPom (int fila, const juce::String
 EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
 {
     setWantsKeyboardFocus (true);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &btCarrega, &btPlay, &btZero, &selBucle, &btConsola, &btTanca })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &btCarrega, &btGrava, &btEntrada, &btPlay, &btZero, &selBucle, &btConsola, &btTanca })
         addAndMakeVisible (c);
+    btGrava.setTooltip ("Grava un sample nou des de l'entrada de la targeta (al costat: quina). Torna-hi a clicar (o atura) per acabar. Es corregeix el retard"_ca);
+    btGrava.onClick = [this] { if (onGrava) onGrava(); };
+    btEntrada.setTooltip ("D'on grava el samplejador"_ca);
+    btEntrada.onClick = [this] { menuEntrada(); };
     for (juce::Component* c : std::initializer_list<juce::Component*> { &selToc, &selVeus, &selFiltre, &selPendent, &btRoot, &btAlTempo, &btX2, &btD2,
                                                                          &btReversa, &btManteTo, &btDurFixa, &btFlat, &btSmono })
         consola.addAndMakeVisible (c);
     consola.pinta = [this] (juce::Graphics& g) { pintaConsola (g); };
+    for (auto* b : { &btZero, &btConsola, &btReversa, &btManteTo, &btDurFixa, &btFlat, &btSmono }) b->setLlum (tema::accent);   // 0.28: la llumeta
     vistaConsola.setViewedComponent (&consola, false);
     vistaConsola.setScrollBarsShown (true, false);
     vistaConsola.setScrollBarThickness (8);
@@ -301,6 +306,9 @@ void EditorSampler::sincronitza()
     btReversa.setToggleState (p->reversa, juce::dontSendNotification);
     btManteTo.setToggleState (p->mantenTo, juce::dontSendNotification);
     btDurFixa.setToggleState (p->durFixa, juce::dontSendNotification);
+    btEntrada.setButtonText ("E" + juce::String (p->entradaGrava + 1) + (p->canalsGrava == 2 ? "-" + juce::String (p->entradaGrava + 2) : juce::String()));
+    const bool gr = gravant && gravant();
+    btGrava.setButtonText (gr ? "Atura" : "Grava");
     btFlat.setToggleState (p->flat, juce::dontSendNotification);
     btSmono.setToggleState (p->smono, juce::dontSendNotification);
     for (auto& pp : poms)
@@ -355,6 +363,9 @@ void EditorSampler::resized()
     posaD (btZero, 98);
     auto posa = [&b] (juce::Component& c, int w) { c.setBounds (b.removeFromLeft (w)); b.removeFromLeft (6); };
     posa (btCarrega, 92);
+    posa (btGrava, 74);
+    btEntrada.setBounds (btGrava.getBounds().withX (btGrava.getRight() - 2).withWidth (44));
+    b.removeFromLeft (40);
     posa (btPlay, 88);
     selBucle.setBounds (b.removeFromLeft (juce::jmin (360, b.getWidth())));
     btConsola.setToggleState (estat.sampler.consola, juce::dontSendNotification);
@@ -980,6 +991,28 @@ void EditorSampler::filesDropped (const juce::StringArray& files, int, int)
     repaint();
     for (auto& f : files)
         if (juce::File (f).hasFileExtension ("wav;mp3;ogg;flac;aif;aiff")) { if (onFitxer) onFitxer (juce::File (f)); return; }
+}
+
+void EditorSampler::menuEntrada()
+{
+    const auto noms = entrades ? entrades() : juce::StringArray();
+    const auto* p = params();
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Grava des de"_ca);
+    for (int i = 0; i < noms.size(); ++i)
+        if (noms[i].isNotEmpty())
+            menu.addItem (100 + i, "E" + juce::String (i + 1) + "  " + noms[i], true, p != nullptr && p->canalsGrava == 1 && p->entradaGrava == i);
+    menu.addSeparator();
+    for (int i = 0; i + 1 < noms.size(); i += 2)
+        if (noms[i].isNotEmpty() && noms[i + 1].isNotEmpty())
+            menu.addItem (200 + i, "E" + juce::String (i + 1) + "-" + juce::String (i + 2) + juce::String::fromUTF8 ("  estèreo"), true,
+                       p != nullptr && p->canalsGrava == 2 && p->entradaGrava == i);
+    if (noms.isEmpty()) menu.addItem (1, "Cap entrada activa (mira Fitxer → Preferències)"_ca, false);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btEntrada), [this] (int r)
+    {
+        if (r >= 200) canvia ([r] (ParamsSampler& q) { q.entradaGrava = r - 200; q.canalsGrava = 2; });
+        else if (r >= 100) canvia ([r] (ParamsSampler& q) { q.entradaGrava = r - 100; q.canalsGrava = 1; });
+    });
 }
 
 void EditorSampler::commutaEscolta()

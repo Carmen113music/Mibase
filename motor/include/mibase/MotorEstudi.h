@@ -3,6 +3,7 @@
 #include <bitset>
 
 #include "mibase/ClicDeProva.h"
+#include "mibase/Edicio.h"
 #include "mibase/CuaSenseBloqueig.h"
 #include "mibase/Gravadora.h"
 #include "mibase/Instrument.h"
@@ -79,6 +80,7 @@ namespace mibase
         };
 
         double tempo = 120.0;
+        std::vector<edicio::TramTempo> mapaTempo;   // 0.28: per a la claqueta (si hi ha canvis de tempo per parts)
         int compasNum = 4;
         bool clic = true;
         float clicVolum = 1.0f;

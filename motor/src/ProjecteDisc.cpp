@@ -419,6 +419,8 @@ namespace mibase::disc
                     x.sosteniment = std::clamp (m.value ("sosteniment", 1.0), 0.0, 1.0);
                     x.alliberament = std::clamp (m.value ("alliberament", 0.15), 0.0, 20.0);
                     x.vel = std::clamp (m.value ("vel", 0.7), 0.0, 1.0);
+                    x.entradaGrava = std::clamp (m.value ("entradaGrava", 0), 0, 63);
+                    x.canalsGrava = m.value ("canalsGrava", 1) == 2 ? 2 : 1;
                 }
                 if (esMidi (t)) t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
@@ -503,8 +505,15 @@ namespace mibase::disc
         if (j.contains ("parts") && j["parts"].is_array())
             for (auto& e : j["parts"])
                 if (e.is_object())
-                    p.parts.push_back ({ e.value ("id", std::string()), e.value ("nom", std::string()), e.value ("de", 0.0), e.value ("a", 0.0),
-                                         e.value ("rgb", (std::uint32_t) 0) });
+                {
+                    Part x { e.value ("id", std::string()), e.value ("nom", std::string()), e.value ("de", 0.0), e.value ("a", 0.0),
+                             e.value ("rgb", (std::uint32_t) 0) };
+                    x.tempo = std::clamp (e.value ("tempo", 0.0), 0.0, 400.0);
+                    x.compasNum = std::clamp (e.value ("compasNum", 0), 0, 32);
+                    x.compasDen = std::clamp (e.value ("compasDen", 0), 0, 32);
+                    if (x.tempo > 0.0 && x.tempo < 20.0) x.tempo = 0.0;
+                    p.parts.push_back (x);
+                }
         if (j.contains ("bucle") && j["bucle"].is_object())
         {
             p.bucle.marcat = j["bucle"].value ("marcat", false);
@@ -598,7 +607,12 @@ namespace mibase::disc
             j["carpetes"] = carpetes;
             json parts = json::array();
             for (auto& c : p.parts)
-                parts.push_back ({ { "id", c.id }, { "nom", c.nom }, { "de", c.de }, { "a", c.a }, { "rgb", c.rgb } });
+            {
+                json x = { { "id", c.id }, { "nom", c.nom }, { "de", c.de }, { "a", c.a }, { "rgb", c.rgb } };
+                if (c.tempo > 0.0) x["tempo"] = c.tempo;
+                if (c.compasNum > 0) { x["compasNum"] = c.compasNum; x["compasDen"] = c.compasDen; }
+                parts.push_back (x);
+            }
             j["parts"] = parts;
             json estructures = json::array();
             for (auto& e : p.estructures)
@@ -672,7 +686,7 @@ namespace mibase::disc
                     { "speed", x.speed }, { "mantenTo", x.mantenTo }, { "durFixa", x.durFixa }, { "reversa", x.reversa }, { "flat", x.flat }, { "smono", x.smono },
                     { "filtre", x.filtre }, { "pendent", x.pendent }, { "cutoff", x.cutoff }, { "reso", x.reso }, { "drive", x.drive },
                     { "atac", x.atac }, { "decai", x.decai }, { "sosteniment", x.sosteniment }, { "alliberament", x.alliberament },
-                    { "vel", x.vel } };
+                    { "vel", x.vel }, { "entradaGrava", x.entradaGrava }, { "canalsGrava", x.canalsGrava } };
             }
             if (t.tipus == "bateria")
             {

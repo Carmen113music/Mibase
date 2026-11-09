@@ -144,17 +144,14 @@ public:
     {
         namespace ed = mibase::edicio;
         double a = std::max (0.0, std::min (ta, tb)), b = std::max (0.0, std::max (ta, tb));
-        const double pas = projecte.snap == mibase::Snap::Compas ? ed::segonsPerCompas (projecte)
-                         : projecte.snap == mibase::Snap::Temps ? ed::segonsPerTemps (projecte) : 0.0;
-        if (pas > 0.0)
+        if (projecte.snap != mibase::Snap::Lliure)
         {
-            a = std::floor (a / pas + 1e-9) * pas;
-            b = std::max (a + pas, std::ceil (b / pas - 1e-9) * pas);
+            a = ed::enganxa (projecte, a, projecte.snap);
+            b = std::max (a + 1e-3, ed::enganxa (projecte, b, projecte.snap));
         }
-        const double spc = ed::segonsPerCompas (projecte);
-        projecte.bucle.marcat = projecte.bucle.actiu = true;
-        projecte.bucle.de = a / spc;
-        projecte.bucle.a = b / spc;
+        projecte.bucle.marcat = projecte.bucle.actiu = true;   // 0.28: amb el mapa de tempo
+        projecte.bucle.de = ed::compasDeSegons (projecte, a);
+        projecte.bucle.a = ed::compasDeSegons (projecte, b);
     }
     /** La presa que edita el Vocal Editor (nullptr si no n'hi ha). */
     mibase::Presa* presaVeu()

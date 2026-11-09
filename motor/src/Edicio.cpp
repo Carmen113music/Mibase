@@ -19,25 +19,107 @@ namespace mibase::edicio
         return segonsPerTemps (p) * std::max (1, p.compasNum);
     }
 
+    //==========================================================================
+    // 0.28: mapa de tempo
+    bool teCanvisTempo (const Projecte& p)
+    {
+        for (auto& x : p.parts) if ((x.tempo > 0.0 || x.compasNum > 0) && x.a > x.de) return true;
+        return false;
+    }
+
+    std::vector<TramTempo> mapaTempo (const Projecte& p)
+    {
+        TramTempo base;
+        base.tempo = std::max (20.0, p.tempo);
+        base.num = std::max (1, p.compasNum);
+        base.den = std::max (1, p.compasDen);
+        std::vector<TramTempo> v { base };
+        if (! teCanvisTempo (p)) return v;
+        struct Punt { double compas; int ordre; double tempo; int num, den; };
+        std::vector<Punt> punts;
+        for (auto& x : p.parts)
+        {
+            if (! ((x.tempo > 0.0 || x.compasNum > 0) && x.a > x.de)) continue;
+            const double de = std::floor (x.de + 1e-9), a = std::ceil (x.a - 1e-9);   // els canvis, a compassos sencers
+            punts.push_back ({ a, 0, base.tempo, base.num, base.den });                 // al final, el de la cançó
+            punts.push_back ({ de, 1, x.tempo > 0.0 ? std::max (20.0, x.tempo) : base.tempo,
+                               x.compasNum > 0 ? x.compasNum : base.num, x.compasNum > 0 && x.compasDen > 0 ? x.compasDen : base.den });
+        }
+        std::stable_sort (punts.begin(), punts.end(), [] (const Punt& a, const Punt& b) { return a.compas < b.compas || (a.compas == b.compas && a.ordre < b.ordre); });
+        for (auto& pt : punts)
+        {
+            if (pt.compas < 0.0) continue;
+            auto& darrer = v.back();
+            const double dc = pt.compas - darrer.compas;
+            if (dc < 1e-9) { if (v.size() > 1 || pt.compas <= 1e-9) { darrer.tempo = pt.tempo; darrer.num = pt.num; darrer.den = pt.den; } continue; }
+            if (std::abs (pt.tempo - darrer.tempo) < 1e-9 && pt.num == darrer.num && pt.den == darrer.den) continue;
+            TramTempo t;
+            t.compas = pt.compas;
+            t.segons = darrer.segons + dc * darrer.segonsPerCompas();
+            t.tick = darrer.tick + dc * (double) ticksPerNegra * darrer.num;
+            t.tempo = pt.tempo; t.num = pt.num; t.den = pt.den;
+            v.push_back (t);
+        }
+        return v;
+    }
+
+    namespace
+    {
+        template <typename F> const TramTempo& busca (const std::vector<TramTempo>& v, F esDespres)
+        {
+            size_t i = 0;
+            while (i + 1 < v.size() && ! esDespres (v[i + 1])) ++i;
+            return v[i];
+        }
+    }
+
+    double segonsDeCompas (const Projecte& p, double compas)
+    {
+        if (! teCanvisTempo (p)) return compas * segonsPerCompas (p);
+        const auto v = mapaTempo (p);
+        const auto& t = busca (v, [compas] (const TramTempo& x) { return x.compas > compas + 1e-9; });
+        return t.segons + (compas - t.compas) * t.segonsPerCompas();
+    }
+
+    double compasDeSegons (const Projecte& p, double s)
+    {
+        if (! teCanvisTempo (p)) return s / segonsPerCompas (p);
+        const auto v = mapaTempo (p);
+        const auto& t = busca (v, [s] (const TramTempo& x) { return x.segons > s + 1e-9; });
+        return t.compas + (s - t.segons) / t.segonsPerCompas();
+    }
+
+    TramTempo tramA (const Projecte& p, double s)
+    {
+        const auto v = mapaTempo (p);
+        return busca (v, [s] (const TramTempo& x) { return x.segons > s + 1e-9; });
+    }
+    double segonsPerCompasA (const Projecte& p, double s) { return tramA (p, s).segonsPerCompas(); }
+    double segonsPerTempsA (const Projecte& p, double s) { return tramA (p, s).segonsPerTemps(); }
+
     double enganxa (const Projecte& p, double t, Snap snap)
     {
         if (snap == Snap::Lliure)
             return t;
-        const double pas = snap == Snap::Compas ? segonsPerCompas (p) : segonsPerTemps (p);
-        return std::round (t / pas) * pas;
+        if (snap == Snap::Compas) return segonsDeCompas (p, std::round (compasDeSegons (p, t)));
+        const auto tr = tramA (p, t);
+        const double pas = tr.segonsPerTemps();
+        return tr.segons + std::round ((t - tr.segons) / pas) * pas;
     }
 
     std::string textPosicio (const Projecte& p, double t, bool ambMs)
     {
-        const double pt = segonsPerTemps (p);
-        const double totalTemps = std::floor (t / pt + 1e-9);
-        const int compas = (int) std::floor (totalTemps / p.compasNum);
-        const int temps = (int) (totalTemps - (double) compas * p.compasNum) + 1;
+        const auto tr = tramA (p, t);
+        const double pt = tr.segonsPerTemps();
+        const int num = std::max (1, tr.num);
+        const double totalTemps = std::floor ((t - tr.segons) / pt + 1e-9);
+        const int compas = (int) std::floor (tr.compas + 1e-9) + (int) std::floor (totalTemps / num);
+        const int temps = (int) (totalTemps - std::floor (totalTemps / num) * num) + 1;
 
         char text[64];
         if (ambMs)
         {
-            const double resta = (t - totalTemps * pt) * 1000.0;
+            const double resta = (t - tr.segons - totalTemps * pt) * 1000.0;
             if (resta >= 1.0)
             {
                 std::snprintf (text, sizeof (text), "%d.%d +%d ms", numCompas (compas), temps, (int) std::lround (resta));
@@ -515,7 +597,7 @@ namespace mibase::edicio
 
     int partA (const Projecte& p, double t)
     {
-        const double c = t / segonsPerCompas (p);
+        const double c = compasDeSegons (p, t);
         for (int i = (int) p.parts.size() - 1; i >= 0; --i)
             if (c >= p.parts[(size_t) i].de && c < p.parts[(size_t) i].a) return i;
         return -1;
@@ -756,7 +838,7 @@ namespace mibase::edicio
 
     int compasA (const Projecte& p, double t)
     {
-        return (int) std::floor (std::max (0.0, t) / segonsPerCompas (p));
+        return (int) std::floor (compasDeSegons (p, std::max (0.0, t)) + 1e-9);
     }
 
     void marcaBucle (Projecte& p, int a, int b)
@@ -767,8 +849,8 @@ namespace mibase::edicio
         p.bucle.a = std::max (a, b) + 1;
     }
 
-    double iniciBucle (const Projecte& p) { return p.bucle.de * segonsPerCompas (p); }
-    double fiBucle (const Projecte& p)    { return p.bucle.a * segonsPerCompas (p); }
+    double iniciBucle (const Projecte& p) { return segonsDeCompas (p, p.bucle.de); }
+    double fiBucle (const Projecte& p)    { return segonsDeCompas (p, p.bucle.a); }
 
     double final (const Projecte& p)
     {

@@ -18,6 +18,19 @@ namespace mibase::edicio
     double segonsPerTemps (const Projecte& p);
     double segonsPerCompas (const Projecte& p);
 
+    /** 0.28: mapa de tempo. Les parts amb tempo o compàs propi el canvien de cop a l'inici i el tornen al de la cançó al
+        final. Cada tram comença en un compàs intern, un moment (segons) i un tick (960 per negra). */
+    struct TramTempo { double compas = 0.0, segons = 0.0, tick = 0.0, tempo = 120.0; int num = 4, den = 4;
+                       double segonsPerCompas() const { return 60.0 / tempo * num; }
+                       double segonsPerTemps() const { return 60.0 / tempo; } };
+    bool teCanvisTempo (const Projecte& p);
+    std::vector<TramTempo> mapaTempo (const Projecte& p);
+    double segonsDeCompas (const Projecte& p, double compas);
+    double compasDeSegons (const Projecte& p, double segons);
+    TramTempo tramA (const Projecte& p, double segons);
+    double segonsPerCompasA (const Projecte& p, double segons);
+    double segonsPerTempsA (const Projecte& p, double segons);
+
     /** Número de compàs que es veu a partir de l'índex intern. */
     inline int numCompas (int intern) { return intern - 1; }
 

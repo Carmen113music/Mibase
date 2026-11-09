@@ -466,15 +466,21 @@ void EditorVeu::pintaGraella (juce::Graphics& g, const mibase::Clip& c)
         g.fillRect ((float) zona.getX(), y1 - 0.5f, (float) zona.getWidth(), 1.0f);
     }
     // Compassos i temps.
-    const double spc = mibase::edicio::segonsPerCompas (estat.projecte);
-    const double spt = spc / juce::jmax (1, estat.projecte.compasNum);
-    const double tf = tDe ((float) zona.getRight());
-    for (double t = std::floor (t0 / spt) * spt; t <= tf; t += spt)
-    {
-        const bool compas = std::abs (std::remainder (t, spc)) < spt * 0.25;
-        if (! compas && spt * pxs < 12.0) continue;
-        g.setColour (juce::Colours::white.withAlpha (compas ? 0.12f : 0.04f));
-        g.fillRect (xDe (t), (float) zona.getY(), 1.0f, (float) zona.getHeight());
+    {   // 0.28: compàs a compàs, amb el mapa de tempo
+        const auto& p = estat.projecte;
+        const double tf = tDe ((float) zona.getRight());
+        const int c0 = juce::jmax (0, (int) std::floor (mibase::edicio::compasDeSegons (p, juce::jmax (0.0, t0))));
+        const int c1 = (int) std::ceil (mibase::edicio::compasDeSegons (p, juce::jmax (0.0, tf)));
+        for (int cc = c0; cc <= c1 && cc - c0 < 5000; ++cc)
+        {
+            const double sc = mibase::edicio::segonsDeCompas (p, (double) cc);
+            const auto tr = mibase::edicio::tramA (p, sc + 1e-6);
+            g.setColour (juce::Colours::white.withAlpha (0.12f));
+            g.fillRect (xDe (sc), (float) zona.getY(), 1.0f, (float) zona.getHeight());
+            if (tr.segonsPerTemps() * pxs < 12.0) continue;
+            g.setColour (juce::Colours::white.withAlpha (0.04f));
+            for (int k = 1; k < tr.num; ++k) g.fillRect (xDe (sc + k * tr.segonsPerTemps()), (float) zona.getY(), 1.0f, (float) zona.getHeight());
+        }
     }
     // Fora de la finestra del clip: més fosc.
     g.setColour (juce::Colours::black.withAlpha (0.35f));
@@ -619,7 +625,7 @@ void EditorVeu::pintaRegla (juce::Graphics& g)
     while (spc * cada * pxs < 50.0) cada *= 2;
     if (const auto& bu = estat.projecte.bucle; bu.marcat && bu.a > bu.de)   // 0.24
     {
-        const float xa = juce::jmax ((float) r.getX(), xDe (bu.de * spc)), xb = juce::jmin ((float) r.getRight(), xDe (bu.a * spc));
+        const float xa = juce::jmax ((float) r.getX(), xDe (mibase::edicio::iniciBucle (estat.projecte))), xb = juce::jmin ((float) r.getRight(), xDe (mibase::edicio::fiBucle (estat.projecte)));
         if (xb > xa)
         {
             g.setColour ((bu.actiu ? tema::guitarra : tema::suau).withAlpha (bu.actiu ? 0.35f : 0.18f));
@@ -628,14 +634,16 @@ void EditorVeu::pintaRegla (juce::Graphics& g)
     }
     g.setFont (dibuix::mono (10.5f));
     const double tf = tDe ((float) r.getRight());
-    for (long long k = (long long) std::floor (t0 / spc); k * spc <= tf; ++k)
+    const double k0 = std::floor (mibase::edicio::compasDeSegons (estat.projecte, juce::jmax (0.0, t0)));
+    for (long long k = (long long) k0; mibase::edicio::segonsDeCompas (estat.projecte, (double) k) <= tf && k - (long long) k0 < 5000; ++k)
     {
         if (k % cada != 0) continue;
-        const float x = xDe (k * spc);
+        const double sk = mibase::edicio::segonsDeCompas (estat.projecte, (double) k);
+        const float x = xDe (sk);
         g.setColour (tema::linia2);
         g.fillRect (x, (float) r.getY() + 8.0f, 1.0f, (float) r.getHeight() - 8.0f);
         g.setColour (tema::textMig);
-        const auto text = juce::String (mibase::edicio::textPosicio (estat.projecte, k * spc)).upToFirstOccurrenceOf (".", false, false);
+        const auto text = juce::String (mibase::edicio::textPosicio (estat.projecte, sk + 1e-6)).upToFirstOccurrenceOf (".", false, false);
         g.drawText (text, juce::Rectangle<float> (x + 3.0f, (float) r.getY(), 40.0f, (float) r.getHeight()), juce::Justification::centredLeft);
     }
     const float xc = xDe (estat.capcal);

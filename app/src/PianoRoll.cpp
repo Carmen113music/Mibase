@@ -1697,12 +1697,23 @@ void PianoRoll::pintaGraella (juce::Graphics& g)
     };
     if (pg > 0 && pg < ticksPerNegra) linies ((double) pg, tema::linia2.withAlpha (0.45f), 1.0f);
     linies ((double) ticksPerNegra, tema::linia2.withAlpha (0.85f), 1.0f);
-    linies (tpc, tema::linia2.brighter (0.35f), 1.5f);
+    if (! ed::teCanvisTempo (p)) linies (tpc, tema::linia2.brighter (0.35f), 1.5f);
+    else   // 0.28: amb el mapa de tempo, compàs a compàs
+    {
+        const int c0 = juce::jmax (0, (int) std::floor (ed::compasDeSegons (p, juce::jmax (0.0, midi::segons (p, juce::jmax (0.0, t0))))));
+        for (int k = c0; k < c0 + 5000; ++k)
+        {
+            const double tk = midi::ticks (p, ed::segonsDeCompas (p, (double) k));
+            if (tk > t1) break;
+            g.setColour (tema::linia2.brighter (0.35f));
+            g.fillRect (juce::Rectangle<float> (xTick (tk) - 0.75f, (float) zg.getY(), 1.5f, (float) zg.getHeight()));
+        }
+    }
 
     // Bucle.
     if (p.bucle.marcat)
     {
-        const float xa = xTick (p.bucle.de * tpc), xb = xTick (p.bucle.a * tpc);
+        const float xa = xTick (midi::ticks (p, ed::iniciBucle (p))), xb = xTick (midi::ticks (p, ed::fiBucle (p)));
         g.setColour (tema::guitarra.withAlpha (p.bucle.actiu ? 0.06f : 0.03f));
         g.fillRect (juce::Rectangle<float> (xa, (float) zg.getY(), xb - xa, (float) zg.getHeight()));
     }
@@ -1869,14 +1880,18 @@ void PianoRoll::pintaRegla (juce::Graphics& g)
     const int cada = tpc * pxPerTick < 36.0 ? (tpc * pxPerTick < 12.0 ? 8 : 2) : 1;
     if (p.bucle.marcat && p.bucle.a > p.bucle.de)   // 0.24: el bucle també es veu (i es fa) aquí
     {
-        const float xa = xTick (p.bucle.de * tpc), xb = xTick (p.bucle.a * tpc);
+        const float xa = xTick (midi::ticks (p, ed::iniciBucle (p))), xb = xTick (midi::ticks (p, ed::fiBucle (p)));
         g.setColour ((p.bucle.actiu ? tema::guitarra : tema::suau).withAlpha (p.bucle.actiu ? 0.35f : 0.18f));
         g.fillRect (juce::Rectangle<float> (xa, (float) zr.getY() + 2.0f, xb - xa, (float) zr.getHeight() - 4.0f));
     }
     g.setFont (dibuix::mono (11.5f));
-    for (long long k = (long long) std::floor (t0 / tpc); k * tpc <= t1; ++k)
+    const bool mapa = ed::teCanvisTempo (p);   // 0.28: amb el mapa de tempo, compàs a compàs
+    auto tickCompas = [&] (long long k) { return mapa ? midi::ticks (p, ed::segonsDeCompas (p, (double) k)) : (double) k * tpc; };
+    const long long kIni = mapa ? (long long) std::floor (ed::compasDeSegons (p, juce::jmax (0.0, midi::segons (p, juce::jmax (0.0, t0))))) : (long long) std::floor (t0 / tpc);
+    for (long long k = kIni; tickCompas (k) <= t1 && k - kIni < 5000; ++k)
     {
-        const float x = xTick ((double) k * tpc);
+        const float x = xTick (tickCompas (k));
+        const int numK = mapa ? ed::tramA (p, ed::segonsDeCompas (p, (double) k) + 1e-6).num : p.compasNum;
         if (k % cada == 0)
         {
             g.setColour (tema::linia2);
@@ -1886,10 +1901,10 @@ void PianoRoll::pintaRegla (juce::Graphics& g)
                         juce::Justification::centredLeft, false);
         }
         if (ticksPerNegra * pxPerTick > 14.0)
-            for (int b = 1; b < p.compasNum; ++b)
+            for (int b = 1; b < numK; ++b)
             {
                 g.setColour (tema::linia);
-                g.fillRect (juce::Rectangle<float> (xTick ((double) k * tpc + b * ticksPerNegra), (float) zr.getBottom() - 6.0f, 1.0f, 6.0f));
+                g.fillRect (juce::Rectangle<float> (xTick (tickCompas (k) + b * ticksPerNegra), (float) zr.getBottom() - 6.0f, 1.0f, 6.0f));
             }
     }
     const float xc = xTick (midi::ticks (p, estat.capcal));
@@ -2705,18 +2720,27 @@ void PianoRoll::pintaNomsBateria (juce::Graphics& g)
         auto r = juce::Rectangle<float> ((float) zt.getX(), (float) (zt.getY() + f * altNota - desplY), (float) zt.getWidth() - 1.0f, (float) altNota);
         if (r.getY() > (float) zt.getBottom() || r.getBottom() < (float) zt.getY()) continue;
         const bool encesa = premudes[(size_t) fila.nota] || sonant[(size_t) fila.nota];
-        vintage::tecla (g, r.reduced (1.0f, 0.5f), encesa, f == estat.filaBateria, color);
+        // 0.28: com les capçaleres de les pistes: fons fosc, llumeta (s'encén quan sona) i la «M» com les tecles M/S
+        const bool triada = f == estat.filaBateria;
+        g.setColour (triada ? tema::triat : (f % 2 == 0 ? juce::Colour (0xff1c1c22) : juce::Colour (0xff18181d)));
+        g.fillRect (r);
+        if (triada) { g.setColour (color); g.fillRect (r.withWidth (3.0f)); }
+        g.setColour (tema::linia.withAlpha (0.7f));
+        g.fillRect (r.withTop (r.getBottom() - 1.0f));
+        auto led = juce::Rectangle<float> (r.getX() + 9.0f, r.getCentreY() - 3.0f, 6.0f, 6.0f);
+        g.setColour (encesa ? color.brighter (0.4f) : juce::Colour (0xff3a3a43));
+        g.fillEllipse (led);
+        if (encesa) { g.setColour (color.withAlpha (0.35f)); g.fillEllipse (led.expanded (3.0f)); }
         // «M»: silenci de la fila.
-        auto m = r.removeFromRight (22.0f).reduced (3.0f, juce::jmax (1.0f, (r.getHeight() - 14.0f) / 2.0f));
-        g.setColour (fila.mut ? juce::Colour (0xff6fa8ff) : juce::Colours::black.withAlpha (0.35f));
-        g.fillRoundedRectangle (m, 2.0f);
-        g.setColour (fila.mut ? juce::Colours::black : tema::suau);
+        auto m = r.removeFromRight (24.0f).reduced (2.5f, juce::jmax (1.0f, (r.getHeight() - 16.0f) / 2.0f));
+        vintage::tecla (g, m, fila.mut, fila.mut, juce::Colour (0xff6fa8ff));
+        g.setColour (fila.mut ? tema::text : tema::textMig);
         g.setFont (dibuix::lletra (9.5f, true));
         g.drawText ("M", m, juce::Justification::centred, false);
-        g.setColour (fila.mut ? tema::suau : tema::text);
-        g.setFont (dibuix::lletra (juce::jmin (12.0f, (float) altNota - 2.0f), f == estat.filaBateria));
+        g.setColour (fila.mut ? tema::suau : (triada ? tema::text : tema::textMig));
+        g.setFont (dibuix::lletra (juce::jmin (12.5f, (float) altNota - 2.0f), triada));
         g.drawFittedText (juce::String::fromUTF8 ((fila.nom.empty() ? mibase::bateria::nomTipus (fila.tipus) : fila.nom).c_str()),
-                          r.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
+                          r.withTrimmedLeft (20.0f).reduced (2.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
     }
     g.setColour (tema::linia);
     g.fillRect (zt.getRight() - 1, zt.getY(), 1, zt.getHeight());

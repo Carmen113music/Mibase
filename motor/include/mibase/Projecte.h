@@ -136,6 +136,7 @@ namespace mibase
         double cutoff = 20000.0, reso = 0.0, drive = 0.0;   // Hz, 0..1, 0..1
         double atac = 0.002, decai = 0.2, sosteniment = 1.0, alliberament = 0.15;   // s, s, 0..1, s
         double vel = 0.7;                 // sensibilitat a la velocitat 0..1
+        int entradaGrava = 0, canalsGrava = 1;   // 0.28: d'on grava el samplejador (entrada de la targeta, mono o estèreo)
     };
     inline constexpr const char* instrumentSampler = "sampler";
 
@@ -266,6 +267,8 @@ namespace mibase
         std::string nom;
         double de = 0, a = 0;
         std::uint32_t rgb = 0;
+        double tempo = 0.0;             // 0.28: tempo propi de la part (0: el de la cançó); canvi brusc a l'inici
+        int compasNum = 0, compasDen = 0;   // 0.28: compàs propi (0: el de la cançó)
     };
 
     struct Projecte
