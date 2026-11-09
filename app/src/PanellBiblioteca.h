@@ -7,6 +7,8 @@
 #include "Dibuix.h"
 #include "Kits.h"
 #include "FinestraProgres.h"
+#include <set>
+#include <thread>
 #include "Tema.h"
 #include "Text.h"
 #include <mibase/Biblioteca.h>
@@ -20,11 +22,11 @@ namespace samples
     inline constexpr const char* prefixArrossega = "mibase-sample:";
 
     /** Copia un fitxer d'àudio a «desti» (WAV). Els que no són WAV es converteixen a WAV de 24 bits. Torna l'error o buit. */
-    inline juce::String copiaComWav (const juce::File& origen, const juce::File& desti)
+    inline juce::String copiaComWav (juce::AudioFormatManager& fm, const juce::File& origen, const juce::File& desti)
     {
         desti.getParentDirectory().createDirectory();
         if (origen.hasFileExtension ("wav")) return origen.copyFileTo (desti) ? juce::String() : "No s'ha pogut copiar el fitxer"_ca;
-        std::unique_ptr<juce::AudioFormatReader> r (kits::formats().createReaderFor (origen));
+        std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (origen));
         if (r == nullptr) return "No sé llegir aquest fitxer"_ca;
         juce::WavAudioFormat wav;
         std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
@@ -36,6 +38,7 @@ namespace samples
         if (w == nullptr || ! w->writeFromAudioReader (*r, 0, -1)) return "No s'ha pogut escriure el WAV"_ca;
         return {};
     }
+    inline juce::String copiaComWav (const juce::File& origen, const juce::File& desti) { return copiaComWav (kits::formats(), origen, desti); }
 
     inline juce::String nomNota (int n)
     {
@@ -126,75 +129,44 @@ public:
     }
     juce::File fitxer (const mibase::biblioteca::Sample& s) const { return carpeta().getChildFile (juce::String::fromUTF8 (s.fitxer.c_str())); }
 
-    /** Torna a llegir la carpeta (els fitxers nous s'hi afegeixen amb les dades que se'n poden treure). */
+    /** Torna a llegir la carpeta (els fitxers nous s'hi afegeixen amb les dades que se'n poden treure). L'anàlisi es fa
+        en segon pla (0.28.1): els samples van sortint a la llista i es pot continuar treballant. */
     void recarrega()
     {
         const auto dir = carpeta();
         index = mibase::biblioteca::llegeix (dir.getFullPathName().toStdString());
         const auto nous = mibase::biblioteca::sincronitza (dir.getFullPathName().toStdString(), index);
-        // 0.28: amb la finestra de càrrega; els samples surten a la llista a mesura que s'analitzen
-        std::vector<size_t> senseForma;
-        for (size_t i = 0; i < index.samples.size(); ++i) if (index.samples[i].forma.empty()) senseForma.push_back (i);
-        const size_t feina = nous.size() + senseForma.size();
-        std::unique_ptr<FinestraProgres> fp;
-        if (feina > 0) fp = std::make_unique<FinestraProgres> ("Biblioteca: analitzant els samples"_ca, false, this);
-        size_t fet = 0;
-        for (auto& rel : nous)
-        {
-            const auto f = dir.getChildFile (juce::String::fromUTF8 (rel.c_str()));
-            fp->posa ("Analitzant "_ca + juce::String ((int) fet + 1) + " de " + juce::String ((int) feina) + juce::String::fromUTF8 (" · ") + f.getFileName(),
-                      (double) fet / (double) feina);
-            index.samples.push_back (metadades (f, rel));
-            ++fet;
-            mostraAra();
-        }
-        for (auto i : senseForma)   // 0.27: els que encara no saben si són one-shot o loop
-        {
-            auto& s = index.samples[i];
-            const auto f = dir.getChildFile (juce::String::fromUTF8 (s.fitxer.c_str()));
-            fp->posa ("Analitzant "_ca + juce::String ((int) fet + 1) + " de " + juce::String ((int) feina) + juce::String::fromUTF8 (" · ") + f.getFileName(),
-                      (double) fet / (double) feina);
-            posaForma (s, f);
-            ++fet;
-        }
         mibase::biblioteca::desa (dir.getFullPathName().toStdString(), index);
         refesLlista();
+        std::vector<Tasca> ts;
+        for (auto& rel : nous)
+            ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (rel.c_str())), {}, rel, {}, false, false });
+        for (auto& x : index.samples)   // 0.27: els que encara no saben si són one-shot o loop
+            if (x.forma.empty()) ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (x.fitxer.c_str())), {}, x.fitxer, {}, false, true });
+        if (! ts.empty()) encua (std::move (ts));
     }
 
-    /** Afegeix fitxers (es copien a la carpeta de la biblioteca). */
+    /** Afegeix fitxers (es copien a la carpeta de la biblioteca), en segon pla. */
     void afegeix (const juce::Array<juce::File>& fitxers)
     {
-        if (index.samples.empty()) recarrega();
+        if (! llegida) { llegida = true; recarrega(); }
         const auto dir = carpeta();
-        int fets = 0;
-        juce::StringArray errors;
-        // 0.28: amb la finestra de càrrega (si n'hi ha uns quants)
-        std::unique_ptr<FinestraProgres> fp;
-        if (fitxers.size() > 1) fp = std::make_unique<FinestraProgres> ("Afegint a la biblioteca"_ca, false, this);
-        int k = 0;
+        std::vector<Tasca> ts;
         for (auto& f : fitxers)
         {
-            if (fp != nullptr) fp->posa ("Copiant i analitzant "_ca + juce::String (k + 1) + " de " + juce::String (fitxers.size()) + juce::String::fromUTF8 (" · ") + f.getFileName(),
-                                         (double) k / (double) fitxers.size());
-            ++k;
-            if (fets > 0) mostraAra();
-            if (! mibase::biblioteca::esAudio (f.getFullPathName().toStdString())) continue;
-            if (f.isAChildOf (dir)) continue;   // ja hi és
-            const auto rel = mibase::biblioteca::nomLliure (dir.getFullPathName().toStdString(),
-                                                            juce::File::createLegalFileName (f.getFileNameWithoutExtension()).toStdString(), ".wav");
-            const auto desti = dir.getChildFile (juce::String::fromUTF8 (rel.c_str()));
-            if (auto e = samples::copiaComWav (f, desti); e.isNotEmpty()) { errors.add (f.getFileName() + ": " + e); continue; }
-            auto s = metadades (desti, rel);
-            s.nom = f.getFileNameWithoutExtension().toStdString();
-            index.samples.push_back (s);
-            ++fets;
+            if (! mibase::biblioteca::esAudio (f.getFullPathName().toStdString()) || f.isAChildOf (dir)) continue;
+            // un nom lliure (tenint en compte els que ja s'han reservat en aquesta tanda)
+            const auto base = juce::File::createLegalFileName (f.getFileNameWithoutExtension()).toStdString();
+            std::string rel = base + ".wav";
+            for (int k = 2; dir.getChildFile (juce::String::fromUTF8 (rel.c_str())).exists() || reservats.count (rel) > 0; ++k)
+                rel = base + " " + std::to_string (k) + ".wav";
+            reservats.insert (rel);
+            ts.push_back ({ f, dir.getChildFile (juce::String::fromUTF8 (rel.c_str())), rel, f.getFileNameWithoutExtension().toStdString(), true, false });
         }
-        mibase::biblioteca::desa (dir.getFullPathName().toStdString(), index);
-        refesLlista();
-        if (onInfo) onInfo (fets == 1 ? "1 sample afegit a la biblioteca"_ca : juce::String (fets) + " samples afegits a la biblioteca"_ca);
-        if (! errors.isEmpty())
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Algun fitxer no s'ha pogut afegir"_ca, errors.joinIntoString ("\n"));
+        if (! ts.empty()) encua (std::move (ts));
     }
+
+    ~PanellBiblioteca() override { if (feina != nullptr) feina->atura = true; }
 
     void resized() override
     {
@@ -224,6 +196,11 @@ public:
         }
         r.removeFromTop (3);
         btOrdre.setBounds (r.removeFromTop (26));
+        if (barra != nullptr)   // 0.28.1: el progrés de l'anàlisi, a dalt de la llista
+        {
+            r.removeFromTop (6);
+            barra->setBounds (r.removeFromTop (128));
+        }
         r.removeFromTop (6);
         llista.setBounds (r);
     }
@@ -315,7 +292,7 @@ private:
     void textEditorTextChanged (juce::TextEditor&) override { refesLlista(); }
 
     // ---- dades ----
-    mibase::biblioteca::Sample metadades (const juce::File& f, const std::string& rel)
+    static mibase::biblioteca::Sample metadades (juce::AudioFormatManager& fm, const juce::File& f, const std::string& rel)
     {
         mibase::biblioteca::Sample s;
         s.fitxer = rel;
@@ -323,25 +300,25 @@ private:
         s.categoria = mibase::biblioteca::categoriaPerNom (f.getFileName().toStdString());
         s.bpm = mibase::biblioteca::bpmPerNom (f.getFileName().toStdString());
         s.data = juce::Time::currentTimeMillis();
-        if (std::unique_ptr<juce::AudioFormatReader> r (kits::formats().createReaderFor (f)); r != nullptr && r->sampleRate > 0)
+        if (std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f)); r != nullptr && r->sampleRate > 0)
         {
             s.durada = (double) r->lengthInSamples / r->sampleRate;
-            posaForma (s, f);
+            posaForma (fm, s, f);
             if (s.durada <= 12.0 && s.forma != mibase::biblioteca::loop && s.categoria != "Bombo" && s.categoria != "Caixa" && s.categoria != "Hi-hat")
-                if (auto m = kits::llegeix (f, 12.0))
+                if (auto m = kits::llegeix (fm, f, 12.0))
                     if (const int n = mibase::sampler::detectaRoot (*m); n >= 0) s.tonalitat = samples::nomNota (n).toStdString();
         }
         return s;
     }
 
     /** One-shot o loop: pel nom i, si no ho diu, pel so. Si és un loop sense BPM, l'estima. */
-    static void posaForma (mibase::biblioteca::Sample& s, const juce::File& f)
+    static void posaForma (juce::AudioFormatManager& fm, mibase::biblioteca::Sample& s, const juce::File& f)
     {
         s.forma = mibase::biblioteca::formaPerNom (f.getFileName().toStdString());
         double bpm = 0.0;
         if (s.forma.empty())
         {
-            if (auto m = kits::llegeix (f, 60.0))
+            if (auto m = kits::llegeix (fm, f, 60.0))
             {
                 std::vector<float> mono (m->L);
                 for (size_t i = 0; i < mono.size() && i < m->R.size(); ++i) mono[i] = 0.5f * (mono[i] + m->R[i]);
@@ -362,6 +339,116 @@ private:
     }
 
     void desa() { mibase::biblioteca::desa (carpeta().getFullPathName().toStdString(), index); }
+
+    //==========================================================================
+    // 0.28.1: anàlisi (i còpia) en segon pla
+    struct Tasca
+    {
+        juce::File origen, desti;   // desti: on es copia (si copia)
+        std::string rel, nom;       // camí dins la biblioteca i nom per mostrar (si se'n vol un altre)
+        bool copia = false;         // afegir de fora (es copia/converteix)
+        bool nomesForma = false;    // ja hi és: només falta saber si és one-shot o loop
+    };
+    struct Feina { std::atomic<bool> atura { false }; };
+    std::shared_ptr<Feina> feina;
+    std::vector<Tasca> cua;
+    std::set<std::string> reservats;
+    std::unique_ptr<FinestraProgres> barra;
+    juce::StringArray errors;
+    int fetsTanda = 0, totalTanda = 0, afegitsTanda = 0;
+
+    void encua (std::vector<Tasca> ts)
+    {
+        cua.insert (cua.end(), ts.begin(), ts.end());
+        if (feina == nullptr) llanca();
+        else { totalTanda += (int) ts.size(); actualitzaBarra ({}); }
+    }
+
+    void llanca()
+    {
+        if (cua.empty()) return;
+        auto ts = std::move (cua);
+        cua.clear();
+        feina = std::make_shared<Feina>();
+        fetsTanda = 0; afegitsTanda = 0;
+        totalTanda = (int) ts.size();
+        errors.clear();
+        if (barra == nullptr)
+        {
+            barra = std::make_unique<FinestraProgres> ("Biblioteca: analitzant"_ca, false, nullptr, false);
+            addAndMakeVisible (*barra);
+            resized();
+        }
+        actualitzaBarra ({});
+        juce::Component::SafePointer<PanellBiblioteca> jo (this);
+        auto fe = feina;
+        std::thread ([jo, fe, ts]
+        {
+            juce::AudioFormatManager fm;
+            fm.registerBasicFormats();
+            for (auto& t : ts)
+            {
+                if (fe->atura) return;
+                juce::String err;
+                mibase::biblioteca::Sample s;
+                if (t.copia) err = samples::copiaComWav (fm, t.origen, t.desti);
+                if (err.isEmpty())
+                {
+                    const auto f = t.copia ? t.desti : t.origen;
+                    if (t.nomesForma) { s.fitxer = t.rel; posaForma (fm, s, f); }
+                    else
+                    {
+                        s = metadades (fm, f, t.rel);
+                        if (! t.nom.empty()) s.nom = t.nom;
+                    }
+                }
+                juce::MessageManager::callAsync ([jo, fe, t, s, err] { if (jo != nullptr && jo->feina == fe) jo->resultat (t, s, err); });
+            }
+            juce::MessageManager::callAsync ([jo, fe] { if (jo != nullptr && jo->feina == fe) jo->acabat(); });
+        }).detach();
+    }
+
+    void actualitzaBarra (const juce::String& fitxer)
+    {
+        if (barra == nullptr) return;
+        barra->posa ("Analitzant "_ca + juce::String (juce::jmin (fetsTanda + 1, totalTanda)) + " de " + juce::String (totalTanda)
+                     + (fitxer.isNotEmpty() ? juce::String::fromUTF8 (" · ") + fitxer : juce::String()),
+                     totalTanda > 0 ? (double) fetsTanda / (double) totalTanda : 0.0);
+    }
+
+    void resultat (const Tasca& t, const mibase::biblioteca::Sample& s, const juce::String& err)
+    {
+        ++fetsTanda;
+        reservats.erase (t.rel);
+        if (err.isNotEmpty()) errors.add (t.origen.getFileName() + ": " + err);
+        else if (t.nomesForma)
+        {
+            if (auto* x = index.busca (t.rel)) { x->forma = s.forma; if (x->bpm <= 0.0) x->bpm = s.bpm; }
+        }
+        else if (index.busca (t.rel) == nullptr)
+        {
+            index.samples.push_back (s);
+            ++afegitsTanda;
+        }
+        if (fetsTanda % 10 == 0) desa();
+        refesLlista();   // van sortint a la llista
+        actualitzaBarra (t.origen.getFileName());
+    }
+
+    void acabat()
+    {
+        feina = nullptr;
+        desa();
+        refesLlista();
+        if (! cua.empty()) { llanca(); return; }
+        barra = nullptr;
+        resized();
+        if (onInfo && afegitsTanda > 0)
+            onInfo (afegitsTanda == 1 ? "1 sample nou a la biblioteca"_ca : juce::String (afegitsTanda) + " samples nous a la biblioteca"_ca);
+        if (! errors.isEmpty())
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Algun fitxer no s'ha pogut afegir"_ca, errors.joinIntoString ("\n"));
+        errors.clear();
+    }
 
     /** 0.28: les carpetes es converteixen en els àudios que tenen a dins (també a les subcarpetes). */
     static juce::Array<juce::File> ambCarpetes (const juce::Array<juce::File>& v)

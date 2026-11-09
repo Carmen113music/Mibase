@@ -7,6 +7,7 @@
 #include "PantallaInici.h"
 #include "Recents.h"
 #include "ServeiAudio.h"
+#include <thread>
 
 /** Contingut de la finestra: la barra de dalt (amb el menú Fitxer i el transport) i la pantalla que toqui. */
 class ComponentPrincipal : public juce::Component
@@ -37,8 +38,11 @@ public:
         mostra (Capcalera::Pantalla::Inici);
     }
 
+    ~ComponentPrincipal() override { if (obrint != nullptr) obrint->atura = true; }
+
     void obre (const juce::File& f, bool acabatDeCrear = false)
     {
+        if (obrint != nullptr) return;   // 0.28.1: ja se n'està obrint un
         std::string error;
         auto p = mibase::disc::llegeix (dibuix::cami (f), &error);
         if (! p)
@@ -56,15 +60,77 @@ public:
         historial.afegeix ("Projecte obert: "_ca + f.getFullPathName());
 
         tancaEstudi();
+        comencaObrir (f, std::make_shared<mibase::Projecte> (*p));
+    }
+
+    // 0.28.1: els àudios es llegeixen en segon pla (la finestra de càrrega es va pintant i Windows no diu que no respon);
+    // quan acaba, es fa la pantalla de l'estudi.
+    struct FeinaObrir
+    {
+        std::atomic<bool> atura { false };
+        Precarrega pre;
+    };
+    std::shared_ptr<FeinaObrir> obrint;
+    std::unique_ptr<FinestraProgres> cortina;
+
+    void comencaObrir (const juce::File& f, std::shared_ptr<mibase::Projecte> p)
+    {
+        if (obrint != nullptr) return;   // ja se n'està obrint un
+        obrint = std::make_shared<FeinaObrir>();
+        cortina = std::make_unique<FinestraProgres> ("Obrint «"_ca + dibuix::utf8 (p->nom) + "»"_ca, false, this);
+        cortina->posa ("Llegint els àudios…"_ca, 0.0);
+        struct Fitxer { std::string id; juce::File f; juce::int64 mida; };
+        std::vector<Fitxer> fitxers;
+        juce::int64 total = 0;
+        for (auto& s : p->preses)
         {
-            // 0.28: finestra de càrrega mentre s'obre
-            FinestraProgres finestraCarrega ("Obrint «"_ca + dibuix::utf8 (p->nom) + "»"_ca, false, this);
-            finestraCarrega.posa ("Llegint el projecte…"_ca, 0.0);
-            progresGlobal() = [&finestraCarrega] (const juce::String& t, double x) { finestraCarrega.posa (t, x); };
-            estudi = std::make_unique<PantallaEstudi> (f, *p, servei.getAjustos(), historial, servei);
-            finestraCarrega.posa ("A punt"_ca, 1.0);
-            progresGlobal() = nullptr;
+            const auto fp = dibuix::fitxer (mibase::disc::camiRelatiu (dibuix::cami (f.getParentDirectory()), s.fitxer));
+            const auto mida = juce::jmax ((juce::int64) 1, fp.getSize());
+            fitxers.push_back ({ s.id, fp, mida });
+            total += mida;
         }
+        juce::Component::SafePointer<ComponentPrincipal> jo (this);
+        auto feina = obrint;
+        std::thread ([jo, feina, fitxers, total, f, p]
+        {
+            juce::AudioFormatManager fm;
+            fm.registerBasicFormats();
+            juce::int64 abans = 0;
+            auto darrer = juce::Time::getMillisecondCounter();
+            for (size_t i = 0; i < fitxers.size(); ++i)
+            {
+                if (feina->atura) return;
+                const auto& x = fitxers[i];
+                const auto text = "Llegint els àudios: "_ca + juce::String ((int) i + 1) + " de " + juce::String ((int) fitxers.size())
+                                  + juce::String::fromUTF8 (" · ") + x.f.getFileName();
+                auto progres = [&] (double fet)
+                {
+                    const auto ara = juce::Time::getMillisecondCounter();
+                    if (ara - darrer < 50) return;
+                    darrer = ara;
+                    const double frac = 0.9 * ((double) abans + (double) x.mida * fet) / (double) juce::jmax ((juce::int64) 1, total);
+                    juce::MessageManager::callAsync ([jo, text, frac] { if (jo != nullptr && jo->cortina != nullptr) jo->cortina->posa (text, frac); });
+                };
+                progres (0.0);
+                auto r = llegeixPresa (fm, x.f, progres, &feina->atura);
+                if (r.ona != nullptr) feina->pre[x.id] = std::move (r);
+                abans += x.mida;
+            }
+            juce::MessageManager::callAsync ([jo, feina, f, p]
+            {
+                if (jo == nullptr || feina->atura) return;
+                if (jo->cortina != nullptr) jo->cortina->posa ("Obrint els plugins i els instruments…"_ca, 0.92);
+                // un moment perquè es pinti, i després es fa l'estudi (amb els plugins)
+                juce::Timer::callAfterDelay (60, [jo, feina, f, p] { if (jo != nullptr) jo->acabaObrir (f, *p, feina); });
+            });
+        }).detach();
+    }
+
+    void acabaObrir (const juce::File& f, const mibase::Projecte& p, std::shared_ptr<FeinaObrir> feina)
+    {
+        estudi = std::make_unique<PantallaEstudi> (f, p, servei.getAjustos(), historial, servei, &feina->pre);
+        cortina = nullptr;
+        obrint = nullptr;
         estudi->onObre = [this] (const juce::File& altre) { obre (altre); };
         addChildComponent (*estudi);
         capcalera.setProjecte (estudi->getNom());

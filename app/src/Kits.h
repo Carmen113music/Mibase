@@ -85,9 +85,14 @@ namespace kits
     }
 
     /** Llegeix un fitxer d'àudio (com a molt «maxSeg» segons). */
-    inline std::shared_ptr<bt::Mostra> llegeix (const juce::File& f, double maxSeg = 12.0)
+    /** 0.28.1: amb un AudioFormatManager concret (per llegir des d'un fil a part). */
+    inline std::shared_ptr<bt::Mostra> llegeix (juce::AudioFormatManager& fm, const juce::File& f, double maxSeg);
+
+    inline std::shared_ptr<bt::Mostra> llegeix (const juce::File& f, double maxSeg = 12.0) { return llegeix (formats(), f, maxSeg); }
+
+    inline std::shared_ptr<bt::Mostra> llegeix (juce::AudioFormatManager& fm, const juce::File& f, double maxSeg)
     {
-        std::unique_ptr<juce::AudioFormatReader> r (formats().createReaderFor (f));
+        std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f));
         if (r == nullptr || r->lengthInSamples <= 0 || r->sampleRate <= 0) return nullptr;
         const int n = (int) std::min<juce::int64> (r->lengthInSamples, (juce::int64) (maxSeg * r->sampleRate));
         juce::AudioBuffer<float> b ((int) std::min (2u, r->numChannels), n);

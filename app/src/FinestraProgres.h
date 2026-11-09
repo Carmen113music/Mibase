@@ -5,9 +5,9 @@
 #include "Tema.h"
 #include "Text.h"
 
-/** 0.28: finestra de càrrega (la mateixa a tot arreu): què s'està fent i el percentatge. La feina es fa al fil de la
-    interfície, a trossos, i a cada «posa» la finestra es torna a pintar a l'acte (perquè es vegi encara que el programa
-    estigui ocupat). «gran» = la de l'arrencada, amb el logo i el nom del programa. */
+/** 0.28: finestra de càrrega (la mateixa a tot arreu): què s'està fent i el percentatge. «gran» = la de l'arrencada,
+    amb el logo i el nom del programa. 0.28.1: amb «sobre», tapa tota la finestra principal (enfosquida, i no deixa
+    clicar res) i la targeta va al mig; la feina llarga es fa en segon pla perquè la finestra es pugui anar pintant. */
 class FinestraProgres : public juce::Component
 {
 public:
@@ -21,8 +21,9 @@ public:
         {
             // a sobre de tot, dins de la finestra principal (així es veu segur a qualsevol sistema)
             auto* arrel = sobre->getTopLevelComponent();
+            cortina = true;
             arrel->addAndMakeVisible (this);
-            setCentrePosition (arrel->getLocalBounds().getCentre());
+            setBounds (arrel->getLocalBounds());
             toFront (false);
             pintaAra();
             return;
@@ -46,12 +47,14 @@ public:
         const bool canvi = text != quin || std::abs (fraccio - fet) >= 0.01;
         quin = text;
         fet = fraccio;
+        if (canvi) repaint();   // sempre (si el fil de la finestra està lliure es pinta igualment)
         if (canvi && ara - darrer >= 40) { darrer = ara; pintaAra(); }
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat().reduced (2.0f);
+        if (cortina) g.fillAll (juce::Colours::black.withAlpha (0.45f));
+        auto r = (cortina ? juce::Rectangle<int> (0, 0, 420, 128).withCentre (getLocalBounds().getCentre()) : getLocalBounds()).toFloat().reduced (2.0f);
         g.setColour (juce::Colours::black.withAlpha (0.5f));
         g.fillRoundedRectangle (r.translated (0.0f, 2.0f), 12.0f);
         g.setColour (tema::superficie);
@@ -111,6 +114,8 @@ public:
         }
     }
 
+    void parentSizeChanged() override { if (cortina && getParentComponent() != nullptr) setBounds (getParentComponent()->getLocalBounds()); }
+
 private:
     void pintaAra()
     {
@@ -119,7 +124,7 @@ private:
     }
 
     juce::String titol, quin;
-    bool gran = false;
+    bool gran = false, cortina = false;
     double fet = 0.0;
     juce::uint32 darrer = 0;
 };

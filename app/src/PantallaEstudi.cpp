@@ -112,7 +112,7 @@ namespace
 }
 
 //==============================================================================
-PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::PropertiesFile& a, Historial& h, ServeiAudio& s)
+PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::PropertiesFile& a, Historial& h, ServeiAudio& s, Precarrega* precarrega)
     : ajustos (a), historial (h), servei (s)
 {
     setWantsKeyboardFocus (true);
@@ -133,27 +133,17 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         startTimer (700);
     };
 
+    // 0.28.1: els àudios ja s'han llegit en segon pla (mentre es veia la finestra de càrrega); si no, ara
+    for (auto& presa : estat.projecte.preses)
     {
-        // 0.28: amb la finestra de càrrega (si n'hi ha): quin àudio i el percentatge (pel que ocupen)
-        juce::int64 total = 0, abans = 0;
-        for (auto& presa : estat.projecte.preses) total += juce::jmax ((juce::int64) 1, fitxerPresa (presa).getSize());
-        const int n = (int) estat.projecte.preses.size();
-        int i = 0;
-        for (auto& presa : estat.projecte.preses)
-        {
-            const auto fp = fitxerPresa (presa);
-            const auto mida = juce::jmax ((juce::int64) 1, fp.getSize());
-            const auto text = "Llegint els àudios: "_ca + juce::String (i + 1) + " de " + juce::String (n) + juce::String::fromUTF8 (" · ") + fp.getFileName();
-            progresOna = [text, abans, mida, total] (double x)
+        if (precarrega != nullptr)
+            if (auto it = precarrega->find (presa.id); it != precarrega->end() && it->second.ona != nullptr)
             {
-                if (progresGlobal()) progresGlobal() (text, 0.85 * ((double) abans + (double) mida * x) / (double) juce::jmax ((juce::int64) 1, total));
-            };
-            progresOna (0.0);
-            carregaOna (presa);
-            abans += mida;
-            ++i;
-        }
-        progresOna = nullptr;
+                estat.ones[presa.id] = it->second.ona;
+                audioPreses[presa.id] = it->second.audio;
+                continue;
+            }
+        carregaOna (presa);
     }
     if (progresGlobal()) progresGlobal() ("Preparant el Vocal Editor…"_ca, 0.88);
     sincronitzaVeu();   // 0.22: les preses corregides es preparen encara que no s'obri el Vocal Editor
@@ -1476,53 +1466,15 @@ juce::File PantallaEstudi::fitxerPresa (const Presa& s) const
 
 void PantallaEstudi::carregaOna (const Presa& s)
 {
-    auto ona = std::make_shared<OnaPresa>();
-    ona->lector.reset (formats.createReaderFor (fitxerPresa (s)));
-    if (ona->lector == nullptr || ona->lector->sampleRate <= 0.0)
+    auto r = llegeixPresa (formats, fitxerPresa (s), progresOna, nullptr);
+    if (r.ona == nullptr)
     {
         estat.ones.erase (s.id);
         audioPreses.erase (s.id);
         return;
     }
-
-    auto& lector = *ona->lector;
-    ona->sr = lector.sampleRate;
-    ona->longitud = lector.lengthInSamples;
-    ona->canals = (int) lector.numChannels;
-    const auto blocs = (size_t) ((ona->longitud + OnaPresa::bloc - 1) / OnaPresa::bloc);
-    ona->mins.assign (blocs, 0.0f);
-    ona->maxs.assign (blocs, 0.0f);
-
-    // L'àudio sencer a la memòria (per sonar) i, alhora, l'ona per dibuixar.
-    auto audio = std::make_shared<AudioPresa>();
-    audio->fs = lector.sampleRate;
-    audio->canals = lector.numChannels > 1 ? 2 : 1;
-    audio->longitud = ona->longitud;
-    for (int c = 0; c < audio->canals; ++c)
-        audio->dades[c].assign ((size_t) audio->longitud, 0.0f);
-
-    const int tros = OnaPresa::bloc * 512;
-    juce::AudioBuffer<float> buffer ((int) juce::jmax (1u, lector.numChannels), tros);
-    const float factor = 1.0f / (float) buffer.getNumChannels();
-    for (juce::int64 pos = 0; pos < ona->longitud; pos += tros)
-    {
-        const int n = (int) juce::jmin ((juce::int64) tros, ona->longitud - pos);
-        lector.read (&buffer, 0, n, pos, true, true);
-        if (progresOna) progresOna ((double) (pos + n) / (double) juce::jmax ((juce::int64) 1, ona->longitud));
-        for (int c = 0; c < audio->canals; ++c)
-            std::copy (buffer.getReadPointer (c), buffer.getReadPointer (c) + n, audio->dades[c].data() + pos);
-        for (int i = 0; i < n; ++i)
-        {
-            float v = 0.0f;
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch) v += buffer.getReadPointer (ch)[i];
-            v *= factor;
-            const auto b = (size_t) ((pos + i) / OnaPresa::bloc);
-            ona->mins[b] = juce::jmin (ona->mins[b], v);
-            ona->maxs[b] = juce::jmax (ona->maxs[b], v);
-        }
-    }
-    estat.ones[s.id] = std::move (ona);
-    audioPreses[s.id] = std::move (audio);
+    estat.ones[s.id] = std::move (r.ona);
+    audioPreses[s.id] = std::move (r.audio);
 }
 
 bool PantallaEstudi::importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error)

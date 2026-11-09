@@ -5,6 +5,7 @@
 #include "EditorSampler.h"
 #include "PanellBiblioteca.h"
 #include "FinestraProgres.h"
+#include "CarregaPreses.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
@@ -33,7 +34,7 @@ class PantallaEstudi : public juce::Component,
 {
 public:
     PantallaEstudi (const juce::File& fitxer, const mibase::Projecte& projecte, juce::PropertiesFile& ajustos,
-                    Historial& historial, ServeiAudio& servei);
+                    Historial& historial, ServeiAudio& servei, Precarrega* precarrega = nullptr);
     ~PantallaEstudi() override;
 
     const juce::File& getFitxer() const noexcept { return estat.fitxer; }
