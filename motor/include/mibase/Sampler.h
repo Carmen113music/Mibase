@@ -63,8 +63,8 @@ namespace mibase::sampler
         void apagaTot() noexcept override;
         bool fentSo() const noexcept override { return actives > 0; }
 
-        /** Qualsevol fil: escolta el sample des d'un punt (segons del fitxer original) fins al final del fragment,
-            sense bucle ni envolupant (per a l'editor). */
+        /** Qualsevol fil: escolta l'original des d'un punt (segons del fitxer) fins al final del fitxer,
+            sense bucle, envolupant ni filtre (per al capçal de l'editor). */
         void escolta (double segons) noexcept { peticio.store (std::max (0.0, segons), std::memory_order_relaxed); }
         void aturaEscolta() noexcept { peticio.store (-2.0, std::memory_order_relaxed); }
 

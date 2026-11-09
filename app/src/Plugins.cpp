@@ -1,4 +1,5 @@
 #include "Plugins.h"
+#include "EscGlobal.h"
 #include "Tema.h"
 #include "Text.h"
 
@@ -129,6 +130,7 @@ namespace
             setVisible (true);
         }
         void closeButtonPressed() override { juce::MessageManager::callAsync ([t = tancar] { t(); }); }
+        bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }
 
     private:
         std::function<void()> tancar;

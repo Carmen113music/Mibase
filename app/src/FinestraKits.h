@@ -4,6 +4,7 @@
 #include "EstatEstudi.h"
 #include "Kits.h"
 #include "ServeiAudio.h"
+#include "EscGlobal.h"
 
 /** 0.20: la finestra dels kits de bateria. A l'esquerra els kits; a la dreta els sons del kit triat (clic: sona; clic al tipus:
     es canvia, per si la classificació s'ha equivocat). A baix: importar una carpeta, baixar els kits de Riffs, obrir la
@@ -11,6 +12,7 @@
 class FinestraKits : public juce::DocumentWindow
 {
 public:
+    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }   // 0.27
     FinestraKits (EstatEstudi& e, ServeiAudio& s, std::function<void()> enTancar)
         : juce::DocumentWindow ("Kits de bateria"_ca, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           tancar (std::move (enTancar))

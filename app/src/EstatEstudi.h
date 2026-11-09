@@ -123,6 +123,8 @@ public:
         double iniciVista = 0.0;    // segons del sample a la vora esquerra
         double pxPerSeg = 0.0;      // 0: encaixa-ho tot
         bool consola = true;        // els paràmetres a la vista (si no, tota l'alçada per a l'ona)
+        int altConsola = 0;         // alçada dels paràmetres (0: la que calgui); es desa als ajustos
+        double capcal = 0.0;        // 0.27: capçal de l'editor (segons del fitxer): d'aquí escolta l'original
     };
     EditorSampler sampler;
 

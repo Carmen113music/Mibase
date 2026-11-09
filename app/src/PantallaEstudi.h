@@ -3,6 +3,7 @@
 #include "DialegText.h"
 #include "EditorVeu.h"
 #include "EditorSampler.h"
+#include "PanellBiblioteca.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
@@ -102,8 +103,13 @@ private:
     // 0.26: samplejador
     void obreSampler (int pista);
     void tancaSampler();
+    void tancaTot();   // 0.27: Esc global
     void demanaSample();
     void carregaSample (const std::string& idPista, const juce::File& f);
+    // 0.27: biblioteca
+    void deixaSample (const juce::File& f, int fila, double temps);
+    void sampleAFila (int fila, const juce::File& f);
+    int pistaSamplerNova (const juce::File& f);
     void commutaVeuAB();
     /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
     void sincronitzaVeu();
@@ -178,10 +184,16 @@ private:
     struct Focus : juce::MouseListener
     {
         std::function<void()> f;
+        std::function<void (juce::Component*)> entra;   // 0.27: el ratolí hi entra (sense clicar)
         void mouseDown (const juce::MouseEvent&) override { if (f) f(); }
+        void mouseEnter (const juce::MouseEvent& e) override { if (entra) entra (e.eventComponent); }
     };
+    bool potAgafarFocus() const;
     Focus focusEditor, focusPistes;
     PanellPista panell { estat };
+    PanellBiblioteca biblioteca { ajustos };                          // 0.27
+    Segmentat pestDreta { { "Clip", "Biblioteca" } };
+    bool dretaBiblioteca = false;
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };

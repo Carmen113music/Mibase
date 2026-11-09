@@ -135,6 +135,7 @@ namespace
 
 #include "proves_veu.inc"
 #include "proves_sampler.inc"
+#include "proves_biblioteca.inc"
 
 int main()
 {
@@ -2254,6 +2255,7 @@ int main()
 
     provesVeu();
     provesSampler();
+    provesBiblioteca();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

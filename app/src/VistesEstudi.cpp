@@ -929,11 +929,21 @@ void VistaPistes::paint (juce::Graphics& g)
 
     // 0.17: fila del màster (no té clips).
     {
+        // 0.27: diferenciat de les pistes: metall fosc amb ratlles daurades i el text «sortida general»
         const int y = estat.yMaster();
-        g.setColour (estat.masterTriat() ? tema::triat : juce::Colour (0xff141418));
-        g.fillRect (0, y, getWidth(), estat.altPista);
-        g.setColour (tema::accent.withAlpha (0.35f));
+        const auto r = juce::Rectangle<int> (0, y, getWidth(), estat.altPista);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff24221c), 0.0f, (float) y, juce::Colour (0xff16150f), 0.0f, (float) r.getBottom(), false));
+        g.fillRect (r);
+        if (estat.masterTriat()) { g.setColour (tema::triat.withAlpha (0.5f)); g.fillRect (r); }
+        g.setColour (tema::guitarra.withAlpha (0.05f));
+        for (int x = -estat.altPista; x < getWidth(); x += 14)
+            g.drawLine ((float) x, (float) r.getBottom(), (float) (x + estat.altPista), (float) y, 5.0f);
+        g.setColour (tema::guitarra.withAlpha (0.55f));
+        g.fillRect (0, y, getWidth(), 1);
         g.fillRect (0, y + estat.altPista - 2, getWidth(), 2);
+        g.setColour (tema::guitarra.withAlpha (0.35f));
+        g.setFont (dibuix::lletra (11.0f, true));
+        g.drawText (dibuix::majuscules ("Sortida general"_ca), r.withTrimmedLeft (12), juce::Justification::centredLeft, false);
     }
 
     for (int i = 0; i < estat.numPistes(); ++i)
@@ -1732,20 +1742,24 @@ void Capcaleres::paint (juce::Graphics& g)
     {
         const int y = estat.yMaster();
         auto r = juce::Rectangle<int> (0, y, getWidth(), estat.altPista);
-        g.setColour (estat.masterTriat() ? tema::triat : juce::Colour (0xff1a1a20));
+        vintage::panell (g, r.toFloat());   // 0.27: metall, com un aparell (les pistes són llises)
+        g.setColour (juce::Colour (0x40f5b445));
         g.fillRect (r);
-        g.setColour (tema::accent);
+        if (estat.masterTriat()) { g.setColour (tema::triat.withAlpha (0.55f)); g.fillRect (r); }
+        g.setColour (tema::guitarra);
         g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
+        g.setColour (tema::guitarra.withAlpha (0.6f));
+        g.fillRect (r.getX(), r.getY(), r.getWidth(), 1);
         auto text = r.withTrimmedLeft (14).withTrimmedRight (22).withTrimmedTop (7);
-        g.setColour (tema::text);
+        g.setColour (tema::guitarra);
         g.setFont (dibuix::lletra (14.0f, true));
-        g.drawText ("Màster"_ca, text.removeFromTop (20), juce::Justification::centredLeft, true);
+        g.drawText (dibuix::majuscules ("Màster"_ca), text.removeFromTop (20), juce::Justification::centredLeft, true);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.0f));
         g.drawText ("L+R · "_ca + textSortidaMaster (p) + " · "_ca + EstatEstudi::textDb (p.masterDb), text.removeFromTop (20), juce::Justification::centredLeft, true);
         dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
                                 estat.nivellsSortida[0], estat.nivellsSortida[1]);
-        g.setColour (tema::accent.withAlpha (0.35f));
+        g.setColour (tema::guitarra.withAlpha (0.55f));
         g.fillRect (0, r.getBottom() - 2, getWidth(), 2);
     }
 

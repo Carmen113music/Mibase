@@ -26,7 +26,7 @@ private:
     int cols = 1, triat = 0;
 };
 
-class EditorSampler : public SeccioEstudi, public juce::FileDragAndDropTarget
+class EditorSampler : public SeccioEstudi, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget
 {
 public:
     explicit EditorSampler (EstatEstudi& e);
@@ -38,6 +38,7 @@ public:
     std::function<double()> posicioSo;                                // segons del fitxer original que sonen ara (-1: res)
     std::function<std::shared_ptr<const mibase::sampler::Mostra>()> mostra;   // l'àudio original
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
+    std::function<void (int)> onAltConsola;                           // l'alçada dels paràmetres ha canviat (per desar-la)
 
     /** Al ritme del transport (capçal del so). */
     void tic();
@@ -51,8 +52,6 @@ public:
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
     bool keyPressed (const juce::KeyPress& k) override;
-    bool keyStateChanged (bool avall) override;
-    void focusLost (FocusChangeType) override { alliberaTecles(); }
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int, int) override;
@@ -60,6 +59,17 @@ public:
     void fileDragExit (const juce::StringArray&) override { sobreFitxer = false; repaint(); }
 
     static juce::String nomNota (int nota);   // «C4» (60)
+
+    // 0.27: un sample de la biblioteca
+    bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("mibase-sample:") && pista() != nullptr; }
+    void itemDragEnter (const SourceDetails&) override { sobreFitxer = true; repaint(); }
+    void itemDragExit (const SourceDetails&) override { sobreFitxer = false; repaint(); }
+    void itemDropped (const SourceDetails& d) override
+    {
+        sobreFitxer = false;
+        repaint();
+        if (onFitxer) onFitxer (juce::File (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false)));
+    }
 
 protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -93,11 +103,6 @@ private:
     void pintaTeclat (juce::Graphics& g);
     int notaRatoli = -1;
 
-    // ---- teclat de l'ordinador ----
-    int octava = 4;
-    std::map<int, int> tecles;          // codi de tecla → nota que sona
-    void alliberaTecles();
-    static int semitoDe (juce::juce_wchar c);
 
     // ---- pics de l'ona ----
     std::shared_ptr<const mibase::sampler::Mostra> m;
@@ -111,11 +116,13 @@ private:
 
     // ---- barra ----
     Boto btCarrega { "Carrega…"_ca, dibuix::Icona::Importa, Boto::Estil::Secundari };
-    Boto btPlay { "Fragment", dibuix::Icona::Play, Boto::Estil::Secundari };
+    Boto btPlay { "Escolta", dibuix::Icona::Play, Boto::Estil::Secundari };
+    bool escoltant = false;
+    int ticsSenseSo = 0;
+    void commutaEscolta();
     Boto btZero { "Pas per zero", std::nullopt, Boto::Estil::Tecla };
     Segmentat selBucle { { "Sense", "Endavant", "Ping-pong", "Sustain + release" } };
     Boto btConsola { "Paràmetres"_ca, std::nullopt, Boto::Estil::Tecla };
-    Boto btTeclat { "Teclat", std::nullopt, Boto::Estil::Tecla };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Subtil };
 
     // ---- consola ----
@@ -147,6 +154,17 @@ private:
                           std::function<juce::String (double)> text,
                           std::function<double (const mibase::ParamsSampler&)> llegeix,
                           std::function<void (mibase::ParamsSampler&, double)> escriu, bool alFinal = false);
+    // La consola és dins d'una zona amb desplaçament; el separador de sobre en canvia l'alçada.
+    struct Consola : juce::Component
+    {
+        std::function<void (juce::Graphics&)> pinta;
+        void paint (juce::Graphics& g) override { if (pinta) pinta (g); }
+    };
+    Consola consola;
+    juce::Viewport vistaConsola;
+    Divisor divConsola { true };
+    int altInici = 0;
+    void pintaConsola (juce::Graphics& g);
     struct Lloc { juce::Component* c; int ample; juce::String grup; };   // c == nullptr: el dibuix de l'ADSR
     std::vector<Lloc> fila1, fila2;    // ordre de la consola
     Pom* pomActiu = nullptr;

@@ -408,7 +408,8 @@ namespace mibase::sampler
         const auto& M = mostra->m;
         const float* xL = M.L.data();
         const float* xR = M.R.empty() ? xL : M.R.data();
-        const double i0 = a.inici.load(), i1 = a.fi.load();
+        const double i0 = v.audicio ? 0.0 : a.inici.load();
+        const double i1 = v.audicio ? (double) M.L.size() - 1.0 : a.fi.load();   // l'audició és de l'original sencer
         const double b0 = a.bucleDe.load(), b1 = a.bucleA.load();
         const int toc = a.modeToc.load();
         const int modeB = toc == 1 || v.audicio ? 0 : a.modeBucle.load();
@@ -553,8 +554,8 @@ namespace mibase::sampler
             }
             float gain = v.nivell * v.guanyVel * fade * (v.env == Env::Mort ? v.mort : 1.0f);
             float x[2] = { sl * gain, sr * gain };
-            if (drive > 0.001f) for (auto& c : x) c = std::tanh (c * dg) * dn;
-            if (tipusF > 0)
+            if (drive > 0.001f && ! v.audicio) for (auto& c : x) c = std::tanh (c * dg) * dn;
+            if (tipusF > 0 && ! v.audicio)
                 for (int c = 0; c < 2; ++c)
                     for (int e = 0; e < etapes; ++e)
                     {
@@ -602,7 +603,7 @@ namespace mibase::sampler
                     v->audicio = true;
                     v->nota = a.root.load();
                     v->pas = pasDe (v->nota);
-                    v->pos = std::clamp (mostra->aMostra (pet), a.inici.load(), a.fi.load());
+                    v->pos = std::clamp (mostra->aMostra (pet), 0.0, (double) mostra->m.L.size() - 1.0);
                     v->ordre = ++comptador;
                     v->env = Env::Sost;
                     v->nivell = 1.0f;

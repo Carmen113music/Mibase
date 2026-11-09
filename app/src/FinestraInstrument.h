@@ -5,6 +5,7 @@
 #include "Plugins.h"
 #include <mibase/Harmonia.h>
 #include <mibase/Midi.h>
+#include "EscGlobal.h"
 
 /** 0.20: el panell enganxat al costat de la finestra d'un instrument (VST3 o sinte intern): l'escala amb què toca el
     teclat MIDI (Visual / Assistit / Bloquejat), la tonalitat, i si aquesta pista la fa servir o no. */
@@ -195,6 +196,7 @@ private:
 class FinestraSinte : public juce::DocumentWindow
 {
 public:
+    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }   // 0.27
     FinestraSinte (EstatEstudi& e, const std::string& id, const juce::String& titol, std::function<void()> enTancar)
         : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           tancar (std::move (enTancar))

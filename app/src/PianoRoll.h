@@ -4,6 +4,7 @@
 
 #include <mibase/Harmonia.h>
 #include <mibase/Midi.h>
+#include "EscGlobal.h"
 
 /** Petit camp numèric que es canvia arrossegant amunt i avall (o amb la roda). Doble clic: valor inicial. */
 class CaixaNumero : public juce::Component, public juce::SettableTooltipClient
@@ -60,6 +61,7 @@ public:
     std::function<void (int pista, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2)> onDirecte;
     std::function<void (bool refer)> onDesfes;
     std::function<void()> onSolo;   // 0.24: solo de la pista de l'editor (tecla * del teclat numèric)
+    std::function<void (int fila, const juce::File&)> onSampleAFila;   // 0.27: un sample de la biblioteca deixat a una fila del Drumpad
     /** Les tecles que el Piano Roll no fa servir (Espai, R…), per quan és en una finestra a part. */
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
     std::function<void()> onDesenganxa, onTanca;
@@ -359,6 +361,7 @@ private:
 class FinestraPianoRoll : public juce::DocumentWindow
 {
 public:
+    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }   // 0.27
     FinestraPianoRoll (juce::Component& contingut, std::function<void()> enTancar);
     void closeButtonPressed() override { if (tanca) tanca(); }
 

@@ -1,4 +1,5 @@
 #include "PantallaEstudi.h"
+#include "EscGlobal.h"
 #include "Inserts.h"
 
 using namespace mibase;
@@ -189,7 +190,30 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btClicMenu.setTooltip ("Volum i so de la claqueta"_ca);
     btClicMenu.onClick = [this] { menuClaqueta(); };
     btTempo.setTooltip ("Canvia el tempo"_ca);
-    btTempo.onClick = [this] { canviaTempo(); };
+    btTempo.onClick = [this]
+    {
+        // 0.27: tempo i compàs
+        juce::PopupMenu m;
+        m.addItem (1, "Tempo… ("_ca + juce::String ((int) std::round (estat.projecte.tempo)) + " bpm)");
+        m.addSeparator();
+        m.addSectionHeader ("Compàs"_ca);
+        static const int compassos[][2] = { { 2, 4 }, { 3, 4 }, { 4, 4 }, { 5, 4 }, { 6, 8 }, { 7, 8 }, { 9, 8 }, { 12, 8 } };
+        for (int i = 0; i < 8; ++i)
+            m.addItem (10 + i, juce::String (compassos[i][0]) + "/" + juce::String (compassos[i][1]), true,
+                       estat.projecte.compasNum == compassos[i][0] && estat.projecte.compasDen == compassos[i][1]);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btTempo), [this] (int r)
+        {
+            if (r == 1) { canviaTempo(); return; }
+            if (r < 10 || r > 17) return;
+            const int num = compassos[r - 10][0], den = compassos[r - 10][1];
+            if (num == estat.projecte.compasNum && den == estat.projecte.compasDen) return;
+            estat.desfes.abans (estat.projecte);
+            estat.projecte.compasNum = num;
+            estat.projecte.compasDen = den;
+            servei.motor().tempsPerCompasClic = num;
+            estat.canviat ("Compàs: "_ca + juce::String (num) + "/" + juce::String (den));
+        });
+    };
     snap.setTriat ((int) estat.projecte.snap);
     snap.onCanvi = [this] (int i) { estat.projecte.snap = (Snap) i; estat.avisa(); calDesar = true; startTimer (700); };
     btDesfes.setTooltip ("Desfés (Ctrl+Z)"_ca);
@@ -251,6 +275,23 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         return nullptr;
     };
     editorSampler.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
+    estat.sampler.altConsola = ajustos.getIntValue ("sampler.altConsola", 0);
+    editorSampler.onAltConsola = [this] (int alt) { ajustos.setValue ("sampler.altConsola", alt); };
+    // 0.27: panell de la dreta amb pestanyes (clip / biblioteca)
+    addAndMakeVisible (pestDreta);
+    addChildComponent (biblioteca);
+    dretaBiblioteca = ajustos.getBoolValue ("estudi.dretaBiblioteca", false);
+    pestDreta.setTriat (dretaBiblioteca ? 1 : 0);
+    pestDreta.onCanvi = [this] (int i) { dretaBiblioteca = i == 1; ajustos.setValue ("estudi.dretaBiblioteca", dretaBiblioteca); colocaSeccions(); };
+    escGlobal() = [this] { tancaTot(); };
+    biblioteca.onInfo = [this] (const juce::String& t) { estat.info = t; estat.avisa(); };
+    biblioteca.onEscolta = [this] (const juce::File& fs) { if (auto mo = kits::llegeix (fs, 30.0)) servei.escoltaSo (mo); };
+    biblioteca.onObreAlSampler = [this] (const juce::File& fs)
+    {
+        if (estat.sampler.obert) carregaSample (estat.sampler.pista, fs);
+        else pistaSamplerNova (fs);
+    };
+    pistes.onSample = [this] (const juce::File& fs, int fila, double t) { deixaSample (fs, fila, t); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -341,6 +382,25 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     focusEditor.f = [this] { if (! estat.focusEditor) { estat.focusEditor = true; estat.avisa(); } };
     focusPistes.f = [this] { if (estat.focusEditor && estat.pianoRoll) { estat.focusEditor = false; estat.avisa(); } };
+    // 0.27: el teclat (Z, Maj+Z, M…) actua on és el ratolí, sense haver de clicar
+    focusEditor.entra = [this] (juce::Component* c)
+    {
+        if (! potAgafarFocus() || c == nullptr) return;
+        juce::Component* ed = dynamic_cast<PianoRoll*> (c);
+        if (ed == nullptr) ed = c->findParentComponentOfClass<PianoRoll>();
+        if (ed == nullptr) ed = dynamic_cast<EditorVeu*> (c) != nullptr ? c : c->findParentComponentOfClass<EditorVeu>();
+        if (ed == nullptr) ed = dynamic_cast<EditorSampler*> (c) != nullptr ? c : c->findParentComponentOfClass<EditorSampler>();
+        if (ed != nullptr && ! ed->hasKeyboardFocus (true)) ed->grabKeyboardFocus();
+        if (! estat.focusEditor && dynamic_cast<PianoRoll*> (ed) != nullptr) { estat.focusEditor = true; estat.avisa(); }
+    };
+    focusPistes.entra = [this] (juce::Component*)
+    {
+        if (! potAgafarFocus()) return;
+        if (! pistes.hasKeyboardFocus (true)) pistes.grabKeyboardFocus();
+        if (estat.focusEditor && estat.pianoRoll) { estat.focusEditor = false; estat.avisa(); }
+    };
+    editorVeu.addMouseListener (&focusEditor, true);
+    editorSampler.addMouseListener (&focusEditor, true);
     zonaEditors.addMouseListener (&focusEditor, true);
     pistes.addMouseListener (&focusPistes, true);
     capcaleres.addMouseListener (&focusPistes, true);
@@ -373,9 +433,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     inserts::obreVeu() = nullptr;
+    escGlobal() = nullptr;
     informePlugins() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);
+    editorVeu.removeMouseListener (&focusEditor);
+    editorSampler.removeMouseListener (&focusEditor);
     pistes.removeMouseListener (&focusPistes);
     capcaleres.removeMouseListener (&focusPistes);
     if (finestraPianoRoll != nullptr)
@@ -576,7 +639,12 @@ void PantallaEstudi::colocaSeccions()
     if (ambCarpetes) encongeix (carp, 120);
 
     esquerra.setBounds (r.removeFromLeft (esq));
-    panell.setBounds (r.removeFromRight (pan));
+    {
+        auto zDreta = r.removeFromRight (pan);
+        pestDreta.setBounds (zDreta.removeFromTop (34).reduced (8, 4));
+        panell.setBounds (zDreta);
+        biblioteca.setBounds (zDreta);
+    }
     // 0.26: el samplejador, a baix (sense tocar el panell de la dreta, on anirà la biblioteca)
     const bool samplerBaix = estat.sampler.obert && ! m && ! estat.veu.obert;
     editorSampler.setVisible (samplerBaix);
@@ -614,7 +682,9 @@ void PantallaEstudi::colocaSeccions()
 
     mescles.setVisible (estat.vistaMescles);
     taulaEstructura.setVisible (estat.vistaEstructura);
-    panell.setVisible (! estat.vistaEstructura);
+    panell.setVisible (! estat.vistaEstructura && ! dretaBiblioteca);
+    biblioteca.setVisible (! estat.vistaEstructura && dretaBiblioteca);
+    pestDreta.setVisible (! estat.vistaEstructura);
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
         c->setVisible (! m);
     carpetes.setVisible (ambCarpetes);
@@ -1854,8 +1924,11 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
     if (codi == juce::KeyPress::insertKey) { canviaInsereix (! estat.insereix); return true; }
     // 0.24: / i * del teclat numèric (a Linux arriben com a «/» i «*»).
-    if (codi == juce::KeyPress::numberPadDivide || (codi == '/' && ! mods.isCommandDown())) { commutaBucle(); return true; }
-    if (codi == juce::KeyPress::numberPadMultiply || (codi == '*' && ! mods.isCommandDown())) { commutaSoloEditor(); return true; }
+    // 0.27: a Windows amb el teclat espanyol, la «/» del teclat numèric arriba amb el codi de la tecla «-» (la del mateix
+    // lloc al teclat principal) però amb el caràcter «/»: per això es mira el caràcter.
+    const auto car = k.getTextCharacter();
+    if (! mods.isCommandDown() && (codi == juce::KeyPress::numberPadDivide || codi == '/' || car == '/')) { commutaBucle(); return true; }
+    if (! mods.isCommandDown() && (codi == juce::KeyPress::numberPadMultiply || codi == '*' || car == '*')) { commutaSoloEditor(); return true; }
     if (cap && lletra ('M')) { silenciaTriat(); return true; }
     if (mods.isCommandDown() && lletra ('G')) { demanaNomCarpeta (estat.indexsTriades(), {}); return true; }
     if (cap && lletra ('L')) { commutaBucle(); return true; }
@@ -1877,7 +1950,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && (codi == 'S' || codi == 's')) { desaAra(); estat.info = "Desat"; estat.avisa(); return true; }
     if (mods.isCommandDown() && (codi == 'I' || codi == 'i')) { importaDeMenu(); return true; }
     if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '6') { triaEina ((Eina) (codi - '1')); return true; }
-    if (codi == juce::KeyPress::escapeKey) { estat.triantFantasma = -1; estat.capTriat(); triaEina (Eina::Fletxa); return true; }
+    if (codi == juce::KeyPress::escapeKey) { estat.triantFantasma = -1; estat.capTriat(); triaEina (Eina::Fletxa); tancaTot(); return true; }
     if (codi == juce::KeyPress::homeKey) { transport (0); return true; }
     if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
     if (! mods.isAnyModifierKeyDown() && (codi == 'R' || codi == 'r')) { if (estat.transport == 0) grava(); else atura(); return true; }
@@ -1896,6 +1969,7 @@ void PantallaEstudi::configuraEditor (PianoRoll& pr)
     };
     pr.onDesfes = [this] (bool refer) { desfes (refer); };
     pr.onSolo = [this] { commutaSoloEditor(); };
+    pr.onSampleAFila = [this] (int fila, const juce::File& f) { sampleAFila (fila, f); };
     pr.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
     pr.onDesenganxa = [this]
     {
@@ -2306,7 +2380,7 @@ void PantallaEstudi::obreSampler (int pista)
     if (t == nullptr || ! mibase::esSampler (*t)) return;
     if (estat.pianoRoll) mostraPianoRoll (false);
     estat.veu.obert = false;
-    if (estat.sampler.pista != t->id) { estat.sampler.pxPerSeg = 0.0; estat.sampler.iniciVista = 0.0; }
+    if (estat.sampler.pista != t->id) { estat.sampler.pxPerSeg = 0.0; estat.sampler.iniciVista = 0.0; estat.sampler.capcal = 0.0; }
     estat.sampler.obert = true;
     estat.sampler.pista = t->id;
     estat.pistaTriada = pista;
@@ -2399,4 +2473,95 @@ void PantallaEstudi::carregaSample (const std::string& idPista, const juce::File
                  + (root >= 0 ? ". És un "_ca + EditorSampler::nomNota (root) + ": aquesta tecla el toca tal qual"_ca
                               : ". No té una nota clara: el toca la C4"_ca);
     estat.canviat ("Samplejador: «"_ca + desti.getFileName() + "» a la pista «"_ca + dibuix::utf8 (t->nom) + "»"_ca);
+}
+
+//==============================================================================
+// 0.27: biblioteca de samples
+//==============================================================================
+int PantallaEstudi::pistaSamplerNova (const juce::File& f)
+{
+    const auto nom = ed::nomPistaLliure (estat.projecte, f.getFileNameWithoutExtension().toStdString());
+    estat.desfes.abans (estat.projecte);
+    auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
+    t.canals = 2;
+    t.instrument = mibase::instrumentSampler;
+    const auto id = t.id;
+    estat.pistaTriada = estat.numPistes() - 1;
+    estat.capTriat();
+    estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (samplejador)"_ca);
+    obreSampler (estat.pistaTriada);
+    carregaSample (id, f);
+    return estat.pistaTriada;
+}
+
+void PantallaEstudi::deixaSample (const juce::File& f, int fila, double temps)
+{
+    if (! f.existsAsFile()) return;
+    auto* t = fila >= 0 ? estat.pista (fila) : nullptr;
+    if (t == nullptr) { pistaSamplerNova (f); return; }                   // sota les pistes: pista Samplejador nova
+    if (mibase::esSampler (*t)) { obreSampler (fila); carregaSample (t->id, f); return; }
+    if (mibase::esMidi (*t))
+    {
+        estat.info = "Aquesta pista és d'instrument: deixa'l en una pista d'àudio (clip), en una de samplejador o a sota de les pistes (pista nova)"_ca;
+        estat.avisa();
+        return;
+    }
+    importa (juce::StringArray (f.getFullPathName()), fila, temps);       // pista d'àudio: un clip
+}
+
+void PantallaEstudi::sampleAFila (int fila, const juce::File& f)
+{
+    auto* pr = zonaEditors.actiu();
+    auto* t = pr != nullptr ? estat.pista (pr->pistaDeLEditor()) : nullptr;
+    if (t == nullptr || t->tipus != "bateria" || fila < 0 || fila >= (int) t->files.size()) return;
+    // El so es copia a la carpeta dels kits («Biblioteca/…»), d'on la bateria llegeix els seus sons.
+    const auto carpetaKits = kits::carpeta().getChildFile ("Biblioteca");
+    auto desti = carpetaKits.getChildFile (juce::File::createLegalFileName (f.getFileNameWithoutExtension()) + ".wav");
+    if (! desti.existsAsFile() || desti.getSize() != f.getSize())
+    {
+        if (desti.existsAsFile())
+            desti = carpetaKits.getChildFile (juce::String::fromUTF8 (mibase::biblioteca::nomLliure (carpetaKits.getFullPathName().toStdString(),
+                                                                       juce::File::createLegalFileName (f.getFileNameWithoutExtension()).toStdString(), ".wav").c_str()));
+        if (auto e = samples::copiaComWav (f, desti); e.isNotEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut posar el sample"_ca, e);
+            return;
+        }
+    }
+    estat.desfes.abans (estat.projecte);
+    auto& fl = t->files[(size_t) fila];
+    fl.so = ("Biblioteca/" + desti.getFileName()).toStdString();
+    fl.nom = f.getFileNameWithoutExtension().toStdString();
+    estat.canviat ("Drumpad: «"_ca + f.getFileNameWithoutExtension() + "» a la fila "_ca + juce::String (fila + 1));
+    if (auto mo = kits::llegeix (desti)) servei.escoltaSo (mo);
+}
+
+//==============================================================================
+// 0.27: Esc, estiguis on estiguis: tanca les finestres i els editors i torna a la taula de treball.
+void PantallaEstudi::tancaTot()
+{
+    plugins.tancaFinestres();
+    esquerra.opcions.tancaFinestresSinte();
+    finestraKits.reset();
+    if (estat.sampler.obert) tancaSampler();
+    if (estat.veu.obert) tancaVeu();
+    if (estat.pianoRoll) mostraPianoRoll (false);
+    estat.vistaMescles = estat.vistaEstructura = false;
+    estat.info = "Esc: tot tancat (taula de treball)"_ca;
+    estat.avisa();
+    if (auto* arrel = getTopLevelComponent()) arrel->toFront (true);
+    grabKeyboardFocus();
+}
+
+/** 0.27: es pot passar el teclat a on és el ratolí? No si s'està escrivint (un camp de text o una finestreta) o si
+    Mibase no és la finestra de davant. */
+bool PantallaEstudi::potAgafarFocus() const
+{
+    if (! juce::Process::isForegroundProcess()) return false;
+    if (dialeg != nullptr && dialeg->isVisible()) return false;
+    if (juce::Component::getCurrentlyModalComponent() != nullptr) return false;
+    auto* f = juce::Component::getCurrentlyFocusedComponent();
+    if (dynamic_cast<juce::TextEditor*> (f) != nullptr) return false;
+    if (f != nullptr && f->getTopLevelComponent() != getTopLevelComponent()) return false;   // una finestra a part (plugin, Piano Roll desenganxat…)
+    return true;
 }

@@ -77,7 +77,7 @@ EditorSampler::ParamPom& EditorSampler::afegeixPom (int fila, const juce::String
     poms.push_back ({ std::make_unique<Pom> (nom, mn, mx, def, bipolar, std::move (text)), std::move (llegeix), std::move (escriu), alFinal, 0.0, fila });
     const size_t i = poms.size() - 1;
     auto* pom = poms[i].pom.get();
-    addAndMakeVisible (*pom);
+    consola.addAndMakeVisible (*pom);
     pom->onComenca = [this, pom] { estat.desfes.abans (estat.projecte); pomActiu = pom; };
     pom->onCanvi = [this, i] (double v)
     {
@@ -98,27 +98,40 @@ EditorSampler::ParamPom& EditorSampler::afegeixPom (int fila, const juce::String
 EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
 {
     setWantsKeyboardFocus (true);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &btCarrega, &btPlay, &btZero, &selBucle, &btConsola, &btTeclat, &btTanca,
-                                                                         &selToc, &selVeus, &selFiltre, &selPendent, &btRoot, &btAlTempo, &btX2, &btD2,
-                                                                         &btReversa, &btManteTo, &btDurFixa, &btFlat, &btSmono })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &btCarrega, &btPlay, &btZero, &selBucle, &btConsola, &btTanca })
         addAndMakeVisible (c);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &selToc, &selVeus, &selFiltre, &selPendent, &btRoot, &btAlTempo, &btX2, &btD2,
+                                                                         &btReversa, &btManteTo, &btDurFixa, &btFlat, &btSmono })
+        consola.addAndMakeVisible (c);
+    consola.pinta = [this] (juce::Graphics& g) { pintaConsola (g); };
+    vistaConsola.setViewedComponent (&consola, false);
+    vistaConsola.setScrollBarsShown (true, false);
+    vistaConsola.setScrollBarThickness (8);
+    addAndMakeVisible (vistaConsola);
+    addAndMakeVisible (divConsola);
+    divConsola.setTooltip ("Arrossega per fer els paràmetres més alts o més baixos (doble clic: la mida que cal)"_ca);
+    divConsola.onComenca = [this] { altInici = vistaConsola.getHeight(); };
+    divConsola.onArrossega = [this] (int dy)
+    {
+        estat.sampler.altConsola = juce::jlimit (40, juce::jmax (40, getHeight() - 140), altInici - dy);
+        resized();
+        repaint();
+    };
+    divConsola.onAcaba = [this] { if (onAltConsola) onAltConsola (estat.sampler.altConsola); };
+    divConsola.onDobleClic = [this] { estat.sampler.altConsola = 0; if (onAltConsola) onAltConsola (0); resized(); repaint(); };
 
     btCarrega.setTooltip ("Carrega un fitxer d'àudio (wav, mp3, ogg, flac). També el pots arrossegar a sobre de l'ona. Es copia al projecte."_ca);
     btCarrega.onClick = [this] { if (onCarrega) onCarrega(); };
-    btPlay.setTooltip ("Escolta el fragment (de l'inici al final). Clic a l'ona: escolta des d'allà"_ca);
-    btPlay.onClick = [this] { if (auto* p = params()) if (onEscolta) onEscolta (p->inici); };
+    btPlay.setTooltip ("Escolta l'original des del capçal (la línia blanca: clica l'ona per posar-la on vulguis). Esc l'atura"_ca);
+    btPlay.onClick = [this] { commutaEscolta(); };
     btZero.setTooltip ("En moure els marcadors, s'enganxen al pas per zero més proper (evita clics)"_ca);
     btZero.onClick = [this] { canvia ([] (ParamsSampler& p) { p.zeroCrossing = ! p.zeroCrossing; }); };
     selBucle.setTooltip ("Bucle: Sustain + release = en prémer sona fins al bucle, mentre mantens repeteix el bucle i en deixar anar continua des del final del bucle fins al final"_ca);
     selBucle.onCanvi = [this] (int i) { canvia ([i] (ParamsSampler& p) { p.modeBucle = i; }, "Samplejador: mode de bucle"_ca); };
     btConsola.setTooltip ("Mostra o amaga els paràmetres (amagats, l'ona es fa més alta). Z = tot el sample; Maj + Z = el fragment; Ctrl + roda = zoom"_ca);
     btConsola.onClick = [this] { estat.sampler.consola = ! estat.sampler.consola; resized(); repaint(); };
-    btTeclat.setClickingTogglesState (true);
-    btTeclat.setToggleState (true, juce::dontSendNotification);
-    btTeclat.setTooltip ("Teclat de l'ordinador per provar-lo: A W S E D F T G Y H U J K = notes, - / + = octava avall / amunt"_ca);
-    btTeclat.onClick = [this] { alliberaTecles(); };
     btTanca.setTooltip ("Amaga el samplejador"_ca);
-    btTanca.onClick = [this] { alliberaTecles(); if (onEscolta) onEscolta (-1.0); if (onTanca) onTanca(); };
+    btTanca.onClick = [this] { if (onEscolta) onEscolta (-1.0); escoltant = false; if (onTanca) onTanca(); };
 
     selToc.setTooltip ("Play: sona mentre la tecla és premuda (amb bucle i release). One-shot: sona sencer. Gate: calla en deixar anar"_ca);
     selToc.onCanvi = [this] (int i) { canvia ([i] (ParamsSampler& p) { p.modeToc = i; }); };
@@ -339,7 +352,6 @@ void EditorSampler::resized()
     b.removeFromLeft (juce::jmin (230, b.getWidth() / 6));   // títol
     auto posaD = [&b] (juce::Component& c, int w) { c.setBounds (b.removeFromRight (w)); b.removeFromRight (6); };
     posaD (btConsola, 92);
-    posaD (btTeclat, 66);
     posaD (btZero, 98);
     auto posa = [&b] (juce::Component& c, int w) { c.setBounds (b.removeFromLeft (w)); b.removeFromLeft (6); };
     posa (btCarrega, 92);
@@ -358,7 +370,7 @@ void EditorSampler::resized()
                 if (grupsTots.empty() || grupsTots.back().front()->grup != l.grup) grupsTots.push_back ({});
                 grupsTots.back().push_back (&l);
             }
-        const int ampleDisp = getWidth() - 16;
+        const int ampleDisp = getWidth() - 16 - 10;
         int x = 0;
         for (auto& g : grupsTots)
         {
@@ -370,17 +382,23 @@ void EditorSampler::resized()
         }
     }
     const int altFila = 74;
-    zConsola = getLocalBounds().removeFromBottom (estat.sampler.consola ? (int) files.size() * altFila + 10 : 0);
-    for (auto* llista : { &fila1, &fila2 })
-        for (auto& l : *llista) if (l.c != nullptr) l.c->setVisible (estat.sampler.consola);
-    if (! estat.sampler.consola) { grups.clear(); zAdsr = {}; files.clear(); }
-    zOna = juce::Rectangle<int>::leftTopRightBottom (zOna.getX(), zOna.getY(), zOna.getRight(), juce::jmax (zOna.getY() + 70, zConsola.getY() - 2));
+    const int altCal = (int) files.size() * altFila + 10;
+    const int altVista = ! estat.sampler.consola ? 0
+                         : estat.sampler.altConsola > 0 ? juce::jlimit (40, juce::jmax (40, getHeight() - 140), estat.sampler.altConsola)
+                                                        : juce::jmin (altCal, juce::jmax (40, getHeight() - 140));
+    zConsola = getLocalBounds().removeFromBottom (altVista);
+    vistaConsola.setVisible (estat.sampler.consola);
+    divConsola.setVisible (estat.sampler.consola);
+    vistaConsola.setBounds (zConsola);
+    divConsola.setBounds (zConsola.getX(), zConsola.getY() - 4, zConsola.getWidth(), 8);
+    consola.setSize (zConsola.getWidth() - (altCal > altVista ? 8 : 0), altCal);
+    zOna = juce::Rectangle<int>::leftTopRightBottom (zOna.getX(), zOna.getY(), zOna.getRight(), juce::jmax (zOna.getY() + 70, zConsola.getY() - (estat.sampler.consola ? 5 : 2)));
     zTeclat = zOna.removeFromBottom (30);
     zOna.removeFromBottom (2);
     zFonsOna = zOna;
     zOna = zOna.reduced (margeOna, 0);
     zTeclat = zTeclat.reduced (margeOna, 0);
-    auto c = zConsola.reduced (8, 5);
+    auto c = consola.getLocalBounds().reduced (8, 5);
     for (auto& fila : files)
     {
         auto zona = c.removeFromTop (altFila).withTrimmedTop (14);
@@ -456,6 +474,18 @@ void EditorSampler::paint (juce::Graphics& g)
                     g.setColour (tema::guitarra.withAlpha (0.35f));
                     g.drawVerticalLine ((int) segAX (s), (float) zRegla.getBottom() - 5.0f, (float) zRegla.getBottom());
                 }
+        }
+    }
+
+    if (m != nullptr)   // el capçal, a la regla
+    {
+        const float x = segAX (estat.sampler.capcal);
+        if (x >= (float) zFonsOna.getX() && x <= (float) zFonsOna.getRight())
+        {
+            juce::Path tri;
+            tri.addTriangle (x - 5.0f, (float) zRegla.getY() + 7.0f, x + 5.0f, (float) zRegla.getY() + 7.0f, x, (float) zRegla.getBottom());
+            g.setColour (tema::text);
+            g.fillPath (tri);
         }
     }
 
@@ -558,11 +588,13 @@ void EditorSampler::paint (juce::Graphics& g)
             marcador (p->bucleDe, cb, "BUCLE", true, true);
             marcador (p->bucleA, cb, "FI BUCLE", true, false);
         }
-        // el que sona
+        // el capçal (d'on s'escolta l'original) i el que sona
+        g.setColour (tema::text.withAlpha (0.9f));
+        g.fillRect (segAX (estat.sampler.capcal) - 0.75f, (float) zOna.getY(), 1.5f, (float) zOna.getHeight());
         if (posSo >= 0.0)
         {
-            g.setColour (tema::text);
-            g.fillRect (segAX (posSo) - 0.75f, (float) zOna.getY(), 1.5f, (float) zOna.getHeight());
+            g.setColour (tema::guitarra.withAlpha (0.85f));
+            g.fillRect (segAX (posSo) - 0.5f, (float) zOna.getY(), 1.0f, (float) zOna.getHeight());
         }
         if (sobreFitxer)
         {
@@ -571,11 +603,13 @@ void EditorSampler::paint (juce::Graphics& g)
         }
     }
 
-    // consola
-    g.setColour (tema::superficie);
-    g.fillRect (zConsola);
+}
+
+void EditorSampler::pintaConsola (juce::Graphics& g)
+{
+    g.fillAll (tema::superficie);
     g.setColour (tema::linia);
-    g.fillRect (zConsola.getX(), zConsola.getY(), zConsola.getWidth(), 1);
+    g.fillRect (0, 0, consola.getWidth(), 1);
     g.setFont (dibuix::lletra (9.5f, true));
     for (auto& [nom, rg] : grups)
     {
@@ -711,9 +745,7 @@ void EditorSampler::pintaTeclat (juce::Graphics& g)
     const int root = p != nullptr ? p->root : -1;
     auto sona = [this] (int n)
     {
-        if (n == notaRatoli) return true;
-        for (auto& [codi, nota] : tecles) if (nota == n) return true;
-        return false;
+        return n == notaRatoli;
     };
     auto pinta = [&] (bool negres)
     {
@@ -774,7 +806,14 @@ void EditorSampler::mouseDown (const juce::MouseEvent& e)
     if (mk == Marca::Cap) return;
     segPremut = juce::jlimit (0.0, durada(), xASeg (e.position.x));
     if (e.mods.isPopupMenu()) { if (zOna.contains (e.getPosition())) menuOna (segPremut); return; }
-    if (mk == Marca::Escolta) { if (onEscolta) onEscolta (segPremut); return; }
+    if (mk == Marca::Escolta)
+    {
+        // el capçal va on cliques; si ja estava escoltant, continua des d'aquí
+        estat.sampler.capcal = segPremut;
+        if (escoltant && onEscolta) onEscolta (segPremut);
+        repaint();
+        return;
+    }
     arrossegant = mk;
 }
 
@@ -821,8 +860,16 @@ void EditorSampler::mouseDrag (const juce::MouseEvent& e)
     estat.avisa();
 }
 
-void EditorSampler::mouseUp (const juce::MouseEvent&)
+void EditorSampler::mouseUp (const juce::MouseEvent& e)
 {
+    if (arrossegant == Marca::NouBucle && ! desfesFet)   // clic a la regla (sense arrossegar): el capçal va aquí
+    {
+        estat.sampler.capcal = juce::jlimit (0.0, durada(), xASeg (e.position.x));
+        if (escoltant && onEscolta) onEscolta (estat.sampler.capcal);
+        arrossegant = Marca::Cap;
+        repaint();
+        return;
+    }
     if (notaRatoli >= 0)
     {
         if (onNota) onNota (0x80, (std::uint8_t) notaRatoli, 0);
@@ -895,11 +942,6 @@ void EditorSampler::mouseWheelMove (const juce::MouseEvent& e, const juce::Mouse
 }
 
 //==============================================================================
-int EditorSampler::semitoDe (juce::juce_wchar c)
-{
-    static const juce::String tecles ("awsedftgyhujkolp");
-    return tecles.indexOfChar (juce::CharacterFunctions::toLowerCase (c));
-}
 
 bool EditorSampler::keyPressed (const juce::KeyPress& k)
 {
@@ -918,56 +960,11 @@ bool EditorSampler::keyPressed (const juce::KeyPress& k)
         }
         return true;
     }
-    if (btTeclat.getToggleState() && ! mods.isCommandDown() && ! mods.isAltDown() && ! mods.isCtrlDown())
-    {
-        const auto c = juce::CharacterFunctions::toLowerCase (k.getTextCharacter());
-        if (c == '-' || c == '+')
-        {
-            octava = juce::jlimit (0, 8, octava + (c == '-' ? -1 : 1));
-            estat.info = "Teclat de prova: octava "_ca + juce::String (octava) + " (A = "_ca + nomNota ((octava + 1) * 12) + ")";
-            estat.avisa();
-            return true;
-        }
-        const int s = mods.isShiftDown() ? -1 : semitoDe (c);
-        if (s >= 0)
-        {
-            if (tecles.count (codi) == 0)
-            {
-                const int nota = juce::jlimit (0, 127, (octava + 1) * 12 + s);
-                tecles[codi] = nota;
-                if (onNota) onNota (0x90, (std::uint8_t) nota, 100);
-                repaint (zTeclat);
-            }
-            return true;
-        }
-    }
-    if (k == juce::KeyPress::escapeKey) { if (onEscolta) onEscolta (-1.0); return true; }
+    if (k == juce::KeyPress::escapeKey && escoltant) { if (onEscolta) onEscolta (-1.0); escoltant = false; return true; }
     return onTeclaNoUsada ? onTeclaNoUsada (k) : false;
 }
 
-bool EditorSampler::keyStateChanged (bool)
-{
-    bool fet = false;
-    for (auto it = tecles.begin(); it != tecles.end();)
-    {
-        if (! juce::KeyPress::isKeyCurrentlyDown (it->first))
-        {
-            if (onNota) onNota (0x80, (std::uint8_t) it->second, 0);
-            it = tecles.erase (it);
-            fet = true;
-            repaint (zTeclat);
-        }
-        else ++it;
-    }
-    return fet;
-}
 
-void EditorSampler::alliberaTecles()
-{
-    for (auto& [codi, nota] : tecles)
-        if (onNota) onNota (0x80, (std::uint8_t) nota, 0);
-    tecles.clear();
-}
 
 //==============================================================================
 bool EditorSampler::isInterestedInFileDrag (const juce::StringArray& files)
@@ -985,9 +982,20 @@ void EditorSampler::filesDropped (const juce::StringArray& files, int, int)
         if (juce::File (f).hasFileExtension ("wav;mp3;ogg;flac;aif;aiff")) { if (onFitxer) onFitxer (juce::File (f)); return; }
 }
 
+void EditorSampler::commutaEscolta()
+{
+    if (escoltant) { if (onEscolta) onEscolta (-1.0); escoltant = false; }
+    else if (m != nullptr) { if (onEscolta) onEscolta (estat.sampler.capcal); escoltant = true; ticsSenseSo = 0; }
+    btPlay.setButtonText (escoltant ? "Atura" : "Escolta");
+    btPlay.setIcona (escoltant ? dibuix::Icona::Atura : dibuix::Icona::Play);
+}
+
 void EditorSampler::tic()
 {
     double s = -1.0;
     if (posicioSo) s = posicioSo();
-    if (std::abs (s - posSo) > 1e-5) { posSo = s; repaint (zOna); }
+    if (std::abs (s - posSo) > 1e-5) { posSo = s; repaint (zFonsOna); }
+    // l'escolta s'ha acabat sola (final del fitxer)
+    if (escoltant && s < 0.0 && ++ticsSenseSo > 6) { escoltant = true; commutaEscolta(); }
+    if (s >= 0.0) ticsSenseSo = 0;
 }

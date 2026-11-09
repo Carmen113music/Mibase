@@ -282,7 +282,14 @@ namespace
             s.escolta (1.05);
             auto y = tocaSampler (s, 0, -1, -1, (long long) (0.5 * fs), fs);
             comprova (std::abs (freqZeros (y, 200, (size_t) (0.2 * fs), fs) - 330.0) < 6.0, "sona la «l» de seguida");
-            comprova (std::abs (finalDelSo (y) / fs - 0.25) < 0.01, "fins al final del fragment, sense bucle");
+            comprova (std::abs (finalDelSo (y) / fs - 0.25) < 0.01, "fins al final del fitxer, sense bucle");
+            auto p2 = p; p2.inici = 0.5; p2.fi = 0.7;
+            ms::Samplejador s2 (ms::prepara (goool (fs), p2));
+            s2.posaParams (p2);
+            s2.escolta (0.1);
+            auto y2 = tocaSampler (s2, 0, -1, -1, (long long) (1.5 * fs), fs);
+            comprova (std::abs (freqZeros (y2, 200, (size_t) (0.08 * fs), fs) - 150.0) < 5.0 && std::abs (finalDelSo (y2) / fs - 1.2) < 0.01,
+                      "escolta l'original encara que sigui fora del fragment (des de la G fins al final)");
             s.escolta (0.3);
             s.aturaEscolta();
             auto z = tocaSampler (s, 0, -1, -1, (long long) (0.2 * fs), fs);

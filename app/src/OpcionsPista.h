@@ -317,5 +317,8 @@ private:
     Boto btKit { "Kit", dibuix::Icona::Bateria, Boto::Estil::Secundari };
     juce::OwnedArray<FilaInsert> inserts;
     std::map<std::string, std::unique_ptr<FinestraSinte>> finestresSinte;
+public:
+    void tancaFinestresSinte() { finestresSinte.clear(); }   // 0.27: Esc
+private:
     int yTitol = 0;
 };

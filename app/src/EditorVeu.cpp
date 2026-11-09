@@ -55,18 +55,13 @@ EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (
     pCorreccio ("Correcció"_ca, 0.0, 100.0, 100.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; }),
     pVibrato ("Vibrato", 0.0, 200.0, 100.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; }),
     pRecta ("Treu deriva", 0.0, 100.0, 0.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " %"; }),
-    pFormant ("Formant", -12.0, 12.0, 0.0, true, [] (double v) { return (v > 0.04 ? "+" : "") + num (v, 1) + " st"; }),
+    pFormant ("Timbre veu", -12.0, 12.0, 0.0, true, [] (double v) { return (v > 0.04 ? "+" : "") + num (v, 1) + " st"; }),
     pVolum ("Volum", -24.0, 12.0, 0.0, true, [] (double v) { return (v > 0.04 ? "+" : "") + num (v, 1) + " dB"; }),
-    pTransicio ("Transició"_ca, 0.0, 300.0, 60.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " ms"; })
+    pTransicio ("Naturalitat", 0.0, 300.0, 60.0, false, [] (double v) { return juce::String ((int) std::lround (v)) + " ms"; })
 {
     setWantsKeyboardFocus (true);
-    for (int i = 0; i < numEines; ++i)
-    {
-        auto& b = btEines[i];
-        addAndMakeVisible (b);
-        b.setTooltip (nomEina (i) + " (tecla "_ca + juce::String (i + 1) + ")");
-        b.onClick = [this, i] { estat.veu.eina = i; actualitzaBotons(); repaint(); };
-    }
+    // 0.27: sense els botons d'eina de dalt (ja hi ha els poms): arrossegar una nota sempre n'afina el to.
+    estat.veu.eina = Fletxa;
     for (auto* b : { &btOna, &btAB, &btAjusta, &btTanca }) addAndMakeVisible (b);
     btOna.setTooltip ("Mostra l'ona de la gravació de fons"_ca);
     btOna.onClick = [this] { estat.veu.ona = ! estat.veu.ona; actualitzaBotons(); repaint(); };
@@ -158,7 +153,7 @@ EditorVeu::EditorVeu (EstatEstudi& e, ServeiVeu& s) : SeccioEstudi (e), servei (
         if (auto* p = presa()) p->veu.transicio = v / 1000.0;
         estat.avisa();
     };
-    pTransicio.onAcaba = [this] { acabaCanvi ("Vocal Editor: transició entre notes"_ca); };
+    pTransicio.onAcaba = [this] { acabaCanvi ("Vocal Editor: naturalitat"_ca); };
     btAjusta.setTooltip ("Encaixa la vista a les notes"_ca);
     btAjusta.onClick = [this] { ajustaVista(); };
     btTanca.setTooltip ("Amaga el Vocal Editor"_ca);
@@ -231,11 +226,6 @@ void EditorVeu::resized()
     r.removeFromRight (6);
     btSolo.setBounds (r.removeFromRight (34));
     r.removeFromLeft (150);   // el títol
-    for (int i = 0; i < numEines; ++i)
-    {
-        btEines[i].setBounds (r.removeFromLeft (76));
-        r.removeFromLeft (3);
-    }
 
     // Consola: tonalitat i A/B | poms | botons.
     auto c = zonaConsola().reduced (12, 8);
@@ -891,7 +881,7 @@ bool EditorVeu::keyPressed (const juce::KeyPress& k)
     const auto mods = k.getModifiers();
     auto* s = presa();
     if (s == nullptr) return false;
-    if (codi >= '1' && codi < '1' + numEines && ! mods.isAnyModifierKeyDown()) { estat.veu.eina = codi - '1'; actualitzaBotons(); repaint(); return true; }
+
     if (codi == juce::KeyPress::upKey || codi == juce::KeyPress::downKey)
     {
         const bool fi = lliure (mods);
@@ -906,7 +896,7 @@ bool EditorVeu::keyPressed (const juce::KeyPress& k)
         estat.avisa();
         return true;
     }
-    if (codi == juce::KeyPress::escapeKey) { estat.veu.triades.clear(); estat.avisa(); return true; }
+    if (codi == juce::KeyPress::escapeKey && ! estat.veu.triades.empty()) { estat.veu.triades.clear(); estat.avisa(); return true; }
     if ((codi == 'B' || codi == 'b') && ! mods.isAnyModifierKeyDown()) { if (onCommutaAB) onCommutaAB(); return true; }
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey)
     {

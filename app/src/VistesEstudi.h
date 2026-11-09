@@ -96,10 +96,24 @@ private:
 };
 
 /** Les pistes amb els clips: el lloc on s'edita, amb les eines de la caixa d'eines. */
-class VistaPistes : public SeccioEstudi, public juce::FileDragAndDropTarget
+class VistaPistes : public SeccioEstudi, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget
 {
 public:
     explicit VistaPistes (EstatEstudi& e) : SeccioEstudi (e) { setWantsKeyboardFocus (true); }
+
+    /** 0.27: un sample de la biblioteca deixat a la taula (fila -1: sota les pistes). */
+    std::function<void (const juce::File&, int fila, double temps)> onSample;
+    bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("mibase-sample:"); }
+    void itemDragMove (const SourceDetails& d) override { const int f = estat.pistaA (d.localPosition.y); if (f != filaDeixar) { filaDeixar = f < estat.numPistes() ? f : -1; repaint(); } }
+    void itemDragExit (const SourceDetails&) override { filaDeixar = -2; repaint(); }
+    void itemDropped (const SourceDetails& d) override
+    {
+        filaDeixar = -2;
+        const int fila = estat.pistaA (d.localPosition.y);
+        const juce::File f (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false));
+        if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
+        repaint();
+    }
 
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova

@@ -27,8 +27,13 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
 
 private:
-    void textEditorTextChanged (juce::TextEditor&) override { valida(); }
-    void textEditorReturnKeyPressed (juce::TextEditor&) override { crea(); }
+    void textEditorTextChanged (juce::TextEditor& e) override
+    {
+        if (&e == &campTempo) { const int v = e.getText().getIntValue(); if (v >= 40 && v <= 240) tempo = v; return; }
+        valida();
+    }
+    void textEditorReturnKeyPressed (juce::TextEditor& e) override { if (&e == &campTempo) { canviaTempo (0); nom.grabKeyboardFocus(); return; } crea(); }
+    void textEditorFocusLost (juce::TextEditor& e) override { if (&e == &campTempo) canviaTempo (0); }
     void textEditorEscapeKeyPressed (juce::TextEditor&) override { if (onTanca) onTanca(); }
 
     void valida();
@@ -40,6 +45,7 @@ private:
     juce::Rectangle<int> targetaBuit, targetaBuida;
 
     juce::TextEditor nom;
+    juce::TextEditor campTempo;   // 0.27: el tempo també s'escriu
     juce::String avis;
     bool error = false;
 

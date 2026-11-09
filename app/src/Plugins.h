@@ -122,6 +122,8 @@ public:
 
     /** Copia els ajustos dels plugins vius al projecte. Torna cert si n'ha canviat algun. */
     bool desaEstats (mibase::Projecte& p);
+    /** 0.27: tanca totes les finestres dels plugins (Esc). */
+    void tancaFinestres() { finestres.clear(); }
     /** Oblida (i tanca) els que ja no són al projecte. */
     void neteja (const mibase::Projecte& p);
 

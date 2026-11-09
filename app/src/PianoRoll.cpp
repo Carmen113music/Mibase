@@ -1557,7 +1557,10 @@ bool PianoRoll::keyPressed (const juce::KeyPress& k)
     if (codi == juce::KeyPress::escapeKey)
     {
         if (estat.segell.actiu()) { estat.segell = {}; estat.avisa(); info = "Acord descartat"; repaint(); return true; }
-        triadesNotes.clear(); triaEina (EinaPR::Fletxa); info.clear(); return true;
+        if (! triadesNotes.empty()) { triadesNotes.clear(); triaEina (EinaPR::Fletxa); info.clear(); repaint(); return true; }
+        // 0.27: si no hi ha res a cancel·lar, l'Esc global (tanca els editors i torna a la taula de treball)
+        if (onTeclaNoUsada) return onTeclaNoUsada (k);
+        return true;
     }
     if (codi == juce::KeyPress::pageUpKey) { canviaOctava (1); return true; }
     if (codi == juce::KeyPress::pageDownKey) { canviaOctava (-1); return true; }
@@ -2172,6 +2175,7 @@ void PianoRoll::arrossegaAcord (juce::Component& origen, EstatEstudi& estat, con
 
 bool PianoRoll::isInterestedInDragSource (const SourceDetails& d)
 {
+    if (d.description.toString().startsWith ("mibase-sample:")) return bateria();
     if (d.description.toString().startsWith (prefixArrossegaPista)) return fantasmes() != nullptr;
     return d.description.toString() == idArrossegaAcord && clip() != nullptr && estat.segell.actiu();
 }
@@ -2198,6 +2202,15 @@ void PianoRoll::itemDragExit (const SourceDetails&)
 
 void PianoRoll::itemDropped (const SourceDetails& d)
 {
+    if (d.description.toString().startsWith ("mibase-sample:"))
+    {
+        ratoli = { -1.0f, -1.0f };
+        const int fila = filaDeTo (toY ((float) d.localPosition.y));
+        if (fila < 0) { info = "Deixa el sample damunt d'una fila"_ca; repaint(); return; }
+        if (onSampleAFila) onSampleAFila (fila, juce::File (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false)));
+        repaint();
+        return;
+    }
     if (d.description.toString().startsWith (prefixArrossegaPista))
     {
         sobreFantasmes = false;
