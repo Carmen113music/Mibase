@@ -138,7 +138,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     sincronitzaVeu();   // 0.22: les preses corregides es preparen encara que no s'obri el Vocal Editor
 
     estat.nomsEntrades = servei.getNomsEntrades();
-    estat.onCapcalMogut = [this] (double t) { if (estat.transport == 1) servei.estudi().situa (t); };
+    estat.onCapcalMogut = [this] (double t) { if (estat.transport == 1) { plugins.buidaCues(); servei.estudi().situa (t); } };
     rellotge.tic = [this] { tic(); };
     rellotge.startTimerHz (30);
 
@@ -919,6 +919,7 @@ void PantallaEstudi::reprodueix()
     }
     publicaPla();
     iniciPlay = estat.capcal;
+    plugins.buidaCues();   // 0.27.2: que no soni la cua dels efectes de l'última vegada
     servei.estudi().reprodueix (estat.capcal);
     estat.transport = 1;
     estatEsperat = 1;
@@ -938,6 +939,7 @@ void PantallaEstudi::atura()
     const int abans = estat.transport;
     if (gravacio.midi) gravacio.fins = juce::jmax (gravacio.cursor, servei.estudi().getPosicio());   // fins on s'ha gravat
     servei.estudi().atura();
+    plugins.buidaCues();   // 0.27.2: en aturar, fora les cues de les reverbs i els delays
     estat.transport = 0;
     estatEsperat = 0;
     esperantMotor = true;
@@ -983,6 +985,7 @@ void PantallaEstudi::grava()
         const int slot = slotDePista (t);
         motor.setSlotTeclat (slot);
         motor.setSlotGravaMidi (slot);
+        plugins.buidaCues();
         motor.grava (gravacio.desDe, gravacio.cursor, 0, 1);
         estat.cursorGravacio = gravacio.cursor;
         estat.transport = 2;
@@ -1020,6 +1023,7 @@ void PantallaEstudi::grava()
     gravacio.cursor = estat.capcal;
     gravacio.desDe = estat.capcal - ed::segonsPerCompas (estat.projecte);   // un compàs de compte
     gravacio.retard = servei.retardGravacio (gravacio.retardMesurat);
+    plugins.buidaCues();
     motor.grava (gravacio.desDe, gravacio.cursor, t.entrada, t.canals);
     estat.cursorGravacio = gravacio.cursor;
     estat.transport = 2;

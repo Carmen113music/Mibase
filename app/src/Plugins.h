@@ -122,6 +122,9 @@ public:
 
     /** Copia els ajustos dels plugins vius al projecte. Torna cert si n'ha canviat algun. */
     bool desaEstats (mibase::Projecte& p);
+    /** 0.27.2: buida les cues de tots els plugins vius (reverbs, delays…): en aturar, en fer play i en moure el capçal.
+        Fil de la interfície (els atura un moment amb suspendProcessing, com demana JUCE). */
+    void buidaCues();
     /** 0.27: tanca totes les finestres dels plugins (Esc). */
     void tancaFinestres() { finestres.clear(); }
     /** Oblida (i tanca) els que ja no són al projecte. */

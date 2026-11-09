@@ -241,6 +241,18 @@ bool GestorPlugins::desaEstats (mibase::Projecte& p)
     return canvi;
 }
 
+void GestorPlugins::buidaCues()
+{
+    for (auto& [clau, v] : vius)
+    {
+        if (v.a == nullptr) continue;
+        auto& p = v.a->instancia();
+        p.suspendProcessing (true);    // espera que el fil d'àudio acabi el bloc i, mentrestant, en surt silenci
+        p.reset();                     // oblida les cues (reverb, delay…) i el que tenia a dins
+        p.suspendProcessing (false);
+    }
+}
+
 void GestorPlugins::neteja (const mibase::Projecte& p)
 {
     std::map<std::string, std::string> hiSon;   // clau → plugin
