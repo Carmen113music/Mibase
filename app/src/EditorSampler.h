@@ -10,6 +10,22 @@
 /** 0.26: l'editor del samplejador (a baix, al lloc del Piano Roll). A dalt, l'ona del sample amb la regla i els
     marcadors (inici, final, bucle, fades); a baix, la consola amb els paràmetres. Tot és no destructiu: el fitxer no
     es toca mai. El so el fa el mibase::sampler::Samplejador de la pista (Instruments). */
+/** 0.26.1: unes opcions petites, en una o dues columnes (una sola triada), per a la consola. */
+class OpcionsPetites : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    OpcionsPetites (juce::StringArray t, int columnes = 1) : textos (std::move (t)), cols (juce::jmax (1, columnes)) {}
+    std::function<void (int)> onCanvi;
+    void setTriat (int i) { if (i != triat) { triat = i; repaint(); } }
+    int getTriat() const { return triat; }
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+private:
+    juce::Rectangle<float> cel (int i) const;
+    juce::StringArray textos;
+    int cols = 1, triat = 0;
+};
+
 class EditorSampler : public SeccioEstudi, public juce::FileDragAndDropTarget
 {
 public:
@@ -64,10 +80,18 @@ private:
     // ---- marcadors ----
     enum class Marca { Cap, Inici, Fi, BucleDe, BucleA, FadeIn, FadeOut, NouBucle, Escolta };
     Marca marcaA (juce::Point<float> p) const;
+    juce::Rectangle<float> etiqueta (Marca mk) const;   // la pestanyeta d'un marcador (per agafar-lo)
     Marca arrossegant = Marca::Cap;
     double segPremut = 0.0;
     bool desfesFet = false;
     void menuOna (double s);
+
+    // ---- teclat de pantalla (sota l'ona; la Root marcada) ----
+    static constexpr int notaMin = 24, notaMax = 96;   // C1..C7
+    juce::Rectangle<float> rectTecla (int nota) const;
+    int notaA (juce::Point<float> p) const;
+    void pintaTeclat (juce::Graphics& g);
+    int notaRatoli = -1;
 
     // ---- teclat de l'ordinador ----
     int octava = 4;
@@ -83,28 +107,29 @@ private:
     bool sobreFitxer = false;
 
     // ---- zones ----
-    juce::Rectangle<int> zBarra, zRegla, zOna, zConsola, zAdsr;
+    juce::Rectangle<int> zBarra, zRegla, zFonsOna, zOna, zTeclat, zConsola, zAdsr;
 
     // ---- barra ----
     Boto btCarrega { "Carrega…"_ca, dibuix::Icona::Importa, Boto::Estil::Secundari };
     Boto btPlay { "Fragment", dibuix::Icona::Play, Boto::Estil::Secundari };
     Boto btZero { "Pas per zero", std::nullopt, Boto::Estil::Tecla };
-    Segmentat selBucle { { "Sense bucle", "Endavant", "Ping-pong", "Sustain + release" } };
-    Boto btEncaixa { "Encaixa", std::nullopt, Boto::Estil::Secundari };
+    Segmentat selBucle { { "Sense", "Endavant", "Ping-pong", "Sustain + release" } };
+    Boto btConsola { "Paràmetres"_ca, std::nullopt, Boto::Estil::Tecla };
     Boto btTeclat { "Teclat", std::nullopt, Boto::Estil::Tecla };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Subtil };
 
     // ---- consola ----
-    Segmentat selToc { { "Play", "One-shot", "Gate" } };
-    Segmentat selVeus { { "Poli", "Mono", "Legato" } };
-    Segmentat selFiltre { { "Cap", "Baixos", "Alts", "Banda", "Notch" } };
-    Segmentat selPendent { { "12 dB", "24 dB" } };
+    OpcionsPetites selToc { { "Play", "One-shot", "Gate" } };
+    OpcionsPetites selVeus { { "Poli", "Mono", "Legato" } };
+    OpcionsPetites selFiltre { { "Cap", "Baixos", "Alts", "Banda", "Notch" }, 2 };
+    OpcionsPetites selPendent { { "12 dB", "24 dB" } };
     Boto btRoot { "Auto", std::nullopt, Boto::Estil::Secundari };
     Boto btAlTempo { "Al tempo", std::nullopt, Boto::Estil::Secundari };
     Boto btX2 { "x2", std::nullopt, Boto::Estil::Secundari };
     Boto btD2 { ":2", std::nullopt, Boto::Estil::Secundari };
     Boto btReversa { "Reversa", std::nullopt, Boto::Estil::Tecla };
     Boto btManteTo { "Manté el to"_ca, std::nullopt, Boto::Estil::Tecla };
+    Boto btDurFixa { "Durada fixa", std::nullopt, Boto::Estil::Tecla };
     Boto btFlat { "FLAT", std::nullopt, Boto::Estil::Tecla };
     Boto btSmono { "S.MONO", std::nullopt, Boto::Estil::Tecla };
 

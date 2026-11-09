@@ -103,10 +103,44 @@ namespace
             comprova (cua > 0.45 && cua < 0.95, "la cua dura el que queda des del final del bucle (" + std::to_string (cua) + " s)");
         });
 
-        prova ("samplejador: l'octava de dalt sona el doble d'aguda i dura la meitat", [fs]
+        prova ("samplejador: durada fixa (la nota canvia el to però no la velocitat)", [fs]
         {
             auto p = paramsGol();
             p.modeBucle = 0;
+            p.durFixa = true;
+            ms::Samplejador s (ms::prepara (goool (fs), p));
+            s.posaParams (p);
+            auto y = tocaSampler (s, 72, 0, -1, (long long) (2.0 * fs), fs);
+            const double f = freqZeros (y, (size_t) (0.3 * fs), (size_t) (0.9 * fs), fs);
+            comprova (std::abs (f - 440.0) < 8.0, "una octava amunt, la «o» a 440 Hz (" + std::to_string (f) + ")");
+            const double d = finalDelSo (y) / fs;
+            comprova (std::abs (d - 1.3) < 0.03, "però dura el mateix, 1,3 s (" + std::to_string (d) + ")");
+            float minPic = 1.0f;
+            for (double t = 0.3; t < 0.95; t += 0.05) minPic = std::min (minPic, pic (y, (size_t) (t * fs), (size_t) ((t + 0.05) * fs)));
+            comprova (minPic > 0.3f, "sense forats de volum (" + std::to_string (minPic) + ")");
+            auto z = tocaSampler (s, 55, 0, -1, (long long) (2.0 * fs), fs);
+            comprova (std::abs (freqZeros (z, (size_t) (0.3 * fs), (size_t) (0.9 * fs), fs) - 220.0 * std::pow (2.0, -5.0 / 12.0)) < 5.0
+                      && std::abs (finalDelSo (z) / fs - 1.3) < 0.03, "cinc semitons avall, mateixa durada");
+            auto r = tocaSampler (s, 60, 0, -1, (long long) (2.0 * fs), fs);
+            comprova (std::abs (finalDelSo (r) / fs - 1.3) < 0.01 && salteMaxim (r, 1000, (size_t) (1.2 * fs)) < 0.06f, "a la Root sona tal qual");
+
+            auto pg = paramsGol();
+            pg.durFixa = true;
+            ms::Samplejador sg (ms::prepara (goool (fs), pg));
+            sg.posaParams (pg);
+            const long long on = 0, off = (long long) (3.0 * fs);
+            auto g = tocaSampler (sg, 67, on, off, off + (long long) (1.5 * fs), fs);
+            const double fo = freqZeros (g, (size_t) (1.5 * fs), (size_t) (2.9 * fs), fs);
+            comprova (std::abs (fo - 220.0 * std::pow (2.0, 7.0 / 12.0)) < 6.0, "Gooool una quinta amunt: la «o» es manté (" + std::to_string (fo) + ")");
+            const double cua = (finalDelSo (g) - off) / fs;
+            comprova (cua > 0.45 && cua < 0.95, "i en deixar anar, la cua dura el mateix que a la Root (" + std::to_string (cua) + " s)");
+        });
+
+        prova ("samplejador: sense durada fixa, l'octava de dalt sona el doble d'aguda i dura la meitat", [fs]
+        {
+            auto p = paramsGol();
+            p.modeBucle = 0;
+            p.durFixa = false;
             ms::Samplejador s (ms::prepara (goool (fs), p));
             s.posaParams (p);
             auto y = tocaSampler (s, 72, 0, -1, (long long) (1.5 * fs), fs);
@@ -212,7 +246,7 @@ namespace
         prova ("samplejador: polifonia, robatori de veus, mono i legato", [fs]
         {
             auto p = paramsGol();
-            p.modeBucle = 1; p.maxVeus = 2;
+            p.modeBucle = 1; p.maxVeus = 2; p.durFixa = false;
             ms::Samplejador s (ms::prepara (goool (fs), p));
             s.posaParams (p);
             s.prepara (fs, 256);
@@ -277,7 +311,7 @@ namespace
             mibase::Pista t;
             t.id = "t1"; t.nom = "Gol"; t.tipus = "midi"; t.instrument = mibase::instrumentSampler;
             t.sampler = paramsGol();
-            t.sampler.fitxer = "Samples/Gol.wav"; t.sampler.nom = "Gol"; t.sampler.speed = 1.5; t.sampler.filtre = 3; t.sampler.pendent = 24;
+            t.sampler.fitxer = "Samples/Gol.wav"; t.sampler.nom = "Gol"; t.sampler.speed = 1.5; t.sampler.durFixa = false; t.sampler.filtre = 3; t.sampler.pendent = 24;
             pr.pistes.push_back (t);
             auto r = mibase::disc::creaProjecte (dir, pr, "2026-11-09T10:00:00", "09/11/2026 10:00");
             comprova (r.error.empty(), "projecte creat i desat");
@@ -287,7 +321,7 @@ namespace
             {
                 const auto& x = q->pistes.back().sampler;
                 comprova (mibase::esSampler (q->pistes.back()) && x.fitxer == "Samples/Gol.wav" && x.bucleDe == 0.4 && x.bucleA == 0.8
-                          && x.modeBucle == 3 && x.speed == 1.5 && x.filtre == 3 && x.pendent == 24 && x.crossfade == 0.03,
+                          && x.modeBucle == 3 && x.speed == 1.5 && ! x.durFixa && x.filtre == 3 && x.pendent == 24 && x.crossfade == 0.03,
                           "es conserven el fitxer, els marcadors i els paràmetres");
             }
             fs_::remove_all (dir);

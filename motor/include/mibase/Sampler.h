@@ -78,6 +78,7 @@ namespace mibase::sampler
         struct Atomics
         {
             std::atomic<double> inici { 0 }, fi { 0 }, bucleDe { -1 }, bucleA { -1 }, crossfade { 0 }, fadeIn { 0 }, fadeOut { 0 };
+            std::atomic<bool> durFixa { true };
             std::atomic<int> modeBucle { 0 }, modeToc { 0 }, veus { 0 }, maxVeus { 16 }, root { 60 }, filtre { 0 }, pendent { 12 };
             std::atomic<float> guany { 1 }, pan { 0 }, width { 1 }, tune { 0 }, cutoff { 20000 }, reso { 0 }, drive { 0 };
             std::atomic<float> atac { 0.002f }, decai { 0.2f }, sost { 1 }, allib { 0.15f }, vel { 0.7f }, ritme { 1 };
@@ -88,6 +89,12 @@ namespace mibase::sampler
             int nota = -1;
             bool premuda = false, pedal = false, alliberada = false;   // alliberada: s'ha deixat anar (i el pedal també)
             bool dinsBucle = false, audicio = false;
+            // 0.26.1: durada fixa = dos grans (finestres de Hann de 50 ms, salt de 25 ms) llegits al to de la nota
+            // a partir del punt on som del temps del sample, que avança sempre al mateix ritme.
+            bool gran = false;
+            bool gViu[2] {}, gPla[2] {};
+            int gJ[2] {}, gCompte = 0;
+            double gSrc[2] {};
             double pos = 0.0, pas = 1.0;
             int dir = 1;
             Env env = Env::Res;
@@ -118,5 +125,6 @@ namespace mibase::sampler
         int numPremudes = 0;
         std::atomic<double> posVisible { -1.0 };
         std::atomic<double> peticio { -1.0 };
+        std::vector<float> finestra;   // Hann dels grans (es fa a prepara, fora del fil d'àudio)
     };
 }

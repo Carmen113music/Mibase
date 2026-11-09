@@ -405,6 +405,7 @@ namespace mibase::disc
                     x.fine = std::clamp (m.value ("fine", 0.0), -100.0, 100.0);
                     x.speed = std::clamp (m.value ("speed", 1.0), 0.25, 4.0);
                     x.mantenTo = m.value ("mantenTo", true);
+                    x.durFixa = m.value ("durFixa", true);
                     x.reversa = m.value ("reversa", false);
                     x.flat = m.value ("flat", false);
                     x.smono = m.value ("smono", false);
@@ -668,7 +669,7 @@ namespace mibase::disc
                     { "fadeIn", x.fadeIn }, { "fadeOut", x.fadeOut }, { "zeroCrossing", x.zeroCrossing }, { "modeToc", x.modeToc },
                     { "veus", x.veus }, { "maxVeus", x.maxVeus }, { "guanyDb", x.guanyDb }, { "volDb", x.volDb }, { "pan", x.pan },
                     { "width", x.width }, { "root", x.root }, { "bpm", x.bpm }, { "tune", x.tune }, { "fine", x.fine },
-                    { "speed", x.speed }, { "mantenTo", x.mantenTo }, { "reversa", x.reversa }, { "flat", x.flat }, { "smono", x.smono },
+                    { "speed", x.speed }, { "mantenTo", x.mantenTo }, { "durFixa", x.durFixa }, { "reversa", x.reversa }, { "flat", x.flat }, { "smono", x.smono },
                     { "filtre", x.filtre }, { "pendent", x.pendent }, { "cutoff", x.cutoff }, { "reso", x.reso }, { "drive", x.drive },
                     { "atac", x.atac }, { "decai", x.decai }, { "sosteniment", x.sosteniment }, { "alliberament", x.alliberament },
                     { "vel", x.vel } };

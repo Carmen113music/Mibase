@@ -129,6 +129,7 @@ namespace mibase
         double tune = 0.0, fine = 0.0;    // semitons, cents
         double speed = 1.0;               // 0.25..4
         bool mantenTo = true;             // Speed sense canviar el to (time-stretch); si no, com una cinta
+        bool durFixa = true;              // 0.26.1: tocar més agut o més greu no canvia la durada (si no, com un sampler clàssic)
         bool reversa = false, flat = false, smono = false;
         int filtre = 0;                   // 0 cap, 1 passa-baixos, 2 passa-alts, 3 passa-banda, 4 notch
         int pendent = 12;                 // 12 o 24 dB/oct

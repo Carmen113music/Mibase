@@ -122,6 +122,7 @@ public:
         std::string pista;          // id
         double iniciVista = 0.0;    // segons del sample a la vora esquerra
         double pxPerSeg = 0.0;      // 0: encaixa-ho tot
+        bool consola = true;        // els paràmetres a la vista (si no, tota l'alçada per a l'ona)
     };
     EditorSampler sampler;
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 # La versió de Mibase. Puja-la a cada lliurament; no la baixis mai.
-project(Mibase VERSION 0.26.0 LANGUAGES C CXX)
+project(Mibase VERSION 0.26.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

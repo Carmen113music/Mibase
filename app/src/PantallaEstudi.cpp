@@ -576,17 +576,17 @@ void PantallaEstudi::colocaSeccions()
     if (ambCarpetes) encongeix (carp, 120);
 
     esquerra.setBounds (r.removeFromLeft (esq));
-    // 0.26: el samplejador ocupa també l'amplada del panell de la dreta (la consola hi cap millor).
+    panell.setBounds (r.removeFromRight (pan));
+    // 0.26: el samplejador, a baix (sense tocar el panell de la dreta, on anirà la biblioteca)
     const bool samplerBaix = estat.sampler.obert && ! m && ! estat.veu.obert;
     editorSampler.setVisible (samplerBaix);
     if (samplerBaix)
     {
-        const int alt = juce::jlimit (330, juce::jmax (330, r.getHeight() - 140), juce::jmax (altPianoRoll, 430));
+        const int alt = juce::jlimit (330, juce::jmax (330, r.getHeight() - 140), juce::jmax (altPianoRoll, 470));
         auto zona = r.removeFromBottom (alt);
         editorSampler.setBounds (zona.withTrimmedTop (4));
         divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
     }
-    panell.setBounds (r.removeFromRight (pan));
 
     // Piano Roll a baix (si és obert i no és en una finestra a part).
     const bool veuBaix = estat.veu.obert && ! m;   // 0.22: o el Vocal Editor, al mateix lloc
@@ -2392,6 +2392,11 @@ void PantallaEstudi::carregaSample (const std::string& idPista, const juce::File
     p.speed = 1.0;
     p.reversa = false;
     estat.sampler.pxPerSeg = 0.0;
-    estat.info = "Sample carregat: "_ca + desti.getFileName() + ". Arrossega a la regla de l'ona per fer el bucle"_ca;
+    // 0.26.1: la nota del sample es busca sola i es posa com a Root (així, aquella tecla el toca tal qual).
+    const int root = mibase::sampler::detectaRoot (*Instruments::mostraSample (desti));
+    p.root = root >= 0 ? root : 60;
+    estat.info = "Sample carregat: "_ca + desti.getFileName()
+                 + (root >= 0 ? ". És un "_ca + EditorSampler::nomNota (root) + ": aquesta tecla el toca tal qual"_ca
+                              : ". No té una nota clara: el toca la C4"_ca);
     estat.canviat ("Samplejador: «"_ca + desti.getFileName() + "» a la pista «"_ca + dibuix::utf8 (t->nom) + "»"_ca);
 }

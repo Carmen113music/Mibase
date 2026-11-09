@@ -260,9 +260,16 @@ namespace mibase::sampler
         a.allib = (float) std::max (0.0, p.alliberament);
         a.vel = (float) std::clamp (p.vel, 0.0, 1.0);
         a.ritme = (float) (p.mantenTo ? 1.0 : std::clamp (p.speed, 0.25, 4.0));
+        a.durFixa = p.durFixa;
     }
 
-    void Samplejador::prepara (double f, int) { fs = f > 0.0 ? f : 48000.0; }
+    void Samplejador::prepara (double f, int)
+    {
+        fs = f > 0.0 ? f : 48000.0;
+        const int G = std::max (64, (int) std::lround (0.05 * fs) / 2 * 2);
+        finestra.resize ((size_t) G);
+        for (int i = 0; i < G; ++i) finestra[(size_t) i] = (float) (0.5 - 0.5 * std::cos (2.0 * pi * i / G));
+    }
 
     double Samplejador::pasDe (int nota) const noexcept
     {
@@ -422,6 +429,10 @@ namespace mibase::sampler
         const float a1 = 1.0f / (1.0f + g * (g + k)), a2 = g * a1, a3 = g * a2;
         const float drive = a.drive.load();
         const float dg = 1.0f + 8.0f * drive, dn = 1.0f / (1.0f + 2.0f * drive);
+        // durada fixa
+        const double ritme0 = a.ritme.load() * M.fs / fs;
+        const bool durFixa = a.durFixa.load() && ! v.audicio && ! finestra.empty();
+        const int G = (int) finestra.size(), H = G / 2;
 
         for (int s = ini; s < fi; ++s)
         {
@@ -431,17 +442,92 @@ namespace mibase::sampler
             // release diferit del mode 3: quan ja som a la cua i queda menys temps que el release
             if (modeB == 3 && v.alliberada && ! bucleViu && (v.env == Env::Atac || v.env == Env::Decai || v.env == Env::Sost))
             {
-                const double queda = (i1 - v.pos) / std::max (1e-9, v.pas);
+                const double queda = (i1 - v.pos) / std::max (1e-9, durFixa ? ritme0 : v.pas);
                 if (queda <= allib * fs) v.env = Env::Allib;
             }
             // so
-            float sl = llegeix (xL, v.pos), sr = xR == xL ? sl : llegeix (xR, v.pos);
-            if (bucleViu && modeB != 2 && v.dir > 0 && xf > 1.0 && v.pos >= b1 - xf && v.pos < b1)
+            const bool gran = durFixa && std::abs (v.pas - ritme0) > ritme0 * 1e-3;
+            const double avanc = gran ? ritme0 : v.pas;
+            float sl = 0.0f, sr = 0.0f;
+            if (gran)
             {
-                const double t = (v.pos - (b1 - xf)) / xf;
-                const float ga = (float) std::cos (t * pi * 0.5), gb = (float) std::sin (t * pi * 0.5);
-                sl = sl * ga + llegeix (xL, v.pos - llarg) * gb;
-                sr = (xR == xL ? sl : sr * ga + llegeix (xR, v.pos - llarg) * gb);
+                // un punt del sample per a un gra: amb el bucle (i el crossfade) aplicat, i res més enllà del final
+                auto lectura = [&] (const float* x, double q) -> float
+                {
+                    if (bucleViu && modeB != 2 && q >= b1) q = b0 + std::fmod (q - b0, llarg);
+                    if (bucleViu && modeB != 2 && xf > 1.0 && q >= b1 - xf && q < b1)
+                    {
+                        const double t = (q - (b1 - xf)) / xf;
+                        return llegeix (x, q) * (float) std::cos (t * pi * 0.5) + llegeix (x, q - llarg) * (float) std::sin (t * pi * 0.5);
+                    }
+                    const float fiG = (float) std::clamp ((i1 - q) / fOut, 0.0, 1.0);
+                    return fiG > 0.0f ? llegeix (x, q) * fiG : 0.0f;
+                };
+                if (! v.gran)
+                {
+                    v.gran = true;
+                    v.gViu[0] = true; v.gPla[0] = true; v.gJ[0] = 0; v.gSrc[0] = v.pos;
+                    v.gViu[1] = false;
+                    v.gCompte = 0;
+                }
+                for (int g = 0; g < 2; ++g)
+                {
+                    if (! v.gViu[g]) continue;
+                    const int j = v.gJ[g];
+                    const float w = v.gPla[g] && j < H ? 1.0f : finestra[(size_t) j];
+                    const double q = v.gSrc[g] + j * v.pas;
+                    const float l = lectura (xL, q);
+                    sl += w * l;
+                    sr += w * (xR == xL ? l : lectura (xR, q));
+                    if (++v.gJ[g] >= G) v.gViu[g] = false;
+                }
+                if (++v.gCompte >= H)
+                {
+                    const int g = ! v.gViu[0] ? 0 : ! v.gViu[1] ? 1 : (v.gJ[0] > v.gJ[1] ? 0 : 1);
+                    const int vell = 1 - g;
+                    double inici = v.pos;
+                    if (v.gViu[vell])
+                    {
+                        // el gra nou comença on més s'assembla al que el vell sonaria ara (així no hi ha salts de fase)
+                        const long long n = (long long) M.L.size();
+                        auto mostraR = [&] (double q) -> float
+                        {
+                            if (bucleViu && modeB != 2 && q >= b1) q = b0 + std::fmod (q - b0, llarg);
+                            const long long k = (long long) q;
+                            return k >= 0 && k < n ? xL[k] : 0.0f;
+                        };
+                        constexpr int K = 256;
+                        float ref[K / 2];
+                        for (int k = 0; k < K / 2; ++k) ref[k] = mostraR (v.gSrc[vell] + (v.gJ[vell] + 2 * k) * v.pas);
+                        const int marge = (int) (0.006 * M.fs);
+                        double millor = -1e30;
+                        auto prova = [&] (int d)
+                        {
+                            double c = 0.0;
+                            for (int k = 0; k < K / 2; ++k) c += (double) ref[k] * mostraR (v.pos + d + 2 * k * v.pas);
+                            if (c > millor) { millor = c; inici = v.pos + d; }
+                        };
+                        for (int d = -marge; d <= marge; d += 3) prova (d);   // gruixut i, després, fi
+                        const int centre = (int) std::lround (inici - v.pos);
+                        prova (centre - 1);
+                        prova (centre + 1);
+                    }
+                    v.gViu[g] = true; v.gPla[g] = false; v.gJ[g] = 0; v.gSrc[g] = inici;
+                    v.gCompte = 0;
+                }
+            }
+            else
+            {
+                v.gran = false;
+                sl = llegeix (xL, v.pos);
+                sr = xR == xL ? sl : llegeix (xR, v.pos);
+                if (bucleViu && modeB != 2 && v.dir > 0 && xf > 1.0 && v.pos >= b1 - xf && v.pos < b1)
+                {
+                    const double t = (v.pos - (b1 - xf)) / xf;
+                    const float ga = (float) std::cos (t * pi * 0.5), gb = (float) std::sin (t * pi * 0.5);
+                    sl = sl * ga + llegeix (xL, v.pos - llarg) * gb;
+                    sr = (xR == xL ? sl : sr * ga + llegeix (xR, v.pos - llarg) * gb);
+                }
             }
             float fade = 1.0f;
             if (! v.dinsBucle && fIn > 1.0 && v.pos - i0 < fIn) fade = (float) std::max (0.0, (v.pos - i0) / fIn);
@@ -486,7 +572,7 @@ namespace mibase::sampler
             L[s] += x[0];
             R[s] += x[1];
             // avançar
-            v.pos += v.pas * v.dir;
+            v.pos += avanc * v.dir;
             if (bucleViu)
             {
                 if (v.dir > 0 && v.pos >= b1)
