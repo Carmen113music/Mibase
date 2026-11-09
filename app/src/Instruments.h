@@ -8,6 +8,7 @@
 #include <mibase/Midi.h>
 #include <mibase/MotorEstudi.h>
 #include <mibase/SinteIntern.h>
+#include <mibase/Sampler.h>
 #include "Kits.h"
 
 /** Els instruments de les pistes MIDI del projecte obert (un per pista, viu mentre la pista hi és).
@@ -19,6 +20,21 @@ public:
     /** El de la pista (el mateix objecte mentre no canviï el tipus d'instrument). Fil de la interfície. */
     std::shared_ptr<mibase::Instrument> obte (const mibase::Pista& t, double fs, int maxBloc)
     {
+        if (mibase::esSampler (t))
+        {
+            // 0.26: el samplejador. Si canvia el so (fitxer, reversa, mono, estirament), un de nou; la resta, sense parar.
+            auto& e = llista[t.id];
+            const auto sig = std::string ("sampler|") + mibase::sampler::signatura (t.sampler);
+            auto* s = dynamic_cast<mibase::sampler::Samplejador*> (e.instrument.get());
+            if (s == nullptr || e.tipus != sig)
+            {
+                e.instrument = creaSampler (t, carpeta, fs, maxBloc, &avis);
+                e.tipus = sig;
+                e.fs = fs;
+            }
+            else s->posaParams (t.sampler);
+            return e.instrument;
+        }
         if (t.tipus == "bateria")
         {
             // 0.20: el sampler de bateria. Si canvien els sons, un de nou; si només canvien volums, afinació… s'hi posen sense parar.
@@ -62,10 +78,11 @@ public:
     }
 
     /** Proveïdor per exportar: instruments nous (no toquen els que sonen). */
-    static mibase::ProveidorInstruments perExportar (double fs, int bloc)
+    static mibase::ProveidorInstruments perExportar (double fs, int bloc, const juce::File& carpetaProjecte)
     {
-        return [fs, bloc] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
+        return [fs, bloc, carpetaProjecte] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
         {
+            if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
             if (t.tipus == "bateria") return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
             return crea (descripcio (t), fs, bloc);
@@ -82,9 +99,54 @@ public:
         }
     }
 
+    /** 0.26: el samplejador d'una pista, si n'hi ha un de viu (per a l'editor: on és el capçal del so). */
+    mibase::sampler::Samplejador* samplejador (const std::string& idPista)
+    {
+        auto it = llista.find (idPista);
+        return it == llista.end() ? nullptr : dynamic_cast<mibase::sampler::Samplejador*> (it->second.instrument.get());
+    }
+
+    /** 0.26: la mostra original d'un sample del projecte (llegida un cop; la mateixa mentre el fitxer no canviï). */
+    static std::shared_ptr<const mibase::sampler::Mostra> mostraSample (const juce::File& f)
+    {
+        static std::map<juce::String, std::shared_ptr<const mibase::sampler::Mostra>> cau;
+        if (! f.existsAsFile()) return nullptr;
+        const auto clau = f.getFullPathName() + "|" + juce::String (f.getLastModificationTime().toMilliseconds());
+        if (auto it = cau.find (clau); it != cau.end()) return it->second;
+        auto m = kits::llegeix (f, 600.0);
+        cau[clau] = m;
+        return m;
+    }
+
+    static juce::File fitxerSample (const juce::File& carpetaProjecte, const mibase::ParamsSampler& p)
+    {
+        return carpetaProjecte.getChildFile (juce::String::fromUTF8 (p.fitxer.c_str()));
+    }
+
+    juce::File carpeta;       // la carpeta del projecte (per trobar-hi els samples)
+    juce::String avis;        // l'últim avís (un sample que falta), per a l'historial
+
     static std::string descripcio (const mibase::Pista& t) { return t.instrument.empty() ? std::string ("intern:piano") : t.instrument; }
 
 private:
+    static std::shared_ptr<mibase::Instrument> creaSampler (const mibase::Pista& t, const juce::File& carpetaProjecte, double fs, int bloc,
+                                                            juce::String* avis)
+    {
+        std::shared_ptr<const mibase::sampler::Mostra> m;
+        if (! t.sampler.fitxer.empty())
+        {
+            const auto f = fitxerSample (carpetaProjecte, t.sampler);
+            m = mostraSample (f);
+            if (m == nullptr && avis != nullptr)
+                *avis = juce::String::fromUTF8 ("Pista «") + juce::String::fromUTF8 (t.nom.c_str())
+                        + juce::String::fromUTF8 ("»: no trobo el sample ") + f.getFullPathName() + juce::String::fromUTF8 (" (sona en silenci)");
+        }
+        auto s = std::make_shared<mibase::sampler::Samplejador> (mibase::sampler::prepara (m, t.sampler));
+        s->posaParams (t.sampler);
+        s->prepara (fs, bloc);
+        return s;
+    }
+
     static std::shared_ptr<mibase::Instrument> crea (const std::string& desc, double fs, int maxBloc)
     {
         // Més endavant: «vst3:…» → adaptador del plugin.

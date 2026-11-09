@@ -419,6 +419,7 @@ namespace mibase::midi
         const int i = soIntern (instrument);
         if (i >= 0) return sonsInterns()[(size_t) i].nom;
         if (instrument.empty()) return "Cap";
+        if (instrument == instrumentSampler) return "Samplejador";
         return instrument;
     }
 }

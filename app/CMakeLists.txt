@@ -17,7 +17,8 @@ target_sources(Mibase PRIVATE
     src/PanellHarmonia.cpp
     src/EscanerPlugins.cpp
     src/Plugins.cpp
-    src/EditorVeu.cpp)
+    src/EditorVeu.cpp
+    src/EditorSampler.cpp)
 
 target_compile_definitions(Mibase PRIVATE
     MIBASE_VERSIO="${PROJECT_VERSION}"

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Controls.h"
+#include "Pom.h"
 #include "ServeiVeu.h"
 #include "VistesEstudi.h"
 
@@ -56,26 +57,7 @@ private:
     Boto btAjusta { "Encaixa", std::nullopt, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Subtil };
 
-    /** 0.23: un pom de la consola. Arrossega amunt/avall (Maj = fi); doble clic = el valor de sempre. */
-    class Pom : public juce::Component
-    {
-    public:
-        Pom (const juce::String& nom, double mn, double mx, double perDefecte, bool bipolar, std::function<juce::String (double)> text);
-        std::function<void()> onComenca, onAcaba;
-        std::function<void (double)> onCanvi;
-        void setValor (double v, bool igualATots) { valor = v; igual = igualATots; repaint(); }
-        void paint (juce::Graphics& g) override;
-        void mouseDown (const juce::MouseEvent&) override;
-        void mouseDrag (const juce::MouseEvent&) override;
-        void mouseUp (const juce::MouseEvent&) override;
-        void mouseDoubleClick (const juce::MouseEvent&) override;
-    private:
-        juce::String nom;
-        double mn, mx, defecte, valor, valor0 = 0.0;
-        bool bipolar, igual = true, arrossega = false;
-        std::function<juce::String (double)> text;
-        void posa (double v);
-    };
+    using Pom = ::Pom;
 
     // Consola de baix: tonalitat, poms i botons.
     Boto btTo { "C", std::nullopt, Boto::Estil::Secundari };

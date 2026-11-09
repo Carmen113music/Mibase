@@ -13,7 +13,8 @@ add_library(mibase_motor STATIC
     src/Harmonia.cpp
     src/PresetsPads.cpp
     src/Bateria.cpp
-    src/Veu.cpp)
+    src/Veu.cpp
+    src/Sampler.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

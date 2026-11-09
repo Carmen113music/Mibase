@@ -74,6 +74,7 @@ public:
     void setPlugins (GestorPlugins* p) { plugins = p; for (auto* f : inserts) f->plugins = p; }
     /** 0.20: obre la finestra dels kits de bateria (per a la pista triada). */
     std::function<void()> onObreKits;
+    std::function<void()> onObreSampler;   // 0.26
 
     /** Alçada que necessita per a la pista triada. */
     int alcada() const
@@ -104,6 +105,7 @@ public:
             btKit.setButtonText ("Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()));
             btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
         }
+        const bool sampler = midiPista && mibase::esSampler (*t);
         btSo.setVisible (midiPista && ! vst);
         btSortida.setVisible (audio || master);
 
@@ -118,9 +120,12 @@ public:
         if (midiPista)
         {
             // 0.20: només el nom (al costat hi ha el botó per obrir-lo); el detall, a la bafarada.
-            btInstrument.setButtonText (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : "Sinte intern"_ca);
-            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern o VST3)"_ca);
-            btSo.setButtonText ("So: "_ca + juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "intern:piano" : t->instrument).c_str()));
+            btInstrument.setButtonText (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca : "Sinte intern"_ca);
+            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, samplejador o VST3)"_ca);
+            if (sampler)
+                btSo.setButtonText ("Sample: "_ca + (t->sampler.nom.empty() ? "cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str())));
+            else
+                btSo.setButtonText ("So: "_ca + juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "intern:piano" : t->instrument).c_str()));
             btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
         }
         if (master)
@@ -210,6 +215,7 @@ public:
     {
         auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr || t->tipus != "midi") return;
+        if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         const auto id = t->id;
         if (GestorPlugins::esVst3 (t->instrument))
         {
@@ -231,7 +237,9 @@ private:
         auto tipus = std::make_shared<juce::Array<juce::PluginDescription>>();
         juce::PopupMenu m;
         if (vst) { m.addItem (2, "Obre la finestra del plugin"); m.addSeparator(); }
-        m.addItem (1, "Sinte intern", true, ! vst);
+        const bool sampler = mibase::esSampler (*t);
+        m.addItem (1, "Sinte intern", true, ! vst && ! sampler);
+        m.addItem (3, "Samplejador"_ca, true, sampler);
         if (plugins != nullptr) m.addSubMenu ("Instruments VST3", plugins->menu (true, 1000, *tipus));
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this, tipus] (int r)
         {
@@ -239,8 +247,14 @@ private:
             if (p == nullptr) return;
             const auto id = p->id;
             if (r == 2) obreInstrument();
-            else if (r == 1 && GestorPlugins::esVst3 (p->instrument))
+            else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p)))
                 canvia ([] (mibase::Pista& q) { q.instrument = "intern:piano"; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: sinte intern"_ca);
+            else if (r == 3)
+            {
+                if (! mibase::esSampler (*p))
+                    canvia ([] (mibase::Pista& q) { q.instrument = mibase::instrumentSampler; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: samplejador"_ca);
+                if (onObreSampler) juce::MessageManager::callAsync ([this] { if (onObreSampler) onObreSampler(); });
+            }
             else if (r >= 1000 && r - 1000 < tipus->size())
             {
                 const auto d = (*tipus)[r - 1000];
@@ -259,6 +273,7 @@ private:
     {
         auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return;
+        if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         juce::PopupMenu m;
         const int actual = juce::jmax (0, mibase::midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
         for (int k = 0; k < (int) mibase::midi::sonsInterns().size(); ++k)

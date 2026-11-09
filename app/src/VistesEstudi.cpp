@@ -1128,6 +1128,7 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
     m.addSeparator();
     m.addItem (10, "Instrument MIDI (sinte intern o VST3)"_ca);
     m.addItem (11, "Bateria (Drumpad)"_ca);
+    m.addItem (14, "Samplejador"_ca);
     m.addItem (12, "Acords  · més endavant"_ca, false);
     m.addItem (13, "Bus d'efectes  · més endavant"_ca, false);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&on).withMousePosition(), [tria] (int r)
@@ -1136,6 +1137,7 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
         else if (r == 2) tria ("audio", 2);
         else if (r == 10) tria ("midi", 2);
         else if (r == 11) tria ("bateria", 2);
+        else if (r == 14) tria ("sampler", 2);
     });
 }
 
@@ -1867,7 +1869,9 @@ void Capcaleres::menu (int pista)
     {
         const int actual = juce::jmax (0, midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument));
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
-            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k);
+            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && ! mibase::esSampler (t));
+        sons.addSeparator();
+        sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
     }
@@ -1900,6 +1904,11 @@ void Capcaleres::menu (int pista)
             estat.capTriat();
         }
         else if (r == 3) tt.canals = tt.canals == 2 ? 1 : 2;
+        else if (r == 58)
+        {
+            tt.instrument = mibase::instrumentSampler;
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: samplejador"_ca;
+        }
         else if (r >= 60)
         {
             tt.instrument = std::string ("intern:") + midi::sonsInterns()[(size_t) (r - 60)].id;

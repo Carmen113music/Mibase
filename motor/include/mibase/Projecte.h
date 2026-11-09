@@ -109,6 +109,35 @@ namespace mibase
         std::string estat;       // ajustos del plugin (base64)
     };
 
+    /** 0.26: el samplejador d'una pista (instrument «sampler»). Temps en segons dins el fitxer original. */
+    struct ParamsSampler
+    {
+        std::string fitxer;               // relatiu a la carpeta del projecte («Samples/Gol.wav»); buit = cap so
+        std::string nom;                  // nom del sample
+        double inici = 0.0, fi = -1.0;    // fragment que sona (fi < 0: fins al final)
+        double bucleDe = -1.0, bucleA = -1.0;   // bucle (< 0: sense)
+        int modeBucle = 0;                // 0 Off, 1 Endavant, 2 Ping-pong, 3 Sustain + release des del final del bucle
+        double crossfade = 0.02;          // s, al punt d'unió del bucle
+        double fadeIn = 0.0, fadeOut = 0.005;   // s
+        bool zeroCrossing = true;         // els marcadors s'enganxen al pas per zero (en editar)
+        int modeToc = 0;                  // 0 Play, 1 One-shot, 2 Gate
+        int veus = 0;                     // 0 Poli, 1 Mono, 2 Legato
+        int maxVeus = 16;
+        double guanyDb = 0.0, volDb = 0.0, pan = 0.0, width = 1.0;
+        int root = 60;                    // nota original del sample
+        double bpm = 0.0;                 // tempo del sample (0: no se sap)
+        double tune = 0.0, fine = 0.0;    // semitons, cents
+        double speed = 1.0;               // 0.25..4
+        bool mantenTo = true;             // Speed sense canviar el to (time-stretch); si no, com una cinta
+        bool reversa = false, flat = false, smono = false;
+        int filtre = 0;                   // 0 cap, 1 passa-baixos, 2 passa-alts, 3 passa-banda, 4 notch
+        int pendent = 12;                 // 12 o 24 dB/oct
+        double cutoff = 20000.0, reso = 0.0, drive = 0.0;   // Hz, 0..1, 0..1
+        double atac = 0.002, decai = 0.2, sosteniment = 1.0, alliberament = 0.15;   // s, s, 0..1, s
+        double vel = 0.7;                 // sensibilitat a la velocitat 0..1
+    };
+    inline constexpr const char* instrumentSampler = "sampler";
+
     /** 0.20: una fila del Drumpad (pista de bateria): un so del kit tocat per una nota MIDI. */
     struct FilaBateria
     {
@@ -157,10 +186,13 @@ namespace mibase
         std::vector<FilaBateria> files;            // bateria: les files del Drumpad (de dalt a baix)
         std::string kit;                           // bateria: nom del kit d'on surten els sons
         bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
+        ParamsSampler sampler;                     // 0.26: instrument «sampler»
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+    /** 0.26: és una pista d'instrument amb el samplejador. */
+    inline bool esSampler (const Pista& t) noexcept { return t.tipus == "midi" && t.instrument == instrumentSampler; }
 
     /** 0.22: identificador de l'insert intern del Vocal Editor. */
     inline constexpr const char* pluginVeu = "intern:veu";

@@ -219,6 +219,38 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     editorVeu.onCommutaAB = [this] { commutaVeuAB(); };
     editorVeu.onDesfes = [this] (bool refer) { desfes (refer); };
     editorVeu.onSolo = [this] { commutaSoloEditor(); };
+    // 0.26: samplejador
+    addChildComponent (editorSampler);
+    editorSampler.onTanca = [this] { tancaSampler(); };
+    editorSampler.onCarrega = [this] { demanaSample(); };
+    editorSampler.onFitxer = [this] (const juce::File& fitxerSample) { carregaSample (estat.sampler.pista, fitxerSample); };
+    editorSampler.onNota = [this] (std::uint8_t e, std::uint8_t n, std::uint8_t v)
+    {
+        for (auto& t : estat.projecte.pistes)
+            if (t.id == estat.sampler.pista) { servei.estudi().enviaDirecte ({ slotDePista (t), e, n, v }); return; }
+    };
+    editorSampler.onEscolta = [this] (double seg)
+    {
+        if (auto* sm = instruments.samplejador (estat.sampler.pista)) { if (seg >= 0.0) sm->escolta (seg); else sm->aturaEscolta(); }
+    };
+    editorSampler.posicioSo = [this]() -> double
+    {
+        auto* sm = instruments.samplejador (estat.sampler.pista);
+        const auto* pr = sm != nullptr ? sm->preparada() : nullptr;
+        if (pr == nullptr) return -1.0;
+        const double pos = sm->posicioActual();
+        if (pos < 0.0 || pr->m.fs <= 0.0) return -1.0;
+        const double seg = pos / (pr->m.fs * pr->factorTemps);
+        return pr->girada ? pr->duradaOriginal - seg : seg;
+    };
+    editorSampler.mostra = [this]() -> std::shared_ptr<const mibase::sampler::Mostra>
+    {
+        for (auto& t : estat.projecte.pistes)
+            if (t.id == estat.sampler.pista && mibase::esSampler (t) && ! t.sampler.fitxer.empty())
+                return Instruments::mostraSample (Instruments::fitxerSample (estat.carpeta, t.sampler));
+        return nullptr;
+    };
+    editorSampler.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -278,12 +310,18 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (zonaEditors);
     esquerra.setPanellEditor (&panellEditor);
     esquerra.opcions.onObreKits = [this] { obreKits(); };
+    esquerra.opcions.onObreSampler = [this] { obreSampler (estat.pistaTriada); };
+    panellHarmonia.onObreSampler = [this]
+    {
+        if (auto* pr = zonaEditors.actiu()) obreSampler (pr->pistaDeLEditor());
+    };
     panellBateria.onObreKits = [this] { obreKits(); };
     capcaleres.onObreInstrument = [this] (int fila)
     {
         auto* t = estat.pista (fila);
         if (t == nullptr) return;
         if (t->tipus == "bateria") obreKits();
+        else if (mibase::esSampler (*t)) obreSampler (fila);
         else esquerra.opcions.obreInstrument();   // la pista ja és la triada
     };
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
@@ -310,10 +348,10 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (divPianoRoll);
     altPianoRoll = ajustos.getIntValue ("estudi.altPianoRoll", 430);
     divPianoRoll.setTooltip ("Arrossega per fer el Piano Roll més alt o més baix. Doble clic: mida inicial."_ca);
-    divPianoRoll.onComenca = [this] { altInici = estat.veu.obert ? editorVeu.getHeight() : zonaEditors.getHeight(); };
+    divPianoRoll.onComenca = [this] { altInici = estat.veu.obert ? editorVeu.getHeight() : estat.sampler.obert ? editorSampler.getHeight() : zonaEditors.getHeight(); };
     divPianoRoll.onArrossega = [this] (int dy)
     {
-        altPianoRoll = juce::jmax (160, altInici - dy - (estat.veu.obert ? 0 : (juce::jmax (1, zonaEditors.quants()) - 1) * 250));
+        altPianoRoll = juce::jmax (160, altInici - dy - (estat.veu.obert || estat.sampler.obert ? 0 : (juce::jmax (1, zonaEditors.quants()) - 1) * 250));
         colocaSeccions();
     };
     divPianoRoll.onDobleClic = [this] { altPianoRoll = 430; colocaSeccions(); divPianoRoll.onAcaba(); };
@@ -538,12 +576,22 @@ void PantallaEstudi::colocaSeccions()
     if (ambCarpetes) encongeix (carp, 120);
 
     esquerra.setBounds (r.removeFromLeft (esq));
+    // 0.26: el samplejador ocupa també l'amplada del panell de la dreta (la consola hi cap millor).
+    const bool samplerBaix = estat.sampler.obert && ! m && ! estat.veu.obert;
+    editorSampler.setVisible (samplerBaix);
+    if (samplerBaix)
+    {
+        const int alt = juce::jlimit (330, juce::jmax (330, r.getHeight() - 140), juce::jmax (altPianoRoll, 430));
+        auto zona = r.removeFromBottom (alt);
+        editorSampler.setBounds (zona.withTrimmedTop (4));
+        divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
+    }
     panell.setBounds (r.removeFromRight (pan));
 
     // Piano Roll a baix (si és obert i no és en una finestra a part).
     const bool veuBaix = estat.veu.obert && ! m;   // 0.22: o el Vocal Editor, al mateix lloc
-    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m && ! veuBaix;
-    divPianoRoll.setVisible (prBaix || veuBaix);
+    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m && ! veuBaix && ! samplerBaix;
+    divPianoRoll.setVisible (prBaix || veuBaix || samplerBaix);
     if (finestraPianoRoll == nullptr) zonaEditors.setVisible (prBaix);
     editorVeu.setVisible (veuBaix);
     if (veuBaix)
@@ -763,6 +811,7 @@ void PantallaEstudi::transport (int accio)
 void PantallaEstudi::publicaPla()
 {
     instruments.neteja (estat.projecte);
+    instruments.carpeta = estat.carpeta;
     plugins.neteja (estat.projecte);
     RellotgePlugins::global().tempo.store (estat.projecte.tempo > 1.0 ? estat.projecte.tempo : 120.0);
     RellotgePlugins::global().num.store (estat.projecte.compasNum);
@@ -773,6 +822,12 @@ void PantallaEstudi::publicaPla()
     servei.estudi().publica (construeixPla (estat.projecte, audioPreses,
         [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrument (t, fs, 2048) : interns (t); },
         [this, fs] (const mibase::Insert& x) { return plugins.efecte (x, fs, 2048); }, &serveiVeu.corregides()));
+    if (instruments.avis.isNotEmpty())
+    {
+        historial.afegeix (instruments.avis);
+        estat.info = instruments.avis;
+        instruments.avis.clear();
+    }
     if (plugins.getUltimError() != errorAbans && plugins.getUltimError().isNotEmpty())
     {
         historial.afegeix (plugins.getUltimError());
@@ -1013,6 +1068,7 @@ void PantallaEstudi::tic()
     }
     recullVeu();
     if (editorVeu.isVisible()) editorVeu.tic();
+    if (editorSampler.isVisible()) editorSampler.tic();
 
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
@@ -1073,7 +1129,7 @@ void PantallaEstudi::exportaMescla()
         const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
         std::string error;
         juce::MouseCursor::showWaitCursor();
-        auto interns = Instruments::perExportar (fs, 4096);
+        auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
         const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses,
                                                     [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096) : interns (t); },
                                                     [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
@@ -1126,6 +1182,21 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
         estat.capTriat();
         estat.info = "Pista de bateria: fes un clip amb el llapis (2) i fes-hi doble clic per obrir el Drumpad"_ca;
         estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (bateria)"_ca);
+        return;
+    }
+    if (tipus == "sampler")
+    {
+        // 0.26: pista d'instrument amb el samplejador; s'obre l'editor per carregar-hi un sample.
+        const auto nom = ed::nomPistaLliure (estat.projecte, "Sampler");
+        auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
+        t.canals = 2;
+        t.instrument = mibase::instrumentSampler;
+        estat.pistaTriada = estat.numPistes() - 1;
+        estat.capTriat();
+        estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (samplejador)"_ca);
+        obreSampler (estat.pistaTriada);
+        estat.info = "Samplejador: carrega un sample (o arrossega'l a l'ona) i toca'l amb el teclat"_ca;
+        estat.avisa();
         return;
     }
     if (tipus == "midi")
@@ -1893,6 +1964,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 void PantallaEstudi::mostraPianoRoll (bool visible)
 {
     if (visible && estat.veu.obert) estat.veu.obert = false;   // 0.22: comparteixen el lloc de baix
+    if (visible && estat.sampler.obert) estat.sampler.obert = false;   // 0.26
     if (visible && estat.editors.empty())
     {
         // Un editor (amb el clip MIDI triat, si n'hi ha un).
@@ -2077,6 +2149,7 @@ void PantallaEstudi::obreVeu (int pista, int clip)
         if (t == nullptr || c == nullptr) return;
     }
     if (estat.pianoRoll) mostraPianoRoll (false);
+    estat.sampler.obert = false;
     const bool mateixa = estat.veu.obert && estat.veu.presa == c->presa;
     estat.veu.obert = true;
     estat.veu.pista = pista;
@@ -2222,4 +2295,103 @@ void PantallaEstudi::seguixSoloEditor()
     if (id == s.pista) return;
     for (auto& t : estat.projecte.pistes) t.solo = t.id == id;   // l'editor ha canviat de pista: el solo la segueix
     s.pista = id;
+}
+
+//==============================================================================
+// 0.26: samplejador
+//==============================================================================
+void PantallaEstudi::obreSampler (int pista)
+{
+    auto* t = estat.pista (pista);
+    if (t == nullptr || ! mibase::esSampler (*t)) return;
+    if (estat.pianoRoll) mostraPianoRoll (false);
+    estat.veu.obert = false;
+    if (estat.sampler.pista != t->id) { estat.sampler.pxPerSeg = 0.0; estat.sampler.iniciVista = 0.0; }
+    estat.sampler.obert = true;
+    estat.sampler.pista = t->id;
+    estat.pistaTriada = pista;
+    colocaSeccions();
+    estat.avisa();
+    editorSampler.grabKeyboardFocus();
+}
+
+void PantallaEstudi::tancaSampler()
+{
+    estat.sampler.obert = false;
+    colocaSeccions();
+    estat.avisa();
+    grabKeyboardFocus();
+}
+
+void PantallaEstudi::demanaSample()
+{
+    const auto id = estat.sampler.pista;
+    selector = std::make_unique<juce::FileChooser> ("Carrega un sample"_ca, juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                    "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    selector->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                           [this, id] (const juce::FileChooser& fc)
+    {
+        const auto f = fc.getResult();
+        if (f.existsAsFile()) carregaSample (id, f);
+    });
+}
+
+void PantallaEstudi::carregaSample (const std::string& idPista, const juce::File& origen)
+{
+    mibase::Pista* t = nullptr;
+    for (auto& q : estat.projecte.pistes) if (q.id == idPista && mibase::esSampler (q)) t = &q;
+    if (t == nullptr) return;
+    // Es copia a «Samples» dins del projecte (els que no són WAV es converteixen a WAV de 24 bits). L'original no es toca.
+    const auto carpetaSamples = estat.carpeta.getChildFile ("Samples");
+    carpetaSamples.createDirectory();
+    const auto base = juce::File::createLegalFileName (origen.getFileNameWithoutExtension());
+    auto desti = carpetaSamples.getChildFile (base + ".wav");
+    for (int k = 2; desti.existsAsFile(); ++k)
+    {
+        if (origen.hasFileExtension ("wav") && desti.getSize() == origen.getSize()) break;   // ja hi és
+        desti = carpetaSamples.getChildFile (base + " " + juce::String (k) + ".wav");
+    }
+    juce::String error;
+    if (! desti.existsAsFile())
+    {
+        if (origen.hasFileExtension ("wav"))
+        {
+            if (! origen.copyFileTo (desti)) error = "No s'ha pogut copiar el fitxer"_ca;
+        }
+        else
+        {
+            std::unique_ptr<juce::AudioFormatReader> r (kits::formats().createReaderFor (origen));
+            if (r == nullptr) error = "No sé llegir aquest fitxer"_ca;
+            else
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
+                auto w = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}
+                                                                       .withSampleRate (r->sampleRate)
+                                                                       .withNumChannels ((int) juce::jmin (2u, r->numChannels))
+                                                                       .withBitsPerSample (24))
+                                            : nullptr;
+                if (w == nullptr || ! w->writeFromAudioReader (*r, 0, -1)) error = "No s'ha pogut escriure el WAV"_ca;
+            }
+        }
+    }
+    if (error.isNotEmpty() || Instruments::mostraSample (desti) == nullptr)
+    {
+        if (error.isEmpty()) error = "El fitxer no té àudio o no es pot llegir"_ca;
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut carregar el sample"_ca, error + "\n" + origen.getFullPathName());
+        return;
+    }
+    estat.desfes.abans (estat.projecte);
+    auto& p = t->sampler;
+    p.fitxer = ("Samples/" + desti.getFileName()).toStdString();
+    p.nom = desti.getFileNameWithoutExtension().toStdString();
+    p.inici = 0.0; p.fi = -1.0;
+    p.bucleDe = p.bucleA = -1.0;
+    p.fadeIn = 0.0;
+    p.bpm = 0.0;
+    p.speed = 1.0;
+    p.reversa = false;
+    estat.sampler.pxPerSeg = 0.0;
+    estat.info = "Sample carregat: "_ca + desti.getFileName() + ". Arrossega a la regla de l'ona per fer el bucle"_ca;
+    estat.canviat ("Samplejador: «"_ca + desti.getFileName() + "» a la pista «"_ca + dibuix::utf8 (t->nom) + "»"_ca);
 }

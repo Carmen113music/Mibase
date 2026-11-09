@@ -115,6 +115,16 @@ public:
     };
     EditorVeu veu;
 
+    /** 0.26: editor del samplejador obert a baix (al mateix lloc que el Piano Roll), sobre una pista «sampler». */
+    struct EditorSampler
+    {
+        bool obert = false;
+        std::string pista;          // id
+        double iniciVista = 0.0;    // segons del sample a la vora esquerra
+        double pxPerSeg = 0.0;      // 0: encaixa-ho tot
+    };
+    EditorSampler sampler;
+
     /** 0.24: «Solo» dels editors (tecla * del teclat numèric): només sona la pista de l'editor; en apagar-lo,
         cada pista torna al solo que tenia. */
     struct SoloEditor

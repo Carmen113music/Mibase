@@ -134,6 +134,7 @@ namespace
 }
 
 #include "proves_veu.inc"
+#include "proves_sampler.inc"
 
 int main()
 {
@@ -2252,6 +2253,7 @@ int main()
     });
 
     provesVeu();
+    provesSampler();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

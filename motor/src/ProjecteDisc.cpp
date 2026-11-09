@@ -377,6 +377,48 @@ namespace mibase::disc
                         x.mut = f.value ("mut", false);
                         t.files.push_back (x);
                     }
+                if (e.contains ("sampler") && e["sampler"].is_object())
+                {
+                    auto& m = e["sampler"];
+                    auto& x = t.sampler;
+                    x.fitxer = m.value ("fitxer", std::string());
+                    x.nom = m.value ("nom", std::string());
+                    x.inici = std::max (0.0, m.value ("inici", 0.0));
+                    x.fi = m.value ("fi", -1.0);
+                    x.bucleDe = m.value ("bucleDe", -1.0);
+                    x.bucleA = m.value ("bucleA", -1.0);
+                    x.modeBucle = std::clamp (m.value ("modeBucle", 0), 0, 3);
+                    x.crossfade = std::clamp (m.value ("crossfade", 0.02), 0.0, 1.0);
+                    x.fadeIn = std::clamp (m.value ("fadeIn", 0.0), 0.0, 10.0);
+                    x.fadeOut = std::clamp (m.value ("fadeOut", 0.005), 0.0, 10.0);
+                    x.zeroCrossing = m.value ("zeroCrossing", true);
+                    x.modeToc = std::clamp (m.value ("modeToc", 0), 0, 2);
+                    x.veus = std::clamp (m.value ("veus", 0), 0, 2);
+                    x.maxVeus = std::clamp (m.value ("maxVeus", 16), 1, 32);
+                    x.guanyDb = std::clamp (m.value ("guanyDb", 0.0), -40.0, 24.0);
+                    x.volDb = std::clamp (m.value ("volDb", 0.0), -60.0, 6.0);
+                    x.pan = std::clamp (m.value ("pan", 0.0), -1.0, 1.0);
+                    x.width = std::clamp (m.value ("width", 1.0), 0.0, 2.0);
+                    x.root = std::clamp (m.value ("root", 60), 0, 127);
+                    x.bpm = std::clamp (m.value ("bpm", 0.0), 0.0, 999.0);
+                    x.tune = std::clamp (m.value ("tune", 0.0), -48.0, 48.0);
+                    x.fine = std::clamp (m.value ("fine", 0.0), -100.0, 100.0);
+                    x.speed = std::clamp (m.value ("speed", 1.0), 0.25, 4.0);
+                    x.mantenTo = m.value ("mantenTo", true);
+                    x.reversa = m.value ("reversa", false);
+                    x.flat = m.value ("flat", false);
+                    x.smono = m.value ("smono", false);
+                    x.filtre = std::clamp (m.value ("filtre", 0), 0, 4);
+                    x.pendent = m.value ("pendent", 12) == 24 ? 24 : 12;
+                    x.cutoff = std::clamp (m.value ("cutoff", 20000.0), 20.0, 20000.0);
+                    x.reso = std::clamp (m.value ("reso", 0.0), 0.0, 1.0);
+                    x.drive = std::clamp (m.value ("drive", 0.0), 0.0, 1.0);
+                    x.atac = std::clamp (m.value ("atac", 0.002), 0.0, 10.0);
+                    x.decai = std::clamp (m.value ("decai", 0.2), 0.0, 10.0);
+                    x.sosteniment = std::clamp (m.value ("sosteniment", 1.0), 0.0, 1.0);
+                    x.alliberament = std::clamp (m.value ("alliberament", 0.15), 0.0, 20.0);
+                    x.vel = std::clamp (m.value ("vel", 0.7), 0.0, 1.0);
+                }
                 if (esMidi (t)) t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
@@ -618,6 +660,19 @@ namespace mibase::disc
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             if (! t.escalaTeclat) pista["escalaTeclat"] = false;
             if (t.modeEscala >= 0) pista["modeEscala"] = t.modeEscala;
+            if (esSampler (t))
+            {
+                const auto& x = t.sampler;
+                pista["sampler"] = { { "fitxer", x.fitxer }, { "nom", x.nom }, { "inici", x.inici }, { "fi", x.fi },
+                    { "bucleDe", x.bucleDe }, { "bucleA", x.bucleA }, { "modeBucle", x.modeBucle }, { "crossfade", x.crossfade },
+                    { "fadeIn", x.fadeIn }, { "fadeOut", x.fadeOut }, { "zeroCrossing", x.zeroCrossing }, { "modeToc", x.modeToc },
+                    { "veus", x.veus }, { "maxVeus", x.maxVeus }, { "guanyDb", x.guanyDb }, { "volDb", x.volDb }, { "pan", x.pan },
+                    { "width", x.width }, { "root", x.root }, { "bpm", x.bpm }, { "tune", x.tune }, { "fine", x.fine },
+                    { "speed", x.speed }, { "mantenTo", x.mantenTo }, { "reversa", x.reversa }, { "flat", x.flat }, { "smono", x.smono },
+                    { "filtre", x.filtre }, { "pendent", x.pendent }, { "cutoff", x.cutoff }, { "reso", x.reso }, { "drive", x.drive },
+                    { "atac", x.atac }, { "decai", x.decai }, { "sosteniment", x.sosteniment }, { "alliberament", x.alliberament },
+                    { "vel", x.vel } };
+            }
             if (t.tipus == "bateria")
             {
                 json filesJ = json::array();
@@ -866,6 +921,16 @@ namespace mibase::disc
             fs::create_directories (desti.parent_path(), ec);
             if (fs::copy_file (origen, desti, fs::copy_options::overwrite_existing, ec) && ! ec) ++copiats;
             else r.avisos.push_back ("No s'ha trobat «" + s.fitxer + "»");
+        }
+        // 0.26: els samples dels samplejadors.
+        for (auto& t : projecte.pistes)
+        {
+            if (! esSampler (t) || t.sampler.fitxer.empty()) continue;
+            const auto origen = camiRelatiu (carpetaProjecte, t.sampler.fitxer);
+            const auto desti = camiRelatiu (carpeta, t.sampler.fitxer);
+            fs::create_directories (desti.parent_path(), ec);
+            if (fs::copy_file (origen, desti, fs::copy_options::overwrite_existing, ec) && ! ec) ++copiats;
+            else r.avisos.push_back ("No s'ha trobat «" + t.sampler.fitxer + "»");
         }
 
         const auto fitxer = carpeta / cami (projecte.nom + extensio);

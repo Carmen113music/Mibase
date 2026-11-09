@@ -2,6 +2,7 @@
 
 #include "DialegText.h"
 #include "EditorVeu.h"
+#include "EditorSampler.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
@@ -98,6 +99,11 @@ private:
     void obreVeu (int pista, int clip);
     void obreVeuDePista (int pista);
     void tancaVeu();
+    // 0.26: samplejador
+    void obreSampler (int pista);
+    void tancaSampler();
+    void demanaSample();
+    void carregaSample (const std::string& idPista, const juce::File& f);
     void commutaVeuAB();
     /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
     void sincronitzaVeu();
@@ -181,6 +187,7 @@ private:
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
     EditorVeu editorVeu { estat, serveiVeu };            // 0.22
+    EditorSampler editorSampler { estat };               // 0.26
     PanellEditor panellEditor { estat, panellHarmonia, panellBateria, [this] { return zonaEditors.actiu(); } };
     std::unique_ptr<FinestraKits> finestraKits;
     void obreKits();

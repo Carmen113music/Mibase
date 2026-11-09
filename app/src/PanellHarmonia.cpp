@@ -163,6 +163,7 @@ public:
     }
 
     std::function<void()> onMida;   // l'alçada ha canviat (s'ha plegat o desplegat una secció)
+    std::function<void()> onObreSampler;   // 0.26
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -214,8 +215,16 @@ public:
 
         if (auto* pe = pistaEditor())
         {
-            btInstrument.setButtonText ("Instrument: sinte intern"_ca);
-            btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
+            if (mibase::esSampler (*pe))
+            {
+                btInstrument.setButtonText ("Instrument: samplejador"_ca);
+                btSo.setButtonText ("Sample: "_ca + (pe->sampler.nom.empty() ? "cap"_ca : txt (pe->sampler.nom)));
+            }
+            else
+            {
+                btInstrument.setButtonText (pe->instrument.rfind ("vst3:", 0) == 0 ? "Instrument: "_ca + txt (pe->nomInstrument) : "Instrument: sinte intern"_ca);
+                btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
+            }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
         }
         for (auto* b : { &btInstrument, &btSo, &btTeclat }) b->setEnabled (pistaEditor() != nullptr);
@@ -511,17 +520,34 @@ private:
 
     void menuInstrument()
     {
+        auto* t = pistaEditor();
+        if (t == nullptr) return;
+        const bool sampler = mibase::esSampler (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
         juce::PopupMenu m;
-        m.addItem (1, "Sinte intern", true, true);
+        m.addItem (1, "Sinte intern", true, ! sampler && ! vst);
+        m.addItem (3, "Samplejador"_ca, true, sampler);
         m.addSeparator();
-        m.addItem (2, "Plugins VST3  · a la versió següent"_ca, false);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [] (int) {});
+        m.addItem (2, "Plugins VST3: a la columna esquerra de la taula de treball"_ca, false);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this] (int r)
+        {
+            auto* p = pistaEditor();
+            if (p == nullptr) return;
+            if (r == 1 && mibase::esSampler (*p))
+                canviaPista ([] (Pista& q) { q.instrument = "intern:piano"; }, "Instrument: sinte intern"_ca);
+            else if (r == 3)
+            {
+                if (! mibase::esSampler (*p))
+                    canviaPista ([] (Pista& q) { q.instrument = mibase::instrumentSampler; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: samplejador"_ca);
+                if (onObreSampler) juce::MessageManager::callAsync ([f = onObreSampler] { f(); });
+            }
+        });
     }
 
     void menuSo()
     {
         auto* t = pistaEditor();
         if (t == nullptr) return;
+        if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         juce::PopupMenu m;
         const int actual = juce::jmax (0, midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
@@ -799,6 +825,7 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
 {
     contingut = std::make_unique<Contingut> (e, std::move (editorActiu), ajustos, std::move (teclats));
     contingut->onMida = [this] { resized(); };
+    contingut->onObreSampler = [this] { if (onObreSampler) onObreSampler(); };
     vista.setViewedComponent (contingut.get(), false);
     vista.setScrollBarsShown (true, false);
     vista.setScrollBarThickness (8);
