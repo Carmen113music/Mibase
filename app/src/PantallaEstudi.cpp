@@ -2391,6 +2391,7 @@ void PantallaEstudi::obreSampler (int pista)
 
 void PantallaEstudi::tancaSampler()
 {
+    if (auto* sm = instruments.samplejador (estat.sampler.pista)) sm->aturaEscolta();
     estat.sampler.obert = false;
     colocaSeccions();
     estat.avisa();

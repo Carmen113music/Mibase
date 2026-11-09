@@ -18,6 +18,7 @@ namespace mibase::biblioteca
         double durada = 0.0;                   // segons
         double bpm = 0.0;                      // 0: no se sap
         std::string tonalitat;                 // «A3», «C#4»… o buit
+        std::string forma;                     // 0.27: «One-shot» o «Loop» (buit: encara no se sap)
         long long data = 0;                    // quan es va afegir (ms des de 1970)
     };
 
@@ -35,6 +36,15 @@ namespace mibase::biblioteca
     /** El BPM si el nom el diu («Loop 120bpm», «groove_95_BPM»…); 0 si no. */
     double bpmPerNom (const std::string& nomFitxer);
 
+    /** 0.27: «One-shot» (un sol cop o una nota) o «Loop» (un tros que es repeteix).
+        Pel nom («loop», «groove», un BPM… / «one shot», «hit»…) i, si el nom no ho diu, pel so: curt (< 1 s) o que s'apaga
+        al final = one-shot; diversos cops i que no s'apaga al final (tallat per repetir-se) = loop. Si és un loop i el
+        BPM no se sap, l'estima per la durada (2, 4, 8… temps entre 70 i 180 BPM) a «bpmEstimat». */
+    std::string formaPerNom (const std::string& nomFitxer);
+    std::string detectaForma (const float* mostres, long long n, double fs, double& bpmEstimat);
+    inline constexpr const char* oneShot = "One-shot";
+    inline constexpr const char* loop = "Loop";
+
     inline constexpr const char* nomIndex = "biblioteca.json";
     /** Llegeix l'índex (si no n'hi ha, buit). */
     Index llegeix (const std::filesystem::path& carpeta);
@@ -51,7 +61,8 @@ namespace mibase::biblioteca
     enum class Ordre { Nom, Categoria, Durada, Data };
     /** Els índexs dels samples que passen el filtre (text a nom, categoria, etiquetes o tonalitat, sense
         distingir majúscules ni accents; categoria buida = totes), ordenats. */
-    std::vector<int> filtra (const Index& index, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent);
+    std::vector<int> filtra (const Index& index, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent,
+                             const std::string& forma = {});
 
     /** Etiquetes a partir d'un text («veu, crit; futbol» → veu, crit, futbol). */
     std::vector<std::string> etiquetesDeText (const std::string& text);

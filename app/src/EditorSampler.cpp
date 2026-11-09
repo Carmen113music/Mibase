@@ -122,7 +122,7 @@ EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
 
     btCarrega.setTooltip ("Carrega un fitxer d'àudio (wav, mp3, ogg, flac). També el pots arrossegar a sobre de l'ona. Es copia al projecte."_ca);
     btCarrega.onClick = [this] { if (onCarrega) onCarrega(); };
-    btPlay.setTooltip ("Escolta l'original des del capçal (la línia blanca: clica l'ona per posar-la on vulguis). Esc l'atura"_ca);
+    btPlay.setTooltip ("Escolta l'original des del capçal (la línia blanca: clica l'ona o la regla per posar-la on vulguis). Torna-hi a clicar per aturar-lo"_ca);
     btPlay.onClick = [this] { commutaEscolta(); };
     btZero.setTooltip ("En moure els marcadors, s'enganxen al pas per zero més proper (evita clics)"_ca);
     btZero.onClick = [this] { canvia ([] (ParamsSampler& p) { p.zeroCrossing = ! p.zeroCrossing; }); };
@@ -960,7 +960,7 @@ bool EditorSampler::keyPressed (const juce::KeyPress& k)
         }
         return true;
     }
-    if (k == juce::KeyPress::escapeKey && escoltant) { if (onEscolta) onEscolta (-1.0); escoltant = false; return true; }
+    if (k == juce::KeyPress::escapeKey && escoltant) { if (onEscolta) onEscolta (-1.0); escoltant = false; }   // i segueix: l'Esc global ho tanca tot
     return onTeclaNoUsada ? onTeclaNoUsada (k) : false;
 }
 

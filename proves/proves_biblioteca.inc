@@ -20,6 +20,33 @@ namespace
                       && bb::bpmPerNom ("bpm 128 drums.wav") == 128.0 && bb::bpmPerNom ("Kick 01.wav") == 0.0, "BPM pel nom");
         });
 
+        prova ("biblioteca: one-shot o loop (pel nom i pel so)", []
+        {
+            comprova (bb::formaPerNom ("Drum Loop 01.wav") == bb::loop && bb::formaPerNom ("groove_95_BPM.wav") == bb::loop
+                      && bb::formaPerNom ("Snare one shot.wav") == bb::oneShot && bb::formaPerNom ("Gooool.wav").empty(), "pel nom");
+            const double fs = 48000.0;
+            double bpm = 0.0;
+            // un cop que s'apaga
+            std::vector<float> cop ((size_t) (1.5 * fs));
+            for (size_t i = 0; i < cop.size(); ++i) cop[i] = (float) (std::sin (0.05 * (double) i) * std::exp (-(double) i / fs * 6.0));
+            comprova (bb::detectaForma (cop.data(), (long long) cop.size(), fs, bpm) == bb::oneShot, "un cop que s'apaga: one-shot");
+            // un so curt
+            comprova (bb::detectaForma (cop.data(), (long long) (0.5 * fs), fs, bpm) == bb::oneShot, "curt: one-shot");
+            // un loop de bateria de 2 compassos a 120 (8 temps en 4 s), tallat sense apagar-se
+            std::vector<float> lp ((size_t) (4.0 * fs));
+            for (size_t i = 0; i < lp.size(); ++i)
+            {
+                const double t = (double) i / fs, dins = std::fmod (t, 0.5);
+                lp[i] = (float) (0.8 * std::sin (2.0 * 3.14159265358979 * 60.0 * dins) * std::exp (-dins * 12.0) + 0.05 * std::sin (0.9 * (double) i));
+            }
+            comprova (bb::detectaForma (lp.data(), (long long) lp.size(), fs, bpm) == bb::loop, "un loop de bateria: loop");
+            comprova (std::abs (bpm - 120.0) < 0.5, "i n'estima el BPM per la durada (" + std::to_string (bpm) + ")");
+            // una nota llarga tallada (un pad): un sol atac
+            std::vector<float> pad ((size_t) (3.0 * fs));
+            for (size_t i = 0; i < pad.size(); ++i) pad[i] = (float) (0.4 * std::sin (0.03 * (double) i) * std::min (1.0, (double) i / (0.2 * fs)));
+            comprova (bb::detectaForma (pad.data(), (long long) pad.size(), fs, bpm) == bb::oneShot, "un pad tallat: one-shot");
+        });
+
         prova ("biblioteca: índex al disc, sincronitzar, cercar i ordenar", []
         {
             namespace fs = std::filesystem;
@@ -40,6 +67,8 @@ namespace
             }
             idx.busca ("Gooool.wav")->etiquetes = bb::etiquetesDeText ("futbol, crit; Veu");
             idx.busca ("Gooool.wav")->tonalitat = "A3";
+            idx.busca ("Gooool.wav")->forma = bb::oneShot;
+            idx.busca ("Bateria/Kick 01.wav")->forma = bb::loop;
             comprova (bb::desa (dir, idx), "desa l'índex");
             auto r = bb::llegeix (dir);
             comprova (r.samples.size() == 3 && r.busca ("Gooool.wav") != nullptr && r.busca ("Gooool.wav")->etiquetes.size() == 3
@@ -53,6 +82,9 @@ namespace
             comprova (f.size() == 1 && r.samples[(size_t) f[0]].fitxer == "Gooool.wav", "cerca per etiqueta sense accents");
             comprova (bb::filtra (r, "kick 01", "", bb::Ordre::Nom, false).size() == 1, "cerca amb diverses paraules");
             comprova (bb::filtra (r, "", "Bombo", bb::Ordre::Nom, false).size() == 1, "filtra per categoria");
+            comprova (r.busca ("Gooool.wav")->forma == bb::oneShot, "es desa si és one-shot o loop");
+            comprova (bb::filtra (r, "", "", bb::Ordre::Nom, false, bb::oneShot).size() == 1 && bb::filtra (r, "loop", "", bb::Ordre::Nom, false).size() == 1,
+                      "filtra i cerca per one-shot / loop");
             auto d = bb::filtra (r, "", "", bb::Ordre::Durada, true);
             comprova (d.size() == 2 && r.samples[(size_t) d[0]].fitxer == "Gooool.wav", "ordena per durada (de més a menys)");
             auto n = bb::filtra (r, "", "", bb::Ordre::Nom, false);

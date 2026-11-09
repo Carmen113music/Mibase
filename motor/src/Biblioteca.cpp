@@ -93,6 +93,48 @@ namespace mibase::biblioteca
         return 0.0;
     }
 
+    std::string formaPerNom (const std::string& nomFitxer)
+    {
+        const auto n = pla (fs::path (nomFitxer).stem().string());
+        if (conte (n, { "one shot", "oneshot", "one-shot", "one_shot", "1shot", "hit", "stab", "shot" })) return oneShot;
+        if (conte (n, { "loop", "groove", "break", "beat" }) || bpmPerNom (nomFitxer) > 0.0) return loop;
+        return {};
+    }
+
+    std::string detectaForma (const float* x, long long n, double fs, double& bpmEstimat)
+    {
+        bpmEstimat = 0.0;
+        if (x == nullptr || n <= 0 || fs <= 0.0) return oneShot;
+        const double dur = (double) n / fs;
+        if (dur < 1.0) return oneShot;
+        // volum per finestres de 20 ms
+        const long long w = std::max<long long> (1, (long long) (0.02 * fs));
+        std::vector<double> rms;
+        for (long long i = 0; i + w <= n; i += w)
+        {
+            double s = 0.0;
+            for (long long k = i; k < i + w; ++k) s += (double) x[k] * x[k];
+            rms.push_back (std::sqrt (s / (double) w));
+        }
+        if (rms.size() < 10) return oneShot;
+        const double pic = *std::max_element (rms.begin(), rms.end());
+        if (pic < 1e-6) return oneShot;
+        const double cua = (rms[rms.size() - 1] + rms[rms.size() - 2] + rms[rms.size() - 3]) / 3.0;
+        if (cua / pic < 0.05) return oneShot;                // s'apaga al final
+        int cops = 0;                                        // atacs: puja de cop i és prou fort
+        for (size_t i = 2; i < rms.size(); ++i)
+            if (rms[i] > 0.25 * pic && rms[i] > 2.0 * rms[i - 2]) { ++cops; i += 4; }
+        if (cops < 3) return oneShot;                        // una nota llarga tallada (un pad), no un loop
+        double millor = 0.0;
+        for (int temps : { 2, 4, 8, 16, 32, 64 })
+        {
+            const double b = 60.0 * temps / dur;
+            if (b >= 70.0 && b <= 180.0 && (millor == 0.0 || std::abs (b - 120.0) < std::abs (millor - 120.0))) millor = b;
+        }
+        bpmEstimat = std::round (millor * 10.0) / 10.0;
+        return loop;
+    }
+
     bool esAudio (const fs::path& f)
     {
         auto e = pla (f.extension().string());
@@ -119,6 +161,7 @@ namespace mibase::biblioteca
                 s.durada = e.value ("durada", 0.0);
                 s.bpm = e.value ("bpm", 0.0);
                 s.tonalitat = e.value ("tonalitat", std::string());
+                s.forma = e.value ("forma", std::string());
                 s.data = e.value ("data", 0LL);
                 idx.samples.push_back (std::move (s));
             }
@@ -134,7 +177,7 @@ namespace mibase::biblioteca
         auto arr = json::array();
         for (auto& s : idx.samples)
             arr.push_back ({ { "fitxer", s.fitxer }, { "nom", s.nom }, { "categoria", s.categoria }, { "etiquetes", s.etiquetes },
-                             { "durada", s.durada }, { "bpm", s.bpm }, { "tonalitat", s.tonalitat }, { "data", s.data } });
+                             { "durada", s.durada }, { "bpm", s.bpm }, { "tonalitat", s.tonalitat }, { "forma", s.forma }, { "data", s.data } });
         j["samples"] = arr;
         std::error_code ec;
         fs::create_directories (carpeta, ec);
@@ -178,7 +221,8 @@ namespace mibase::biblioteca
         return nom;
     }
 
-    std::vector<int> filtra (const Index& idx, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent)
+    std::vector<int> filtra (const Index& idx, const std::string& text, const std::string& categoria, Ordre ordre, bool descendent,
+                             const std::string& forma)
     {
         const auto t = pla (text);
         std::vector<int> r;
@@ -186,9 +230,10 @@ namespace mibase::biblioteca
         {
             const auto& s = idx.samples[(size_t) i];
             if (! categoria.empty() && s.categoria != categoria) continue;
+            if (! forma.empty() && s.forma != forma) continue;
             if (! t.empty())
             {
-                std::string tot = pla (s.nom) + "|" + pla (s.categoria) + "|" + pla (s.tonalitat);
+                std::string tot = pla (s.nom) + "|" + pla (s.categoria) + "|" + pla (s.tonalitat) + "|" + pla (s.forma);
                 for (auto& e : s.etiquetes) tot += "|" + pla (e);
                 bool totes = true;   // totes les paraules del text
                 size_t p = 0;

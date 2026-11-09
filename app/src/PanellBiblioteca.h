@@ -64,7 +64,7 @@ class PanellBiblioteca : public juce::Component, public juce::FileDragAndDropTar
 public:
     explicit PanellBiblioteca (juce::PropertiesFile& aj) : ajustos (aj)
     {
-        cerca.setTextToShowWhenEmpty ("Cerca (nom, tipus, etiqueta, nota)"_ca, tema::suau);
+        cerca.setTextToShowWhenEmpty ("Cerca (nom, tipus, loop, etiqueta, nota)"_ca, tema::suau);
         cerca.setFont (dibuix::lletra (13.0f));
         cerca.setIndents (8, 6);
         cerca.setColour (juce::TextEditor::backgroundColourId, tema::fons);
@@ -113,6 +113,8 @@ public:
         index = mibase::biblioteca::llegeix (dir.getFullPathName().toStdString());
         const auto nous = mibase::biblioteca::sincronitza (dir.getFullPathName().toStdString(), index);
         for (auto& rel : nous) index.samples.push_back (metadades (dir.getChildFile (juce::String::fromUTF8 (rel.c_str())), rel));
+        for (auto& s : index.samples)   // 0.27: els que encara no saben si són one-shot o loop
+            if (s.forma.empty()) posaForma (s, dir.getChildFile (juce::String::fromUTF8 (s.fitxer.c_str())));
         mibase::biblioteca::desa (dir.getFullPathName().toStdString(), index);
         refesLlista();
     }
@@ -213,7 +215,9 @@ private:
         g.setFont (dibuix::lletra (12.5f, true));
         auto dalt = r.removeFromTop (h / 2);
         g.drawText (juce::String::fromUTF8 (s.nom.c_str()), dalt.withTrimmedRight (4), juce::Justification::bottomLeft, true);
-        juce::String info = juce::String::fromUTF8 (s.categoria.c_str()) + juce::String::fromUTF8 ("  ·  ") + juce::String (s.durada, s.durada < 10.0 ? 2 : 1) + " s";
+        juce::String info = juce::String::fromUTF8 (s.categoria.c_str());
+        if (! s.forma.empty()) info += juce::String::fromUTF8 ("  ·  ") + juce::String::fromUTF8 (s.forma.c_str());
+        info += juce::String::fromUTF8 ("  ·  ") + juce::String (s.durada, s.durada < 10.0 ? 2 : 1) + " s";
         if (! s.tonalitat.empty()) info += juce::String::fromUTF8 ("  ·  ") + juce::String::fromUTF8 (s.tonalitat.c_str());
         if (s.bpm > 0.0) info += juce::String::fromUTF8 ("  ·  ") + juce::String (s.bpm, 0) + " BPM";
         g.setColour (tema::suau);
@@ -258,18 +262,46 @@ private:
         if (std::unique_ptr<juce::AudioFormatReader> r (kits::formats().createReaderFor (f)); r != nullptr && r->sampleRate > 0)
         {
             s.durada = (double) r->lengthInSamples / r->sampleRate;
-            if (s.durada <= 12.0 && s.categoria != "Bombo" && s.categoria != "Caixa" && s.categoria != "Hi-hat")
+            posaForma (s, f);
+            if (s.durada <= 12.0 && s.forma != mibase::biblioteca::loop && s.categoria != "Bombo" && s.categoria != "Caixa" && s.categoria != "Hi-hat")
                 if (auto m = kits::llegeix (f, 12.0))
                     if (const int n = mibase::sampler::detectaRoot (*m); n >= 0) s.tonalitat = samples::nomNota (n).toStdString();
         }
         return s;
     }
 
+    /** One-shot o loop: pel nom i, si no ho diu, pel so. Si és un loop sense BPM, l'estima. */
+    static void posaForma (mibase::biblioteca::Sample& s, const juce::File& f)
+    {
+        s.forma = mibase::biblioteca::formaPerNom (f.getFileName().toStdString());
+        double bpm = 0.0;
+        if (s.forma.empty())
+        {
+            if (auto m = kits::llegeix (f, 60.0))
+            {
+                std::vector<float> mono (m->L);
+                for (size_t i = 0; i < mono.size() && i < m->R.size(); ++i) mono[i] = 0.5f * (mono[i] + m->R[i]);
+                s.forma = mibase::biblioteca::detectaForma (mono.data(), (long long) mono.size(), m->fs, bpm);
+            }
+            else s.forma = mibase::biblioteca::oneShot;
+        }
+        else if (s.forma == mibase::biblioteca::loop && s.bpm <= 0.0 && s.durada > 0.0)
+        {
+            for (int temps : { 2, 4, 8, 16, 32, 64 })   // com detectaForma: per la durada
+            {
+                const double b = 60.0 * temps / s.durada;
+                if (b >= 70.0 && b <= 180.0 && (bpm <= 0.0 || std::abs (b - 120.0) < std::abs (bpm - 120.0))) bpm = b;
+            }
+            bpm = std::round (bpm * 10.0) / 10.0;
+        }
+        if (s.forma == mibase::biblioteca::loop && s.bpm <= 0.0) s.bpm = bpm;
+    }
+
     void desa() { mibase::biblioteca::desa (carpeta().getFullPathName().toStdString(), index); }
 
     void refesLlista()
     {
-        vista = mibase::biblioteca::filtra (index, cerca.getText().toStdString(), categoria, ordre, descendent);
+        vista = mibase::biblioteca::filtra (index, cerca.getText().toStdString(), categoria, ordre, descendent, forma);
         llista.updateContent();
         llista.repaint();
         repaint();
@@ -277,7 +309,9 @@ private:
 
     void actualitzaBotons()
     {
-        btCategoria.setButtonText (categoria.empty() ? "Tots els tipus"_ca : juce::String::fromUTF8 (categoria.c_str()));
+        juce::String t = categoria.empty() ? (forma.empty() ? "Tots els tipus"_ca : juce::String()) : juce::String::fromUTF8 (categoria.c_str());
+        if (! forma.empty()) t += (t.isEmpty() ? "" : juce::String::fromUTF8 (" · ")) + juce::String::fromUTF8 (forma.c_str()) + "s";
+        btCategoria.setButtonText (t);
         static const char* noms[] = { "Nom", "Tipus", "Durada", "Data" };
         btOrdre.setButtonText ("Ordre: "_ca + juce::String::fromUTF8 (noms[(int) ordre]) + (descendent ? juce::String::fromUTF8 (" ↓") : juce::String::fromUTF8 (" ↑")));
     }
@@ -288,10 +322,15 @@ private:
         m.addItem (1, "Tots els tipus"_ca, true, categoria.empty());
         int k = 2;
         for (auto& c : mibase::biblioteca::categories()) m.addItem (k++, juce::String::fromUTF8 (c.c_str()), true, c == categoria);
+        m.addSeparator();
+        m.addItem (50, "One-shots i loops", true, forma.empty());
+        m.addItem (51, "Només one-shots"_ca, true, forma == mibase::biblioteca::oneShot);
+        m.addItem (52, "Només loops"_ca, true, forma == mibase::biblioteca::loop);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btCategoria), [this] (int r)
         {
             if (r <= 0) return;
-            categoria = r == 1 ? std::string() : mibase::biblioteca::categories()[(size_t) (r - 2)];
+            if (r >= 50) forma = r == 51 ? mibase::biblioteca::oneShot : r == 52 ? mibase::biblioteca::loop : "";
+            else categoria = r == 1 ? std::string() : mibase::biblioteca::categories()[(size_t) (r - 2)];
             actualitzaBotons();
             refesLlista();
         });
@@ -359,6 +398,10 @@ private:
         for (auto& c : mibase::biblioteca::categories()) cat.addItem (k++, juce::String::fromUTF8 (c.c_str()), true, c == s.categoria);
         m.addItem (1, "Reanomena…"_ca);
         m.addSubMenu ("Tipus de so"_ca, cat);
+        juce::PopupMenu fm;
+        fm.addItem (60, "One-shot", true, s.forma == mibase::biblioteca::oneShot);
+        fm.addItem (61, "Loop", true, s.forma == mibase::biblioteca::loop);
+        m.addSubMenu ("One-shot o loop", fm);
         m.addItem (2, "Etiquetes…"_ca);
         m.addItem (3, "BPM…"_ca);
         m.addSeparator();
@@ -370,6 +413,7 @@ private:
             auto* x = index.busca (fitxerS);
             if (x == nullptr || r <= 0) return;
             if (r >= 100) { x->categoria = mibase::biblioteca::categories()[(size_t) (r - 100)]; desa(); refesLlista(); }
+            else if (r == 60 || r == 61) { x->forma = r == 60 ? mibase::biblioteca::oneShot : mibase::biblioteca::loop; desa(); refesLlista(); }
             else if (r == 1) demanaText ("Nom del sample"_ca, "Només canvia el nom que es mostra (el fitxer no es toca)."_ca, juce::String::fromUTF8 (x->nom.c_str()),
                                          [this, fitxerS] (const juce::String& t) { if (auto* y = index.busca (fitxerS)) y->nom = t.trim().toStdString(); });
             else if (r == 2) demanaText ("Etiquetes"_ca, "Separades per comes (per exemple: veu, crit, futbol)."_ca,
@@ -407,7 +451,7 @@ private:
     juce::PropertiesFile& ajustos;
     mibase::biblioteca::Index index;
     std::vector<int> vista;
-    std::string categoria;
+    std::string categoria, forma;   // filtres (buit: tots)
     mibase::biblioteca::Ordre ordre = mibase::biblioteca::Ordre::Nom;
     bool descendent = false, llegida = false, sobreFitxers = false;
     juce::TextEditor cerca;
