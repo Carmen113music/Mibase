@@ -11,6 +11,7 @@ add_library(mibase_motor STATIC
     src/Midi.cpp
     src/SinteIntern.cpp
     src/Harmonia.cpp
+    src/Guitarra.cpp
     src/PresetsPads.cpp
     src/Bateria.cpp
     src/Veu.cpp
