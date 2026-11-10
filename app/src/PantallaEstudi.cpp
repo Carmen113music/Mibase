@@ -258,6 +258,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (editorSampler);
     editorSampler.onTanca = [this] { tancaSampler(); };
     editorSampler.onCarrega = [this] { demanaSample(); };
+    editorSampler.onClip = [this] (int p, int c) { clipAlSampler (p, c); };
+    editorSampler.onABiblioteca = [this] { samplerABiblioteca(); };
     editorSampler.onFitxer = [this] (const juce::File& fitxerSample) { carregaSample (estat.sampler.pista, fitxerSample); };
     editorSampler.onNota = [this] (std::uint8_t e, std::uint8_t n, std::uint8_t v)
     {
@@ -307,6 +309,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     pistes.onSample = [this] (const juce::File& fs, int fila, double t) { deixaSample (fs, fila, t); };
     pistes.onEnviaSampler = [this] (int pista, int clip, bool nomesBib) { enviaAlSampler (pista, clip, nomesBib); };
+    pistes.arrossegaFora = [this] (juce::Point<int> q) { return editorSampler.isShowing() && editorSampler.getScreenBounds().contains (q); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
 
@@ -2584,15 +2587,15 @@ bool PantallaEstudi::potAgafarFocus() const
 //==============================================================================
 // 0.28: «Envia al samplejador»: el tros d'un clip d'àudio (o el del requadre) es converteix en un sample nou de la
 // biblioteca (còpia: l'original no es toca) i, si cal, en una pista Samplejador nova.
-void PantallaEstudi::enviaAlSampler (int pista, int clip, bool nomesBiblioteca)
+juce::File PantallaEstudi::escriuTros (int pista, int clip, const juce::File& dir)
 {
     auto* t = estat.pista (pista);
-    if (t == nullptr || clip < 0 || clip >= (int) t->clips.size()) return;
+    if (t == nullptr || clip < 0 || clip >= (int) t->clips.size()) return {};
     const auto c = t->clips[(size_t) clip];
     const auto* s = ed::presa (estat.projecte, c.presa);
-    if (s == nullptr) return;
+    if (s == nullptr) return {};
     auto it = audioPreses.find (s->id);
-    if (it == audioPreses.end() || it->second == nullptr) return;
+    if (it == audioPreses.end() || it->second == nullptr) return {};
     const auto& au = *it->second;
     // de la línia de temps a dins del fitxer
     double a = c.iniciVisible(), b = c.fiVisible();
@@ -2607,27 +2610,32 @@ void PantallaEstudi::enviaAlSampler (int pista, int clip, bool nomesBiblioteca)
     {
         estat.info = "El tros és massa curt"_ca;
         estat.avisa();
-        return;
+        return {};
     }
-    const auto dir = biblioteca.carpeta();
+    dir.createDirectory();
     const auto base = juce::File::createLegalFileName (dibuix::utf8 (s->nom) + " tros").toStdString();
     const auto rel = mibase::biblioteca::nomLliure (dir.getFullPathName().toStdString(), base, ".wav");
     const auto desti = dir.getChildFile (juce::String::fromUTF8 (rel.c_str()));
+    juce::AudioBuffer<float> buf (au.canals, (int) (ib - ia));
+    for (int ch = 0; ch < au.canals; ++ch)
+        std::copy (au.dades[ch].begin() + ia, au.dades[ch].begin() + ib, buf.getWritePointer (ch));
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
+    auto w = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}.withSampleRate (au.fs).withNumChannels (au.canals).withBitsPerSample (24))
+                                : nullptr;
+    if (w == nullptr || ! w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
     {
-        juce::AudioBuffer<float> buf (au.canals, (int) (ib - ia));
-        for (int ch = 0; ch < au.canals; ++ch)
-            std::copy (au.dades[ch].begin() + ia, au.dades[ch].begin() + ib, buf.getWritePointer (ch));
-        juce::WavAudioFormat wav;
-        std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
-        auto w = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}.withSampleRate (au.fs).withNumChannels (au.canals).withBitsPerSample (24))
-                                    : nullptr;
-        if (w == nullptr || ! w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
-        {
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut crear el sample"_ca, desti.getFullPathName());
-            return;
-        }
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut crear el sample"_ca, desti.getFullPathName());
+        return {};
     }
-    biblioteca.recarrega();   // l'afegeix a la biblioteca (amb el tipus, la nota…)
+    return desti;
+}
+
+void PantallaEstudi::enviaAlSampler (int pista, int clip, bool nomesBiblioteca)
+{
+    const auto desti = escriuTros (pista, clip, biblioteca.carpeta());
+    if (desti == juce::File()) return;
+    biblioteca.nouFitxer (desti);   // l'afegeix a la biblioteca (amb el tipus, la nota…), en segon pla
     historial.afegeix ("Sample nou a la biblioteca: "_ca + desti.getFileName());
     if (nomesBiblioteca)
     {
@@ -2636,6 +2644,31 @@ void PantallaEstudi::enviaAlSampler (int pista, int clip, bool nomesBiblioteca)
         return;
     }
     pistaSamplerNova (desti);
+}
+
+// 0.29: un clip d'àudio (o el tros del requadre) arrossegat a sobre del samplejador: n'és el sample nou
+void PantallaEstudi::clipAlSampler (int pista, int clip)
+{
+    const auto f = escriuTros (pista, clip, estat.carpeta.getChildFile ("Samples"));
+    if (f == juce::File()) return;
+    carregaSample (estat.sampler.pista, f);
+}
+
+// 0.29: el sample del samplejador obert, a la biblioteca (còpia)
+void PantallaEstudi::samplerABiblioteca()
+{
+    for (auto& t : estat.projecte.pistes)
+        if (t.id == estat.sampler.pista && mibase::esSampler (t))
+        {
+            if (t.sampler.fitxer.empty()) { estat.info = "El samplejador no té cap sample"_ca; estat.avisa(); return; }
+            const auto f = Instruments::fitxerSample (estat.carpeta, t.sampler);
+            if (! f.existsAsFile()) { estat.info = "No trobo el fitxer del sample"_ca; estat.avisa(); return; }
+            if (f.isAChildOf (biblioteca.carpeta())) { estat.info = "Aquest sample ja és a la biblioteca"_ca; estat.avisa(); return; }
+            biblioteca.afegeix ({ f });
+            estat.info = "«"_ca + f.getFileName() + "» s'afegeix a la biblioteca"_ca;
+            estat.avisa();
+            return;
+        }
 }
 
 //==============================================================================

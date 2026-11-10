@@ -123,6 +123,8 @@ public:
     /** 0.22: obre el clip d'àudio (pista, clip) al Vocal Editor. */
     std::function<void (int, int)> onObreVeu;
     std::function<void (int pista, int clip, bool nomesBiblioteca)> onEnviaSampler;   // 0.28
+    EstatEstudi::Rang rang0;   // 0.29
+    std::function<bool (juce::Point<int> pantalla)> arrossegaFora;   // 0.29: si el ratolí és a sobre d'on es pot deixar un clip (el samplejador)
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
 

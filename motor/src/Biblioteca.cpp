@@ -7,6 +7,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <regex>
+#include <unordered_set>
 
 namespace mibase::biblioteca
 {
@@ -196,9 +197,13 @@ namespace mibase::biblioteca
     {
         std::vector<std::string> nous;
         std::error_code ec;
+        // 0.29: amb un conjunt (abans es buscava un per un: amb desenes de milers de fitxers es penjava)
+        std::unordered_set<std::string> coneguts;
         idx.samples.erase (std::remove_if (idx.samples.begin(), idx.samples.end(),
                                            [&] (const Sample& s) { return ! fs::exists (carpeta / disc::cami (s.fitxer), ec); }),
                            idx.samples.end());
+        coneguts.reserve (idx.samples.size() * 2);
+        for (auto& s : idx.samples) coneguts.insert (s.fitxer);
         if (! fs::is_directory (carpeta, ec)) return nous;
         for (auto it = fs::recursive_directory_iterator (carpeta, fs::directory_options::skip_permission_denied, ec);
              it != fs::recursive_directory_iterator(); it.increment (ec))
@@ -207,7 +212,7 @@ namespace mibase::biblioteca
             if (! it->is_regular_file (ec) || ! esAudio (it->path())) continue;
             auto rel = disc::text (fs::relative (it->path(), carpeta, ec));
             std::replace (rel.begin(), rel.end(), '\\', '/');
-            if (idx.busca (rel) == nullptr) nous.push_back (rel);
+            if (coneguts.count (rel) == 0) nous.push_back (rel);
         }
         std::sort (nous.begin(), nous.end());
         return nous;
@@ -249,15 +254,22 @@ namespace mibase::biblioteca
             r.push_back (i);
         }
         auto clau = [&] (int i) { return &idx.samples[(size_t) i]; };
+        // 0.29: el nom «pla» es calcula un cop per sample (abans, a cada comparació: molt lent amb milers de samples)
+        std::vector<std::string> noms;
+        if (ordre == Ordre::Nom || ordre == Ordre::Categoria)
+        {
+            noms.resize (idx.samples.size());
+            for (int i : r) noms[(size_t) i] = pla (idx.samples[(size_t) i].nom);
+        }
         std::stable_sort (r.begin(), r.end(), [&] (int a, int b)
         {
             const auto *x = clau (a), *y = clau (b);
             bool menor = false, igual = false;
             switch (ordre)
             {
-                case Ordre::Nom:       menor = pla (x->nom) < pla (y->nom); igual = pla (x->nom) == pla (y->nom); break;
-                case Ordre::Categoria: menor = x->categoria < y->categoria || (x->categoria == y->categoria && pla (x->nom) < pla (y->nom));
-                                       igual = x->categoria == y->categoria && pla (x->nom) == pla (y->nom); break;
+                case Ordre::Nom:       menor = noms[(size_t) a] < noms[(size_t) b]; igual = noms[(size_t) a] == noms[(size_t) b]; break;
+                case Ordre::Categoria: menor = x->categoria < y->categoria || (x->categoria == y->categoria && noms[(size_t) a] < noms[(size_t) b]);
+                                       igual = x->categoria == y->categoria && noms[(size_t) a] == noms[(size_t) b]; break;
                 case Ordre::Durada:    menor = x->durada < y->durada; igual = x->durada == y->durada; break;
                 case Ordre::Data:      menor = x->data < y->data; igual = x->data == y->data; break;
             }

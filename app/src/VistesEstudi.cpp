@@ -1279,6 +1279,7 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
     }
     grabKeyboardFocus();
     inici = e.getPosition();
+    rang0 = estat.rang;   // 0.29: per si el clic és per arrossegar el tros triat al samplejador
     lloc0 = llocA (inici);
     t0 = estat.t ((float) e.x);
     mode = Mode::Res;
@@ -1496,6 +1497,56 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
     if (e.mods.isPopupMenu()) return;
     auto& p = estat.projecte;
     const double t = estat.t ((float) e.x);
+
+    // 0.29: un clip d'àudio arrossegat fora de les pistes es pot deixar al samplejador
+    const auto clipFora = [&]
+    {
+        if (! (mode == Mode::Decidint || mode == Mode::MouTemps || mode == Mode::MouPista || (mode == Mode::Requadre && lloc0.clip >= 0))) return false;
+        if (! arrossegaFora || ! arrossegaFora (e.getScreenPosition())) return false;
+        // movent, el projecte bo és la còpia d'abans de moure; fent un requadre, no s'ha mogut res
+        const auto& pr = mode == Mode::Requadre ? estat.projecte : copiaInici;
+        return lloc0.pista >= 0 && lloc0.pista < (int) pr.pistes.size() && lloc0.clip >= 0
+               && lloc0.clip < (int) pr.pistes[(size_t) lloc0.pista].clips.size() && ! mibase::esMidi (pr.pistes[(size_t) lloc0.pista]);
+    };
+    if (clipFora())
+        if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
+        {
+            if (mode == Mode::Requadre)
+            {
+                // començat a sobre d'un clip: el tros que ja estava triat (si el toca) o el clip sencer
+                const bool toca = rang0.actiu && lloc0.pista >= rang0.pistaDe && lloc0.pista <= rang0.pistaFins && t0 >= rang0.t0 && t0 <= rang0.t1;
+                estat.rang = rang0;
+                if (! toca) estat.rang.actiu = false;
+                estat.triats.clear();
+                estat.triats.push_back ({ lloc0.pista, lloc0.clip });
+            }
+            else
+            {
+                restaura();
+                estat.triats = triatsOriginals;
+            }
+            canviFet = false;
+            triatsOriginals.clear();
+            mode = Mode::Res;
+            const int pi = lloc0.pista, ci = lloc0.clip;
+            const auto& t2 = estat.projecte.pistes[(size_t) pi];
+            const auto* s = ed::presa (estat.projecte, t2.clips[(size_t) ci].presa);
+            const auto nom = s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Clip");
+            juce::Image im (juce::Image::ARGB, 160, 28, true);
+            {
+                juce::Graphics g (im);
+                g.setColour (EstatEstudi::colorPista (t2).withAlpha (0.85f));
+                g.fillRoundedRectangle (0.0f, 0.0f, 160.0f, 28.0f, 6.0f);
+                g.setColour (juce::Colours::black);
+                g.setFont (dibuix::lletra (13.0f, true));
+                g.drawText (nom, 6, 0, 148, 28, juce::Justification::centred, true);
+            }
+            estat.info = "Deixa «"_ca + nom + "» a sobre del samplejador"_ca;
+            estat.avisa();
+            repaint();
+            c->startDragging ("mibase-clip:" + juce::String (pi) + ":" + juce::String (ci), this, juce::ScaledImage (im), true);
+            return;
+        }
 
     switch (mode)
     {

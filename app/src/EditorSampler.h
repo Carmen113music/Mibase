@@ -39,6 +39,8 @@ public:
     std::function<std::shared_ptr<const mibase::sampler::Mostra>()> mostra;   // l'àudio original
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
     std::function<void (int)> onAltConsola;                           // l'alçada dels paràmetres ha canviat (per desar-la)
+    std::function<void()> onABiblioteca;                              // 0.29: copia el sample a la biblioteca
+    std::function<void (int pista, int clip)> onClip;                 // 0.29: un clip d'àudio arrossegat des de les pistes
     std::function<void()> onGrava;                                    // 0.28: grava (o atura) dins el samplejador
     std::function<juce::StringArray()> entrades;                      // 0.28: noms de les entrades de la targeta
     std::function<bool()> gravant;
@@ -64,14 +66,25 @@ public:
     static juce::String nomNota (int nota);   // «C4» (60)
 
     // 0.27: un sample de la biblioteca
-    bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("mibase-sample:") && pista() != nullptr; }
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        const auto t = d.description.toString();
+        return (t.startsWith ("mibase-sample:") || t.startsWith ("mibase-clip:")) && pista() != nullptr;
+    }
     void itemDragEnter (const SourceDetails&) override { sobreFitxer = true; repaint(); }
     void itemDragExit (const SourceDetails&) override { sobreFitxer = false; repaint(); }
     void itemDropped (const SourceDetails& d) override
     {
         sobreFitxer = false;
         repaint();
-        if (onFitxer) onFitxer (juce::File (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false)));
+        const auto t = d.description.toString();
+        if (t.startsWith ("mibase-clip:"))   // 0.29: «mibase-clip:pista:clip»
+        {
+            const auto r = t.fromFirstOccurrenceOf ("mibase-clip:", false, false);
+            if (onClip) onClip (r.upToFirstOccurrenceOf (":", false, false).getIntValue(), r.fromFirstOccurrenceOf (":", false, false).getIntValue());
+            return;
+        }
+        if (onFitxer) onFitxer (juce::File (t.fromFirstOccurrenceOf ("mibase-sample:", false, false)));
     }
 
 protected:
@@ -105,6 +118,7 @@ private:
     int notaA (juce::Point<float> p) const;
     void pintaTeclat (juce::Graphics& g);
     int notaRatoli = -1;
+    int rootArrossegada = -1;   // 0.29: arrossegant la tecla taronja
 
 
     // ---- pics de l'ona ----
@@ -118,6 +132,7 @@ private:
     juce::Rectangle<int> zBarra, zRegla, zFonsOna, zOna, zTeclat, zConsola, zAdsr;
 
     // ---- barra ----
+    Boto btBiblioteca { "A la biblioteca"_ca, std::nullopt, Boto::Estil::Secundari };
     Boto btCarrega { "Carrega…"_ca, dibuix::Icona::Importa, Boto::Estil::Secundari };
     Boto btGrava { "Grava", dibuix::Icona::Grava, Boto::Estil::Secundari };
     Boto btEntrada { "E1", std::nullopt, Boto::Estil::Subtil };
