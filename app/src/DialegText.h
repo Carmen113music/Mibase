@@ -32,6 +32,15 @@ public:
         actualitza();
     }
 
+    /** 0.16: a més del nom, una fila de colors per triar-ne un (colorTriat). */
+    void ambColors (std::vector<juce::Colour> c, int triat)
+    {
+        colors = std::move (c);
+        colorTriat = juce::jlimit (0, juce::jmax (0, (int) colors.size() - 1), triat);
+        resized();
+    }
+    int colorTriat = 0;
+
     /** Es posa sobre tota la finestra de «sobre» i hi deixa el cursor. */
     static void mostra (juce::Component& sobre, std::unique_ptr<DialegText>& propietari)
     {
@@ -63,11 +72,18 @@ public:
         g.setColour (error.isNotEmpty() ? tema::errorText : tema::suau);
         g.setFont (dibuix::lletra (12.5f));
         g.drawText (error, text.getBounds().translated (0, 48).withHeight (20), juce::Justification::centredLeft);
+        for (int i = 0; i < (int) colors.size(); ++i)
+        {
+            const auto rc = rectColor (i).toFloat();
+            g.setColour (colors[(size_t) i]);
+            g.fillRoundedRectangle (rc, 5.0f);
+            if (i == colorTriat) { g.setColour (tema::text); g.drawRoundedRectangle (rc.expanded (3.0f), 7.0f, 2.0f); }
+        }
     }
 
     void resized() override
     {
-        panell = getLocalBounds().withSizeKeepingCentre (juce::jmin (480, getWidth() - 40), 236);
+        panell = getLocalBounds().withSizeKeepingCentre (juce::jmin (480, getWidth() - 40), colors.empty() ? 236 : 286);
         auto r = panell.reduced (24, 20);
         r.removeFromTop (70);
         text.setBounds (r.removeFromTop (44));
@@ -77,7 +93,12 @@ public:
         btCancella.setBounds (peu.removeFromRight (btCancella.ampladaIdeal()));
     }
 
-    void mouseDown (const juce::MouseEvent& e) override { if (! panell.contains (e.getPosition())) tanca(); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        for (int i = 0; i < (int) colors.size(); ++i)
+            if (rectColor (i).expanded (3).contains (e.getPosition())) { colorTriat = i; repaint(); text.grabKeyboardFocus(); return; }
+        if (! panell.contains (e.getPosition())) tanca();
+    }
     bool keyPressed (const juce::KeyPress& k) override
     {
         if (k == juce::KeyPress::escapeKey) { tanca(); return true; }
@@ -115,6 +136,8 @@ private:
         setVisible (false);
     }
 
+    juce::Rectangle<int> rectColor (int i) const { return { text.getX() + i * 38, text.getBottom() + 34, 30, 30 }; }
+    std::vector<juce::Colour> colors;
     juce::String titol, subtitol, error;
     std::function<juce::String (const juce::String&)> valida;
     std::function<void (const juce::String&)> accepta;

@@ -24,6 +24,8 @@ public:
 
     void resized() override;
     void paint (juce::Graphics& g) override;
+    /** 0.26: obre l'editor del samplejador de la pista (si l'instrument és el samplejador). */
+    std::function<void()> onObreSampler;
 
 private:
     class Contingut;

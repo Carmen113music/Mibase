@@ -38,6 +38,31 @@ namespace mibase
         bool operator== (const EventMidi&) const = default;
     };
 
+    /** 0.22: una nota del Vocal Editor dins d'una presa: on és (segons dins el fitxer), què s'hi ha detectat i què
+        s'hi ha canviat. L'àudio original no es toca mai: aquests valors diuen com s'ha de transformar. */
+    struct NotaVeu
+    {
+        double ini = 0.0, fi = 0.0;   // segons dins el fitxer
+        double centre = 60.0;         // afinació detectada (MIDI amb decimals: 60,25 = C4 + 25 cents)
+        double desplac = 0.0;         // semitons sumats al centre (Pitch Center)
+        double modulacio = 1.0;       // vibrato: 0 = treure'l, 1 = l'original, 2 = el doble (Pitch Modulation)
+        double deriva = 1.0;          // deriva lenta dins la nota: 0 = recta, 1 = l'original (Pitch Drift)
+        double formant = 0.0;         // semitons (0 = es conserven els formants originals)
+        double guanyDb = 0.0;         // volum de la nota
+        bool operator== (const NotaVeu&) const = default;
+    };
+
+    /** 0.22: el que el Vocal Editor sap i ha canviat d'una presa. */
+    struct VeuPresa
+    {
+        bool analitzada = false;          // les notes ja s'han detectat (l'anàlisi fina és a «<fitxer>.veu»)
+        double transicio = 0.06;          // segons que tarda a passar d'una nota corregida a la següent
+        int modeTon = 0;                  // 0.23: on van les notes: 0 tonalitat de la cançó, 1 cromàtic, 2 la triada aquí
+        int to = 0, escala = 0;           // 0.23: tonalitat triada (modeTon = 2): to 0..11 i índex de harmonia::escales()
+        std::vector<NotaVeu> notes;       // per ordre de temps
+        bool operator== (const VeuPresa&) const = default;
+    };
+
     /** Una gravació (un fitxer d'Àudios). Tots els temps, en segons. */
     struct Presa
     {
@@ -46,6 +71,7 @@ namespace mibase
         std::string nom;         // el que es mostra (no canvia el nom del fitxer)
         double durada = 0.0;
         double primer = -1.0;    // bandera del primer temps, dins el fitxer (negatiu: no en té)
+        VeuPresa veu;            // 0.22: Vocal Editor
     };
 
     /** Un tros d'una presa col·locat a la línia de temps (una «finestra»). No toca mai el fitxer.
@@ -73,11 +99,68 @@ namespace mibase
         double longitud() const noexcept     { return fi - inici; }
     };
 
+    /** 0.19: un plugin d'efecte en un insert (d'una pista o del màster). */
+    struct Insert
+    {
+        std::string id;          // «i1», «i2»… (no canvia: serveix per retrobar el plugin viu)
+        std::string plugin;      // identificador del plugin (el de la llista de plugins)
+        std::string nom;         // per mostrar-lo encara que no s'hagi pogut obrir
+        bool actiu = true;       // apagat: el so hi passa de llarg
+        std::string estat;       // ajustos del plugin (base64)
+    };
+
+    /** 0.26: el samplejador d'una pista (instrument «sampler»). Temps en segons dins el fitxer original. */
+    struct ParamsSampler
+    {
+        std::string fitxer;               // relatiu a la carpeta del projecte («Samples/Gol.wav»); buit = cap so
+        std::string nom;                  // nom del sample
+        double inici = 0.0, fi = -1.0;    // fragment que sona (fi < 0: fins al final)
+        double bucleDe = -1.0, bucleA = -1.0;   // bucle (< 0: sense)
+        int modeBucle = 0;                // 0 Off, 1 Endavant, 2 Ping-pong, 3 Sustain + release des del final del bucle
+        double crossfade = 0.02;          // s, al punt d'unió del bucle
+        double fadeIn = 0.0, fadeOut = 0.005;   // s
+        bool zeroCrossing = true;         // els marcadors s'enganxen al pas per zero (en editar)
+        int modeToc = 0;                  // 0 Play, 1 One-shot, 2 Gate
+        int veus = 0;                     // 0 Poli, 1 Mono, 2 Legato
+        int maxVeus = 16;
+        double guanyDb = 0.0, volDb = 0.0, pan = 0.0, width = 1.0;
+        int root = 60;                    // nota original del sample
+        double bpm = 0.0;                 // tempo del sample (0: no se sap)
+        double tune = 0.0, fine = 0.0;    // semitons, cents
+        double speed = 1.0;               // 0.25..4
+        bool mantenTo = true;             // Speed sense canviar el to (time-stretch); si no, com una cinta
+        bool durFixa = true;              // 0.26.1: tocar més agut o més greu no canvia la durada (si no, com un sampler clàssic)
+        bool reversa = false, flat = false, smono = false;
+        int filtre = 0;                   // 0 cap, 1 passa-baixos, 2 passa-alts, 3 passa-banda, 4 notch
+        int pendent = 12;                 // 12 o 24 dB/oct
+        double cutoff = 20000.0, reso = 0.0, drive = 0.0;   // Hz, 0..1, 0..1
+        double atac = 0.002, decai = 0.2, sosteniment = 1.0, alliberament = 0.15;   // s, s, 0..1, s
+        double vel = 0.7;                 // sensibilitat a la velocitat 0..1
+        int entradaGrava = 0, canalsGrava = 1;   // 0.28: d'on grava el samplejador (entrada de la targeta, mono o estèreo)
+    };
+    inline constexpr const char* instrumentSampler = "sampler";
+
+    /** 0.20: una fila del Drumpad (pista de bateria): un so del kit tocat per una nota MIDI. */
+    struct FilaBateria
+    {
+        std::string tipus = "altres";   // kick, snare, hihat… (bateria::tipus())
+        std::string so;                 // «intern:kick» o camí relatiu a la carpeta de kits («Kit rock/Kick 01.wav»)
+        std::string nom;                // el que es mostra a la fila
+        int nota = 36;                  // nota MIDI que la toca (General MIDI)
+        double volumDb = 0.0;           // de -40 a +6
+        double pan = 0.0;               // de -1 a +1
+        double afina = 0.0;             // semitons, de -12 a +12
+        double decai = 1.0;             // 0,05..1: quina part del so sona (1 = sencer)
+        int talla = 0;                  // grup de tall (0 = cap): un cop d'un grup talla els altres sons del mateix grup
+        bool mut = false;
+        bool operator== (const FilaBateria&) const = default;
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // audio, midi (més endavant: bateria, acords, bus)
+        std::string tipus = "audio";   // audio, midi, bateria (0.20; és MIDI amb el sampler de bateria). Més endavant: bus
         /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
             més endavant «vst3:<identificador>». */
         std::string instrument;
@@ -96,6 +179,59 @@ namespace mibase
         double faderDb = 0.0;    // de -60 (silenci) a +6
         double pan = 0.0;        // de -1 (tot a l'esquerra) a +1 (tot a la dreta)
         int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
+        std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
+        std::vector<Insert> inserts;           // 0.19: efectes, per ordre
+        std::string nomInstrument, estatInstrument;   // 0.19: instrument VST3 («vst3:…»): nom i ajustos (base64)
+        // ---- 0.20 ----
+        bool escalaTeclat = true;                  // el teclat MIDI d'aquesta pista segueix l'escala (assistit/bloquejat)
+        int modeEscala = -1;                       // 0.25: Visual/Assistit/Bloquejat d'aquesta pista (-1: el del projecte, com abans)
+        std::vector<FilaBateria> files;            // bateria: les files del Drumpad (de dalt a baix)
+        std::string kit;                           // bateria: nom del kit d'on surten els sons
+        bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
+        ParamsSampler sampler;                     // 0.26: instrument «sampler»
+    };
+
+    /** 0.20: és una pista de notes MIDI (instrument o bateria). */
+    inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+    /** 0.26: és una pista d'instrument amb el samplejador. */
+    inline bool esSampler (const Pista& t) noexcept { return t.tipus == "midi" && t.instrument == instrumentSampler; }
+
+    /** 0.22: identificador de l'insert intern del Vocal Editor. */
+    inline constexpr const char* pluginVeu = "intern:veu";
+    inline bool esInsertVeu (const Insert& x) noexcept { return x.plugin == pluginVeu; }
+    /** La pista té el Vocal Editor encès (fa sonar les preses corregides). */
+    inline bool veuActiva (const Pista& t) noexcept
+    {
+        for (auto& x : t.inserts) if (esInsertVeu (x)) return x.actiu;
+        return false;
+    }
+    inline bool teVeu (const Pista& t) noexcept
+    {
+        for (auto& x : t.inserts) if (esInsertVeu (x)) return true;
+        return false;
+    }
+
+    /** Estructura de la cançó (0.15): una llista de parts (peces) per provar ordres diferents sense tocar la línia de temps.
+        A cada peça hi pot haver pistes que no sonen. */
+    struct PecaEstructura
+    {
+        std::string part;                    // id de la Part
+        std::vector<std::string> silencis;   // ids de les pistes que no sonen en aquesta peça
+    };
+    struct Estructura
+    {
+        std::string id;                      // «eN»
+        std::string nom;
+        std::vector<PecaEstructura> peces;
+    };
+
+    /** Carpeta de pistes (0.11): agrupa pistes (bateria, guitarres…). Plegada: a la taula de treball les seves pistes
+        es veuen com una sola fila. Amagada: no es veuen a la taula de treball (però sonen). */
+    struct Carpeta
+    {
+        std::string id;          // «fN»
+        std::string nom;
+        bool plegada = false, amagada = false;
     };
 
     /** Tonalitat: nota fonamental (0 = C … 11 = B) i escala (índex de harmonia::escales()). */
@@ -121,7 +257,18 @@ namespace mibase
     struct Bucle
     {
         bool marcat = false, actiu = false;
-        int de = 0, a = 0;
+        double de = 0, a = 0;    // en compassos interns (0.13: amb decimals, per a seleccions a Temps o Lliure)
+    };
+
+    /** Part de la cançó (0.13): intro, estrofa, tornada… marcada a la regla. En compassos interns. */
+    struct Part
+    {
+        std::string id;          // «mN»
+        std::string nom;
+        double de = 0, a = 0;
+        std::uint32_t rgb = 0;
+        double tempo = 0.0;             // 0.28: tempo propi de la part (0: el de la cançó); canvi brusc a l'inici
+        int compasNum = 0, compasDen = 0;   // 0.28: compàs propi (0: el de la cançó)
     };
 
     struct Projecte
@@ -136,12 +283,18 @@ namespace mibase
 
         std::vector<Presa> preses;
         std::vector<Pista> pistes;
+        std::vector<Carpeta> carpetes;
+        std::vector<Part> parts;
+        std::vector<Estructura> estructures;
+        std::string estructuraActiva;        // id; buit = lineal
         Bucle bucle;
         Snap snap = Snap::Compas;
         bool clic = true;
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
+        std::vector<Insert> insertsMaster;   // 0.19: cadena de màstering
+        int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
         int comptador = 0;       // per fer identificadors únics
 
         // ---- Harmonia (0.8) ----
@@ -155,4 +308,10 @@ namespace mibase
         /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */
         std::string jsonOriginal;
     };
+
+    /** 0.25: el mode d'escala d'una pista (cada editor té el seu; si la pista no en té, el del projecte). */
+    inline ModeEscala modeEscalaDe (const Projecte& p, const Pista& t) noexcept
+    {
+        return t.modeEscala >= 0 ? (ModeEscala) t.modeEscala : p.modeEscala;
+    }
 }

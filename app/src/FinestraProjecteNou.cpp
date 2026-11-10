@@ -35,6 +35,17 @@ FinestraProjecteNou::FinestraProjecteNou (const juce::File& carpetaMare) : carpe
     btMenys.setTitle ("Més lent"_ca);
     btMes.setTitle ("Més ràpid"_ca);
     btMenys.onClick = [this] { canviaTempo (-1); };
+    campTempo.setInputRestrictions (3, "0123456789");
+    campTempo.setJustification (juce::Justification::centred);
+    campTempo.setFont (dibuix::mono (15.0f));
+    campTempo.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+    campTempo.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    campTempo.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+    campTempo.setColour (juce::TextEditor::textColourId, tema::text);
+    campTempo.setTooltip ("Escriu el tempo (de 40 a 240) o fes servir - i +"_ca);
+    campTempo.setText (juce::String (tempo), false);
+    campTempo.addListener (this);
+    addAndMakeVisible (campTempo);
     btMes.onClick = [this] { canviaTempo (1); };
 
     addAndMakeVisible (compas);
@@ -51,6 +62,7 @@ FinestraProjecteNou::FinestraProjecteNou (const juce::File& carpetaMare) : carpe
 void FinestraProjecteNou::canviaTempo (int delta)
 {
     tempo = juce::jlimit (40, 240, tempo + delta);
+    campTempo.setText (juce::String (tempo), false);
     repaint (zonaTempo);
 }
 
@@ -155,6 +167,7 @@ void FinestraProjecteNou::resized()
     zonaTempo = fila.removeFromLeft (170).withTrimmedTop (22);
     btMenys.setBounds (zonaTempo.withWidth (44));
     btMes.setBounds (zonaTempo.withTrimmedLeft (zonaTempo.getWidth() - 44));
+    campTempo.setBounds (zonaTempo.withTrimmedLeft (46).withTrimmedRight (46 + 36).reduced (0, 6));
     fila.removeFromLeft (24);
     compas.setBounds (fila.withTrimmedTop (22).withWidth (compas.ampladaIdeal() + 20));
     e.removeFromTop (22);
@@ -232,7 +245,9 @@ void FinestraProjecteNou::paint (juce::Graphics& g)
     g.drawRoundedRectangle (zonaTempo.toFloat().reduced (0.5f), 10.0f, 1.0f);
     g.setColour (tema::text);
     g.setFont (dibuix::mono (15.0f));
-    g.drawText (juce::String (tempo) + " bpm", zonaTempo, juce::Justification::centred);
+    g.setColour (tema::suau);
+    g.setFont (dibuix::mono (12.0f));
+    g.drawText ("bpm", zonaTempo.withTrimmedRight (46).removeFromRight (32), juce::Justification::centredLeft);
 
     etiqueta ("Compàs"_ca, compas.getBounds().translated (0, -22).withHeight (20));
 

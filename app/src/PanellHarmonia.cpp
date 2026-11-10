@@ -52,7 +52,8 @@ public:
         mode.onCanvi = [this] (int i)
         {
             estat.desfes.abans (estat.projecte);
-            estat.projecte.modeEscala = (ModeEscala) i;
+            if (auto* t = pistaEditor()) t->modeEscala = i;   // 0.25: cada pista (editor) té el seu
+            else estat.projecte.modeEscala = (ModeEscala) i;
             estat.info = i == 0 ? "Escala: només es ressalta"_ca
                        : i == 1 ? "Escala assistida: les notes de fora van a la més propera de l'escala"_ca
                                 : "Escala bloquejada: no es poden posar notes de fora de l'escala"_ca;
@@ -131,7 +132,7 @@ public:
         for (auto* c : std::initializer_list<juce::Component*> { &btInstrument, &btSo, &btTeclat, &btEscala, &btAuto, &mode, &btAcord, &setenes, &durada, &btMinim,
                                                                  &btFonamental, &btTipus, &inversio, &voicing, &octava, &btDobla, &btBaix,
                                                                  &btEscolta, &btPosa, &btFesAcord, &btFesEscala, &btInvAmunt, &btInvAvall,
-                                                                 &btEnllaca, &btProgressio, &compassos, &btEscoltaProg, &btInsereix })
+                                                                 &btEnllaca, &btProgressio, &compassos, &btEscoltaProg, &btInsereix, &btAplicaPads })
             addAndMakeVisible (c);
 
         reproductor.tic = [this] { pasProgressio(); };
@@ -140,17 +141,29 @@ public:
         seccions[0] = { "Pista", "pista", { &btInstrument, &btSo, &btTeclat }, false, {} };
         seccions[1] = { "Tonalitat", "tonalitat", { &btEscala, &btAuto }, false, {} };
         for (auto* b : arrels) seccions[1].fills.push_back (b);
-        seccions[2] = { "Escala al Piano Roll", "escala", { &mode, &btAcord }, false, {} };
+        seccions[2] = { "Escala al Piano Roll", "escala", { &mode }, false, {} };   // 0.12: sense «Ressalta l'acord» (sempre encès)
+        btAcord.setVisible (false);
         seccions[3] = { "Acords de la tonalitat", "acords", { &setenes, &durada, &btMinim }, false, {} };
         for (auto* b : graus) seccions[3].fills.push_back (b);
         seccions[4] = { "Constructor d'acords", "constructor", { &btFonamental, &btTipus, &inversio, &voicing, &octava, &btDobla, &btBaix,
                                                                  &btEscolta, &btPosa, &btFesAcord, &btFesEscala, &btInvAvall, &btInvAmunt, &btEnllaca }, false, {} };
-        seccions[5] = { juce::String::fromUTF8 ("Progressió"), "progressio", { &btProgressio, &compassos, &btEscoltaProg, &btInsereix }, false, {} };
+        seccions[5] = { juce::String::fromUTF8 ("Progressió"), "progressio", { &btProgressio, &compassos, &btEscoltaProg, &btInsereix, &btAplicaPads }, false, {} };
+        btAplicaPads.setTooltip ("Posa els acords d'aquesta progressió als pads del Chord Pad (per ordre: C, C#, D…)"_ca);
+        btAplicaPads.onClick = [this]
+        {
+            auto* pr = editor ? editor() : nullptr;
+            if (pr == nullptr) return;
+            std::vector<std::string> v;
+            for (auto& a : hm::acordsProgressio (tonalitat(), progressio, setenes.getTriat() == 1))
+                if (std::find (v.begin(), v.end(), a.nom) == v.end()) v.push_back (a.nom);
+            pr->posaPads (v, txt (hm::progressions()[(size_t) progressio].nom).toStdString());
+        };
         for (auto& sc : seccions) sc.plegada = ajustos.getBoolValue ("panellHarmonia.plegada." + sc.clau, false);
         actualitza();
     }
 
     std::function<void()> onMida;   // l'alçada ha canviat (s'ha plegat o desplegat una secció)
+    std::function<void()> onObreSampler;   // 0.26
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -187,7 +200,7 @@ public:
         btEscala.setButtonText (txt (hm::escales()[(size_t) t.escala].nom));
         btAuto.setToggleState (estat.projecte.tonalitatAuto, juce::dontSendNotification);
         btAuto.setButtonText (estat.projecte.tonalitatAuto ? "Automàtica"_ca : "A mà (clica per detectar-la)"_ca);
-        mode.setTriat ((int) estat.projecte.modeEscala);
+        mode.setTriat ((int) (pistaEditor() != nullptr ? mibase::modeEscalaDe (estat.projecte, *pistaEditor()) : estat.projecte.modeEscala));
         btAcord.setToggleState (estat.projecte.ressaltaAcord, juce::dontSendNotification);
 
         const auto acords = hm::acordsDeTonalitat (t, setenes.getTriat() == 1);
@@ -202,8 +215,16 @@ public:
 
         if (auto* pe = pistaEditor())
         {
-            btInstrument.setButtonText ("Instrument: sinte intern"_ca);
-            btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
+            if (mibase::esSampler (*pe))
+            {
+                btInstrument.setButtonText ("Instrument: samplejador"_ca);
+                btSo.setButtonText ("Sample: "_ca + (pe->sampler.nom.empty() ? "cap"_ca : txt (pe->sampler.nom)));
+            }
+            else
+            {
+                btInstrument.setButtonText (pe->instrument.rfind ("vst3:", 0) == 0 ? "Instrument: "_ca + txt (pe->nomInstrument) : "Instrument: sinte intern"_ca);
+                btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
+            }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
         }
         for (auto* b : { &btInstrument, &btSo, &btTeclat }) b->setEnabled (pistaEditor() != nullptr);
@@ -254,8 +275,6 @@ public:
         if (obre (2))
         {
             mode.setBounds (fila (32));
-            btAcord.setBounds (fila (30));
-            zAcordAra = fila (20);
             y += 8;
         }
 
@@ -279,7 +298,10 @@ public:
             y += 8;
         }
 
-        if (obre (4))
+        // 0.12: el constructor d'acords ja no hi és (en Roger: massa complicat).
+        seccions[4].rect = {};
+        for (auto* c : seccions[4].fills) c->setVisible (false);
+        if (false)
         {
             {
                 auto f = fila (30);
@@ -327,6 +349,7 @@ public:
                 f.removeFromLeft (4);
                 btInsereix.setBounds (f);
             }
+            btAplicaPads.setBounds (fila (30));
         }
         alcada = y + 10;
     }
@@ -336,6 +359,7 @@ public:
         // Títols de les seccions, amb un triangle (obert / plegat).
         for (auto& sc : seccions)
         {
+            if (sc.rect.isEmpty()) continue;
             auto r = sc.rect;
             g.setColour (juce::Colours::black.withAlpha (0.22f));
             g.fillRoundedRectangle (r.toFloat(), 4.0f);
@@ -496,17 +520,34 @@ private:
 
     void menuInstrument()
     {
+        auto* t = pistaEditor();
+        if (t == nullptr) return;
+        const bool sampler = mibase::esSampler (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
         juce::PopupMenu m;
-        m.addItem (1, "Sinte intern", true, true);
+        m.addItem (1, "Sinte intern", true, ! sampler && ! vst);
+        m.addItem (3, "Samplejador"_ca, true, sampler);
         m.addSeparator();
-        m.addItem (2, "Plugins VST3  · a la versió següent"_ca, false);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [] (int) {});
+        m.addItem (2, "Plugins VST3: a la columna esquerra de la taula de treball"_ca, false);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this] (int r)
+        {
+            auto* p = pistaEditor();
+            if (p == nullptr) return;
+            if (r == 1 && mibase::esSampler (*p))
+                canviaPista ([] (Pista& q) { q.instrument = "intern:piano"; }, "Instrument: sinte intern"_ca);
+            else if (r == 3)
+            {
+                if (! mibase::esSampler (*p))
+                    canviaPista ([] (Pista& q) { q.instrument = mibase::instrumentSampler; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: samplejador"_ca);
+                if (onObreSampler) juce::MessageManager::callAsync ([f = onObreSampler] { f(); });
+            }
+        });
     }
 
     void menuSo()
     {
         auto* t = pistaEditor();
         if (t == nullptr) return;
+        if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         juce::PopupMenu m;
         const int actual = juce::jmax (0, midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
@@ -765,6 +806,7 @@ private:
     Segmentat compassos { { "2", "4", "8", "16" } };
     Boto btEscoltaProg { "Escolta", dibuix::Icona::Play, Boto::Estil::Tecla };
     Boto btInsereix { "Insereix", dibuix::Icona::Notes, Boto::Estil::Primari };
+    Boto btAplicaPads { "Aplica al Chord Pad", std::nullopt, Boto::Estil::Secundari };
 
     juce::Rectangle<int> zPista, zEstat, zNotes, zAcordAra, zAjudaAcords, zDurada, zTriades, zProgressio;
     int alcada = 900;
@@ -783,6 +825,7 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
 {
     contingut = std::make_unique<Contingut> (e, std::move (editorActiu), ajustos, std::move (teclats));
     contingut->onMida = [this] { resized(); };
+    contingut->onObreSampler = [this] { if (onObreSampler) onObreSampler(); };
     vista.setViewedComponent (contingut.get(), false);
     vista.setScrollBarsShown (true, false);
     vista.setScrollBarThickness (8);

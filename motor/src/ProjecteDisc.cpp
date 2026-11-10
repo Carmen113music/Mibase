@@ -1,4 +1,5 @@
 #include "mibase/ProjecteDisc.h"
+#include "mibase/PresetsPads.h"
 #include "mibase/Harmonia.h"
 #include "mibase/Edicio.h"
 
@@ -12,6 +13,36 @@
 
 namespace fs = std::filesystem;
 using json = nlohmann::ordered_json;   // conserva l'ordre dels camps (més fàcil de llegir)
+
+namespace
+{
+    // 0.19: inserts (plugins d'efecte).
+    nlohmann::json insertsAJson (const std::vector<mibase::Insert>& v)
+    {
+        auto a = nlohmann::json::array();
+        for (const auto& x : v)
+            a.push_back ({ { "id", x.id }, { "plugin", x.plugin }, { "nom", x.nom }, { "actiu", x.actiu }, { "estat", x.estat } });
+        return a;
+    }
+
+    std::vector<mibase::Insert> insertsDeJson (const nlohmann::json& j, const char* clau)
+    {
+        std::vector<mibase::Insert> v;
+        if (! j.contains (clau) || ! j[clau].is_array()) return v;
+        for (const auto& e : j[clau])
+        {
+            if (! e.is_object()) continue;
+            mibase::Insert x;
+            x.id = e.value ("id", std::string());
+            x.plugin = e.value ("plugin", std::string());
+            x.nom = e.value ("nom", std::string());
+            x.actiu = e.value ("actiu", true);
+            x.estat = e.value ("estat", std::string());
+            if (! x.id.empty()) v.push_back (std::move (x));
+        }
+        return v;
+    }
+}
 
 namespace mibase::disc
 {
@@ -251,6 +282,8 @@ namespace mibase::disc
         p.clicVolum = std::clamp (j.value ("clicVolum", 1.0), 0.0, 1.5);
         p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
         p.masterDb = std::clamp (j.value ("masterDb", 0.0), -60.0, 6.0);
+        p.sortidaMaster = std::clamp (j.value ("sortidaMaster", 0), 0, 31);
+        p.insertsMaster = insertsDeJson (j, "insertsMaster");
         {
             const auto snap = j.value ("snap", std::string ("compas"));
             p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
@@ -267,6 +300,28 @@ namespace mibase::disc
                 s.nom = e.value ("nom", s.fitxer);
                 s.durada = e.value ("durada", 0.0);
                 s.primer = e.value ("primer", -1.0);
+                if (e.contains ("veu") && e["veu"].is_object())
+                {
+                    const auto& v = e["veu"];
+                    s.veu.analitzada = v.value ("analitzada", false);
+                    s.veu.transicio = std::clamp (v.value ("transicio", 0.06), 0.0, 0.5);
+                    if (v.contains ("tonalitat") && v["tonalitat"].is_array() && v["tonalitat"].size() == 3)
+                    {
+                        s.veu.modeTon = std::clamp (v["tonalitat"][0].get<int>(), 0, 2);
+                        s.veu.to = std::clamp (v["tonalitat"][1].get<int>(), 0, 11);
+                        s.veu.escala = std::max (0, v["tonalitat"][2].get<int>());
+                    }
+                    if (v.contains ("notes") && v["notes"].is_array())
+                        for (auto& n : v["notes"])
+                        {
+                            if (! n.is_array() || n.size() < 8) continue;
+                            NotaVeu x;
+                            x.ini = n[0].get<double>(); x.fi = n[1].get<double>(); x.centre = n[2].get<double>();
+                            x.desplac = n[3].get<double>(); x.modulacio = n[4].get<double>(); x.deriva = n[5].get<double>();
+                            x.formant = n[6].get<double>(); x.guanyDb = n[7].get<double>();
+                            if (x.fi > x.ini) s.veu.notes.push_back (x);
+                        }
+                }
                 if (! s.id.empty()) p.preses.push_back (s);
             }
         }
@@ -290,12 +345,84 @@ namespace mibase::disc
                 t.entrada = std::clamp (e.value ("entrada", 0), 0, 63);
                 t.rgb = e.value ("rgb", (std::uint32_t) 0);
                 t.instrument = e.value ("instrument", std::string());
+                t.nomInstrument = e.value ("nomInstrument", std::string());
+                t.estatInstrument = e.value ("estatInstrument", std::string());
+                t.inserts = insertsDeJson (e, "inserts");
                 t.entradaMidi = e.value ("entradaMidi", std::string());
                 t.entradaMidiNom = e.value ("entradaMidiNom", std::string());
                 t.presetPads = e.value ("presetPads", std::string());
                 if (e.contains ("pads") && e["pads"].is_array())
                     for (auto& x : e["pads"]) t.pads.push_back (x.is_string() ? x.get<std::string>() : std::string());
-                if (t.tipus == "midi") t.canals = 2;
+                t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
+                if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
+                t.carpeta = e.value ("carpeta", std::string());
+                t.escalaTeclat = e.value ("escalaTeclat", true);
+                t.modeEscala = std::clamp (e.value ("modeEscala", -1), -1, 2);
+                t.kit = e.value ("kit", std::string());
+                t.padsPerOrdre = e.value ("padsPerOrdre", false);
+                if (e.contains ("files") && e["files"].is_array())
+                    for (auto& f : e["files"])
+                    {
+                        if (! f.is_object()) continue;
+                        FilaBateria x;
+                        x.tipus = f.value ("tipus", std::string ("altres"));
+                        x.so = f.value ("so", std::string());
+                        x.nom = f.value ("nom", std::string());
+                        x.nota = std::clamp (f.value ("nota", 36), 0, 127);
+                        x.volumDb = std::clamp (f.value ("volumDb", 0.0), -40.0, 6.0);
+                        x.pan = std::clamp (f.value ("pan", 0.0), -1.0, 1.0);
+                        x.afina = std::clamp (f.value ("afina", 0.0), -12.0, 12.0);
+                        x.decai = std::clamp (f.value ("decai", 1.0), 0.05, 1.0);
+                        x.talla = std::clamp (f.value ("talla", 0), 0, 8);
+                        x.mut = f.value ("mut", false);
+                        t.files.push_back (x);
+                    }
+                if (e.contains ("sampler") && e["sampler"].is_object())
+                {
+                    auto& m = e["sampler"];
+                    auto& x = t.sampler;
+                    x.fitxer = m.value ("fitxer", std::string());
+                    x.nom = m.value ("nom", std::string());
+                    x.inici = std::max (0.0, m.value ("inici", 0.0));
+                    x.fi = m.value ("fi", -1.0);
+                    x.bucleDe = m.value ("bucleDe", -1.0);
+                    x.bucleA = m.value ("bucleA", -1.0);
+                    x.modeBucle = std::clamp (m.value ("modeBucle", 0), 0, 3);
+                    x.crossfade = std::clamp (m.value ("crossfade", 0.02), 0.0, 1.0);
+                    x.fadeIn = std::clamp (m.value ("fadeIn", 0.0), 0.0, 10.0);
+                    x.fadeOut = std::clamp (m.value ("fadeOut", 0.005), 0.0, 10.0);
+                    x.zeroCrossing = m.value ("zeroCrossing", true);
+                    x.modeToc = std::clamp (m.value ("modeToc", 0), 0, 2);
+                    x.veus = std::clamp (m.value ("veus", 0), 0, 2);
+                    x.maxVeus = std::clamp (m.value ("maxVeus", 16), 1, 32);
+                    x.guanyDb = std::clamp (m.value ("guanyDb", 0.0), -40.0, 24.0);
+                    x.volDb = std::clamp (m.value ("volDb", 0.0), -60.0, 6.0);
+                    x.pan = std::clamp (m.value ("pan", 0.0), -1.0, 1.0);
+                    x.width = std::clamp (m.value ("width", 1.0), 0.0, 2.0);
+                    x.root = std::clamp (m.value ("root", 60), 0, 127);
+                    x.bpm = std::clamp (m.value ("bpm", 0.0), 0.0, 999.0);
+                    x.tune = std::clamp (m.value ("tune", 0.0), -48.0, 48.0);
+                    x.fine = std::clamp (m.value ("fine", 0.0), -100.0, 100.0);
+                    x.speed = std::clamp (m.value ("speed", 1.0), 0.25, 4.0);
+                    x.mantenTo = m.value ("mantenTo", true);
+                    x.durFixa = m.value ("durFixa", true);
+                    x.reversa = m.value ("reversa", false);
+                    x.flat = m.value ("flat", false);
+                    x.smono = m.value ("smono", false);
+                    x.filtre = std::clamp (m.value ("filtre", 0), 0, 4);
+                    x.pendent = m.value ("pendent", 12) == 24 ? 24 : 12;
+                    x.cutoff = std::clamp (m.value ("cutoff", 20000.0), 20.0, 20000.0);
+                    x.reso = std::clamp (m.value ("reso", 0.0), 0.0, 1.0);
+                    x.drive = std::clamp (m.value ("drive", 0.0), 0.0, 1.0);
+                    x.atac = std::clamp (m.value ("atac", 0.002), 0.0, 10.0);
+                    x.decai = std::clamp (m.value ("decai", 0.2), 0.0, 10.0);
+                    x.sosteniment = std::clamp (m.value ("sosteniment", 1.0), 0.0, 1.0);
+                    x.alliberament = std::clamp (m.value ("alliberament", 0.15), 0.0, 20.0);
+                    x.vel = std::clamp (m.value ("vel", 0.7), 0.0, 1.0);
+                    x.entradaGrava = std::clamp (m.value ("entradaGrava", 0), 0, 63);
+                    x.canalsGrava = m.value ("canalsGrava", 1) == 2 ? 2 : 1;
+                }
+                if (esMidi (t)) t.canals = 2;
                 if (e.contains ("clips") && e["clips"].is_array())
                 {
                     for (auto& k : e["clips"])
@@ -349,12 +476,50 @@ namespace mibase::disc
             }
         }
 
+        if (j.contains ("carpetes") && j["carpetes"].is_array())
+            for (auto& e : j["carpetes"])
+                if (e.is_object())
+                    p.carpetes.push_back ({ e.value ("id", std::string()), e.value ("nom", std::string()),
+                                            e.value ("plegada", false), e.value ("amagada", false) });
+        for (auto& t : p.pistes)   // una carpeta que ja no hi és: la pista queda fora
+            if (! t.carpeta.empty()
+                && std::none_of (p.carpetes.begin(), p.carpetes.end(), [&t] (const Carpeta& c) { return c.id == t.carpeta; }))
+                t.carpeta.clear();
+        if (j.contains ("estructures") && j["estructures"].is_array())
+            for (auto& e : j["estructures"])
+            {
+                if (! e.is_object()) continue;
+                Estructura es { e.value ("id", std::string()), e.value ("nom", std::string()), {} };
+                if (e.contains ("peces") && e["peces"].is_array())
+                    for (auto& pc : e["peces"])
+                    {
+                        if (! pc.is_object()) continue;
+                        PecaEstructura x { pc.value ("part", std::string()), {} };
+                        if (pc.contains ("silencis") && pc["silencis"].is_array())
+                            for (auto& s : pc["silencis"]) if (s.is_string()) x.silencis.push_back (s.get<std::string>());
+                        es.peces.push_back (x);
+                    }
+                p.estructures.push_back (es);
+            }
+        p.estructuraActiva = j.value ("estructuraActiva", std::string());
+        if (j.contains ("parts") && j["parts"].is_array())
+            for (auto& e : j["parts"])
+                if (e.is_object())
+                {
+                    Part x { e.value ("id", std::string()), e.value ("nom", std::string()), e.value ("de", 0.0), e.value ("a", 0.0),
+                             e.value ("rgb", (std::uint32_t) 0) };
+                    x.tempo = std::clamp (e.value ("tempo", 0.0), 0.0, 400.0);
+                    x.compasNum = std::clamp (e.value ("compasNum", 0), 0, 32);
+                    x.compasDen = std::clamp (e.value ("compasDen", 0), 0, 32);
+                    if (x.tempo > 0.0 && x.tempo < 20.0) x.tempo = 0.0;
+                    p.parts.push_back (x);
+                }
         if (j.contains ("bucle") && j["bucle"].is_object())
         {
             p.bucle.marcat = j["bucle"].value ("marcat", false);
             p.bucle.actiu = j["bucle"].value ("actiu", false);
-            p.bucle.de = j["bucle"].value ("de", 0);
-            p.bucle.a = j["bucle"].value ("a", 0);
+            p.bucle.de = j["bucle"].value ("de", 0.0);
+            p.bucle.a = j["bucle"].value ("a", 0.0);
         }
 
         if (j.contains ("tonalitat") && j["tonalitat"].is_object())
@@ -422,6 +587,8 @@ namespace mibase::disc
         j["clicVolum"] = p.clicVolum;
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
+        j["sortidaMaster"] = p.sortidaMaster;
+        if (! p.insertsMaster.empty()) j["insertsMaster"] = insertsAJson (p.insertsMaster);
         j["comptador"] = p.comptador;
         {
             json canvis = json::array();
@@ -433,11 +600,46 @@ namespace mibase::disc
                                { "mode", p.modeEscala == ModeEscala::Assistit ? "assistit" : p.modeEscala == ModeEscala::Bloquejat ? "bloquejat" : "visual" },
                                { "acord", p.ressaltaAcord }, { "canvis", canvis } };
         }
+        {
+            json carpetes = json::array();
+            for (auto& c : p.carpetes)
+                carpetes.push_back ({ { "id", c.id }, { "nom", c.nom }, { "plegada", c.plegada }, { "amagada", c.amagada } });
+            j["carpetes"] = carpetes;
+            json parts = json::array();
+            for (auto& c : p.parts)
+            {
+                json x = { { "id", c.id }, { "nom", c.nom }, { "de", c.de }, { "a", c.a }, { "rgb", c.rgb } };
+                if (c.tempo > 0.0) x["tempo"] = c.tempo;
+                if (c.compasNum > 0) { x["compasNum"] = c.compasNum; x["compasDen"] = c.compasDen; }
+                parts.push_back (x);
+            }
+            j["parts"] = parts;
+            json estructures = json::array();
+            for (auto& e : p.estructures)
+            {
+                json peces = json::array();
+                for (auto& pc : e.peces) peces.push_back ({ { "part", pc.part }, { "silencis", pc.silencis } });
+                estructures.push_back ({ { "id", e.id }, { "nom", e.nom }, { "peces", peces } });
+            }
+            j["estructures"] = estructures;
+            j["estructuraActiva"] = p.estructuraActiva;
+        }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 
         json preses = json::array();
         for (auto& s : p.preses)
-            preses.push_back ({ { "id", s.id }, { "fitxer", s.fitxer }, { "nom", s.nom }, { "durada", s.durada }, { "primer", s.primer } });
+        {
+            json e = { { "id", s.id }, { "fitxer", s.fitxer }, { "nom", s.nom }, { "durada", s.durada }, { "primer", s.primer } };
+            if (s.veu.analitzada || ! s.veu.notes.empty())
+            {
+                json notes = json::array();
+                for (auto& n : s.veu.notes)
+                    notes.push_back ({ n.ini, n.fi, n.centre, n.desplac, n.modulacio, n.deriva, n.formant, n.guanyDb });
+                e["veu"] = { { "analitzada", s.veu.analitzada }, { "transicio", s.veu.transicio },
+                             { "tonalitat", { s.veu.modeTon, s.veu.to, s.veu.escala } }, { "notes", notes } };
+            }
+            preses.push_back (e);
+        }
         j["preses"] = preses;
 
         json pistes = json::array();
@@ -466,8 +668,36 @@ namespace mibase::disc
                            { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
                            { "clips", clips } };
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
+            if (! t.nomInstrument.empty()) { pista["nomInstrument"] = t.nomInstrument; pista["estatInstrument"] = t.estatInstrument; }
+            if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
+            if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
+            if (! t.escalaTeclat) pista["escalaTeclat"] = false;
+            if (t.modeEscala >= 0) pista["modeEscala"] = t.modeEscala;
+            if (esSampler (t))
+            {
+                const auto& x = t.sampler;
+                pista["sampler"] = { { "fitxer", x.fitxer }, { "nom", x.nom }, { "inici", x.inici }, { "fi", x.fi },
+                    { "bucleDe", x.bucleDe }, { "bucleA", x.bucleA }, { "modeBucle", x.modeBucle }, { "crossfade", x.crossfade },
+                    { "fadeIn", x.fadeIn }, { "fadeOut", x.fadeOut }, { "zeroCrossing", x.zeroCrossing }, { "modeToc", x.modeToc },
+                    { "veus", x.veus }, { "maxVeus", x.maxVeus }, { "guanyDb", x.guanyDb }, { "volDb", x.volDb }, { "pan", x.pan },
+                    { "width", x.width }, { "root", x.root }, { "bpm", x.bpm }, { "tune", x.tune }, { "fine", x.fine },
+                    { "speed", x.speed }, { "mantenTo", x.mantenTo }, { "durFixa", x.durFixa }, { "reversa", x.reversa }, { "flat", x.flat }, { "smono", x.smono },
+                    { "filtre", x.filtre }, { "pendent", x.pendent }, { "cutoff", x.cutoff }, { "reso", x.reso }, { "drive", x.drive },
+                    { "atac", x.atac }, { "decai", x.decai }, { "sosteniment", x.sosteniment }, { "alliberament", x.alliberament },
+                    { "vel", x.vel }, { "entradaGrava", x.entradaGrava }, { "canalsGrava", x.canalsGrava } };
+            }
+            if (t.tipus == "bateria")
+            {
+                json filesJ = json::array();
+                for (auto& f : t.files)
+                    filesJ.push_back ({ { "tipus", f.tipus }, { "so", f.so }, { "nom", f.nom }, { "nota", f.nota }, { "volumDb", f.volumDb },
+                                    { "pan", f.pan }, { "afina", f.afina }, { "decai", f.decai }, { "talla", f.talla }, { "mut", f.mut } });
+                pista["files"] = filesJ;
+                pista["kit"] = t.kit;
+                pista["padsPerOrdre"] = t.padsPerOrdre;
+            }
             pistes.push_back (pista);
         }
         j["pistes"] = pistes;
@@ -706,6 +936,16 @@ namespace mibase::disc
             fs::create_directories (desti.parent_path(), ec);
             if (fs::copy_file (origen, desti, fs::copy_options::overwrite_existing, ec) && ! ec) ++copiats;
             else r.avisos.push_back ("No s'ha trobat «" + s.fitxer + "»");
+        }
+        // 0.26: els samples dels samplejadors.
+        for (auto& t : projecte.pistes)
+        {
+            if (! esSampler (t) || t.sampler.fitxer.empty()) continue;
+            const auto origen = camiRelatiu (carpetaProjecte, t.sampler.fitxer);
+            const auto desti = camiRelatiu (carpeta, t.sampler.fitxer);
+            fs::create_directories (desti.parent_path(), ec);
+            if (fs::copy_file (origen, desti, fs::copy_options::overwrite_existing, ec) && ! ec) ++copiats;
+            else r.avisos.push_back ("No s'ha trobat «" + t.sampler.fitxer + "»");
         }
 
         const auto fitxer = carpeta / cami (projecte.nom + extensio);

@@ -11,7 +11,8 @@ namespace dibuix
     enum class Icona { Carpeta, Fitxer, Disc, Rellotge, Lupa, Mes, Play, Obre, Ajustos, Tanca, Fletxa, FletxaAvall, Casa,
                        Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
                        Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix,
-                       Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes, Cadenat };
+                       Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes, Cadenat, Bucle,
+                       Encen, Canvia, Bateria, Finestra };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -103,6 +104,12 @@ namespace dibuix
             case Icona::Atura:
                 p.addRectangle (6.5f, 6.5f, 11.0f, 11.0f);
                 break;
+            case Icona::Bucle:   // dues fletxes en cercle
+                p.startNewSubPath (5, 14); p.lineTo (5, 10); p.quadraticTo (5, 7, 8, 7); p.lineTo (18, 7);
+                p.startNewSubPath (15, 4); p.lineTo (18, 7); p.lineTo (15, 10);
+                p.startNewSubPath (19, 10); p.lineTo (19, 14); p.quadraticTo (19, 17, 16, 17); p.lineTo (6, 17);
+                p.startNewSubPath (9, 14); p.lineTo (6, 17); p.lineTo (9, 20);
+                break;
             case Icona::Fletxa2:   // punter del ratolí
                 p.startNewSubPath (6, 3); p.lineTo (6, 19); p.lineTo (10, 15); p.lineTo (13, 21); p.lineTo (15.5f, 20);
                 p.lineTo (12.5f, 14); p.lineTo (18, 14); p.closeSubPath();
@@ -183,6 +190,24 @@ namespace dibuix
                 p.addRoundedRectangle (5.0f, 11.0f, 14.0f, 10.0f, 2.0f);
                 p.startNewSubPath (8, 11); p.lineTo (8, 8); p.quadraticTo (8, 4, 12, 4); p.quadraticTo (16, 4, 16, 8); p.lineTo (16, 11);
                 p.startNewSubPath (12, 15); p.lineTo (12, 17);
+                break;
+            case Icona::Encen:   // botó d'encendre (cercle obert amb una ratlla)
+                p.startNewSubPath (8, 7); p.quadraticTo (4, 10, 4, 14); p.quadraticTo (4, 21, 12, 21); p.quadraticTo (20, 21, 20, 14);
+                p.quadraticTo (20, 10, 16, 7);
+                p.startNewSubPath (12, 3); p.lineTo (12, 12);
+                break;
+            case Icona::Canvia:   // dues fletxes que es creuen
+                p.startNewSubPath (4, 8); p.lineTo (19, 8); p.startNewSubPath (15, 4); p.lineTo (19, 8); p.lineTo (15, 12);
+                p.startNewSubPath (20, 16); p.lineTo (5, 16); p.startNewSubPath (9, 12); p.lineTo (5, 16); p.lineTo (9, 20);
+                break;
+            case Icona::Bateria:   // caixa vista de costat amb dues baquetes
+                p.addEllipse (4.0f, 10.0f, 16.0f, 5.0f);
+                p.startNewSubPath (4, 12.5f); p.lineTo (4, 18); p.quadraticTo (12, 22, 20, 18); p.lineTo (20, 12.5f);
+                p.startNewSubPath (7, 3); p.lineTo (12, 11); p.startNewSubPath (18, 3); p.lineTo (13, 11);
+                break;
+            case Icona::Finestra:   // una finestra amb la barra de títol
+                p.addRoundedRectangle (3.0f, 5.0f, 18.0f, 14.0f, 2.0f);
+                p.startNewSubPath (3, 9); p.lineTo (21, 9);
                 break;
             case Icona::Notes:   // notes MIDI petites
                 p.addRoundedRectangle (3.0f, 6.0f, 8.0f, 3.5f, 1.0f); p.addRoundedRectangle (9.0f, 11.0f, 10.0f, 3.5f, 1.0f);

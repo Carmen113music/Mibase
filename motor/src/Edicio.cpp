@@ -19,25 +19,107 @@ namespace mibase::edicio
         return segonsPerTemps (p) * std::max (1, p.compasNum);
     }
 
+    //==========================================================================
+    // 0.28: mapa de tempo
+    bool teCanvisTempo (const Projecte& p)
+    {
+        for (auto& x : p.parts) if ((x.tempo > 0.0 || x.compasNum > 0) && x.a > x.de) return true;
+        return false;
+    }
+
+    std::vector<TramTempo> mapaTempo (const Projecte& p)
+    {
+        TramTempo base;
+        base.tempo = std::max (20.0, p.tempo);
+        base.num = std::max (1, p.compasNum);
+        base.den = std::max (1, p.compasDen);
+        std::vector<TramTempo> v { base };
+        if (! teCanvisTempo (p)) return v;
+        struct Punt { double compas; int ordre; double tempo; int num, den; };
+        std::vector<Punt> punts;
+        for (auto& x : p.parts)
+        {
+            if (! ((x.tempo > 0.0 || x.compasNum > 0) && x.a > x.de)) continue;
+            const double de = std::floor (x.de + 1e-9), a = std::ceil (x.a - 1e-9);   // els canvis, a compassos sencers
+            punts.push_back ({ a, 0, base.tempo, base.num, base.den });                 // al final, el de la cançó
+            punts.push_back ({ de, 1, x.tempo > 0.0 ? std::max (20.0, x.tempo) : base.tempo,
+                               x.compasNum > 0 ? x.compasNum : base.num, x.compasNum > 0 && x.compasDen > 0 ? x.compasDen : base.den });
+        }
+        std::stable_sort (punts.begin(), punts.end(), [] (const Punt& a, const Punt& b) { return a.compas < b.compas || (a.compas == b.compas && a.ordre < b.ordre); });
+        for (auto& pt : punts)
+        {
+            if (pt.compas < 0.0) continue;
+            auto& darrer = v.back();
+            const double dc = pt.compas - darrer.compas;
+            if (dc < 1e-9) { if (v.size() > 1 || pt.compas <= 1e-9) { darrer.tempo = pt.tempo; darrer.num = pt.num; darrer.den = pt.den; } continue; }
+            if (std::abs (pt.tempo - darrer.tempo) < 1e-9 && pt.num == darrer.num && pt.den == darrer.den) continue;
+            TramTempo t;
+            t.compas = pt.compas;
+            t.segons = darrer.segons + dc * darrer.segonsPerCompas();
+            t.tick = darrer.tick + dc * (double) ticksPerNegra * darrer.num;
+            t.tempo = pt.tempo; t.num = pt.num; t.den = pt.den;
+            v.push_back (t);
+        }
+        return v;
+    }
+
+    namespace
+    {
+        template <typename F> const TramTempo& busca (const std::vector<TramTempo>& v, F esDespres)
+        {
+            size_t i = 0;
+            while (i + 1 < v.size() && ! esDespres (v[i + 1])) ++i;
+            return v[i];
+        }
+    }
+
+    double segonsDeCompas (const Projecte& p, double compas)
+    {
+        if (! teCanvisTempo (p)) return compas * segonsPerCompas (p);
+        const auto v = mapaTempo (p);
+        const auto& t = busca (v, [compas] (const TramTempo& x) { return x.compas > compas + 1e-9; });
+        return t.segons + (compas - t.compas) * t.segonsPerCompas();
+    }
+
+    double compasDeSegons (const Projecte& p, double s)
+    {
+        if (! teCanvisTempo (p)) return s / segonsPerCompas (p);
+        const auto v = mapaTempo (p);
+        const auto& t = busca (v, [s] (const TramTempo& x) { return x.segons > s + 1e-9; });
+        return t.compas + (s - t.segons) / t.segonsPerCompas();
+    }
+
+    TramTempo tramA (const Projecte& p, double s)
+    {
+        const auto v = mapaTempo (p);
+        return busca (v, [s] (const TramTempo& x) { return x.segons > s + 1e-9; });
+    }
+    double segonsPerCompasA (const Projecte& p, double s) { return tramA (p, s).segonsPerCompas(); }
+    double segonsPerTempsA (const Projecte& p, double s) { return tramA (p, s).segonsPerTemps(); }
+
     double enganxa (const Projecte& p, double t, Snap snap)
     {
         if (snap == Snap::Lliure)
             return t;
-        const double pas = snap == Snap::Compas ? segonsPerCompas (p) : segonsPerTemps (p);
-        return std::round (t / pas) * pas;
+        if (snap == Snap::Compas) return segonsDeCompas (p, std::round (compasDeSegons (p, t)));
+        const auto tr = tramA (p, t);
+        const double pas = tr.segonsPerTemps();
+        return tr.segons + std::round ((t - tr.segons) / pas) * pas;
     }
 
     std::string textPosicio (const Projecte& p, double t, bool ambMs)
     {
-        const double pt = segonsPerTemps (p);
-        const double totalTemps = std::floor (t / pt + 1e-9);
-        const int compas = (int) std::floor (totalTemps / p.compasNum);
-        const int temps = (int) (totalTemps - (double) compas * p.compasNum) + 1;
+        const auto tr = tramA (p, t);
+        const double pt = tr.segonsPerTemps();
+        const int num = std::max (1, tr.num);
+        const double totalTemps = std::floor ((t - tr.segons) / pt + 1e-9);
+        const int compas = (int) std::floor (tr.compas + 1e-9) + (int) std::floor (totalTemps / num);
+        const int temps = (int) (totalTemps - std::floor (totalTemps / num) * num) + 1;
 
         char text[64];
         if (ambMs)
         {
-            const double resta = (t - totalTemps * pt) * 1000.0;
+            const double resta = (t - tr.segons - totalTemps * pt) * 1000.0;
             if (resta >= 1.0)
             {
                 std::snprintf (text, sizeof (text), "%d.%d +%d ms", numCompas (compas), temps, (int) std::lround (resta));
@@ -163,7 +245,7 @@ namespace mibase::edicio
         c.pos = std::max (0.0, std::min (de, a));
         c.inici = 0.0;
         c.fi = std::max (longitudMinima, std::abs (a - de));
-        c.midi = p.pistes[(size_t) pista].tipus == "midi";   // a una pista MIDI, el llapis fa un clip MIDI buit
+        c.midi = esMidi (p.pistes[(size_t) pista]);   // a una pista MIDI, el llapis fa un clip MIDI buit
         auto& clips = p.pistes[(size_t) pista].clips;
         clips.push_back (c);
         return (int) clips.size() - 1;
@@ -187,6 +269,45 @@ namespace mibase::edicio
         b.fadeOut = std::min (b.fadeOut, b.longitud());
         clips[(size_t) clip] = a;
         clips.insert (clips.begin() + clip + 1, b);
+        return true;
+    }
+
+    bool crossfade (Projecte& p, int pista, double t0, double t1)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size() || t1 - t0 < 0.0005) return false;
+        auto& cl = p.pistes[(size_t) pista].clips;
+        auto toca = [&] (const Clip& c) { return ! c.midi && ! c.presa.empty() && c.iniciVisible() < t1 && c.fiVisible() > t0; };
+        int u = -1, l = -1;
+        for (int i = (int) cl.size() - 1; i >= 0; --i)
+            if (toca (cl[(size_t) i])) { if (u < 0) u = i; else { l = i; break; } }
+        if (u < 0 || l < 0) return false;
+        const double len = t1 - t0;
+        const auto& U = cl[(size_t) u];
+        const auto& L = cl[(size_t) l];
+        const bool entra = U.iniciVisible() > L.iniciVisible() + 1e-9
+                        && (U.fiVisible() >= L.fiVisible() - 1e-9 || std::abs (t0 - U.iniciVisible()) <= std::abs (t1 - U.fiVisible()));
+        if (entra)
+        {
+            // El tros de sota que hi ha després només es conserva (partint) si torna a sonar quan el de dalt s'acaba.
+            if (L.fiVisible() > U.fiVisible() + longitudMinima && talla (p, pista, l, t1) && u > l) ++u;
+            auto& lo = cl[(size_t) l];
+            lo.fi = t1 - lo.pos;
+            lo.fadeOut = std::min (len, lo.longitud());
+            auto& up = cl[(size_t) u];
+            up.inici = t0 - up.pos;
+            up.fadeIn = std::min (len, up.longitud());
+        }
+        else
+        {
+            int peca = l;
+            if (L.iniciVisible() < U.iniciVisible() - longitudMinima && talla (p, pista, l, t0)) { peca = l + 1; if (u > l) ++u; }
+            auto& lo = cl[(size_t) peca];
+            lo.inici = t0 - lo.pos;
+            lo.fadeIn = std::min (len, lo.longitud());
+            auto& up = cl[(size_t) u];
+            up.fi = t1 - up.pos;
+            up.fadeOut = std::min (len, up.longitud());
+        }
         return true;
     }
 
@@ -451,6 +572,132 @@ namespace mibase::edicio
         p.pistes.insert (p.pistes.begin() + a, t);
     }
 
+    std::string creaPart (Projecte& p, const std::string& nom, double de, double a, std::uint32_t rgb)
+    {
+        Part x;
+        x.id = idNou (p, 'm');
+        x.nom = nom;
+        x.de = std::max (0.0, std::min (de, a));
+        x.a = std::max (de, a);
+        x.rgb = rgb;
+        p.parts.push_back (x);
+        return x.id;
+    }
+
+    Part* part (Projecte& p, const std::string& id)
+    {
+        for (auto& x : p.parts) if (x.id == id && ! id.empty()) return &x;
+        return nullptr;
+    }
+
+    void esborraPart (Projecte& p, const std::string& id)
+    {
+        p.parts.erase (std::remove_if (p.parts.begin(), p.parts.end(), [&id] (const Part& x) { return x.id == id; }), p.parts.end());
+    }
+
+    int partA (const Projecte& p, double t)
+    {
+        const double c = compasDeSegons (p, t);
+        for (int i = (int) p.parts.size() - 1; i >= 0; --i)
+            if (c >= p.parts[(size_t) i].de && c < p.parts[(size_t) i].a) return i;
+        return -1;
+    }
+
+    const Estructura* estructuraActiva (const Projecte& p)
+    {
+        for (auto& e : p.estructures)
+            if (! p.estructuraActiva.empty() && e.id == p.estructuraActiva) return e.peces.empty() ? nullptr : &e;
+        return nullptr;
+    }
+
+    Estructura* estructura (Projecte& p, const std::string& id)
+    {
+        for (auto& e : p.estructures) if (e.id == id && ! id.empty()) return &e;
+        return nullptr;
+    }
+
+    std::string creaEstructura (Projecte& p, const std::string& nom)
+    {
+        Estructura e;
+        e.id = idNou (p, 'e');
+        e.nom = nom;
+        p.estructures.push_back (e);
+        return e.id;
+    }
+
+    Carpeta* carpeta (Projecte& p, const std::string& id)
+    {
+        for (auto& c : p.carpetes) if (c.id == id && ! id.empty()) return &c;
+        return nullptr;
+    }
+
+    std::string creaCarpeta (Projecte& p, const std::string& nom, const std::vector<int>& pistes)
+    {
+        Carpeta c;
+        c.id = idNou (p, 'f');
+        c.nom = nom;
+        p.carpetes.push_back (c);
+        // Per ordre: la primera on és; la resta, seguides darrere seu.
+        std::vector<std::string> ids;
+        for (int i : pistes) if (i >= 0 && i < (int) p.pistes.size()) ids.push_back (p.pistes[(size_t) i].id);
+        std::vector<std::pair<int, std::string>> ordre;
+        for (auto& id : ids)
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) ordre.push_back ({ i, id });
+        std::sort (ordre.begin(), ordre.end());
+        for (auto& [i0, id] : ordre)
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) { posaACarpeta (p, i, c.id); break; }
+        return c.id;
+    }
+
+    int posaACarpeta (Projecte& p, int pista, const std::string& id)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return pista;
+        if (! id.empty() && carpeta (p, id) == nullptr) return pista;
+        auto& t = p.pistes[(size_t) pista];
+        if (t.carpeta == id) return pista;
+        t.carpeta = id;
+        if (id.empty()) return pista;
+        int ultima = -1;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (i != pista && p.pistes[(size_t) i].carpeta == id) ultima = i;
+        if (ultima < 0) return pista;                      // la primera: es queda on és
+        const int desti = ultima < pista ? ultima + 1 : ultima;
+        mouPista (p, pista, desti);
+        return desti;
+    }
+
+    void esborraCarpeta (Projecte& p, const std::string& id)
+    {
+        for (auto& t : p.pistes) if (t.carpeta == id) t.carpeta.clear();
+        p.carpetes.erase (std::remove_if (p.carpetes.begin(), p.carpetes.end(), [&id] (const Carpeta& c) { return c.id == id; }),
+                          p.carpetes.end());
+    }
+
+    std::vector<int> pistesDeCarpeta (const Projecte& p, const std::string& id)
+    {
+        std::vector<int> r;
+        for (int i = 0; i < (int) p.pistes.size(); ++i) if (! id.empty() && p.pistes[(size_t) i].carpeta == id) r.push_back (i);
+        return r;
+    }
+
+    std::vector<int> filesVisibles (const Projecte& p)
+    {
+        std::vector<int> r (p.pistes.size(), 1);
+        for (auto& c : p.carpetes)
+        {
+            if (! c.plegada && ! c.amagada) continue;
+            bool primera = true;
+            for (int i : pistesDeCarpeta (p, c.id))
+            {
+                r[(size_t) i] = (c.amagada || ! primera) ? 0 : 2;
+                primera = false;
+            }
+        }
+        return r;
+    }
+
     void triaGravacio (Projecte& p, int pista)
     {
         for (int i = 0; i < (int) p.pistes.size(); ++i)
@@ -591,7 +838,7 @@ namespace mibase::edicio
 
     int compasA (const Projecte& p, double t)
     {
-        return (int) std::floor (std::max (0.0, t) / segonsPerCompas (p));
+        return (int) std::floor (compasDeSegons (p, std::max (0.0, t)) + 1e-9);
     }
 
     void marcaBucle (Projecte& p, int a, int b)
@@ -602,8 +849,8 @@ namespace mibase::edicio
         p.bucle.a = std::max (a, b) + 1;
     }
 
-    double iniciBucle (const Projecte& p) { return p.bucle.de * segonsPerCompas (p); }
-    double fiBucle (const Projecte& p)    { return p.bucle.a * segonsPerCompas (p); }
+    double iniciBucle (const Projecte& p) { return segonsDeCompas (p, p.bucle.de); }
+    double fiBucle (const Projecte& p)    { return segonsDeCompas (p, p.bucle.a); }
 
     double final (const Projecte& p)
     {

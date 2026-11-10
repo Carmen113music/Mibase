@@ -1,5 +1,8 @@
 #pragma once
 
+#include "DialegText.h"
+#include "OpcionsPista.h"
+
 #include "Controls.h"
 #include "EstatEstudi.h"
 
@@ -65,27 +68,61 @@ class Regla : public SeccioEstudi
 public:
     using SeccioEstudi::SeccioEstudi;
     void paint (juce::Graphics& g) override;
+    void mouseMove (const juce::MouseEvent& e) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
 
 private:
-    int compas0 = 0;
-    bool marcant = false;
+    // 0.13: meitat de baix = capçal; meitat de dalt = bucle (selecció) i parts de la cançó.
+    struct Lloc { int vora = 0; int part = -1; };   // vora: -1 inici, 1 final (del bucle si part = -1)
+    enum class Accio { Res, Capcal, Vora, Seleccio, Seleccionant };
+    Lloc queHiHa (juce::Point<int> p) const;
+    double compas (double t) const;
+    std::pair<double, double> seleccio (double ta, double tb) const;
+    double vora (double t) const;
+    juce::String textRang (double de, double a) const;
+    void menu (const juce::MouseEvent& e, Lloc q);
+public:
+    void demanaNom (const std::string& idPart);
+private:
+
+    Accio accio = Accio::Res;
+    Lloc llocVora;
+    int partClicada = -1;
+    juce::Point<int> inici;
+    std::unique_ptr<DialegText> dialeg;
 };
 
 /** Les pistes amb els clips: el lloc on s'edita, amb les eines de la caixa d'eines. */
-class VistaPistes : public SeccioEstudi, public juce::FileDragAndDropTarget
+class VistaPistes : public SeccioEstudi, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget
 {
 public:
     explicit VistaPistes (EstatEstudi& e) : SeccioEstudi (e) { setWantsKeyboardFocus (true); }
+
+    /** 0.27: un sample de la biblioteca deixat a la taula (fila -1: sota les pistes). */
+    std::function<void (const juce::File&, int fila, double temps)> onSample;
+    bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("mibase-sample:"); }
+    void itemDragMove (const SourceDetails& d) override { const int f = estat.pistaA (d.localPosition.y); if (f != filaDeixar) { filaDeixar = f < estat.numPistes() ? f : -1; repaint(); } }
+    void itemDragExit (const SourceDetails&) override { filaDeixar = -2; repaint(); }
+    void itemDropped (const SourceDetails& d) override
+    {
+        filaDeixar = -2;
+        const int fila = estat.pistaA (d.localPosition.y);
+        const juce::File f (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false));
+        if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
+        repaint();
+    }
 
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova
     std::function<void (int pista, double on)> onDemanaImportar;
     /** Obre un clip MIDI al Piano Roll (doble clic, o en fer-ne un de nou amb el llapis). */
     std::function<void (int pista, int clip)> onObreMidi;
+    /** 0.22: obre el clip d'àudio (pista, clip) al Vocal Editor. */
+    std::function<void (int, int)> onObreVeu;
+    std::function<void (int pista, int clip, bool nomesBiblioteca)> onEnviaSampler;   // 0.28
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
 
@@ -115,6 +152,7 @@ protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override { setMouseCursor (cursor (estat.eina)); repaint(); }
 
 private:
+    void pintaFilaCarpeta (juce::Graphics& g, int fila);
     enum class Mode { Res, Requadre, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
                       Llapis, Goma, Cola };
     enum class Maneta { Cap, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera };
@@ -148,6 +186,9 @@ public:
     using SeccioEstudi::SeccioEstudi;
     std::function<void (int pista)> onCanviaNom;
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
+    /** 0.20: el botonet de la pista d'instrument (obre el sinte o el VST) o de bateria (obre els kits). */
+    std::function<void (int pista)> onObreInstrument;
+    juce::Rectangle<int> rectObreInstrument (int fila) const;
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -172,7 +213,8 @@ public:
     explicit ColumnaEsquerra (EstatEstudi& e);
     /** Panell per als editors (el d'harmonia): quan hi ha un editor obert, ocupa el lloc del fader de la pista. */
     void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
-    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.vistaMescles; }
+    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.foraTreball() && estat.focusEditor; }
+    OpcionsPista opcions { estat };
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -186,8 +228,10 @@ protected:
 private:
     Boto btTreball { "Taula de treball", dibuix::Icona::Pistes, Boto::Estil::Tecla };
     Boto btMescles { "Taula de mescles", dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    Boto btEstructura { "Taula d'estructura", dibuix::Icona::Notes, Boto::Estil::Tecla };
     juce::Component* panellEditor = nullptr;
     juce::Rectangle<int> zonaNom, zonaPan, zonaFader, zonaLcd, zonaTecles;
+    int altOpcions = 0;
     juce::Rectangle<int> rectPom() const;
     enum class Arrossega { Res, Fader, Pan };
     Arrossega movent = Arrossega::Res;
@@ -209,6 +253,7 @@ public:
 
     static constexpr int ampleTira = 100;
     static constexpr int numInserts = 4, numEnvia = 2;
+    GestorPlugins* plugins = nullptr;   // 0.20: per als inserts
 
 private:
     struct Geo
@@ -218,7 +263,7 @@ private:
         std::array<juce::Rectangle<int>, numEnvia> envia;
         std::array<juce::Rectangle<int>, 3> tecles;
     };
-    enum class Zona { Res, Tecla, Pan, Fader, Ranura };
+    enum class Zona { Res, Tecla, Pan, Fader, Ranura, Insert };
 
     Geo geo (juce::Rectangle<int> tira, bool master) const;
     void pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i);   // i < 0: la sortida
@@ -248,4 +293,5 @@ protected:
 private:
     Boto btDuplica { "Duplica", std::nullopt, Boto::Estil::Secundari };
     Boto btTreu { "Treu", std::nullopt, Boto::Estil::Secundari };
+    Boto btEstructura { "Estructura: lineal", std::nullopt, Boto::Estil::Secundari };   // 0.15: quina estructura sona
 };

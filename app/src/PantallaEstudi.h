@@ -1,12 +1,22 @@
 #pragma once
 
 #include "DialegText.h"
+#include "EditorVeu.h"
+#include "EditorSampler.h"
+#include "PanellBiblioteca.h"
+#include "FinestraProgres.h"
+#include "CarregaPreses.h"
 #include "EstatEstudi.h"
 #include "Historial.h"
 #include "Instruments.h"
+#include "PanellCarpetes.h"
+#include "TaulaEstructura.h"
 #include "PanellColor.h"
 #include "PanellHarmonia.h"
+#include "PanellBateria.h"
+#include "FinestraKits.h"
 #include "PianoRoll.h"
+#include "Plugins.h"
 #include "ServeiAudio.h"
 #include "VistesEstudi.h"
 
@@ -24,7 +34,7 @@ class PantallaEstudi : public juce::Component,
 {
 public:
     PantallaEstudi (const juce::File& fitxer, const mibase::Projecte& projecte, juce::PropertiesFile& ajustos,
-                    Historial& historial, ServeiAudio& servei);
+                    Historial& historial, ServeiAudio& servei, Precarrega* precarrega = nullptr);
     ~PantallaEstudi() override;
 
     const juce::File& getFitxer() const noexcept { return estat.fitxer; }
@@ -44,14 +54,19 @@ public:
     void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura, 4 play, 5 grava
     /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
     int estatTransport() const noexcept { return estat.transport; }
+    /** Botó del bucle del transport (0.11): encén o apaga el bucle (si no n'hi ha, en marca un de 4 compassos al capçal). */
+    void commutaBucle();
+    void fesCrossfade();
+    bool bucleActiu() const noexcept { return estat.projecte.bucle.marcat && estat.projecte.bucle.actiu; }
     std::pair<juce::String, juce::String> textPosicio() const;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& k) override;
-    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails&) override
+    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails& d) override
     {
         if (estat.segell.perArrossegar) { estat.segell = {}; estat.avisa(); }
+        if (d.description.toString().startsWith ("mibase-pista:")) { estat.info.clear(); estat.avisa(); }
         zonaEditors.repintaTots();
     }
 
@@ -83,6 +98,32 @@ private:
 
     void pistaNova (const juce::String& tipus, int canals);
     void obrePianoRoll (int pista, int clip);
+    // 0.22: Vocal Editor.
+    void obreVeu (int pista, int clip);
+    void obreVeuDePista (int pista);
+    void tancaVeu();
+    // 0.26: samplejador
+    void obreSampler (int pista);
+    void tancaSampler();
+    void tancaTot();   // 0.27: Esc global
+    void demanaSample();
+    void carregaSample (const std::string& idPista, const juce::File& f);
+    // 0.27: biblioteca
+    void deixaSample (const juce::File& f, int fila, double temps);
+    void sampleAFila (int fila, const juce::File& f);
+    int pistaSamplerNova (const juce::File& f);
+    void enviaAlSampler (int pista, int clip, bool nomesBiblioteca);   // 0.28
+    void gravaSampler();                                               // 0.28
+    void commutaVeuAB();
+    /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
+    void sincronitzaVeu();
+    /** Recull el que el ServeiVeu ha acabat (anàlisis i so corregit). */
+    void recullVeu();
+    // 0.24: solo dels editors.
+    std::string pistaEditor() const;
+    void commutaSoloEditor();
+    void seguixSoloEditor();
+    void restauraSolos();
     void configuraEditor (PianoRoll& pr);
     void tancaEditor (int index);
     void mostraPianoRoll (bool visible);
@@ -95,6 +136,7 @@ private:
     bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);
     void consolida (int pista, int a, int b);
     void carregaOna (const mibase::Presa& s);
+    std::function<void (double)> progresOna;   // 0.28: mentre es llegeix un àudio (0..1)
     juce::File fitxerPresa (const mibase::Presa& s) const;
     juce::File audios() const;
 
@@ -105,6 +147,7 @@ private:
     void canviaModeRang (bool rang);
     void canviaInsereix (bool ins);
     void silenciaTriat();
+    void demanaNomCarpeta (std::vector<int> pistes, const std::string& idACanviar);
     void zoomA (double a, double b, int pistaDe, int pistaFins);
     void zoomTot();
     void zoomTriat();
@@ -115,7 +158,9 @@ private:
     Historial& historial;
     ServeiAudio& servei;
     EstatEstudi estat;
+    ServeiVeu serveiVeu;       // 0.22: abans dels components que el fan servir
     Instruments instruments;   // els de les pistes MIDI (viu abans que el pla que els fa servir)
+    GestorPlugins plugins { servei.escaner().llista() };   // 0.19: VST3 (inserts i instruments)
     juce::AudioFormatManager formats;
 
     // Barra d'eines.
@@ -134,19 +179,41 @@ private:
     // Seccions.
     ColumnaEsquerra esquerra { estat };
     Capcaleres capcaleres { estat };
+    PanellCarpetes carpetes { estat };
+    Boto btCarpetes { {}, dibuix::Icona::Carpeta, Boto::Estil::Tecla };
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
+    TaulaEstructura taulaEstructura { estat };
+    /** 0.16: qui té el focus (Piano Roll o les pistes) segons on s'ha clicat l'últim cop. */
+    struct Focus : juce::MouseListener
+    {
+        std::function<void()> f;
+        std::function<void (juce::Component*)> entra;   // 0.27: el ratolí hi entra (sense clicar)
+        void mouseDown (const juce::MouseEvent&) override { if (f) f(); }
+        void mouseEnter (const juce::MouseEvent& e) override { if (entra) entra (e.eventComponent); }
+    };
+    bool potAgafarFocus() const;
+    Focus focusEditor, focusPistes;
     PanellPista panell { estat };
-    Divisor divEsquerra, divNoms, divPanell;
+    PanellBiblioteca biblioteca { ajustos };                          // 0.27
+    Segmentat pestDreta { { "Clip", "Biblioteca" } };
+    bool dretaBiblioteca = false;
+    Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
+    PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
+    EditorVeu editorVeu { estat, serveiVeu };            // 0.22
+    EditorSampler editorSampler { estat };               // 0.26
+    PanellEditor panellEditor { estat, panellHarmonia, panellBateria, [this] { return zonaEditors.actiu(); } };
+    std::unique_ptr<FinestraKits> finestraKits;
+    void obreKits();
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
     int altPianoRoll = 430, altInici = 0;
     juce::ScrollBar barraV { true }, barraH { false };
-    int ampleEsquerra = 132, ampleNoms = 190, amplePanell = 270, ampleInici = 0;
+    int ampleEsquerra = 132, ampleNoms = 190, ampleCarpetes = 190, amplePanell = 270, ampleInici = 0;
     juce::Rectangle<int> zonaTitolNoms;
 
     // So i gravació.
@@ -163,6 +230,7 @@ private:
         double desDe = 0.0, cursor = 0.0, retard = 0.0;
         bool retardMesurat = false;
         bool midi = false;                                   // grava el teclat MIDI (no la targeta)
+        bool perSampler = false;                             // 0.28: grava dins el samplejador (un sample nou, no un clip)
         double fins = 0.0;                                   // MIDI: on s'ha aturat
         std::vector<mibase::MotorEstudi::MidiGravat> missatges;
     } gravacio;

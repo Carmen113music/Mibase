@@ -24,7 +24,7 @@ namespace mibase
     class MotorDiagnostic
     {
     public:
-        static constexpr int maxEntrades = 8;
+        static constexpr int maxEntrades = 32;
 
         /** Fora del fil d'àudio (en arrencar el dispositiu): prepara la memòria. */
         void prepara (double freqMostreig, int maxMostresPerBloc);

@@ -1,6 +1,9 @@
 #pragma once
 
+#include <bitset>
+
 #include "mibase/ClicDeProva.h"
+#include "mibase/Edicio.h"
 #include "mibase/CuaSenseBloqueig.h"
 #include "mibase/Gravadora.h"
 #include "mibase/Instrument.h"
@@ -71,18 +74,26 @@ namespace mibase
 
             /** Pistes MIDI: l'instrument (el fa servir el fil d'àudio; la interfície el manté viu) i les notes ordenades. */
             std::shared_ptr<Instrument> instrument;
+            std::vector<std::shared_ptr<Efecte>> inserts;   // 0.19: els actius, per ordre
             std::vector<Nota> notes;
             std::vector<Event> events;
         };
 
         double tempo = 120.0;
+        std::vector<edicio::TramTempo> mapaTempo;   // 0.28: per a la claqueta (si hi ha canvis de tempo per parts)
         int compasNum = 4;
         bool clic = true;
         float clicVolum = 1.0f;
         int clicSo = 0;
         bool bucle = false;
         double bucleIni = 0.0, bucleFi = 0.0;
+        /** 0.15: estructura (si no és buida): els trams de la línia de temps que sonen, per ordre, i les pistes
+            (slots) que no sonen a cada tram. El capçal salta d'un tram al següent; al final, s'atura. */
+        struct Tram { double ini = 0.0, fi = 0.0; std::bitset<128> silenci; };
+        std::vector<Tram> ruta;
         float master = 1.0f;
+        int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
+        std::vector<std::shared_ptr<Efecte>> insertsMaster;   // 0.19: cadena de màstering (abans del volum del màster)
         std::vector<Pista> pistes;
         std::vector<std::shared_ptr<const AudioPresa>> audios;   // perquè no s'esborrin mentre sonen
     };
@@ -95,9 +106,13 @@ namespace mibase
     /** Qui dona l'instrument de cada pista MIDI (fil de la interfície). Ha de tornar sempre el mateix objecte per a la mateixa
         pista mentre no canviï el so, perquè les notes que sonen no es tallin. nullptr: la pista no sona. */
     using ProveidorInstruments = std::function<std::shared_ptr<Instrument> (const Pista&)>;
+    /** 0.19: qui dona el plugin viu de cada insert (nullptr si no s'ha pogut obrir: el so hi passa de llarg). */
+    using ProveidorEfectes = std::function<std::shared_ptr<Efecte> (const Insert&)>;
 
     /** Fa el pla del projecte (fil de la interfície). Els clips sense àudio a la memòria no sonen. */
-    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {});
+    /** «corregides» (0.22): preses passades pel Vocal Editor; les fan servir les pistes amb el Vocal Editor encès. */
+    std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {},
+                                     const ProveidorEfectes& efectes = {}, const MapaAudios* corregides = nullptr);
 
     /** Un missatge MIDI en directe (del piano roll o del teclat) per a l'instrument d'una pista. */
     struct EventDirecte
@@ -123,6 +138,8 @@ namespace mibase
         /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc) i apaga les notes que sonen
             (play, situar el capçal, tornar a l'inici del bucle). */
         void reinicia() noexcept;
+        /** Pistes (slots) que no sonen al tram de l'estructura que sona ara (0.15). */
+        void setSilenci (const std::bitset<128>& s) noexcept { silenciAra = s; }
         /** Apaga les notes MIDI que sonen (en aturar). */
         void apagaNotes() noexcept;
         /** Fil d'àudio, just abans de canviar de pla: els instruments que ja no hi seran (o han canviat) s'apaguen
@@ -135,6 +152,7 @@ namespace mibase
         static constexpr int maxEventsBloc = 1024;
 
     private:
+        std::bitset<128> silenciAra;
         struct NotaActiva { long long fi = 0; std::uint8_t to = 0, canal = 0; };
         struct EstatSlot
         {
@@ -216,6 +234,8 @@ namespace mibase
 
         Estat getEstat() const noexcept { return (Estat) estat.load (std::memory_order_acquire); }
         double getPosicio() const noexcept { return posicio.load (std::memory_order_relaxed); }
+        /** Peça de l'estructura que sona (-1: lineal o aturat). */
+        int getTramRuta() const noexcept { return tramPublic.load (std::memory_order_relaxed); }
 
         Mesurador& vuPista (int slot, int canal) noexcept { return vus[(size_t) ((slot % maxSlots) * 2 + (canal & 1))]; }
         Mesurador& vuSortida (int canal) noexcept { return vusSortida[(size_t) (canal & 1)]; }
@@ -235,6 +255,9 @@ namespace mibase
 
         void ordres() noexcept;
         void sumaSortida (float* const* sortides, int numSortides, int fet, int m) noexcept;
+        void entraARuta() noexcept;
+        int tramRuta = -1;           // tram de l'estructura que sona (-1: lineal)
+        std::atomic<int> tramPublic { -1 };
 
         double fs = 48000.0;
         int maxBloc = 512;

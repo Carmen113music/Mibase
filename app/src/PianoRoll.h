@@ -4,6 +4,7 @@
 
 #include <mibase/Harmonia.h>
 #include <mibase/Midi.h>
+#include "EscGlobal.h"
 
 /** Petit camp numèric que es canvia arrossegant amunt i avall (o amb la roda). Doble clic: valor inicial. */
 class CaixaNumero : public juce::Component, public juce::SettableTooltipClient
@@ -59,6 +60,8 @@ public:
     /** Un missatge MIDI cap a l'instrument de la pista (per escoltar les notes en dibuixar-les i amb el teclat). */
     std::function<void (int pista, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2)> onDirecte;
     std::function<void (bool refer)> onDesfes;
+    std::function<void()> onSolo;   // 0.24: solo de la pista de l'editor (tecla * del teclat numèric)
+    std::function<void (int fila, const juce::File&)> onSampleAFila;   // 0.27: un sample de la biblioteca deixat a una fila del Drumpad
     /** Les tecles que el Piano Roll no fa servir (Espai, R…), per quan és en una finestra a part. */
     std::function<bool (const juce::KeyPress&)> onTeclaNoUsada;
     std::function<void()> onDesenganxa, onTanca;
@@ -84,10 +87,17 @@ public:
     void enllacaTriades();
     int pistaDeLEditor() const { return pistaEditor(); }
 
+    /** Chord Pad obert (amb un clip): el teclat MIDI de la pista toca els acords dels pads. */
+    bool chordPadActiu() const { return modePads() && clip() != nullptr; }
+    /** L'acord de cada pad (0 = C … 11 = B), amb l'octava i el voicing triats: el que toca cada tecla. */
+    std::array<std::vector<int>, 12> acordsTeclat() const;
+
     /** Comença a arrossegar un acord (del panell o d'un pad) cap a un Piano Roll: en amollar-lo a la graella, s'hi posa. */
     static void arrossegaAcord (juce::Component& origen, EstatEstudi& estat, const std::vector<int>& notes, const juce::String& nom,
                                 long long durada, bool enllaca);
     static constexpr const char* idArrossegaAcord = "mibase-acord";
+    /** Arrossegar una pista (des del seu nom) al botó de notes fantasma: «mibase-pista:<id>». */
+    static constexpr const char* prefixArrossegaPista = "mibase-pista:";
 
     // ---- Arrossegar i deixar anar (acords) ----
     bool isInterestedInDragSource (const SourceDetails& d) override;
@@ -119,7 +129,7 @@ public:
 
     enum class EinaPR { Fletxa = 0, Llapis, Goma };
 
-    static constexpr int alcadaBarra = 46, ampleTeclat = 92, ampleOctava = 18, alcadaRegla = 22, gruix = 10;
+    static constexpr int alcadaBarra = 46, ampleOctava = 18, alcadaRegla = 22, gruix = 10;
 
 protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -143,12 +153,26 @@ private:
     double tickX (float x) const;
     float yTo (int to) const;       // dalt de la fila
     int toY (float y) const;
+    // 0.20: Drumpad. A una pista de bateria les files són les del kit (FilaBateria), no les 128 notes.
+public:
+    bool bateria() const;
+    /** Amplada de la columna del teclat (al Drumpad, més ample: hi ha els noms dels sons). */
+    int ampleTeclat() const { return bateria() ? 132 : 92; }
+private:
+    int numFiles() const;
+    int filaDeTo (int to) const;    // -1 si la nota no té fila
+    int toDeFila (int f) const;
+    int filaY (float y) const;
+    void pintaFilesBateria (juce::Graphics& g);
+    void pintaNomsBateria (juce::Graphics& g);
+    void mouFiles (mibase::Clip& k, std::vector<int>& idx, int dFiles);
 
     // Clip obert.
     mibase::Clip* clip();
     const mibase::Clip* clip() const;
     mibase::Pista* pista();
     int pistaEditor() const;
+    mibase::ModeEscala modeEscala() const;   // 0.25: el de la pista de l'editor
     int altCarrilEf() const;
     double posTicks() const;        // on cau Clip::pos, en ticks absoluts
     double tickAbs (const mibase::Nota& n) const { return posTicks() + (double) n.ini; }
@@ -189,6 +213,20 @@ private:
     void menuGraella();
     void menuDurada();
     void menuNota (int nota);
+    void menuFantasmes();
+    std::vector<std::string>* fantasmes();
+    void actualitzaFantasmes();
+    void pintaOnaFantasma (juce::Graphics& g, const mibase::Clip& kc, juce::Colour col, double t0, double t1);
+public:
+    /** 0.20 (Drumpad): aplica una eina de bateria (humanitzar, swing, redoble…) als cops triats (o a tots, si no n'hi ha cap).
+        La funció rep el clip, els triats, on cau el començament del clip (ticks absoluts) i la finestra del clip (ticks del clip). */
+    void ordreBateria (const std::function<void (mibase::Clip&, std::vector<int>& triats, long long despl, long long iniT, long long fiT)>& f,
+                       const juce::String& nom);
+    long long pasGraella() const { return pas(); }
+    int numTriades() const { return (int) triadesNotes.size(); }
+    /** Posa uns acords als pads de la pista (per ordre, des de la C) i obre el Chord Pad (0.12). */
+    void posaPads (const std::vector<std::string>& acords, const std::string& nom);
+private:
     void quantitza (bool tambeFinal, double forca = 1.0);
     void esborraTriades();
     void duplicaTriades();
@@ -199,6 +237,7 @@ private:
     void allargaTriades (int passos);
     void triaTotes();
     void ajustaVista();
+    void zoomTriades();
     void canviaOctava (int d);
     void aplica (const std::function<void (mibase::Clip&)>& f, const juce::String& info);
     std::vector<int>& triades() { return triadesNotes; }
@@ -230,7 +269,7 @@ private:
     int altNota = 14;
     int desplY = 0;
     int altCarril = 84;
-    bool fantasmes = true;
+    bool sobreFantasmes = false;    // s'arrossega una pista per sobre del botó de notes fantasma
     bool desenganxat = false;
     bool vistaPendent = false;      // s'ha d'encaixar la vista quan el Piano Roll tingui mida
     int graella = 5;                // índex de midi::valorsGraella() (5 = 1/16)
@@ -265,6 +304,9 @@ private:
     CaixaNumero velNova { "Vel", 1, 127, 100 };
     Boto btFantasmes { {}, dibuix::Icona::Fantasma, Boto::Estil::Tecla };
     Boto btBloqueja { {}, dibuix::Icona::Cadenat, Boto::Estil::Tecla };
+    Boto btSolo { "S", std::nullopt, Boto::Estil::Tecla };   // 0.24
+    float reglaX0 = 0.0f;                                    // 0.24: on s'ha clicat la regla
+    bool reglaBucle = false;                                 // 0.24: arrossegant la regla es fa el bucle
     juce::Point<float> ratoli { -1.0f, -1.0f };   // per dibuixar el segell
 
     Segmentat selMode { { "Notes", "Chord Pad" } };
@@ -276,6 +318,7 @@ private:
     Boto btMinimPads { "Mov. mínim"_ca, std::nullopt, Boto::Estil::Tecla };
     int padPremut = -1, padSobre = -1;
     std::vector<int> notesPadPremut;
+    std::vector<int> notesTeclatPad;    // l'acord que toca el teclat de pantalla (Chord Pad)
     int octavaPremuda = 0;
     Boto btDesenganxa { {}, dibuix::Icona::Desenganxa, Boto::Estil::Secundari };
     Boto btTanca { {}, dibuix::Icona::Amaga, Boto::Estil::Secundari };
@@ -318,6 +361,7 @@ private:
 class FinestraPianoRoll : public juce::DocumentWindow
 {
 public:
+    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }   // 0.27
     FinestraPianoRoll (juce::Component& contingut, std::function<void()> enTancar);
     void closeButtonPressed() override { if (tanca) tanca(); }
 

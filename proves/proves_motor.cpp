@@ -16,6 +16,8 @@
 #include "mibase/SinteIntern.h"
 #include "mibase/Harmonia.h"
 #include "mibase/PresetsPads.h"
+#include "mibase/TeclatAcords.h"
+#include "mibase/Bateria.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +27,7 @@
 #include <functional>
 #include <random>
 #include <sstream>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -45,6 +48,8 @@ namespace
 
     void prova (const char* nom, const std::function<void()>& f)
     {
+        // MIBASE_PROVES=text: només les proves que contenen el text (per anar més de pressa).
+        if (const char* filtre = std::getenv ("MIBASE_PROVES"); filtre != nullptr && std::string (nom).find (filtre) == std::string::npos) return;
         const int abans = fallades;
         f();
         std::printf ("%s %s\n", fallades == abans ? "[ok]   " : "[FALLA]", nom);
@@ -127,6 +132,11 @@ namespace
         int offs() const { int k = 0; for (auto& r : rebuts) if ((r.estat & 0xF0) == 0x80 || ((r.estat & 0xF0) == 0x90 && r.d2 == 0)) ++k; return k; }
     };
 }
+
+#include "proves_veu.inc"
+#include "proves_sampler.inc"
+#include "proves_biblioteca.inc"
+#include "proves_tempo.inc"
 
 int main()
 {
@@ -951,6 +961,38 @@ int main()
         comprova (true, "publicar i recollir molts plans no peta");
     });
 
+    prova ("Estructura: el capçal salta de part en part i silencia pistes (0.15)", [&]
+    {
+        namespace ed = mibase::edicio;
+        Projecte q;   // 120 bpm, 4/4: 2 s per compàs
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 10.0, 0.5f) } };
+        const auto pa = ed::creaPart (q, "A", 0.0, 1.0, 0);   // 0–2 s
+        const auto pb = ed::creaPart (q, "B", 2.0, 3.0, 0);   // 4–6 s
+        const auto e = ed::creaEstructura (q, "1");
+        ed::estructura (q, e)->peces = { { pb, {} }, { pa, { q.pistes[0].id } } };   // B, i A sense la pista
+        q.estructuraActiva = e;
+        comprova (ed::estructuraActiva (q) != nullptr, "estructura activa");
+        MotorEstudi motor;
+        motor.prepara (48000.0, 256);
+        motor.publica (construeixPla (q, m));
+        std::vector<float> o0 (256), o1 (256);
+        float* sort[2] { o0.data(), o1.data() };
+        auto bloc = [&] { std::fill (o0.begin(), o0.end(), 0.0f); std::fill (o1.begin(), o1.end(), 0.0f); motor.processa (nullptr, 0, sort, 2, 256); };
+        motor.reprodueix (3.0);   // fora de cap part de l'estructura → comença a B (4 s)
+        bloc();
+        comprova (motor.getPosicio() > 4.0 && motor.getPosicio() < 4.1 && pic (o0, 0, 256) > 0.2f, "comença a la primera peça (B)");
+        for (int i = 0; i < 380; ++i) bloc();   // ~2 s: ha passat a A (0 s), que no sona
+        comprova (motor.getPosicio() < 1.0 && pic (o0, 0, 256) < 0.01f, "salta a A, amb la pista silenciada (" + std::to_string (motor.getPosicio()) + " " + std::to_string (pic (o0, 0, 256)) + ")");
+        for (int i = 0; i < 400; ++i) bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat, "al final de l'estructura s'atura");
+        q.estructuraActiva.clear();
+        comprova (ed::estructuraActiva (q) == nullptr, "lineal");
+    });
+
     prova ("Gravar: compte d'entrada, entrada triada i fitxer", [&]
     {
         Projecte q;
@@ -1687,15 +1729,535 @@ int main()
         {
             const auto p = pads::padsDePreset (i);
             if ((int) p.size() != pads::numPads) tots = false;
-            for (int k = 0; k < 8; ++k)
-                if (llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
+            for (int k = 0; k < pads::numPads; ++k)
+                if (! p[(size_t) k].empty() && llegeixAcord (p[(size_t) k]).buit()) { tots = false; std::printf ("    no s'entén: %s\n", p[(size_t) k].c_str()); }
         }
         comprova (tots, "tots els acords dels presets s'entenen");
         const auto c = pads::padsDePreset (0);
-        comprova (c[0] == "G" && c[3] == "Cm" && ! c[8].empty(), "Creep: G … Cm …, i a baix els de la tonalitat");
-        const auto t = pads::padsDeTonalitat ({ 9, 1 });
-        comprova (t[0] == "Am" && t[8] == "Am7" && t.size() == 16, "pads de la tonalitat de La menor");
+        // Creep: G B C Cm G Em Am D → C=G, C#=B, D=C, D#=Cm, E=Em, F=Am, F#=D; la resta, buits.
+        comprova (c.size() == 12 && c[0] == "G" && c[1] == "B" && c[2] == "C" && c[3] == "Cm" && c[4] == "Em" && c[5] == "Am" && c[6] == "D"
+                  && c[7].empty() && c[11].empty(), "Creep: per ordre a partir de la C, sense repetir, la resta buits");
     });
+
+    prova ("Pads com un piano (0.10): 12, blanques i negres", []
+    {
+        using namespace harmonia;
+        comprova (pads::numPads == 12 && pads::esNegre (1) && pads::esNegre (10) && ! pads::esNegre (4) && ! pads::esNegre (5), "disposició");
+        const auto t = pads::padsDeTonalitat ({ 9, 1 });
+        comprova (t.size() == 12 && t[0] == "Am" && t[2] == "Bdim" && t[4] == "C" && t[5] == "Dm" && t[7] == "Em" && t[9] == "F" && t[11] == "G",
+                  "La menor: graus i a vii a les blanques");
+        comprova (t[1] == "E7" && t[6] == "D" && t[10] == "A#", "La menor: negres E7, D, Bb");
+        const auto m = pads::padsDeTonalitat ({ 0, 0 });
+        comprova (m[0] == "C" && m[2] == "Dm" && m[11] == "Bdim" && m[1] == "G7" && m[6] == "Fm" && m[8] == "G#" && m[10] == "A#",
+                  "Do major: C Dm … Bdim; negres G7, Dm7, Fm, Ab, Bb");
+        // Adaptar els 16 de la 0.9.
+        std::vector<std::string> vells (16, "Am");
+        comprova (pads::adapta (vells, "Creep") == pads::padsDePreset (0), "16 pads d'un preset: es refan amb la disposició nova");
+        comprova (pads::adapta (vells, "Acords de la tonalitat").empty(), "16 pads de la tonalitat: tornen a ser de la tonalitat");
+        vells[0] = "F"; vells[7] = "E7";
+        const auto a = pads::adapta (vells, "");
+        comprova (a.size() == 12 && a[0] == "F" && a[1] == "E7", "16 pads fets a mà: es conserven els primers");
+    });
+
+    prova ("Pads: inversions (0.10)", []
+    {
+        using namespace harmonia;
+        auto c = llegeixAcord ("C");
+        comprova (notesPad (c) == std::vector<int> ({ 60, 64, 67 }), "C en posició fonamental");
+        c.inversio = 1;
+        comprova (notesPad (c) == std::vector<int> ({ 64, 67, 72 }) && textPad (c) == "C^1" && nomPad (c) == "C", "1a inversió (E G C)");
+        c.inversio = 2;
+        comprova (notesPad (c) == std::vector<int> ({ 67, 72, 76 }), "2a inversió (G C E)");
+        c.inversio = -1;
+        comprova (notesPad (c) == std::vector<int> ({ 55, 60, 64 }), "-1: la de dalt baixa (G C E, avall)");
+        comprova (llegeixAcord ("Am7^1").inversio == 1 && llegeixAcord ("Am7^1").tensions == T7 && llegeixAcord ("G/B^-2").inversio == -2
+                  && llegeixAcord ("G/B^-2").baix == 11, "llegir «^n»");
+        comprova (llegeixAcord ("C^9").inversio == maxInversio && llegeixAcord ("C^x").buit(), "límits i errors");
+        auto b = llegeixAcord ("C/E^1");
+        comprova (notesPad (b).front() == 52 && notesPad (b).size() == 4, "amb nota greu: la greu continua a baix");
+    });
+
+    prova ("Teclat d'acords (0.10): una tecla, un acord", []
+    {
+        TeclatAcords t;
+        t.setAcord (0, { 60, 64, 67 });      // C
+        t.setAcord (9, { 57, 60, 64 });      // Am
+        std::vector<std::array<int, 3>> v;
+        auto envia = [&v] (std::uint8_t e, std::uint8_t a, std::uint8_t b) { v.push_back ({ e, a, b }); };
+        t.tradueix (0x90, 48, 100, true, envia);   // C3 → C
+        comprova (v.size() == 3 && v[0] == std::array<int, 3> { 0x90, 60, 100 } && v[2][1] == 67, "la tecla C (de qualsevol octava) toca C");
+        v.clear();
+        t.tradueix (0x90, 69, 90, true, envia);    // A4 → Am: C i E ja sonen
+        comprova (v.size() == 1 && v[0][1] == 57, "Am amb C sonant: només s'encén la A");
+        v.clear();
+        t.tradueix (0x80, 48, 0, true, envia);     // amollo C: G s'apaga; C i E no (els manté Am)
+        comprova (v.size() == 1 && v[0] == std::array<int, 3> { 0x80, 67, 0 }, "amollar C: només s'apaga la G");
+        v.clear();
+        t.setAcord (9, { 50, 53, 57 });            // canvio el pad mentre sona
+        t.tradueix (0x80, 69, 0, false, envia);    // i desactivo: s'apaga el que va encendre
+        comprova (v.size() == 3 && t.teclesAmbAcord() == 0, "l'apagada apaga el que es va encendre (encara que el pad hagi canviat)");
+        v.clear();
+        t.tradueix (0x90, 62, 80, false, envia);   // desactivat: passa tal qual
+        t.tradueix (0x80, 62, 0, true, envia);     // i l'apagada també (encara que ara estigui actiu)
+        comprova (v.size() == 2 && v[0][1] == 62 && v[1] == std::array<int, 3> { 0x80, 62, 0 }, "desactivat: les notes passen");
+        v.clear();
+        t.tradueix (0x90, 61, 80, true, envia);    // pad buit (C#): res
+        t.tradueix (0x80, 61, 0, true, envia);
+        comprova (v.empty(), "pad buit: no sona res");
+        t.tradueix (0x91, 60, 70, true, envia);
+        t.tradueix (0x91, 60, 70, true, envia);    // tornada a prémer sense amollar
+        t.tradueix (0x81, 60, 0, true, envia);
+        int enceses = 0, apagades = 0;
+        for (auto& x : v) { if ((x[0] & 0xF0) == 0x90) ++enceses; else if ((x[0] & 0xF0) == 0x80) ++apagades; }
+        comprova (enceses == 6 && apagades == 6 && (v[0][0] & 0x0F) == 1, "prémer dos cops sense amollar: no queda res penjat (i es manté el canal)");
+        v.clear();
+        t.tradueix (0x90, 60, 70, true, envia);
+        t.tradueix (0xB0, 123, 0, true, envia);
+        t.tradueix (0x80, 60, 0, true, envia);
+        comprova (t.teclesAmbAcord() == 0 && v.back()[0] == 0xB0, "«tot apagat» ho buida");
+        t.tradueix (0xE0, 0, 64, true, envia);
+        comprova (v.back()[0] == 0xE0, "els altres missatges passen");
+    });
+
+    prova ("Carpetes de pistes (0.11)", []
+    {
+        namespace ed = mibase::edicio;
+        Projecte p;
+        for (auto* n : { "Bombo", "Guitarra", "Caixa", "Veu", "Charles" }) ed::afegeixPista (p, n, "audio");
+        const auto nom = [&p] (int i) { return p.pistes[(size_t) i].nom; };
+        const auto id = ed::creaCarpeta (p, "Bateria", { 0, 2, 4 });
+        comprova (p.carpetes.size() == 1 && ed::carpeta (p, id) != nullptr && ed::carpeta (p, id)->nom == "Bateria", "carpeta creada");
+        comprova (nom (0) == "Bombo" && nom (1) == "Caixa" && nom (2) == "Charles" && nom (3) == "Guitarra" && nom (4) == "Veu",
+                  "les pistes de la carpeta queden seguides, en el seu ordre");
+        comprova (ed::pistesDeCarpeta (p, id) == std::vector<int> ({ 0, 1, 2 }), "pistes de la carpeta");
+        const int on = ed::posaACarpeta (p, 4, id);
+        comprova (on == 3 && nom (3) == "Veu" && ed::pistesDeCarpeta (p, id).size() == 4, "posar-ne una altra: va al final de la carpeta");
+        ed::posaACarpeta (p, 3, "");
+        comprova (p.pistes[3].carpeta.empty() && ed::pistesDeCarpeta (p, id).size() == 3, "treure-la de la carpeta");
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 1, 1, 1, 1, 1 }), "oberta: totes visibles");
+        ed::carpeta (p, id)->plegada = true;
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 2, 0, 0, 1, 1 }), "plegada: una fila de carpeta");
+        ed::carpeta (p, id)->amagada = true;
+        comprova (ed::filesVisibles (p) == std::vector<int> ({ 0, 0, 0, 1, 1 }), "amagada: no es veu");
+        comprova (ed::posaACarpeta (p, 0, "f999") == 0 && p.pistes[0].carpeta == id, "una carpeta que no existeix: res");
+
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_carpetes";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Carp";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        mibase::disc::desa (r.fitxer, p, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && l->carpetes.size() == 1 && l->carpetes[0].nom == "Bateria" && l->carpetes[0].plegada && l->carpetes[0].amagada
+                  && l->pistes[1].carpeta == id && l->pistes[4].carpeta.empty(), "es desen i es llegeixen");
+        ed::esborraCarpeta (p, id);
+        comprova (p.carpetes.empty() && p.pistes.size() == 5 && p.pistes[0].carpeta.empty(), "esborrar la carpeta no esborra les pistes");
+        fs::remove_all (arrel);
+    });
+
+    prova ("Parts de la cançó i bucle amb decimals (0.13)", []
+    {
+        namespace ed = mibase::edicio;
+        Projecte p;   // 120 bpm, 4/4: 2 s per compàs
+        const auto a = ed::creaPart (p, "Intro", 3.0, 1.0, 0xff3366);
+        const auto b = ed::creaPart (p, "Tornada", 3.0, 5.5, 0);
+        comprova (p.parts.size() == 2 && ed::part (p, a)->de == 1.0 && ed::part (p, a)->a == 3.0, "part creada (ordre de/a arreglat)");
+        comprova (ed::partA (p, 2.5) == 0 && ed::partA (p, 7.0) == 1 && ed::partA (p, 1.0) == -1 && ed::partA (p, 11.0) == -1, "part en un temps");
+        p.bucle = { true, true, 1.25, 2.5 };
+        comprova (std::abs (ed::iniciBucle (p) - 2.5) < 1e-9 && std::abs (ed::fiBucle (p) - 5.0) < 1e-9, "bucle amb decimals");
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves_parts";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        Projecte nou;
+        nou.nom = "Parts";
+        auto r = mibase::disc::creaProjecte (arrel, nou, "x", "x");
+        mibase::disc::desa (r.fitxer, p, "x", "x", false);
+        auto l = mibase::disc::llegeix (r.fitxer);
+        comprova (l && l->parts.size() == 2 && l->parts[1].nom == "Tornada" && l->parts[1].a == 5.5 && l->parts[0].rgb == 0xff3366
+                  && l->bucle.de == 1.25 && l->bucle.a == 2.5, "es desen i es llegeixen");
+        ed::esborraPart (p, a);
+        comprova (p.parts.size() == 1 && p.parts[0].id == b, "esborrar una part");
+        fs::remove_all (arrel);
+    });
+
+    prova ("Moure grups per graus i crossfade (0.14)", []
+    {
+        using namespace harmonia;
+        const Tonalitat doM { 0, 0 };
+        comprova (grausEntre (60, 64, doM) == 2 && grausEntre (64, 60, doM) == -2 && grausEntre (60, 72, doM) == 7, "graus entre notes");
+        // C E G (Do major) dos graus amunt → E G B: la distància canvia (tercera major → menor).
+        comprova (mouGraus (60, doM, 2) == 64 && mouGraus (64, doM, 2) == 67 && mouGraus (67, doM, 2) == 71, "acord C → Em per graus");
+        comprova (mouGraus (71, doM, -1) == 69 && mouGraus (61, doM, 1) == 62, "avall, i una nota fora de l'escala s'hi ajusta");
+
+        namespace ed = mibase::edicio;
+        Projecte p;
+        auto& t = ed::afegeixPista (p, "Guitarra", "audio");
+        Clip a; a.presa = "s1"; a.pos = 0; a.inici = 0; a.fi = 10;
+        Clip b; b.presa = "s2"; b.pos = 6; b.inici = 0; b.fi = 10;   // de 6 a 16, a sobre
+        t.clips = { a, b };
+        comprova (ed::crossfade (p, 0, 5.9, 6.1), "crossfade a l'entrada del de dalt");
+        const auto& c = p.pistes[0].clips;
+        comprova (c.size() == 2 && std::abs (c[0].fiVisible() - 6.1) < 1e-9 && std::abs (c[0].fadeOut - 0.2) < 1e-9
+                  && std::abs (c[1].iniciVisible() - 5.9) < 1e-9 && std::abs (c[1].fadeIn - 0.2) < 1e-9, "sota: fade out; dalt: fade in");
+        // Un clip de dalt dins d'un de sota, a la sortida: el de sota es parteix.
+        Projecte q;
+        auto& u = ed::afegeixPista (q, "Veu", "audio");
+        Clip x; x.presa = "s1"; x.pos = 0; x.fi = 20;
+        Clip y; y.presa = "s2"; y.pos = 5; y.fi = 5;   // de 5 a 10, a sobre
+        u.clips = { x, y };
+        comprova (ed::crossfade (q, 0, 9.95, 10.0), "crossfade a la sortida");
+        const auto& d = q.pistes[0].clips;
+        comprova (d.size() == 3 && std::abs (d[1].iniciVisible() - 9.95) < 1e-9 && d[1].fadeIn > 0.04 && std::abs (d[2].fiVisible() - 10.0) < 1e-9
+                  && d[2].fadeOut > 0.04 && std::abs (d[0].fiVisible() - 9.95) < 1e-9, "el de sota es parteix; dalt fade out, sota fade in");
+        comprova (! ed::crossfade (q, 0, 15.0, 16.0), "sense sobreposició: res");
+    });
+
+    prova ("Teclat amb l'escala: bloquejat i assistit (0.17)", []
+    {
+        EscalaTeclat t;
+        const std::array<bool, 12> doM { true, false, true, false, true, true, false, true, false, true, false, true };
+        std::vector<std::array<int, 3>> v;
+        auto envia = [&v] (std::uint8_t e, std::uint8_t a, std::uint8_t b) { v.push_back ({ e, a, b }); };
+        t.set (2, doM);
+        t.tradueix (0x90, 61, 100, envia); t.tradueix (0x80, 61, 0, envia);
+        comprova (v.empty(), "bloquejat: C# no sona (ni s'apaga res)");
+        t.tradueix (0x90, 60, 100, envia); t.tradueix (0x80, 60, 0, envia);
+        comprova (v.size() == 2 && v[0][1] == 60 && v[1][0] == 0x80, "bloquejat: C sona");
+        v.clear();
+        t.set (1, doM);
+        t.tradueix (0x90, 64, 90, envia); t.tradueix (0x80, 64, 0, envia);   // E
+        t.tradueix (0x90, 63, 90, envia);                                    // D# venint de dalt → D
+        comprova (v.size() == 3 && v[2][1] == 62, "assistit: venint de dalt, la de sota (D)");
+        t.tradueix (0x80, 63, 0, envia);
+        comprova (v.back()[0] == 0x80 && v.back()[1] == 62, "l'apagada apaga la que va sonar");
+        t.tradueix (0x90, 60, 90, envia); t.tradueix (0x80, 60, 0, envia);   // C
+        t.tradueix (0x90, 61, 90, envia);                                    // C# venint de baix → D
+        comprova (v.back()[1] == 62, "assistit: venint de baix, la de sobre (D)");
+        t.tradueix (0x80, 61, 0, envia);
+        v.clear();
+        t.set (0, doM);
+        t.tradueix (0x90, 61, 90, envia);
+        comprova (v.size() == 1 && v[0][1] == 61, "visual: tal qual");
+    });
+
+    prova ("Sortida del màster per un altre parell (0.17)", [&]
+    {
+        Projecte q;
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 10.0, 0.5f) } };
+        q.sortidaMaster = 1;   // 3/4
+        MotorEstudi motor;
+        motor.prepara (48000.0, 256);
+        motor.publica (construeixPla (q, m));
+        std::vector<std::vector<float>> o (4, std::vector<float> (256));
+        float* sort[4] { o[0].data(), o[1].data(), o[2].data(), o[3].data() };
+        auto bloc = [&] (int n) { for (auto& c : o) std::fill (c.begin(), c.end(), 0.0f); motor.processa (nullptr, 0, sort, n, 256); };
+        motor.reprodueix (1.0);
+        bloc (4); bloc (4);
+        comprova (pic (o[2], 0, 256) > 0.2f && pic (o[3], 0, 256) > 0.2f && pic (o[0], 0, 256) == 0.0f, "surt per 3/4 i no per 1/2");
+        bloc (2);
+        comprova (pic (o[0], 0, 256) > 0.2f, "si la targeta no té el 3/4, surt per l'1/2");
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves17";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        q.nom = "Master";
+        auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T11:00:00", "07/11/2026 11:00");
+        auto l = mibase::disc::llegeix (rc.fitxer);
+        comprova (l && l->sortidaMaster == 1, "es desa al projecte");
+    });
+
+    prova ("Inserts d'efectes a les pistes i al màster (0.19)", [&]
+    {
+        struct Meitat : mibase::Efecte
+        {
+            int cops = 0;
+            void prepara (double, int) override {}
+            void processa (float* L, float* R, int n) noexcept override { ++cops; for (int i = 0; i < n; ++i) { L[i] *= 0.5f; R[i] *= 0.5f; } }
+        };
+        Projecte q;
+        q.clic = false;
+        afegeixPista (q, "A", "audio");
+        const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+        afegeixClip (q, 0, s1, 0.0);
+        MapaAudios m { { s1, audioConstant (48000.0, 10.0, 0.5f) } };
+        auto efPista = std::make_shared<Meitat>(), efMaster = std::make_shared<Meitat>();
+        q.pistes[0].inserts.push_back ({ "i1", "proves:meitat", "Meitat", true, "" });
+        q.insertsMaster.push_back ({ "i2", "proves:meitat", "Meitat", true, "" });
+        q.insertsMaster.push_back ({ "i3", "proves:meitat", "Apagat", false, "" });
+        mibase::ProveidorEfectes prov = [&] (const mibase::Insert& x) -> std::shared_ptr<mibase::Efecte>
+        {
+            if (x.id == "i1") return efPista;
+            if (x.id == "i2") return efMaster;
+            return std::make_shared<Meitat>();
+        };
+        auto mesura = [&] (bool ambEfectes)
+        {
+            MotorEstudi motor;
+            motor.prepara (48000.0, 256);
+            motor.publica (construeixPla (q, m, {}, ambEfectes ? prov : mibase::ProveidorEfectes {}));
+            std::vector<float> o0 (256), o1 (256);
+            float* sort[2] { o0.data(), o1.data() };
+            motor.reprodueix (1.0);
+            for (int k = 0; k < 3; ++k) { std::fill (o0.begin(), o0.end(), 0.0f); std::fill (o1.begin(), o1.end(), 0.0f); motor.processa (nullptr, 0, sort, 2, 256); }
+            return pic (o1, 0, 256);
+        };
+        const float sense = mesura (false), amb = mesura (true);
+        comprova (sense > 0.2f && std::abs (amb - sense * 0.25f) < 0.01f, "pista mono amb inserts: a la dreta (R) també, i a un quart (" + std::to_string (sense) + " → " + std::to_string (amb) + ")");
+        comprova (efPista->cops > 0 && efMaster->cops > 0, "els dos efectes han treballat");
+
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_proves19";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        q.nom = "Inserts";
+        q.pistes[0].inserts[0].estat = "QUJD";
+        auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T12:00:00", "07/11/2026 12:00");
+        auto l = mibase::disc::llegeix (rc.fitxer);
+        comprova (l && l->pistes[0].inserts.size() == 1 && l->pistes[0].inserts[0].estat == "QUJD" && l->insertsMaster.size() == 2
+                  && ! l->insertsMaster[1].actiu, "els inserts es desen al projecte");
+    });
+
+
+    // ===================== 0.20: bateria =====================
+    prova ("bateria: classificació pel nom", []
+    {
+        using namespace mibase::bateria;
+        const std::pair<const char*, const char*> casos[] = {
+            { "Kick 01.wav", "kick" }, { "BD_Hard.wav", "kick" }, { "SD_rimshot.wav", "rim" }, { "Snare Tight.wav", "snare" },
+            { "HH open.wav", "hihat-obert" }, { "OHH 2.wav", "hihat-obert" }, { "hihat_closed.wav", "hihat" }, { "HH Pedal.wav", "hihat-pedal" },
+            { "Tom Floor.wav", "tom-greu" }, { "Tom Hi.wav", "tom-agut" }, { "tom mid 2.wav", "tom-mig" }, { "Tom.wav", "tom" },
+            { "Ride Bell.wav", "ride" }, { "Crash16.wav", "crash" }, { "Clap.wav", "clap" }, { "Cowbell.wav", "perc" },
+            { "carpeta/Bombo.mp3", "kick" }, { "pad lluminós.wav", "" } };
+        for (auto& [nom, t] : casos)
+            comprova (classificaNom (nom) == t, std::string (nom) + " → " + t + " (diu «" + classificaNom (nom) + "»)");
+    });
+
+    prova ("bateria: classificació pel so (sons interns)", []
+    {
+        using namespace mibase::bateria;
+        const std::pair<const char*, const char*> casos[] = {
+            { "kick", "kick" }, { "hihat", "hihat" }, { "hihat-obert", "hihat-obert" }, { "crash", "crash" }, { "snare", "snare" },
+            { "tom-greu", "tom" } };
+        for (auto& [so, esperat] : casos)
+        {
+            auto m = mostraInterna (std::string ("intern:") + so, 44100.0);
+            const auto r = m ? classificaSo (m->L.data(), (int) m->L.size(), 44100.0) : std::string ("(cap)");
+            comprova (r == esperat, std::string (so) + " sona com " + esperat + " (diu «" + r + "»)");
+        }
+        comprova (classificaSo (nullptr, 0, 44100.0) == "perc", "sense so: percussió");
+    });
+
+    prova ("bateria: kits al disc", []
+    {
+        using namespace mibase::bateria;
+        namespace fs = std::filesystem;
+        const auto arrel = fs::temp_directory_path() / "mibase_kits20";
+        fs::remove_all (arrel);
+        const auto dir = arrel / mibase::disc::cami ("Kit Àcid");
+        fs::create_directories (dir);
+        for (auto* n : { "Kick 1.wav", "Snare.wav", "OH.wav", "HH.wav", "raro.wav" })
+        {
+            EscriptorWav w;
+            w.obre (dir / n, 1, 44100.0, 16);
+            std::vector<float> x (441, 0.3f);
+            w.escriu (x.data(), 441);
+            w.tanca();
+        }
+        auto k = llegeixKit (mibase::disc::text (dir));
+        comprova (k && k->sons.size() == 5 && k->nom == "Kit Àcid", "kit sense kit.json: els 5 WAV");
+        if (! k) return;
+        for (auto& s : k->sons) if (s.fitxer == "raro.wav") s.tipus = "perc";
+        comprova (desaKit (*k), "es desa el kit.json");
+        auto kits = llegeixKits (mibase::disc::text (arrel));
+        comprova (kits.size() == 1 && std::any_of (kits[0].sons.begin(), kits[0].sons.end(), [] (const SoKit& s) { return s.fitxer == "raro.wav" && s.tipus == "perc"; }),
+                  "es llegeix amb els tipus corregits");
+        auto f = filesDeKit (kits[0]);
+        comprova (f.size() == 5 && f[0].tipus == "kick" && f[0].so == "Kit Àcid/Kick 1.wav" && f[0].nota == 36, "files: una per tipus, bombo a dalt");
+        auto hh = std::find_if (f.begin(), f.end(), [] (const FilaBateria& x) { return x.tipus == "hihat-obert"; });
+        comprova (hh != f.end() && hh->talla == 1 && hh->nota == 46, "hihat obert: nota 46 i talla el tancat");
+        f[0].volumDb = -6.0;
+        auto f2 = filesDeKit (kits[0], f);
+        comprova (f2.size() == 5 && f2[0].volumDb == -6.0, "canviar de kit manté els ajustos de la fila");
+        comprova (filesInternes().size() >= 12, "kit intern amb totes les files");
+    });
+
+    prova ("bateria: sampler (cops, tall del hihat, silenci, afinació, decaïment)", []
+    {
+        using namespace mibase::bateria;
+        auto files = filesInternes();
+        std::vector<SamplerBateria::So> sons;
+        for (auto& f : files) sons.push_back ({ f.nota, mostraInterna (f.so, 48000.0) });
+        auto toca = [&] (std::vector<FilaBateria> fs_, std::vector<std::pair<int, EventInstrument>> evs, int blocs) -> std::vector<float>
+        {
+            SamplerBateria s (sons);
+            s.prepara (48000.0, 512);
+            s.posaParams (fs_);
+            std::vector<float> tot, L (512), R (512);
+            for (int b = 0; b < blocs; ++b)
+            {
+                std::vector<EventInstrument> v;
+                for (auto& [bloc, e] : evs) if (bloc == b) v.push_back (e);
+                s.processa (v.data(), (int) v.size(), L.data(), R.data(), 512);
+                tot.insert (tot.end(), L.begin(), L.end());
+            }
+            return tot;
+        };
+        auto o = toca (files, { { 0, { 100, 0x99, 36, 127 } } }, 4);
+        comprova (pic (o, 0, 100) == 0.0f && pic (o, 100, 120) > 0.05f, "el bombo sona a la mostra exacta");
+        comprova (totFinit (o), "sense valors estranys");
+        // Hihat obert i, 0,1 s després, el tancat: l'obert queda tallat.
+        auto obert = toca (files, { { 0, { 0, 0x90, 46, 120 } } }, 40);
+        auto tallat = toca (files, { { 0, { 0, 0x90, 46, 120 } }, { 10, { 0, 0x90, 42, 1 } } }, 40);
+        comprova (pic (obert, 512 * 20, 512 * 21) > 0.01f && pic (tallat, 512 * 20, 512 * 21) < 0.002f, "el hihat tancat talla l'obert");
+        auto f2 = files;
+        for (auto& f : f2) if (f.nota == 36) f.mut = true;
+        comprova (pic (toca (f2, { { 0, { 0, 0x90, 36, 127 } } }, 4), 0, 2048) == 0.0f, "fila silenciada: no sona");
+        for (auto& f : f2) if (f.nota == 36) { f.mut = false; f.decai = 0.2; }
+        auto curt = toca (f2, { { 0, { 0, 0x90, 36, 127 } } }, 40);
+        auto llarg = toca (files, { { 0, { 0, 0x90, 36, 127 } } }, 40);
+        comprova (pic (curt, 512 * 15, 512 * 16) < pic (llarg, 512 * 15, 512 * 16) * 0.2f, "decaïment curt: el so s'acaba abans");
+        for (auto& f : f2) if (f.nota == 36) { f.decai = 1.0; f.afina = 12.0; }
+        auto agut = toca (f2, { { 0, { 0, 0x90, 36, 127 } } }, 60);
+        auto acaba = [] (const std::vector<float>& v) { size_t u = 0; for (size_t i = 0; i < v.size(); ++i) if (std::abs (v[i]) > 1e-4f) u = i; return u; };
+        comprova (acaba (agut) < acaba (llarg) * 0.6, "una octava amunt: dura la meitat");
+        comprova (pic (toca (files, { { 0, { 0, 0x90, 36, 127 } }, { 1, { 0, 0xB0, 123, 0 } } }, 6), 512 * 4, 512 * 6) == 0.0f, "apaga-ho tot");
+        Pista t;
+        t.files = files;
+        auto sig = SamplerBateria::signatura (t);
+        t.files[0].volumDb = -3;
+        comprova (sig == SamplerBateria::signatura (t), "el volum no canvia la signatura (no cal sampler nou)");
+        t.files[0].so = "Kit/altre.wav";
+        comprova (sig != SamplerBateria::signatura (t), "el so sí");
+    });
+
+    prova ("bateria: humanitzar, swing, redoble i flam", []
+    {
+        using namespace mibase::bateria;
+        Clip c;
+        c.midi = true;
+        for (int k = 0; k < 16; ++k) c.notes.push_back ({ (long long) k * 240, 240, k % 4 == 0 ? 36 : 42, 100, 0 });
+        auto a = c, b = c;
+        std::vector<int> sel;
+        humanitza (a, sel, 10.0, 10.0, 7, true, 120.0, 3840, 3840);
+        humanitza (b, sel, 10.0, 10.0, 7, true, 120.0, 3840, 3840);
+        comprova (a.notes == b.notes, "mateixa llavor, mateix resultat");
+        comprova (a.notes != c.notes, "s'ha mogut alguna cosa");
+        comprova (std::any_of (a.notes.begin(), a.notes.end(), [] (const Nota& n) { return n.ini == 0 && n.to == 36; }), "el primer temps no es mou");
+        bool dinsMarge = true;
+        for (auto& n : a.notes) if (n.vel < 89 || n.vel > 111) dinsMarge = false;
+        comprova (dinsMarge, "velocitats dins el ±10 %");
+        long long maxD = 0;
+        for (size_t i = 0; i < a.notes.size(); ++i)
+        {
+            long long millor = 1 << 30;
+            for (auto& o : c.notes) if (o.to == a.notes[i].to) millor = std::min (millor, std::abs (o.ini - a.notes[i].ini));
+            maxD = std::max (maxD, millor);
+        }
+        comprova (maxD <= 20, "temps dins el ±10 ms (19 ticks a 120)");
+
+        auto s = c;
+        swing (s, sel, 66.67, 240, 0);
+        comprova (s.notes[1].ini == 320 && s.notes[2].ini == 480 && s.notes[0].ini == 0, "swing 66 %: la semicorxera parella-senar va al treset");
+        auto s2 = s;
+        swing (s2, sel, 66.67, 240, 0);
+        comprova (s2.notes == s.notes, "tornar-hi no ho acumula");
+
+        Clip r;
+        r.notes = { { 0, 240, 38, 120, 0 } };
+        std::vector<int> t1 = { 0 };
+        redoble (r, t1, 4, 240, 0.5);
+        comprova (r.notes.size() == 4 && r.notes[1].ini == 60 && r.notes[3].ini == 180 && r.notes[0].vel == 120 && r.notes[3].vel == 60 && t1.size() == 4,
+                  "redoble de 4 dins la casella, de 120 a 60");
+        Clip f;
+        f.notes = { { 480, 240, 38, 100, 0 } };
+        std::vector<int> t2 = { 0 };
+        flam (f, t2, 40, 0.5);
+        comprova (f.notes.size() == 2 && f.notes[0].ini == 440 && f.notes[0].vel == 50 && f.notes[1].ini == 480, "flam: un cop de gràcia abans i més fluix");
+    });
+
+    prova ("bateria: ritmes de partida i fills", []
+    {
+        using namespace mibase::bateria;
+        comprova (ritmes().size() >= 15, "hi ha ritmes de partida");
+        bool mides = true;
+        for (auto& r : ritmes()) for (auto& [t, p] : r.files) if ((int) std::string (p).size() != r.caselles || tipusPerId (t) == nullptr) mides = false;
+        comprova (mides, "tots els patrons tenen les caselles justes i tipus coneguts");
+        auto files = filesInternes();
+        auto n = notesDeRitme (ritmes()[0], 2, 3840, files, 0);
+        const auto bombos = std::count_if (n.begin(), n.end(), [] (const Nota& x) { return x.to == 36; });
+        comprova (bombos == 6 && n.front().ini == 0, "rock bàsic, 2 compassos: 6 bombos");
+        std::vector<FilaBateria> senseRide;
+        for (auto& f : files) if (f.tipus != "ride") senseRide.push_back (f);
+        auto n2 = notesDeRitme (ritmes()[1], 1, 3840, senseRide, 0);
+        comprova (std::count_if (n2.begin(), n2.end(), [] (const Nota& x) { return x.to == 42; }) == 8, "sense ride, el fa el hihat");
+
+        Clip c;
+        c.notes = notesDeRitme (ritmes()[0], 8, 3840, files, 0);
+        // El clip comença al compàs intern 1 (on comença la cançó): fills als compassos interns 4 i 8.
+        const int quants = fill (c, files, 3840, 960, 3840, 0, 8 * 3840, 4, 1, false, 3);
+        comprova (quants == 2, "dos fills en 8 compassos, cada 4 → " + std::to_string (quants));
+        const long long a = 3 * 3840 + 2880;
+        const bool hiHaToms = std::any_of (c.notes.begin(), c.notes.end(), [&] (const Nota& x) { return x.ini >= a && x.ini < a + 960 && (x.to == 50 || x.to == 47 || x.to == 43); });
+        const bool senseHihat = std::none_of (c.notes.begin(), c.notes.end(), [&] (const Nota& x) { return x.ini >= a && x.ini < a + 960 && x.to == 42; });
+        const bool crash = std::any_of (c.notes.begin(), c.notes.end(), [&] (const Nota& x) { return x.ini == 4 * 3840 && x.to == 49; });
+        comprova (hiHaToms && senseHihat && crash, "el fill és de toms, sense hihat, i crash al compàs següent");
+    });
+
+    prova ("bateria: es desa al projecte i sona al motor", []
+    {
+        namespace fs = std::filesystem;
+        using namespace mibase::bateria;
+        Projecte q;
+        q.nom = "Bateria";
+        auto& t = q.pistes.emplace_back();
+        t.id = "t1"; t.nom = "Bateria"; t.tipus = "bateria"; t.instrument = "intern:bateria"; t.kit = "Intern"; t.canals = 2;
+        t.files = filesInternes();
+        t.files[1].afina = -2.5; t.files[1].mut = true; t.padsPerOrdre = true; t.escalaTeclat = false;
+        Clip c;
+        c.midi = true; c.pos = 0.0; c.inici = 0.0; c.fi = 2.0;
+        c.notes = notesDeRitme (ritmes()[0], 1, 3840, t.files, 0);
+        t.clips.push_back (c);
+        const auto arrel = fs::temp_directory_path() / "mibase_proves20";
+        fs::remove_all (arrel);
+        fs::create_directories (arrel);
+        auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T12:00:00", "07/11/2026 12:00");
+        auto l = mibase::disc::llegeix (rc.fitxer);
+        comprova (l && l->pistes.size() == 1 && l->pistes[0].tipus == "bateria" && l->pistes[0].files == q.pistes[0].files
+                  && l->pistes[0].padsPerOrdre && ! l->pistes[0].escalaTeclat && l->pistes[0].clips[0].notes.size() == c.notes.size(),
+                  "la pista de bateria es desa i es llegeix igual");
+        comprova (mibase::esMidi (t) && mibase::midi::compatible (t, c), "una pista de bateria és MIDI");
+
+        auto sampler = [&] (const Pista& p) -> std::shared_ptr<Instrument>
+        {
+            std::vector<SamplerBateria::So> sons;
+            for (auto& f : p.files) sons.push_back ({ f.nota, mostraInterna (f.so, 48000.0) });
+            auto s = std::make_shared<SamplerBateria> (sons);
+            s->posaParams (p.files);
+            s->prepara (48000.0, 256);
+            return s;
+        };
+        std::map<std::string, std::shared_ptr<const AudioPresa>> m;
+        MotorEstudi motor;
+        motor.prepara (48000.0, 256);
+        motor.publica (construeixPla (q, m, sampler));
+        std::vector<float> o0 (256), o1 (256), tot;
+        float* sort[2] { o0.data(), o1.data() };
+        motor.reprodueix (0.0);
+        for (int k = 0; k < 40; ++k) { std::fill (o0.begin(), o0.end(), 0.0f); std::fill (o1.begin(), o1.end(), 0.0f); motor.processa (nullptr, 0, sort, 2, 256); tot.insert (tot.end(), o0.begin(), o0.end()); }
+        comprova (pic (tot, 0, tot.size()) > 0.05f && totFinit (tot), "el ritme sona");
+    });
+
+    provesVeu();
+    provesSampler();
+    provesBiblioteca();
+    provesTempo();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

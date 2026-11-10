@@ -1,11 +1,16 @@
 #pragma once
 
 #include "Historial.h"
+#include "EscanerPlugins.h"
+#include "Plugins.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>
 #include <mibase/MotorDiagnostic.h>
 #include <mibase/MotorEstudi.h>
+#include <mibase/TeclatAcords.h>
+#include <mibase/Bateria.h>
+#include <atomic>
 
 /** Connecta el motor amb la targeta d'àudio i els teclats MIDI (via JUCE),
     i desa els ajustos entre sessions. */
@@ -39,6 +44,19 @@ public:
         la toca (buit: qualsevol que no estigui assignat a una altra). Fil de la interfície. */
     void setMapaTeclats (const std::vector<std::pair<juce::String, int>>& mapa, const juce::String& teclatTriada);
 
+    /** Chord Pad al teclat (0.10): les tecles que van a la pista «slot» toquen l'acord del pad de la seva nota
+        (acords[0] = C … acords[11] = B). slot -1: desactivat. Fil de la interfície. */
+    void setChordPadTeclat (int slot, const std::array<std::vector<int>, 12>& acords);
+    /** 0.17: escala del projecte per al teclat (0 visual, 1 assistit, 2 bloquejat). */
+    void setEscalaTeclat (int mode, const std::array<bool, 12>& escala);
+
+    /** 0.20: fa sonar un so (per escoltar els sons dels kits). Fil de la interfície; es guarda els últims perquè no
+        s'esborrin mentre sonen. nullptr: atura'l. */
+    void escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m);
+    /** 0.20: pads per ordre de files a la pista de bateria «slot»: la nota 36 + k toca la fila k (notesFiles[k]).
+        slot -1: desactivat. Fil de la interfície. */
+    void setMapaBateria (int slot, const std::vector<int>& notesFiles);
+
     /** Missatges MIDI per mostrar a la pantalla (fil de la interfície). */
     bool treuMidiPerMostrar (mibase::EsdevenimentMidi& e) noexcept { return cuaMostrar.treu (e); }
 
@@ -53,6 +71,9 @@ public:
 
     /** Ajustos del programa (es desen sols). */
     juce::PropertiesFile& getAjustos() noexcept { return *ajustos; }
+
+    /** Plugins VST3 de l'ordinador (0.18). */
+    EscanerPlugins& escaner() noexcept { return *plugins; }
 
     /** «ASIO · Focusrite USB ASIO · 48 kHz · 128 mostres» (o buit si l'àudio és aturat). */
     juce::String resumDispositiu();
@@ -80,10 +101,23 @@ private:
     mibase::MotorDiagnostic motorDiag;
     mibase::MotorEstudi motorEstudi;
     std::unique_ptr<juce::PropertiesFile> ajustos;
+    std::unique_ptr<EscanerPlugins> plugins;
 
     juce::SpinLock midiEntrant;   // només entre fils de MIDI i la interfície (mai al fil d'àudio)
     std::vector<std::pair<juce::String, int>> mapaTeclats;   // protegit per midiEntrant
     juce::String teclatTriada;
+    int slotChordPad = -1;                                   // protegit per midiEntrant
+    std::array<std::vector<int>, 12> acordsChordPad;
+    mibase::TeclatAcords teclatAcords;                       // protegit per midiEntrant
+    mibase::EscalaTeclat escalaTeclat;                       // protegit per midiEntrant
+    int slotBateria = -1;                                    // protegit per midiEntrant
+    std::array<int, 128> mapaBateria {};
+    // Escoltar sons (0.20): el fil d'àudio llegeix el punter; la interfície manté vius els darrers.
+    std::atomic<const mibase::bateria::Mostra*> previa { nullptr };
+    std::atomic<int> previaGen { 0 };
+    std::array<std::shared_ptr<const mibase::bateria::Mostra>, 4> previesVives;
+    int previaIdx = 0, previaVista = 0;
+    double previaPos = 0.0, fsDispositiu = 48000.0;
     mibase::CuaSenseBloqueig<mibase::EsdevenimentMidi, 512> cuaMostrar;
     juce::StringArray midiConeguts;
     juce::String ultimError, ultimaDescripcio;

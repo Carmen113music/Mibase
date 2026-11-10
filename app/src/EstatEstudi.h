@@ -68,6 +68,7 @@ public:
     double iniciVista = 0.0;     // segons a la vora esquerra
     int desplY = 0;              // píxels
     int altPista = 76;
+    mutable std::vector<int> files;   // cau de edicio::filesVisibles
     double capcal = 0.0;         // segons
 
     // Triat.
@@ -87,18 +88,78 @@ public:
     bool insereix = false;     // enganxar: false = trepitja; true = aparta el que hi ha (tecla Insert)
 
     /** Els editors MIDI oberts (Piano Rolls apilats a la zona de baix, fins a 3). Cada un mostra un clip; un editor
-        bloquejat es queda amb el seu clip, i el que no ho està segueix el clip MIDI que es tria. */
+        bloquejat es queda amb el seu clip, i el que no ho està obre el clip MIDI on es fa doble clic. */
     struct EditorMidi
     {
         mibase::edicio::RefClip clip;
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
         bool pads = false;          // a baix, els pads d'acords (Chord Pad) en lloc de les velocitats
+        std::vector<std::string> fantasmes;   // 0.10: pistes (id) de les quals es veuen les notes fantasma (per defecte, cap)
     };
     static constexpr int maxEditors = 3;
     std::vector<EditorMidi> editors;
     int editorActiu = 0;            // el que fan servir el panell d'harmonia i les dreceres
+    int filaBateria = 0;            // 0.20: la fila del Drumpad triada (el panell de la bateria l'edita)
     bool pianoRoll = false;         // la zona dels editors es veu
+
+    /** 0.22: Vocal Editor obert a baix, sobre la presa d'un clip d'àudio (les edicions són de la presa). */
+    struct EditorVeu
+    {
+        bool obert = false;
+        int pista = -1, clip = -1;
+        std::string presa;
+        std::vector<int> triades;   // notes triades (índexs)
+        int eina = 0;               // EditorVeu::Eina
+        bool ona = true;            // l'ona de fons
+    };
+    EditorVeu veu;
+
+    /** 0.26: editor del samplejador obert a baix (al mateix lloc que el Piano Roll), sobre una pista «sampler». */
+    struct EditorSampler
+    {
+        bool obert = false;
+        std::string pista;          // id
+        double iniciVista = 0.0;    // segons del sample a la vora esquerra
+        double pxPerSeg = 0.0;      // 0: encaixa-ho tot
+        bool consola = true;        // els paràmetres a la vista (si no, tota l'alçada per a l'ona)
+        int altConsola = 0;         // alçada dels paràmetres (0: la que calgui); es desa als ajustos
+        double capcal = 0.0;        // 0.27: capçal de l'editor (segons del fitxer): d'aquí escolta l'original
+    };
+    EditorSampler sampler;
+
+    /** 0.24: «Solo» dels editors (tecla * del teclat numèric): només sona la pista de l'editor; en apagar-lo,
+        cada pista torna al solo que tenia. */
+    struct SoloEditor
+    {
+        bool actiu = false;
+        std::string pista;                                    // la que fa solo ara
+        std::vector<std::pair<std::string, bool>> abans;      // (id de pista, solo) d'abans d'encendre'l
+    };
+    SoloEditor soloEditor;
+
+    /** 0.24: posa el bucle entre dos temps (segons), enganxat a la graella del projecte, i l'encén (des de la regla
+        dels editors). */
+    void bucleEntre (double ta, double tb)
+    {
+        namespace ed = mibase::edicio;
+        double a = std::max (0.0, std::min (ta, tb)), b = std::max (0.0, std::max (ta, tb));
+        if (projecte.snap != mibase::Snap::Lliure)
+        {
+            a = ed::enganxa (projecte, a, projecte.snap);
+            b = std::max (a + 1e-3, ed::enganxa (projecte, b, projecte.snap));
+        }
+        projecte.bucle.marcat = projecte.bucle.actiu = true;   // 0.28: amb el mapa de tempo
+        projecte.bucle.de = ed::compasDeSegons (projecte, a);
+        projecte.bucle.a = ed::compasDeSegons (projecte, b);
+    }
+    /** La presa que edita el Vocal Editor (nullptr si no n'hi ha). */
+    mibase::Presa* presaVeu()
+    {
+        if (! veu.obert) return nullptr;
+        for (auto& s : projecte.preses) if (s.id == veu.presa) return &s;
+        return nullptr;
+    }
 
     /** Vista horitzontal comuna a tots els editors (així tenen les mateixes referències de temps). */
     struct VistaEditors
@@ -163,6 +224,11 @@ public:
 
     /** Taula de treball (pistes) o taula de mescles. */
     bool vistaMescles = false;
+    /** 0.15: taula d'estructura (en lloc de la taula de treball). */
+    bool vistaEstructura = false;
+    bool foraTreball() const noexcept { return vistaMescles || vistaEstructura; }
+    /** 0.16: el Piano Roll té el «focus» (la columna esquerra hi mostra el seu panell); clicant una altra pista, no. */
+    bool focusEditor = true;
 
     // ---- Transport (la pantalla ho copia del motor unes 30 vegades per segon) ----
     int transport = 0;               // 0 aturat, 1 sonant, 2 comptant, 3 gravant
@@ -219,8 +285,64 @@ public:
     float x (double t) const noexcept         { return (float) ((t - iniciVista) * pxPerSegon); }
     double t (float px) const noexcept        { return iniciVista + (double) px / pxPerSegon; }
     int numPistes() const noexcept            { return (int) projecte.pistes.size(); }
-    int yPista (int i) const noexcept         { return i * altPista - desplY; }
-    int pistaA (int y) const noexcept         { return (int) std::floor ((double) (y + desplY) / altPista); }
+    // Files de la taula de treball (0.11): amb carpetes plegades o amagades, algunes pistes no es veuen (alçada 0)
+    // i la primera d'una carpeta plegada és la fila de la carpeta.
+    int modeFila (int i) const noexcept
+    {
+        if (i < 0 || i >= numPistes()) return 1;
+        if (files.size() != projecte.pistes.size()) files = mibase::edicio::filesVisibles (projecte);
+        return files[(size_t) i];
+    }
+    int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista; }
+    bool filaCarpeta (int i) const noexcept   { return modeFila (i) == 2; }
+    // 0.17: la primera fila és la del màster (pistaTriada == master quan és la triada).
+    static constexpr int master = -2;
+    bool masterTriat() const noexcept         { return pistaTriada == master; }
+    int yMaster() const noexcept              { return -desplY; }
+    int yPista (int i) const noexcept
+    {
+        int y = altPista;
+        for (int k = 0; k < juce::jmin (i, numPistes()); ++k) y += altDe (k);
+        if (i > numPistes()) y += (i - numPistes()) * altPista;
+        return y - desplY;
+    }
+    int pistaA (int y) const noexcept
+    {
+        const int yy = y + desplY - altPista;
+        if (yy < 0) return (int) std::floor ((double) yy / altPista);
+        int acc = 0;
+        for (int i = 0; i < numPistes(); ++i)
+        {
+            const int h = altDe (i);
+            if (h > 0 && yy < acc + h) return i;
+            acc += h;
+        }
+        return numPistes() + (yy - acc) / altPista;
+    }
+    /** Alçada de totes les files visibles. */
+    int altTotal() const noexcept             { return yPista (numPistes()) + desplY; }
+    /** Torna a calcular quines pistes es veuen (després de canviar carpetes). */
+    void recalculaFiles() { files = mibase::edicio::filesVisibles (projecte); }
+
+    /** Pistes triades amb Ctrl o Maj (per ids; la pistaTriada n'és la principal). */
+    std::vector<std::string> pistesTriades;
+    bool pistaEsTriada (int i) const
+    {
+        if (i == pistaTriada) return true;
+        if (i < 0 || i >= numPistes()) return false;
+        return std::find (pistesTriades.begin(), pistesTriades.end(), projecte.pistes[(size_t) i].id) != pistesTriades.end();
+    }
+    /** Índexs de les pistes triades (la principal inclosa), en ordre. */
+    std::vector<int> indexsTriades() const
+    {
+        std::vector<int> r;
+        for (int i = 0; i < numPistes(); ++i) if (pistaEsTriada (i)) r.push_back (i);
+        return r;
+    }
+    /** 0.12: s'està triant un clip de la taula de treball per veure'l en fantasma a l'editor d'aquest índex (-1: no). */
+    int triantFantasma = -1;
+    /** Mostra el panell de carpetes a l'esquerra dels noms de pista. */
+    bool panellCarpetes = false;
 
     mibase::Pista* pista (int i) { return (i >= 0 && i < numPistes()) ? &projecte.pistes[(size_t) i] : nullptr; }
 
@@ -264,7 +386,7 @@ public:
     }
 
     /** Les seccions es tornen a dibuixar. */
-    void avisa() { sendSynchronousChangeMessage(); }
+    void avisa() { recalculaFiles(); sendSynchronousChangeMessage(); }
 
     /** Després d'un canvi fet (ja guardat el «com era» a desfes): avisa, desa i anota. */
     void canviat (const juce::String& evolucio = {})
@@ -278,6 +400,9 @@ public:
     void netejaSeleccio()
     {
         if (pistaTriada >= numPistes()) pistaTriada = numPistes() - 1;
+        pistesTriades.erase (std::remove_if (pistesTriades.begin(), pistesTriades.end(), [this] (const std::string& id)
+            { return std::none_of (projecte.pistes.begin(), projecte.pistes.end(), [&id] (const mibase::Pista& t) { return t.id == id; }); }),
+            pistesTriades.end());
         triats.erase (std::remove_if (triats.begin(), triats.end(), [this] (mibase::edicio::RefClip r) { return clip (r) == nullptr; }), triats.end());
     }
 

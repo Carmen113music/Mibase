@@ -11,7 +11,11 @@ add_library(mibase_motor STATIC
     src/Midi.cpp
     src/SinteIntern.cpp
     src/Harmonia.cpp
-    src/PresetsPads.cpp)
+    src/PresetsPads.cpp
+    src/Bateria.cpp
+    src/Veu.cpp
+    src/Sampler.cpp
+    src/Biblioteca.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

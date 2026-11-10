@@ -18,6 +18,19 @@ namespace mibase::edicio
     double segonsPerTemps (const Projecte& p);
     double segonsPerCompas (const Projecte& p);
 
+    /** 0.28: mapa de tempo. Les parts amb tempo o compàs propi el canvien de cop a l'inici i el tornen al de la cançó al
+        final. Cada tram comença en un compàs intern, un moment (segons) i un tick (960 per negra). */
+    struct TramTempo { double compas = 0.0, segons = 0.0, tick = 0.0, tempo = 120.0; int num = 4, den = 4;
+                       double segonsPerCompas() const { return 60.0 / tempo * num; }
+                       double segonsPerTemps() const { return 60.0 / tempo; } };
+    bool teCanvisTempo (const Projecte& p);
+    std::vector<TramTempo> mapaTempo (const Projecte& p);
+    double segonsDeCompas (const Projecte& p, double compas);
+    double compasDeSegons (const Projecte& p, double segons);
+    TramTempo tramA (const Projecte& p, double segons);
+    double segonsPerCompasA (const Projecte& p, double segons);
+    double segonsPerTempsA (const Projecte& p, double segons);
+
     /** Número de compàs que es veu a partir de l'índex intern. */
     inline int numCompas (int intern) { return intern - 1; }
 
@@ -53,6 +66,34 @@ namespace mibase::edicio
     constexpr int colorsPista = 8;
     int colorLliure (const Projecte& p);
     void mouPista (Projecte& p, int de, int a);
+
+    // ---- Parts de la cançó (0.13) ----
+    /** Crea una part (de i a en compassos interns, en qualsevol ordre) i en torna l'id. */
+    std::string creaPart (Projecte& p, const std::string& nom, double de, double a, std::uint32_t rgb);
+    Part* part (Projecte& p, const std::string& id);
+    void esborraPart (Projecte& p, const std::string& id);
+    /** La part que hi ha en aquest temps (segons), o -1. Si se'n sobreposen, la de més tard a la llista. */
+    int partA (const Projecte& p, double t);
+
+    // ---- Estructures (0.15) ----
+    /** L'estructura que sona (nullptr: lineal, o si no té cap peça). */
+    const Estructura* estructuraActiva (const Projecte& p);
+    Estructura* estructura (Projecte& p, const std::string& id);
+    std::string creaEstructura (Projecte& p, const std::string& nom);
+
+    // ---- Carpetes de pistes (0.11) ----
+    Carpeta* carpeta (Projecte& p, const std::string& id);
+    /** Crea una carpeta (amb les pistes donades, si n'hi ha) i en torna l'id. */
+    std::string creaCarpeta (Projecte& p, const std::string& nom, const std::vector<int>& pistes = {});
+    /** Posa una pista a una carpeta (id buit: fora de qualsevol carpeta). Les pistes d'una carpeta queden seguides:
+        la pista es mou just després de l'última de la carpeta. Torna on ha anat a parar la pista. */
+    int posaACarpeta (Projecte& p, int pista, const std::string& id);
+    /** Esborra la carpeta; les pistes queden fora de cap carpeta (no s'esborren). */
+    void esborraCarpeta (Projecte& p, const std::string& id);
+    std::vector<int> pistesDeCarpeta (const Projecte& p, const std::string& id);
+    /** Com es veu cada pista a la taula de treball: 0 = amagada, 1 = normal, 2 = fila de la carpeta plegada
+        (la primera pista de la carpeta; la resta, amagades). */
+    std::vector<int> filesVisibles (const Projecte& p);
     /** Només una pista pot tenir el botó de gravar encès. */
     void triaGravacio (Projecte& p, int pista);
     std::string nomPistaLliure (const Projecte& p, const std::string& base);
@@ -118,6 +159,10 @@ namespace mibase::edicio
 
     /** Tisores: talla el clip a «t» (absolut). Retorna false si «t» no cau prou dins el clip. */
     bool talla (Projecte& p, int pista, int clip, double t);
+    /** Crossfade (0.14) al tram [t0, t1) d'una pista d'àudio on el clip de dalt se sobreposa al de sota. Si el de dalt
+        hi entra (el seu començament), el de sota fa fade out i el de dalt fade in; si en surt (el seu final), al revès.
+        El clip de sota es parteix si cal (no destructiu). Torna false si no hi ha dos clips sobreposats al tram. */
+    bool crossfade (Projecte& p, int pista, double t0, double t1);
 
     struct ResultatCola
     {
