@@ -63,7 +63,7 @@ namespace samples
 }
 
 class PanellBiblioteca : public juce::Component, public juce::FileDragAndDropTarget, private juce::ListBoxModel,
-                         private juce::TextEditor::Listener
+                         private juce::TextEditor::Listener, private juce::Timer
 {
 public:
     explicit PanellBiblioteca (juce::PropertiesFile& aj) : ajustos (aj)
@@ -166,7 +166,7 @@ public:
         if (! ts.empty()) encua (std::move (ts));
     }
 
-    ~PanellBiblioteca() override { if (feina != nullptr) feina->atura = true; }
+    ~PanellBiblioteca() override { if (feina != nullptr) feina->atura = true; if (perDesar) desa(); }   // 0.29.1: en tancar, es desa el que ja estava analitzat
 
     void resized() override
     {
@@ -356,6 +356,9 @@ private:
     std::unique_ptr<FinestraProgres> barra;
     juce::StringArray errors;
     int fetsTanda = 0, totalTanda = 0, afegitsTanda = 0;
+    bool perMostrar = false, perDesar = false;   // 0.29.1: hi ha resultats que encara no s'han mostrat / desat
+    int ticsSenseDesar = 0;
+    juce::String ultimFitxer;
 
     void encua (std::vector<Tasca> ts)
     {
@@ -380,6 +383,8 @@ private:
             resized();
         }
         actualitzaBarra ({});
+        ticsSenseDesar = 0;
+        startTimer (500);
         juce::Component::SafePointer<PanellBiblioteca> jo (this);
         auto fe = feina;
         std::thread ([jo, fe, ts]
@@ -430,14 +435,34 @@ private:
             index.samples.push_back (s);
             ++afegitsTanda;
         }
-        if (fetsTanda % 10 == 0) desa();
-        refesLlista();   // van sortint a la llista
-        actualitzaBarra (t.origen.getFileName());
+        // 0.29.1: aquí no es refà la llista ni es desa l'índex. Amb milers de samples, fer-ho a cada fitxer
+        // ocupava tot el temps de la interfície i el programa quedava encallat: ara ho fa el rellotge, de tant en tant.
+        ultimFitxer = t.origen.getFileName();
+        perMostrar = true;
+        perDesar = true;
+    }
+
+    void timerCallback() override
+    {
+        if (perMostrar)
+        {
+            perMostrar = false;
+            refesLlista();   // van sortint a la llista
+            actualitzaBarra (ultimFitxer);
+        }
+        if (++ticsSenseDesar >= 60 && perDesar)   // cada 30 segons
+        {
+            ticsSenseDesar = 0;
+            perDesar = false;
+            desa();
+        }
     }
 
     void acabat()
     {
         feina = nullptr;
+        stopTimer();
+        perMostrar = perDesar = false;
         desa();
         refesLlista();
         if (! cua.empty()) { llanca(); return; }
