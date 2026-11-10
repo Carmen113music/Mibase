@@ -177,6 +177,7 @@ public:
         bool enllaca = false;       // amb moviment mínim des de l'acord d'abans
         juce::String nom;
         bool perArrossegar = false; // es posa arrossegant (s'esborra quan s'amolla, caigui on caigui)
+        std::vector<mibase::Nota> rasgueig;   // 0.29: si n'hi ha, es posen aquestes notes (ticks des de l'inici) en lloc de l'acord en bloc
         bool actiu() const noexcept { return ! notes.empty(); }
     } segell;
 

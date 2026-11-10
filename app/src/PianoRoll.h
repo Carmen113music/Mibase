@@ -3,6 +3,7 @@
 #include "VistesEstudi.h"
 
 #include <mibase/Harmonia.h>
+#include <mibase/Guitarra.h>
 #include <mibase/Midi.h>
 #include "EscGlobal.h"
 
@@ -94,7 +95,7 @@ public:
 
     /** Comença a arrossegar un acord (del panell o d'un pad) cap a un Piano Roll: en amollar-lo a la graella, s'hi posa. */
     static void arrossegaAcord (juce::Component& origen, EstatEstudi& estat, const std::vector<int>& notes, const juce::String& nom,
-                                long long durada, bool enllaca);
+                                long long durada, bool enllaca, std::vector<mibase::Nota> rasgueig = {});
     static constexpr const char* idArrossegaAcord = "mibase-acord";
     /** Arrossegar una pista (des del seu nom) al botó de notes fantasma: «mibase-pista:<id>». */
     static constexpr const char* prefixArrossegaPista = "mibase-pista:";
@@ -202,6 +203,10 @@ private:
     long long duradaPads() const;
     void pintaPads (juce::Graphics& g);
     void menuPresetsPads();
+    void menuRasgueig();                                             // 0.29
+    bool padsGuitarra() const { return voicingPads.getTriat() == 2; }
+    std::vector<int> notesAcordPad (const mibase::harmonia::AcordPad& a) const;   // amb l'octava i el voicing triats (o la posició de guitarra)
+    std::vector<mibase::Nota> rasgueigDe (const std::vector<int>& cordes) const;  // buit si no hi ha rasgueig triat
     void obreEditorPad (int i);
     void desaPad (int i, const std::string& nom);
     void actualitzaControlsPads();
@@ -313,7 +318,9 @@ private:
     Boto btPresetPads { "Acords de la tonalitat", std::nullopt, Boto::Estil::Secundari };
     Boto btLlapisPads { "Edita", dibuix::Icona::Llapis, Boto::Estil::Tecla };
     CaixaNumero octavaPads { "Octava", 1, 7, 4 };
-    Segmentat voicingPads { { "Tancat", "Obert" } };
+    Segmentat voicingPads { { "Tancat", "Obert", "Guitarra" } };
+    Boto btRasgueig { "Rasgueig", std::nullopt, Boto::Estil::Secundari };   // 0.29: només amb «Guitarra»
+    std::string rasgueigPads = "folk";                                      // id del patró; buit = acord sencer, sense ritme
     Segmentat selDuradaPads { { "1 compàs"_ca, "1/2", "1/4" } };
     Boto btMinimPads { "Mov. mínim"_ca, std::nullopt, Boto::Estil::Tecla };
     int padPremut = -1, padSobre = -1;
