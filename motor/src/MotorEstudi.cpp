@@ -178,8 +178,14 @@ namespace mibase
                 for (size_t j = k + 1; j < pp.clips.size(); ++j)
                 {
                     // 0.14: durant els fades del de dalt (crossfade), el de sota també sona.
-                    const double a = pp.clips[j].pos + pp.clips[j].inici + pp.clips[j].fadeIn,
-                                 b = pp.clips[j].pos + pp.clips[j].fi - pp.clips[j].fadeOut;
+                    const auto& u = pp.clips[j];
+                    const double a = u.pos + u.inici + u.fadeIn,
+                                 b = u.pos + u.fi - u.fadeOut;
+                    // 0.31.1: i hi fa el fade contrari (si els fades del de dalt toquen aquest clip)
+                    const double c0 = c.pos + c.inici, c1 = c.pos + c.fi, u0 = u.pos + u.inici, u1 = u.pos + u.fi;
+                    const bool tocaIn = u.fadeIn > 0.0 && u0 < c1 && a > c0, tocaOut = u.fadeOut > 0.0 && b < c1 && u1 > c0;
+                    if ((tocaIn || tocaOut) && u0 < c1 && u1 > c0)
+                        c.tapes.push_back ({ u0, u0 + u.fadeIn, u1 - u.fadeOut, u1 });
                     if (b <= a) continue;
                     std::vector<std::pair<double, double>> nous;
                     for (auto& t : trams)
@@ -388,6 +394,19 @@ namespace mibase
             double env = c.guany;
             if (c.fadeIn > 0.0 && ft < c.inici + c.fadeIn) env *= std::clamp ((ft - c.inici) / c.fadeIn, 0.0, 1.0);
             if (c.fadeOut > 0.0 && ft > c.fi - c.fadeOut) env *= std::clamp ((c.fi - ft) / c.fadeOut, 0.0, 1.0);
+            // 0.31.1: crossfade: el contrari del fade del clip de dalt que el tapa
+            if (! c.tapes.empty())
+            {
+                const double t = (double) (pos + i) / fs;
+                for (const auto& x : c.tapes)
+                {
+                    if (t < x.a0 || t >= x.b1) continue;
+                    double g = 1.0;
+                    if (t < x.a1) g = std::min (g, (t - x.a0) / (x.a1 - x.a0));
+                    if (t > x.b0) g = std::min (g, (x.b1 - t) / (x.b1 - x.b0));
+                    env *= 1.0 - std::clamp (g, 0.0, 1.0);
+                }
+            }
 
             const double x = ft * a.fs;   // mostra del fitxer (amb decimals); si la freqüència és diferent, s'interpola
             long long k = (long long) std::floor (x);

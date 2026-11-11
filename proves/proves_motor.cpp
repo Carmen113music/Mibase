@@ -770,6 +770,7 @@ int main()
         for (int c = 0; c < canals; ++c) a->dades[c].assign ((size_t) a->longitud, c == 0 ? valor : -valor);
         return a;
     };
+    provesCrossfade (audioConstant);   // 0.31.1
 
     prova ("WAV: escriure i tornar a llegir (24 bits, estèreo, accents al camí)", [&]
     {

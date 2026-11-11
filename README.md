@@ -227,6 +227,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.31.1** — **Crossfade**: quan un clip d'àudio en trepitja un altre, ara el de sota fa el fade contrari al del de dalt. Mentre el de dalt puja, el de sota baixa igual (i al final del de dalt, al revès), de manera que el volum queda pla. Abans el de sota sonava a tot volum durant el fade i es tallava de cop. A la pantalla, el fade del clip de dalt mostra una X quan hi ha un clip a sota.
 - **0.31.0** — Sobre la 0.30.0 (petició #32, encara sense fusionar).
   - **Biblioteca**: cada sample té una **estrella** a la dreta (clic: favorit; també al menú del botó dret). El botó **Favorits** es combina amb els tipus: Bombo + Favorits, Guitarra + Sintetitzador + Favorits… Hi ha un tipus nou, **Guitarra** (els samples nous amb «guitar», «gtr», «guitarra», «strum» o «riff» al nom hi van sols; els que ja hi eren es poden canviar amb el botó dret → Tipus de so).
   - **Instrument General MIDI**: els 128 sons genèrics (pianos, guitarres, baixos, cordes, metalls…), per famílies, al menú d'instrument i de so de les pistes MIDI. Fan servir el banc de sons **FluidR3 GM** (148 MB, llicència MIT): el primer cop, Mibase pregunta si el baixa (de GitHub, en segon pla; el progrés surt a la barra d'estat) a `Documents\Mibase\SoundFonts`. També hi pots posar un altre `.sf2`.

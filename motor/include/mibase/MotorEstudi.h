@@ -47,6 +47,10 @@ namespace mibase
             float guany = 1.0f;
             /** Trossos de la línia de temps on sona de debò: un clip posat més amunt (més tard a la llista) el tapa. */
             std::vector<std::pair<double, double>> trams;
+            /** 0.31.1: els clips de dalt que el tapen amb un fade (en segons absoluts: comença, acaba el fade in,
+                comença el fade out, acaba). Mentre el de dalt puja, aquest baixa igual (crossfade complet). */
+            struct Tapa { double a0 = 0, a1 = 0, b0 = 0, b1 = 0; };
+            std::vector<Tapa> tapes;
         };
 
         /** Una nota MIDI, ja en segons absoluts i retallada a la finestra del clip (i al que no tapa un altre clip). */

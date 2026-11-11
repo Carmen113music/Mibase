@@ -776,6 +776,14 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
 
 void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const Clip& c)
 {
+    // 0.31.1: hi ha un clip d'àudio per sota (abans a la llista) en aquest moment?
+    auto teSota = [&] (double t)
+    {
+        const auto& cl = estat.projecte.pistes[(size_t) pista].clips;
+        for (int k = 0; k < indexClip && k < (int) cl.size(); ++k)
+            if (! cl[(size_t) k].midi && ! cl[(size_t) k].mut && cl[(size_t) k].iniciVisible() <= t && cl[(size_t) k].fiVisible() > t) return true;
+        return false;
+    };
     const auto& p = estat.projecte;
     const auto& t = p.pistes[(size_t) pista];
     auto r = rectClip (pista, c);
@@ -844,6 +852,11 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             g.fillPath (zona);
             g.setColour (tema::text);
             g.drawLine (r.getX(), r.getBottom(), xf, r.getY(), 1.5f);
+            if (teSota (c.iniciVisible()))   // 0.31.1: el de sota fa el fade contrari (crossfade)
+            {
+                g.setColour (tema::text.withAlpha (0.55f));
+                g.drawLine (r.getX(), r.getY(), xf, r.getBottom(), 1.2f);
+            }
         }
         if (c.fadeOut > 0.0 && ! c.midi)
         {
@@ -854,6 +867,11 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             g.fillPath (zona);
             g.setColour (tema::text);
             g.drawLine (xf, r.getY(), r.getRight(), r.getBottom(), 1.5f);
+            if (teSota (c.fiVisible() - 1e-6))
+            {
+                g.setColour (tema::text.withAlpha (0.55f));
+                g.drawLine (xf, r.getBottom(), r.getRight(), r.getY(), 1.2f);
+            }
         }
 
         if ((c.guanyDb < -0.05 || manetes) && ! c.midi)

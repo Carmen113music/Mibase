@@ -77,3 +77,40 @@ namespace
         });
     }
 }
+
+// 0.31.1: crossfade entre clips sobreposats: el de sota fa el fade contrari al del de dalt.
+namespace
+{
+    template <typename F>
+    void provesCrossfade (F audioConstant)
+    {
+        using namespace mibase::edicio;
+        prova ("crossfade: el clip de sota baixa mentre el de dalt puja", [audioConstant]
+        {
+            Projecte q;
+            afegeixPista (q, "A", "audio");
+            q.clic = false;
+            const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 4.0).id;
+            const auto s2 = afegeixPresa (q, "Àudios/b.wav", "b", 4.0).id;
+            afegeixClip (q, 0, s1, 0.0);                 // sota: 0..4 s
+            afegeixClip (q, 0, s2, 2.0).fadeIn = 1.0;    // dalt: de 2 s, fade in d'1 s
+            q.pistes[0].clips[1].fadeOut = 0.5;
+            q.pistes[0].clips[1].fi = 1.5;               // dalt s'acaba a 3,5 s amb fade out de 0,5 s (2,0..3,5)
+            MapaAudios m;
+            m[s1] = audioConstant (48000.0, 4.0, 0.5f);
+            m[s2] = audioConstant (48000.0, 4.0, 0.5f);
+            auto pla = construeixPla (q, m);
+            Mesclador mx;
+            mx.prepara (48000.0, 512);
+            const int total = 48000 * 5;
+            std::vector<float> L ((size_t) total), R ((size_t) total);
+            for (int p = 0; p < total; p += 512)
+                mx.processa (*pla, p, std::min (512, total - p), L.data() + p, R.data() + p, false, nullptr);
+            float maxErr = 0.0f;
+            for (int i = 1000; i < 4 * 48000 - 1000; i += 37) maxErr = std::max (maxErr, std::abs (L[(size_t) i] - 0.5f));
+            comprova (maxErr < 0.002f, "la suma queda plana durant tots dos fades (error " + std::to_string (maxErr) + ")");
+            comprova (std::abs (L[(size_t) (2.5 * 48000)] - 0.5f) < 0.002f, "a mig fade: 50 % i 50 %");
+            comprova (pla->pistes[0].clips[0].tapes.size() == 1 && pla->pistes[0].clips[1].tapes.empty(), "només el de sota fa el contrari");
+        });
+    }
+}
