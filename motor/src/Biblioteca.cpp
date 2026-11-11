@@ -27,7 +27,7 @@ namespace mibase::biblioteca
 
     const std::vector<std::string>& categories()
     {
-        static const std::vector<std::string> c { "Bombo", "Caixa", "Hi-hat", "Percussió", "Baix", "Veu", "Sintetitzador", "FX", "Ambient", "Altres" };
+        static const std::vector<std::string> c { "Bombo", "Caixa", "Hi-hat", "Percussió", "Baix", "Guitarra", "Veu", "Sintetitzador", "FX", "Ambient", "Altres" };
         return c;
     }
 
@@ -74,6 +74,7 @@ namespace mibase::biblioteca
         const auto n = pla (fs::path (nomFitxer).stem().string());
         if (conte (n, { "bass", "baix", "bajo", "808", "sub" })) return "Baix";
         if (conte (n, { "vocal", "vox", "voice", "veu", "voz", "chant", "choir", "cor", "gol", "crit" })) return "Veu";
+        if (conte (n, { "guitar", "gtr", "guitarra", "strum", "rasgueig", "riff" })) return "Guitarra";   // 0.31
         if (conte (n, { "synth", "sinte", "lead", "pad", "pluck", "arp", "chord", "acord", "keys", "piano", "organ" })) return "Sintetitzador";
         if (conte (n, { "fx", "sfx", "riser", "sweep", "impact", "whoosh", "noise", "soroll", "glitch", "drop" })) return "FX";
         if (conte (n, { "ambient", "amb", "atmo", "drone", "texture", "field", "pluja", "rain", "wind", "vent" })) return "Ambient";
@@ -164,6 +165,7 @@ namespace mibase::biblioteca
                 s.tonalitat = e.value ("tonalitat", std::string());
                 s.forma = e.value ("forma", std::string());
                 s.data = e.value ("data", 0LL);
+                s.favorit = e.value ("favorit", false);
                 idx.samples.push_back (std::move (s));
             }
         }
@@ -177,8 +179,11 @@ namespace mibase::biblioteca
         j["versio"] = 1;
         auto arr = json::array();
         for (auto& s : idx.samples)
+        {
             arr.push_back ({ { "fitxer", s.fitxer }, { "nom", s.nom }, { "categoria", s.categoria }, { "etiquetes", s.etiquetes },
                              { "durada", s.durada }, { "bpm", s.bpm }, { "tonalitat", s.tonalitat }, { "forma", s.forma }, { "data", s.data } });
+            if (s.favorit) arr.back()["favorit"] = true;
+        }
         j["samples"] = arr;
         std::error_code ec;
         fs::create_directories (carpeta, ec);
@@ -227,13 +232,14 @@ namespace mibase::biblioteca
     }
 
     std::vector<int> filtra (const Index& idx, const std::string& text, const std::vector<std::string>& cats,
-                             const std::vector<std::string>& formes, Ordre ordre, bool descendent)
+                             const std::vector<std::string>& formes, Ordre ordre, bool descendent, bool nomesFavorits)
     {
         const auto t = pla (text);
         std::vector<int> r;
         for (int i = 0; i < (int) idx.samples.size(); ++i)
         {
             const auto& s = idx.samples[(size_t) i];
+            if (nomesFavorits && ! s.favorit) continue;
             if (! cats.empty() && std::find (cats.begin(), cats.end(), s.categoria) == cats.end()) continue;
             if (! formes.empty() && std::find (formes.begin(), formes.end(), s.forma) == formes.end()) continue;
             if (! t.empty())

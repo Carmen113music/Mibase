@@ -215,6 +215,69 @@ namespace kits
     /** Desa el kit amb els tipus corregits. */
     inline bool desa (const bt::Kit& k) { return k.nom != bt::kitIntern && bt::desaKit (k); }
 
+    /** 0.31: desa els sons i les files d'una pista de bateria com un kit nou (una carpeta amb còpies dels sons; els
+        sons interns es desen com a WAV). Retorna el nom del kit desat (si ja n'hi havia un amb aquest nom, «Nom 2»…)
+        o buit si no s'ha pogut; «error» diu per què. */
+    inline juce::String desaDePista (const mibase::Pista& t, const juce::String& nomDemanat, juce::String& error)
+    {
+        auto nom = juce::File::createLegalFileName (nomDemanat.trim());
+        if (nom.isEmpty() || nom == juce::String (bt::kitIntern)) { error = "Aquest nom no es pot fer servir."_ca; return {}; }
+        auto dir = carpeta().getChildFile (nom);
+        for (int i = 2; dir.exists(); ++i) dir = carpeta().getChildFile (nom + " " + juce::String (i));
+        if (! dir.createDirectory()) { error = "No s'ha pogut crear la carpeta del kit."_ca; return {}; }
+
+        bt::Kit kit;
+        kit.nom = dir.getFileName().toStdString();
+        kit.carpeta = dir.getFullPathName().toStdString();
+        juce::StringArray usats;
+        int noLlegits = 0;
+        for (const auto& f : t.files)
+        {
+            auto base = juce::File::createLegalFileName (juce::String::fromUTF8 (f.nom.c_str()).trim());
+            if (base.isEmpty()) base = "So";
+            juce::String fitxer;
+            if (f.so.rfind ("intern:", 0) == 0)
+            {
+                // so sintetitzat: el desem com a WAV
+                auto m = bt::mostraInterna (f.so, 48000.0);
+                if (m == nullptr || m->L.empty()) { ++noLlegits; continue; }
+                fitxer = base + ".wav";
+                for (int i = 2; usats.contains (fitxer, true); ++i) fitxer = base + " " + juce::String (i) + ".wav";
+                const bool estereo = ! m->R.empty();
+                juce::AudioBuffer<float> b (estereo ? 2 : 1, (int) m->L.size());
+                b.copyFrom (0, 0, m->L.data(), (int) m->L.size());
+                if (estereo) b.copyFrom (1, 0, m->R.data(), (int) juce::jmin (m->R.size(), m->L.size()));
+                std::unique_ptr<juce::OutputStream> os = dir.getChildFile (fitxer).createOutputStream();
+                juce::WavAudioFormat wav;
+                auto w = os != nullptr ? wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (m->fs)
+                                                                     .withNumChannels (b.getNumChannels()).withBitsPerSample (24))
+                                       : nullptr;
+                if (w == nullptr || ! w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples())) { ++noLlegits; continue; }
+            }
+            else
+            {
+                const auto origen = fitxerSo (f.so);
+                if (! origen.existsAsFile()) { ++noLlegits; continue; }
+                fitxer = base + origen.getFileExtension();
+                for (int i = 2; usats.contains (fitxer, true); ++i) fitxer = base + " " + juce::String (i) + origen.getFileExtension();
+                if (! origen.copyFileTo (dir.getChildFile (fitxer))) { ++noLlegits; continue; }
+            }
+            usats.add (fitxer);
+            kit.sons.push_back ({ fitxer.toStdString(), f.nom, f.tipus, f.so });
+            auto fila = f;
+            fila.so = fitxer.toStdString();
+            kit.files.push_back (fila);
+        }
+        if (kit.files.empty() || ! bt::desaKit (kit))
+        {
+            dir.deleteRecursively();
+            error = "La pista no té cap so que es pugui desar."_ca;
+            return {};
+        }
+        if (noLlegits > 0) error = juce::String (noLlegits) + (noLlegits == 1 ? " so no s'ha trobat i no s'ha desat."_ca : " sons no s'han trobat i no s'han desat."_ca);
+        return dir.getFileName();
+    }
+
     /** Adreça dels kits de Riffs (un zip amb una carpeta per kit). */
     inline juce::URL urlKitsRiffs()
     {

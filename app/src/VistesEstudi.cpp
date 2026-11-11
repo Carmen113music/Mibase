@@ -1,4 +1,5 @@
 #include "VistesEstudi.h"
+#include "BancGM.h"
 #include "TempoPart.h"
 
 #include <mibase/Midi.h>
@@ -1790,6 +1791,19 @@ void VistaPistes::mouseDoubleClick (const juce::MouseEvent& e)
         if (onObreVeu) onObreVeu (l.pista, l.clip);
         return;
     }
+    // 0.31: doble clic amb la fletxa en un lloc buit d'una pista: una finestra (clip) d'un compàs
+    if (l.pista >= 0 && l.clip < 0 && l.pista < estat.numPistes() && estat.eina == Eina::Fletxa && ! estat.filaCarpeta (l.pista))
+    {
+        comencaCanvi();
+        restaura();
+        const double a = juce::jmax (0.0, tEina (estat.t ((float) e.x)));
+        const int nou = ed::creaFinestra (estat.projecte, l.pista, a, a + ed::segonsPerCompasA (estat.projecte, a));
+        estat.pistaTriada = l.pista;
+        estat.triaClip (l.pista, nou);
+        acabaCanvi ("Finestra nova d'un compàs"_ca);
+        mode = Mode::Res;
+        return;
+    }
     if (l.pista < 0 && ! l.pistaNova && e.y > estat.yPista (estat.numPistes()))
         menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
 }
@@ -1978,8 +1992,9 @@ void Capcaleres::menu (int pista)
     {
         const int actual = juce::jmax (0, midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument));
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
-            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && ! mibase::esSampler (t));
+            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument) >= 0);
         sons.addSeparator();
+        sons.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (200, mibase::gm::programa (t.instrument)), true, juce::Image(), mibase::gm::programa (t.instrument) >= 0);   // 0.31
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
@@ -1989,7 +2004,7 @@ void Capcaleres::menu (int pista)
     m.addItem (1, "Canvia el nom…"_ca);
     m.addSubMenu ("Color", colors);
     if (t.tipus == "midi")
-        m.addSubMenu ("Instrument (sinte intern)", sons);
+        m.addSubMenu ("Instrument"_ca, sons);
     else if (t.tipus == "bateria") {}
     else
     {
@@ -2017,6 +2032,13 @@ void Capcaleres::menu (int pista)
         {
             tt.instrument = mibase::instrumentSampler;
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: samplejador"_ca;
+        }
+        else if (r >= 200 && r < 328)
+        {
+            tt.instrument = mibase::gm::instrument (r - 200);
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (r - 200));
+            juce::MessageManager::callAsync ([this] { bancgm::assegura (this, {}); });
         }
         else if (r >= 60)
         {

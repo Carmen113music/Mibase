@@ -57,6 +57,7 @@ namespace samples
         if (c == "Hi-hat") return juce::Colour (0xff9fb4ff);
         if (c == "Percussió") return juce::Colour (0xff8fd0c4);
         if (c == "Baix") return juce::Colour (0xff6fa8ff);
+        if (c == "Guitarra") return juce::Colour (0xffff9a4d);   // 0.31
         if (c == "Veu") return juce::Colour (0xff59d0d6);
         if (c == "Sintetitzador") return juce::Colour (0xff7fd67a);
         if (c == "FX") return juce::Colour (0xffff8fc4);
@@ -101,6 +102,14 @@ public:
             addAndMakeVisible (*b);
             btTipus.push_back (std::move (b));
         }
+        // 0.31: només els favorits (es combina amb els tipus: «Bombo + Favorits»…)
+        btFavorits.setMidaText (11.0f);
+        btFavorits.setLlum (juce::Colour (0xfff5c542));
+        btFavorits.setClickingTogglesState (true);
+        btFavorits.setTooltip ("Només els favorits. Es combina amb els tipus: Bombo + Favorits, Guitarres + Sintes + Favorits… (marca'ls amb l'estrella de cada sample)"_ca);
+        btFavorits.setToggleState (ajustos.getBoolValue ("biblioteca.favorits", false), juce::dontSendNotification);
+        btFavorits.onClick = [this] { ajustos.setValue ("biblioteca.favorits", btFavorits.getToggleState()); refesLlista(); };
+        addAndMakeVisible (btFavorits);
         btOrdre.onClick = [this] { menuOrdre(); };
         // 0.29: veure-ho per carpetes
         addAndMakeVisible (btCarpetes);
@@ -211,13 +220,16 @@ public:
         f2.removeFromLeft (4);
         btLoop.setBounds (f2);
         r.removeFromTop (4);
-        for (size_t i = 0; i < btTipus.size(); i += 3)
+        std::vector<Boto*> graella;
+        for (auto& b : btTipus) graella.push_back (b.get());
+        graella.push_back (&btFavorits);   // 0.31
+        for (size_t i = 0; i < graella.size(); i += 3)
         {
             auto fila = r.removeFromTop (26);
             const int w = (fila.getWidth() - 8) / 3;
-            for (size_t k = i; k < std::min (btTipus.size(), i + 3); ++k)
+            for (size_t k = i; k < std::min (graella.size(), i + 3); ++k)
             {
-                btTipus[k]->setBounds (fila.removeFromLeft (w));
+                graella[k]->setBounds (fila.removeFromLeft (w));
                 fila.removeFromLeft (4);
             }
             r.removeFromTop (3);
@@ -311,6 +323,8 @@ private:
             return;
         }
         const auto& s = index.samples[(size_t) fl.sample];
+        // 0.31: l'estrella de favorit, a la dreta (clic: marca o desmarca)
+        pintaEstrella (g, r.removeFromRight (amplaEstrella).toFloat().withSizeKeepingCentre (16.0f, 16.0f), s.favorit);
         const auto col = samples::colorCategoria (s.categoria);
         g.setColour (col);
         g.fillRoundedRectangle (r.removeFromLeft (4).toFloat().reduced (0.0f, 3.0f), 2.0f);
@@ -348,8 +362,32 @@ private:
         }
         if (fl.sample < 0) { entraA (carpetaActual.empty() ? fl.carpeta : carpetaActual + "/" + fl.carpeta); return; }
         if (e.mods.isPopupMenu()) { menuSample (fl.sample); return; }
+        if (e.x >= llista.getVisibleRowWidth() - amplaEstrella - 2) { commutaFavorit (fl.sample); return; }   // 0.31
         if (onEscolta) onEscolta (fitxer (index.samples[(size_t) fl.sample]));
     }
+    static constexpr int amplaEstrella = 26;
+
+    static void pintaEstrella (juce::Graphics& g, juce::Rectangle<float> r, bool plena)
+    {
+        juce::Path p;
+        p.addStar (r.getCentre(), 5, r.getWidth() * 0.22f, r.getWidth() * 0.5f, 0.0f);
+        const auto groc = juce::Colour (0xfff5c542);
+        if (plena) { g.setColour (groc); g.fillPath (p); }
+        else { g.setColour (tema::suau.withAlpha (0.55f)); g.strokePath (p, juce::PathStrokeType (1.2f)); }
+    }
+
+    /** 0.31: marca o desmarca un sample com a favorit (es desa a l'índex). */
+    void commutaFavorit (int i)
+    {
+        if (i < 0 || i >= (int) index.samples.size()) return;
+        auto& s = index.samples[(size_t) i];
+        s.favorit = ! s.favorit;
+        if (onInfo) onInfo ((s.favorit ? "Favorit: "_ca : "Ja no és favorit: "_ca) + juce::String::fromUTF8 (s.nom.c_str()));
+        desa();
+        if (btFavorits.getToggleState()) refesLlista();
+        else llista.repaint();
+    }
+
     void listBoxItemDoubleClicked (int fila, const juce::MouseEvent&) override
     {
         if (auto* s = sampleDeFila (fila); s != nullptr && onObreAlSampler) onObreAlSampler (fitxer (*s));
@@ -617,7 +655,7 @@ private:
             if (btTipus[i]->getToggleState()) cats.push_back (mibase::biblioteca::categories()[i]);
         if (btOneShot.getToggleState()) formes.push_back (mibase::biblioteca::oneShot);
         if (btLoop.getToggleState()) formes.push_back (mibase::biblioteca::loop);
-        const auto vista = mibase::biblioteca::filtra (index, cerca.getText().toStdString(), cats, formes, ordre, descendent);
+        const auto vista = mibase::biblioteca::filtra (index, cerca.getText().toStdString(), cats, formes, ordre, descendent, btFavorits.getToggleState());
         files.clear();
         if (! btCarpetes.getToggleState())
             for (int i : vista) files.push_back ({ i });
@@ -728,6 +766,7 @@ private:
         const auto& s = index.samples[(size_t) i];
         int k = 100;
         for (auto& c : mibase::biblioteca::categories()) cat.addItem (k++, juce::String::fromUTF8 (c.c_str()), true, c == s.categoria);
+        m.addItem (6, s.favorit ? "Treu dels favorits"_ca : "Marca com a favorit"_ca);
         m.addItem (1, "Reanomena…"_ca);
         m.addSubMenu ("Tipus de so"_ca, cat);
         juce::PopupMenu fm;
@@ -753,6 +792,7 @@ private:
                                          [this, fitxerS] (const juce::String& t) { if (auto* y = index.busca (fitxerS)) y->etiquetes = mibase::biblioteca::etiquetesDeText (t.toStdString()); });
             else if (r == 3) demanaText ("BPM del sample"_ca, "0 = no se sap."_ca, x->bpm > 0.0 ? juce::String (x->bpm, 1) : juce::String ("0"),
                                          [this, fitxerS] (const juce::String& t) { if (auto* y = index.busca (fitxerS)) y->bpm = juce::jlimit (0.0, 300.0, t.getDoubleValue()); });
+            else if (r == 6) { if (auto* y = index.busca (fitxerS)) commutaFavorit ((int) (y - index.samples.data())); }
             else if (r == 4) fitxer (*x).revealToUser();
             else if (r == 5)
             {
@@ -800,6 +840,7 @@ private:
     std::vector<std::unique_ptr<Boto>> btTipus;
     Boto btOrdre { "Ordre: Nom", std::nullopt, Boto::Estil::Secundari };
     Boto btCarpetes { "CARPETES", std::nullopt, Boto::Estil::Tecla };
+    Boto btFavorits { "Favorits"_ca, std::nullopt, Boto::Estil::Tecla };
     Boto btAfegeix { "Afegeix…"_ca, std::nullopt, Boto::Estil::Secundari };
     Boto btMes { {}, dibuix::Icona::Carpeta, Boto::Estil::Subtil };
     juce::ListBox llista { "Biblioteca" };

@@ -1556,6 +1556,7 @@ bool PianoRoll::keyPressed (const juce::KeyPress& k)
     {
         if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { esborraTriades(); return true; }
         if (mods.isCommandDown() && lletra ('A')) { triaTotes(); return true; }
+        if (mods.isCommandDown() && ! mods.isShiftDown() && lletra ('S')) { desseleccionaTot(); info = "Res triat"; repaint(); return true; }   // 0.31
         if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
         if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
         if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }

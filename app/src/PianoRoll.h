@@ -55,6 +55,11 @@ public:
     PianoRoll (EstatEstudi& e, int index);
     void setIndex (int i) { index = i; actualitza(); }
     int getIndex() const noexcept { return index; }
+    /** 0.31: l'eina triada des de fora (la barra de dalt de l'estudi): 0 fletxa, 1 llapis, 2 goma. */
+    void posaEina (int i) { if (i >= 0 && i <= 2) triaEina ((EinaPR) i); }
+    /** 0.31: Ctrl+A / Ctrl+S des de l'estudi. */
+    void triaTot() { triaTotes(); }
+    void desseleccionaTot() { triadesNotes.clear(); info.clear(); repaint(); }
     ~PianoRoll() override;
 
     // ---- Connexions amb l'estudi ----

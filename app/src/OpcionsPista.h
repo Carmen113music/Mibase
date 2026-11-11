@@ -7,6 +7,7 @@
 #include "FinestraInstrument.h"
 #include "Inserts.h"
 #include <mibase/Midi.h>
+#include "BancGM.h"
 
 /** Opcions de la pista triada (o del màster), a la columna esquerra sobre el fader (0.16).
     Pista d'instrument (MIDI): instrument (sinte intern o VST3), so i teclat MIDI, i els inserts.
@@ -120,8 +121,9 @@ public:
         if (midiPista)
         {
             // 0.20: només el nom (al costat hi ha el botó per obrir-lo); el detall, a la bafarada.
-            btInstrument.setButtonText (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca : "Sinte intern"_ca);
-            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, samplejador o VST3)"_ca);
+            btInstrument.setButtonText (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca
+                                        : mibase::gm::programa (t->instrument) >= 0 ? "General MIDI"_ca : "Sinte intern"_ca);
+            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, General MIDI, samplejador o VST3)"_ca);
             if (sampler)
                 btSo.setButtonText ("Sample: "_ca + (t->sampler.nom.empty() ? "cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str())));
             else
@@ -238,7 +240,9 @@ private:
         juce::PopupMenu m;
         if (vst) { m.addItem (2, "Obre la finestra del plugin"); m.addSeparator(); }
         const bool sampler = mibase::esSampler (*t);
-        m.addItem (1, "Sinte intern", true, ! vst && ! sampler);
+        const int gm = mibase::gm::programa (t->instrument);
+        m.addItem (1, "Sinte intern", true, ! vst && ! sampler && gm < 0);
+        m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addItem (3, "Samplejador"_ca, true, sampler);
         if (plugins != nullptr) m.addSubMenu ("Instruments VST3", plugins->menu (true, 1000, *tipus));
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this, tipus] (int r)
@@ -247,7 +251,8 @@ private:
             if (p == nullptr) return;
             const auto id = p->id;
             if (r == 2) obreInstrument();
-            else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p)))
+            else if (r >= 500 && r < 628) triaGM (r - 500);
+            else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p) || mibase::gm::programa (p->instrument) >= 0))
                 canvia ([] (mibase::Pista& q) { q.instrument = "intern:piano"; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: sinte intern"_ca);
             else if (r == 3)
             {
@@ -269,6 +274,16 @@ private:
         });
     }
 
+    /** 0.31: posa un so General MIDI a la pista triada (si no hi ha el banc, pregunta si es baixa). */
+    void triaGM (int prog)
+    {
+        bancgm::assegura (this, [this, prog]
+        {
+            canvia ([prog] (mibase::Pista& q) { q.instrument = mibase::gm::instrument (prog); q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                    "Instrument: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (prog)));
+        });
+    }
+
     void menuSo()
     {
         auto* t = estat.pista (estat.pistaTriada);
@@ -276,11 +291,15 @@ private:
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         juce::PopupMenu m;
         const int actual = juce::jmax (0, mibase::midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
+        const int gm = mibase::gm::programa (t->instrument);
         for (int k = 0; k < (int) mibase::midi::sonsInterns().size(); ++k)
-            m.addItem (k + 1, juce::String::fromUTF8 (mibase::midi::sonsInterns()[(size_t) k].nom), true, actual == k);
+            m.addItem (k + 1, juce::String::fromUTF8 (mibase::midi::sonsInterns()[(size_t) k].nom), true, actual == k && gm < 0);
+        m.addSeparator();
+        m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSo), [this] (int r)
         {
             if (r <= 0) return;
+            if (r >= 500 && r < 628) { triaGM (r - 500); return; }
             const std::string id = mibase::midi::sonsInterns()[(size_t) (r - 1)].id;
             canvia ([id] (mibase::Pista& p) { p.instrument = "intern:" + id; }, {});
         });

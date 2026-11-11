@@ -425,7 +425,7 @@ private:
     Boto btDesaKit { "Desa el kit…"_ca, std::nullopt, Boto::Estil::Secundari };
     std::unique_ptr<DialegText> dialeg;
 
-    /** 0.28: els sons de les files (els que són fitxers) es copien a Kits\<nom>\ i es desa «kit.json». */
+    /** 0.28: els sons de les files es copien a Kits\<nom>\ i es desa «kit.json». 0.31: també els interns i els ajustos de les files. */
     void desaKit()
     {
         auto* t = pista();
@@ -439,38 +439,16 @@ private:
             },
             [this] (const juce::String& n)
             {
+                // 0.31: la mateixa funció que la finestra de kits: sons (també els interns, com a WAV) i ajustos de cada fila
                 auto* tt = pista();
                 if (tt == nullptr) return;
-                const auto nom = juce::File::createLegalFileName (n.trim());
-                const auto dir = kits::carpeta().getChildFile (nom);
-                dir.createDirectory();
-                mibase::bateria::Kit k;
-                k.nom = nom.toStdString();
-                k.carpeta = dir.getFullPathName().toStdString();
-                int interns = 0;
-                for (auto& f : tt->files)
-                {
-                    if (f.so.rfind ("intern:", 0) == 0 || f.so.empty()) { ++interns; continue; }
-                    const auto origen = kits::fitxerSo (f.so);
-                    if (! origen.existsAsFile()) continue;
-                    auto desti = dir.getChildFile (origen.getFileName());
-                    for (int i = 2; desti.existsAsFile(); ++i) desti = dir.getChildFile (origen.getFileNameWithoutExtension() + " " + juce::String (i) + origen.getFileExtension());
-                    if (! origen.copyFileTo (desti)) continue;
-                    k.sons.push_back ({ desti.getFileName().toStdString(), f.nom.empty() ? desti.getFileNameWithoutExtension().toStdString() : f.nom, f.tipus, f.so });
-                }
-                if (k.sons.empty())
-                {
-                    dir.deleteRecursively();
-                    estat.info = "No hi ha cap so de fitxer per desar (els del kit intern no es poden copiar)"_ca;
-                    estat.avisa();
-                    return;
-                }
-                mibase::bateria::desaKit (k);
+                juce::String error;
+                const auto desat = kits::desaDePista (*tt, n, error);
+                if (desat.isEmpty()) { estat.info = error; estat.avisa(); return; }
                 estat.desfes.abans (estat.projecte);
-                tt->kit = k.nom;
-                estat.info = "Kit «"_ca + nom + "» desat (" + juce::String ((int) k.sons.size()) + " sons"
-                             + (interns > 0 ? ", " + juce::String (interns) + " del kit intern no s'hi han posat)" : juce::String (")"));
-                estat.canviat ("Kit nou: «"_ca + nom + "»"_ca);
+                kits::posaKit (*tt, desat.toStdString());
+                estat.info = "Kit «"_ca + desat + "» desat amb els ajustos de cada fila."_ca + (error.isNotEmpty() ? " " + error : juce::String());
+                estat.canviat ("Kit nou: «"_ca + desat + "»"_ca);
             });
         DialegText::mostra (*this, dialeg);
     }

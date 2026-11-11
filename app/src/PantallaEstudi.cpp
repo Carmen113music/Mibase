@@ -1,4 +1,5 @@
 #include "PantallaEstudi.h"
+#include "BancGM.h"
 #include "EscGlobal.h"
 #include "Inserts.h"
 
@@ -288,6 +289,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         return nullptr;
     };
     editorSampler.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
+    {
+        // 0.31: el banc General MIDI es baixa en segon pla: el progrés a la barra d'estat i, quan acaba, les pistes GM ja sonen.
+        juce::Component::SafePointer<PantallaEstudi> jo (this);
+        bancgm::enProgres() = [jo] (const juce::String& t) { if (jo == nullptr) return; jo->estat.info = t; jo->estat.avisa(); };
+        bancgm::enBaixat() = [jo] { if (jo == nullptr) return; jo->historial.afegeix ("Banc General MIDI baixat"_ca); jo->publicaPla(); };
+    }
     estat.sampler.altConsola = ajustos.getIntValue ("sampler.altConsola", 0);
     editorSampler.onAltConsola = [this] (int alt) { ajustos.setValue ("sampler.altConsola", alt); };
     editorSampler.onGrava = [this] { gravaSampler(); };
@@ -603,6 +610,10 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 void PantallaEstudi::triaEina (Eina e)
 {
     estat.eina = e;
+    // 0.31: la fletxa, el llapis i la goma també valen per al Piano Roll i el Drumpad oberts
+    if ((int) e <= 2)
+        for (int i = 0; i < zonaEditors.quants(); ++i)
+            if (auto* pr = zonaEditors.editor (i)) pr->posaEina ((int) e);
     if (e != Eina::Fletxa && (estat.triats.size() > 1 || estat.rang.actiu)) estat.capTriat();
     estat.avisa();
 }
@@ -1962,6 +1973,26 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && (codi == 'D' || codi == 'd')) { duplica(); return true; }
     if (mods.isCommandDown() && (codi == 'Z' || codi == 'z')) { desfes (mods.isShiftDown()); return true; }
     if (mods.isCommandDown() && (codi == 'Y' || codi == 'y')) { desfes (true); return true; }
+    // 0.31: Ctrl+A tria tot i Ctrl+S ho deixa sense triar, a la finestra on és el ratolí (Piano Roll / Drumpad o taula de treball).
+    // Desar: Ctrl+Maj+S (el projecte ja es desa sol a cada canvi).
+    if (mods.isCommandDown() && ! mods.isShiftDown() && (lletra ('A') || lletra ('S')))
+    {
+        auto* sota = juce::Desktop::getInstance().getMainMouseSource().getComponentUnderMouse();
+        auto* pr = sota != nullptr ? (dynamic_cast<PianoRoll*> (sota) != nullptr ? dynamic_cast<PianoRoll*> (sota) : sota->findParentComponentOfClass<PianoRoll>()) : nullptr;
+        if (pr != nullptr) { if (lletra ('A')) pr->triaTot(); else pr->desseleccionaTot(); return true; }
+        if (lletra ('A'))
+        {
+            estat.triats.clear();
+            estat.rang.actiu = false;
+            for (int p = 0; p < estat.numPistes(); ++p)
+                for (int c = 0; c < (int) estat.projecte.pistes[(size_t) p].clips.size(); ++c)
+                    estat.triats.push_back ({ p, c });
+            estat.info = juce::String ((int) estat.triats.size()) + " clips triats"_ca;
+        }
+        else { estat.capTriat(); estat.info = "Res triat"_ca; }
+        estat.avisa();
+        return true;
+    }
     if (mods.isCommandDown() && (codi == 'S' || codi == 's')) { desaAra(); estat.info = "Desat"; estat.avisa(); return true; }
     if (mods.isCommandDown() && (codi == 'I' || codi == 'i')) { importaDeMenu(); return true; }
     if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '6') { triaEina ((Eina) (codi - '1')); return true; }
@@ -2054,15 +2085,43 @@ void PantallaEstudi::mostraPianoRoll (bool visible)
 {
     if (visible && estat.veu.obert) estat.veu.obert = false;   // 0.22: comparteixen el lloc de baix
     if (visible && estat.sampler.obert) estat.sampler.obert = false;   // 0.26
+    // 0.31: el clip a obrir: el MIDI triat; si no n'hi ha, el de la pista triada (MIDI o bateria: així P obre també el Drumpad)
+    // on és el capçal, o el primer.
+    mibase::edicio::RefClip quin;
+    if (estat.triats.size() == 1)
+        if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi) quin = estat.triats[0];
+    if (quin.pista < 0)
+        if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && mibase::esMidi (*t))
+        {
+            for (int c = 0; c < (int) t->clips.size(); ++c)
+            {
+                const auto& k = t->clips[(size_t) c];
+                if (! k.midi) continue;
+                if (quin.pista < 0 || (estat.capcal >= k.iniciVisible() && estat.capcal < k.fiVisible())) quin = { estat.pistaTriada, c };
+                if (estat.capcal >= k.iniciVisible() && estat.capcal < k.fiVisible()) break;
+            }
+        }
+    if (visible && quin.pista < 0)
+        if (auto* t = estat.pista (estat.pistaTriada); t != nullptr && mibase::esMidi (*t)
+            && std::none_of (t->clips.begin(), t->clips.end(), [] (const mibase::Clip& k) { return k.midi; }))
+        {
+            // la pista encara no té cap clip: un d'un compàs on és el capçal, per poder-hi tocar o dibuixar ja
+            estat.desfes.abans (estat.projecte);
+            const double a = juce::jmax (0.0, estat.capcal);
+            const int nou = ed::creaFinestra (estat.projecte, estat.pistaTriada, a, a + ed::segonsPerCompasA (estat.projecte, a));
+            quin = { estat.pistaTriada, nou };
+            estat.canviat ("Clip nou d'un compàs"_ca);
+        }
     if (visible && estat.editors.empty())
     {
-        // Un editor (amb el clip MIDI triat, si n'hi ha un).
         estat.editors.push_back ({});
-        if (estat.triats.size() == 1)
-            if (auto* c = estat.clip (estat.triats[0]); c != nullptr && c->midi) estat.editorMostra (0, estat.triats[0]);
+        if (quin.pista >= 0) estat.editorMostra (0, quin);
         estat.editorActiu = 0;
         zonaEditors.sincronitza();
     }
+    else if (visible && quin.pista >= 0 && estat.editorActiu >= 0 && estat.editorActiu < (int) estat.editors.size()
+             && ! estat.editors[(size_t) estat.editorActiu].bloquejat)
+        estat.editorMostra (estat.editorActiu, quin);
     estat.pianoRoll = visible;
     if (visible && finestraPianoRoll == nullptr && ajustos.getBoolValue ("pianoRoll.desenganxat", false))
         desenganxaPianoRoll (true);
