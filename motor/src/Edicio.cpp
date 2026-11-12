@@ -171,8 +171,14 @@ namespace mibase::edicio
         t.nom = nom;
         t.tipus = tipus;
         t.color = colorLliure (p);
-        p.pistes.push_back (t);
-        return p.pistes.back();
+        // 0.34: els grups i retorns sempre van a baix de tot: les pistes noves, abans del primer bus
+        const auto lloc = std::find_if (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return esBus (q); });
+        return *p.pistes.insert (lloc, t);
+    }
+
+    void busosABaix (Projecte& p)
+    {
+        std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
     }
 
     Presa& afegeixPresa (Projecte& p, const std::string& fitxer, const std::string& nom, double durada)
@@ -625,6 +631,8 @@ namespace mibase::edicio
     {
         if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
         if (! potConnectar (p, p.pistes[(size_t) pista].id, bus)) return -1;
+        // 0.34: els enviaments només van als retorns d'efectes; als grups s'hi va amb la sortida
+        if (const int d = pistaPerId (p, bus); d < 0 || p.pistes[(size_t) d].tipus != "fx") return -1;
         Enviament e;
         e.id = idNou (p, 'v');
         e.desti = bus;
@@ -638,6 +646,7 @@ namespace mibase::edicio
         if (pista < 0 || pista >= (int) p.pistes.size()) return false;
         auto& t = p.pistes[(size_t) pista];
         if (quin < 0 || quin >= (int) t.enviaments.size() || ! potConnectar (p, t.id, bus)) return false;
+        if (const int d = pistaPerId (p, bus); d < 0 || p.pistes[(size_t) d].tipus != "fx") return false;   // 0.34
         t.enviaments[(size_t) quin].desti = bus;
         return true;
     }
@@ -710,6 +719,11 @@ namespace mibase::edicio
         const int n = (int) p.pistes.size();
         if (de < 0 || de >= n || a < 0 || a >= n || de == a)
             return;
+        // 0.34: les pistes no passen per sota dels busos ni els busos per sobre de les pistes
+        const int normals = (int) std::count_if (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
+        if (esBus (p.pistes[(size_t) de])) a = std::max (a, normals);
+        else a = std::min (a, normals - 1);
+        if (a == de) return;
         auto t = p.pistes[(size_t) de];
         p.pistes.erase (p.pistes.begin() + de);
         p.pistes.insert (p.pistes.begin() + a, t);
@@ -838,9 +852,7 @@ namespace mibase::edicio
                 primera = false;
             }
         }
-        // 0.33: els busos només es veuen a la taula de mescles.
-        for (size_t i = 0; i < p.pistes.size(); ++i)
-            if (esBus (p.pistes[i])) r[i] = 0;
+        // 0.34: els busos també es veuen a la taula de treball (a baix de tot, després d'una ratlla)
         return r;
     }
 

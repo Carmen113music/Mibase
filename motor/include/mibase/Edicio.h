@@ -52,6 +52,8 @@ namespace mibase::edicio
     // ---- Pistes i preses ----
     std::string idNou (Projecte& p, char prefix);
     Pista& afegeixPista (Projecte& p, const std::string& nom, const std::string& tipus);
+    /** 0.34: posa els grups i retorns al final de la llista (sense canviar l'ordre entre ells). */
+    void busosABaix (Projecte& p);
     Presa& afegeixPresa (Projecte& p, const std::string& fitxer, const std::string& nom, double durada);
     /** Clip sencer d'una presa a la pista, amb l'inici visible a «on». */
     Clip& afegeixClip (Projecte& p, int pista, const std::string& idPresa, double on);

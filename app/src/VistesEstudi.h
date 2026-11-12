@@ -109,7 +109,8 @@ public:
     void itemDropped (const SourceDetails& d) override
     {
         filaDeixar = -2;
-        const int fila = estat.pistaA (d.localPosition.y);
+        int fila = estat.pistaA (d.localPosition.y);
+        if (fila >= 0 && fila < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) fila])) fila = -1;   // 0.34: a un bus no
         const juce::File f (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false));
         if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
         repaint();
@@ -197,6 +198,7 @@ public:
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     /** 0.20: el botonet de la pista d'instrument (obre el sinte o el VST) o de bateria (obre els kits). */
     std::function<void (int pista)> onObreInstrument;
+    juce::Rectangle<int> rectEntradaCap (int fila) const;   // 0.34
     juce::Rectangle<int> rectObreInstrument (int fila) const;
 
     void paint (juce::Graphics& g) override;
@@ -272,12 +274,12 @@ public:
 private:
     struct Geo
     {
-        juce::Rectangle<int> nom, etInserts, etEnvia, sortida, pan, fader, lcd, numero;
+        juce::Rectangle<int> nom, etInserts, etEnvia, entrada, sortida, pan, fader, lcd, numero;
         std::array<juce::Rectangle<int>, numInserts> inserts;
         std::array<juce::Rectangle<int>, numEnvia> envia;
         std::array<juce::Rectangle<int>, 3> tecles;
     };
-    enum class Zona { Res, Tecla, Pan, Fader, Envia, Insert, Sortida, Nom, BusNou };
+    enum class Zona { Res, Tecla, Pan, Fader, Envia, Insert, Entrada, Sortida, Nom, BusNou };
 
     Geo geo (juce::Rectangle<int> tira, bool master) const;
     void pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i);   // i < 0: la sortida
@@ -292,6 +294,7 @@ private:
     void mostraTira (int i);
     void menuEnviament (int pista, int k, bool nou);
     void menuSortida (int pista);
+    void menuEntrada (int pista);   // 0.34
     void menuBus (int pista);
     void canvia (const juce::String& evolucio, const std::function<void (mibase::Projecte&)>& f);
 

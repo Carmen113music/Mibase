@@ -94,8 +94,10 @@ namespace
             q.pistes[3].faderDb = -6.0;
             auto r = sona (q, s);
             comprova (prop (r.l(), 0.5f + 0.5f * m6 * m6), "pista → grup → grup → sortida");
-            mouPista (q, 3, 0);   // MÚSICA primer, BATERIA després, pistes al final
-            mouPista (q, 3, 1);
+            // MÚSICA primer, BATERIA després, pistes al final (directament a la llista: des de la 0.34 mouPista
+            // ja no deixa posar busos a dalt, però un fitxer antic o fet a mà ho podria portar)
+            std::rotate (q.pistes.begin(), q.pistes.begin() + 2, q.pistes.end());
+            std::swap (q.pistes[0], q.pistes[1]);
             comprova (esBus (q.pistes[0]) && esBus (q.pistes[1]), "els busos són a dalt");
             r = sona (q, s);
             comprova (prop (r.l(), 0.5f + 0.5f * m6 * m6), "l'ordre de la llista no canvia el so");

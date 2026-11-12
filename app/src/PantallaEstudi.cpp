@@ -1313,7 +1313,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
         t.canals = 2;
         t.instrument = "intern:bateria";
         kits::posaKit (t, kits::ultimKit());
-        estat.pistaTriada = estat.numPistes() - 1;
+        estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
         estat.capTriat();
         estat.info = "Pista de bateria: fes un clip amb el llapis (2) i fes-hi doble clic per obrir el Drumpad"_ca;
         estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (bateria)"_ca);
@@ -1326,7 +1326,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
         auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
         t.canals = 2;
         t.instrument = mibase::instrumentSampler;
-        estat.pistaTriada = estat.numPistes() - 1;
+        estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
         estat.capTriat();
         estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (samplejador)"_ca);
         obreSampler (estat.pistaTriada);
@@ -1340,7 +1340,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
         auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
         t.canals = 2;
         t.instrument = "intern:piano";
-        estat.pistaTriada = estat.numPistes() - 1;
+        estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
         estat.capTriat();
         estat.info = "Pista d'instrument: fes un clip amb el llapis (2) i dibuixa-hi notes, o grava amb el teclat MIDI"_ca;
         estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (instrument MIDI)"_ca);
@@ -1349,7 +1349,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
     const auto nom = ed::nomPistaLliure (estat.projecte, (canals == 2 ? juce::String::fromUTF8 ("Àudio estèreo") : juce::String::fromUTF8 ("Àudio")).toStdString());
     auto& t = ed::afegeixPista (estat.projecte, nom, tipus.toStdString());
     t.canals = canals;
-    estat.pistaTriada = estat.numPistes() - 1;
+    estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
     estat.capTriat();
     estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» ("_ca + (canals == 2 ? "estèreo" : "mono") + ")"_ca);
 }
@@ -1537,8 +1537,9 @@ bool PantallaEstudi::importaUn (const juce::File& f, int& pista, double on, doub
         auto base = f.getFileNameWithoutExtension().substring (0, 40).trim();
         if (base.isEmpty()) base = juce::String::fromUTF8 ("Àudio");
         const auto nom = ed::nomPistaLliure (estat.projecte, base.toStdString());
-        ed::afegeixPista (estat.projecte, nom, "audio").canals = lector->numChannels > 1 ? 2 : 1;
-        pista = estat.numPistes() - 1;
+        auto& nova = ed::afegeixPista (estat.projecte, nom, "audio");
+        nova.canals = lector->numChannels > 1 ? 2 : 1;
+        pista = ed::pistaPerId (estat.projecte, nova.id);   // 0.34
     }
 
     auto& t = estat.projecte.pistes[(size_t) pista];
@@ -2595,7 +2596,7 @@ int PantallaEstudi::pistaSamplerNova (const juce::File& f)
     t.canals = 2;
     t.instrument = mibase::instrumentSampler;
     const auto id = t.id;
-    estat.pistaTriada = estat.numPistes() - 1;
+    estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
     estat.capTriat();
     estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (samplejador)"_ca);
     obreSampler (estat.pistaTriada);

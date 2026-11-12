@@ -491,6 +491,8 @@ namespace mibase::disc
                 if (t.id.empty()) t.id = "t" + std::to_string (++p.comptador);
                 p.pistes.push_back (t);
             }
+            // 0.34: els grups i retorns, a baix de tot
+            std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
         }
 
         if (j.contains ("carpetes") && j["carpetes"].is_array())

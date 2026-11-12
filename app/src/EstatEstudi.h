@@ -265,6 +265,37 @@ public:
         return v;
     }
 
+    /** 0.34: menú d'entrada per gravar, com a Pro Tools: les entrades soles (mono) i els parells (estèreo) junts.
+        Ids: base + e (mono, entrada e) i base + 100 + e (estèreo, e i e+1). */
+    static juce::PopupMenu menuEntrades (const juce::StringArray& noms, const mibase::Pista& t, int base)
+    {
+        juce::PopupMenu m;
+        if (noms.isEmpty())
+        {
+            m.addItem (base - 1, "La targeta no té entrades (o està aturada)"_ca, false);
+            return m;
+        }
+        auto nom = [&] (int e) { return noms[e].isNotEmpty() ? noms[e] : "apagada a les Preferències"_ca; };
+        m.addSectionHeader ("Mono"_ca);
+        for (int e = 0; e < noms.size(); ++e)
+            m.addItem (base + e, juce::String (e + 1) + "   " + nom (e), noms[e].isNotEmpty(), t.canals == 1 && t.entrada == e);
+        if (noms.size() >= 2)
+        {
+            m.addSectionHeader ("Estèreo"_ca);
+            for (int e = 0; e + 1 < noms.size(); ++e)
+                m.addItem (base + 100 + e, juce::String (e + 1) + "+" + juce::String (e + 2) + "   " + nom (e) + " / " + nom (e + 1),
+                           noms[e].isNotEmpty() && noms[e + 1].isNotEmpty(), t.canals == 2 && t.entrada == e);
+        }
+        return m;
+    }
+    /** Aplica el que s'ha triat a menuEntrades. Retorna false si «r» no n'és. */
+    static bool aplicaEntrada (mibase::Pista& t, int r, int base)
+    {
+        if (r >= base + 100 && r < base + 200) { t.entrada = r - base - 100; t.canals = 2; return true; }
+        if (r >= base && r < base + 100) { t.entrada = r - base; t.canals = 1; return true; }
+        return false;
+    }
+
     /** «E1» o «E1-2»: d'on grava la pista. */
     static juce::String textEntrada (const mibase::Pista& t)
     {
