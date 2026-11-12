@@ -558,8 +558,151 @@ namespace mibase::edicio
 
     void esborraPista (Projecte& p, int pista)
     {
-        if (pista >= 0 && pista < (int) p.pistes.size())
-            p.pistes.erase (p.pistes.begin() + pista);
+        if (pista < 0 || pista >= (int) p.pistes.size()) return;
+        const std::string id = p.pistes[(size_t) pista].id;
+        p.pistes.erase (p.pistes.begin() + pista);
+        // 0.33: el que anava a aquest bus passa a la sortida, i els enviaments que hi apuntaven s'esborren.
+        for (auto& t : p.pistes)
+        {
+            if (t.sortida == id) t.sortida.clear();
+            std::erase_if (t.enviaments, [&] (const Enviament& e) { return e.desti == id; });
+        }
+    }
+
+    Pista& afegeixBus (Projecte& p, const std::string& nom, bool fx)
+    {
+        Pista t;
+        t.id = idNou (p, 't');
+        t.nom = nom;
+        t.tipus = fx ? "fx" : "bus";
+        t.canals = 2;
+        p.pistes.push_back (t);
+        return p.pistes.back();
+    }
+
+    int pistaPerId (const Projecte& p, const std::string& id) noexcept
+    {
+        if (! id.empty())
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].id == id) return i;
+        return -1;
+    }
+
+    bool potConnectar (const Projecte& p, const std::string& origen, const std::string& desti)
+    {
+        const int d = pistaPerId (p, desti);
+        if (d < 0 || ! esBus (p.pistes[(size_t) d]) || origen == desti || pistaPerId (p, origen) < 0) return false;
+        // Des de «desti», seguint sortides i enviaments, no s'ha de poder tornar a «origen».
+        std::vector<char> vist (p.pistes.size(), 0);
+        std::vector<int> cua { d };
+        vist[(size_t) d] = 1;
+        while (! cua.empty())
+        {
+            const auto& t = p.pistes[(size_t) cua.back()];
+            cua.pop_back();
+            if (t.id == origen) return false;
+            auto segueix = [&] (const std::string& id)
+            {
+                const int j = pistaPerId (p, id);
+                if (j >= 0 && ! vist[(size_t) j]) { vist[(size_t) j] = 1; cua.push_back (j); }
+            };
+            segueix (t.sortida);
+            for (auto& e : t.enviaments) segueix (e.desti);
+        }
+        return true;
+    }
+
+    bool posaSortida (Projecte& p, int pista, const std::string& bus)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return false;
+        auto& t = p.pistes[(size_t) pista];
+        if (! bus.empty() && ! potConnectar (p, t.id, bus)) return false;
+        t.sortida = bus;
+        return true;
+    }
+
+    int afegeixEnviament (Projecte& p, int pista, const std::string& bus)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
+        if (! potConnectar (p, p.pistes[(size_t) pista].id, bus)) return -1;
+        Enviament e;
+        e.id = idNou (p, 'v');
+        e.desti = bus;
+        auto& t = p.pistes[(size_t) pista];
+        t.enviaments.push_back (e);
+        return (int) t.enviaments.size() - 1;
+    }
+
+    bool destiEnviament (Projecte& p, int pista, int quin, const std::string& bus)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return false;
+        auto& t = p.pistes[(size_t) pista];
+        if (quin < 0 || quin >= (int) t.enviaments.size() || ! potConnectar (p, t.id, bus)) return false;
+        t.enviaments[(size_t) quin].desti = bus;
+        return true;
+    }
+
+    void treuEnviament (Projecte& p, int pista, int quin)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return;
+        auto& v = p.pistes[(size_t) pista].enviaments;
+        if (quin >= 0 && quin < (int) v.size()) v.erase (v.begin() + quin);
+    }
+
+    std::vector<int> estatSolo (const Projecte& p)
+    {
+        const int n = (int) p.pistes.size();
+        std::vector<int> r ((size_t) n, 2);
+        const bool hiHaSolo = std::any_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& t) { return t.solo; });
+        if (hiHaSolo)
+        {
+            std::vector<int> surt ((size_t) n, -1);
+            std::vector<std::vector<int>> envia ((size_t) n);
+            for (int i = 0; i < n; ++i)
+            {
+                const auto& t = p.pistes[(size_t) i];
+                if (const int j = pistaPerId (p, t.sortida); j >= 0 && esBus (p.pistes[(size_t) j])) surt[(size_t) i] = j;
+                for (auto& e : t.enviaments)
+                    if (e.actiu && ! e.mut)
+                        if (const int j = pistaPerId (p, e.desti); j >= 0 && esBus (p.pistes[(size_t) j])) envia[(size_t) i].push_back (j);
+            }
+            std::vector<char> font ((size_t) n, 0);   // busos que s'han de sentir: el que els alimenta ha de sonar
+            for (int i = 0; i < n; ++i)
+            {
+                r[(size_t) i] = p.pistes[(size_t) i].solo ? 2 : 0;
+                font[(size_t) i] = p.pistes[(size_t) i].solo ? 1 : 0;
+            }
+            // Cap amunt: el que alimenta un bus en solo.
+            for (bool canvi = true; canvi;)
+            {
+                canvi = false;
+                for (int c = 0; c < n; ++c)
+                {
+                    int vol = 0;
+                    if (surt[(size_t) c] >= 0 && font[(size_t) surt[(size_t) c]]) vol = 2;
+                    else
+                        for (int e : envia[(size_t) c]) if (font[(size_t) e]) vol = 1;
+                    if (vol == 0) continue;
+                    if (r[(size_t) c] < vol) { r[(size_t) c] = vol; canvi = true; }
+                    if (! font[(size_t) c]) { font[(size_t) c] = 1; canvi = true; }
+                }
+            }
+            // Cap avall: els busos per on passa el que sona i els retorns on envia.
+            for (bool canvi = true; canvi;)
+            {
+                canvi = false;
+                for (int c = 0; c < n; ++c)
+                {
+                    if (r[(size_t) c] != 2) continue;
+                    auto obre = [&] (int j) { if (j >= 0 && r[(size_t) j] < 2) { r[(size_t) j] = 2; canvi = true; } };
+                    obre (surt[(size_t) c]);
+                    for (int e : envia[(size_t) c]) obre (e);
+                }
+            }
+        }
+        for (int i = 0; i < n; ++i)
+            if (p.pistes[(size_t) i].mut) r[(size_t) i] = 0;
+        return r;
     }
 
     void mouPista (Projecte& p, int de, int a)
@@ -695,6 +838,9 @@ namespace mibase::edicio
                 primera = false;
             }
         }
+        // 0.33: els busos només es veuen a la taula de mescles.
+        for (size_t i = 0; i < p.pistes.size(); ++i)
+            if (esBus (p.pistes[i])) r[i] = 0;
         return r;
     }
 

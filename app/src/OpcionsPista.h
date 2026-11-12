@@ -137,7 +137,13 @@ public:
             btSortida.setButtonText ("Sortida: "_ca + (k + 1 < noms.size() ? noms[k] + " / " + noms[k + 1]
                                                                           : juce::String (k + 1) + "/" + juce::String (k + 2)));
         }
-        else if (audio) btSortida.setButtonText ("Sortida: Màster (L+R)"_ca);
+        else if (audio)
+        {
+            // 0.33: si la pista va a un bus, es diu aquí (es tria a la taula de mescles).
+            const int d = t != nullptr ? mibase::edicio::pistaPerId (estat.projecte, t->sortida) : -1;
+            btSortida.setButtonText (d >= 0 ? "Sortida: "_ca + juce::String::fromUTF8 (estat.projecte.pistes[(size_t) d].nom.c_str())
+                                            : "Sortida: Màster (L+R)"_ca);
+        }
         resized();
         repaint();
     }

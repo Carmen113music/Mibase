@@ -241,6 +241,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     }
     mescles.onRoda = nullptr;
     capcaleres.onCanviaNom = [this] (int i) { canviaNom (i); };
+    mescles.onCanviaNom = [this] (int i) { canviaNom (i); };
+    mescles.onBusNou = [this] (bool fx, int pista, bool comSortida) { busNou (fx, pista, comSortida); };
     capcaleres.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
     pistes.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
     pistes.onImporta = [this] (const juce::StringArray& fitxers, int pista, double on) { importa (fitxers, pista, on); };
@@ -1350,6 +1352,36 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
     estat.pistaTriada = estat.numPistes() - 1;
     estat.capTriat();
     estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» ("_ca + (canals == 2 ? "estèreo" : "mono") + ")"_ca);
+}
+
+void PantallaEstudi::busNou (bool fx, int pista, bool comSortida)
+{
+    // 0.33: nom proposat «Grup 1», «Retorn 1»… (el primer que no hi sigui).
+    juce::String proposat;
+    for (int n = 1; n < 100 && proposat.isEmpty(); ++n)
+    {
+        const auto nom = juce::String (fx ? "Retorn " : "Grup ") + juce::String (n);
+        bool hiEs = false;
+        for (auto& t : estat.projecte.pistes) hiEs = hiEs || dibuix::utf8 (t.nom) == nom;
+        if (! hiEs) proposat = nom;
+    }
+    dialeg = std::make_unique<DialegText> (fx ? "Retorn d'efectes nou" : "Bus de grup nou",
+        fx ? "Un efecte compartit: les pistes hi envien la quantitat que volen. Posa-hi el plugin al 100 % d'efecte."_ca
+           : "Ajunta pistes per tractar-les totes alhora: tria'l com a sortida de cada pista."_ca,
+        "Crea'l"_ca,
+        [] (const juce::String& t) -> juce::String { return t.trim().isEmpty() ? juce::String ("Escriu un nom.") : juce::String(); },
+        [this, fx, pista, comSortida] (const juce::String& t)
+        {
+            estat.desfes.abans (estat.projecte);
+            const auto id = ed::afegeixBus (estat.projecte, t.trim().toStdString(), fx).id;
+            if (estat.pista (pista) != nullptr)
+            {
+                if (comSortida) ed::posaSortida (estat.projecte, pista, id);
+                else ed::afegeixEnviament (estat.projecte, pista, id);
+            }
+            estat.canviat ((fx ? "Retorn d'efectes nou: «"_ca : "Bus de grup nou: «"_ca) + t.trim() + "»"_ca);
+        }, proposat);
+    DialegText::mostra (*this, dialeg);
 }
 
 void PantallaEstudi::canviaNom (int pista)

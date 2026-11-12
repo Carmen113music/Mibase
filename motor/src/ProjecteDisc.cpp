@@ -356,6 +356,23 @@ namespace mibase::disc
                 t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
+                // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
+                t.sortida = e.value ("sortida", std::string());
+                if (e.contains ("enviaments") && e["enviaments"].is_array())
+                    for (auto& v : e["enviaments"])
+                    {
+                        if (! v.is_object()) continue;
+                        Enviament x;
+                        x.id = v.value ("id", std::string());
+                        x.desti = v.value ("desti", std::string());
+                        x.nivellDb = std::clamp (v.value ("nivellDb", 0.0), -60.0, 6.0);
+                        x.pan = std::clamp (v.value ("pan", 0.0), -1.0, 1.0);
+                        x.actiu = v.value ("actiu", true);
+                        x.mut = v.value ("mut", false);
+                        const std::string m = v.value ("mode", std::string ("post"));
+                        x.mode = m == "pre" ? 0 : (m == "postpan" ? 2 : 1);
+                        if (! x.desti.empty()) t.enviaments.push_back (x);
+                    }
                 t.escalaTeclat = e.value ("escalaTeclat", true);
                 t.modeEscala = std::clamp (e.value ("modeEscala", -1), -1, 2);
                 t.kit = e.value ("kit", std::string());
@@ -672,6 +689,15 @@ namespace mibase::disc
             if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
+            if (! t.sortida.empty()) pista["sortida"] = t.sortida;
+            if (! t.enviaments.empty())
+            {
+                json ev = json::array();
+                for (auto& x : t.enviaments)
+                    ev.push_back ({ { "id", x.id }, { "desti", x.desti }, { "nivellDb", x.nivellDb }, { "pan", x.pan }, { "actiu", x.actiu },
+                                    { "mut", x.mut }, { "mode", x.mode == 0 ? "pre" : (x.mode == 2 ? "postpan" : "post") } });
+                pista["enviaments"] = ev;
+            }
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             if (! t.escalaTeclat) pista["escalaTeclat"] = false;
             if (t.modeEscala >= 0) pista["modeEscala"] = t.modeEscala;

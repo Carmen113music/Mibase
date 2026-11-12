@@ -133,6 +133,7 @@ private:
     void desenganxaPianoRoll (bool desenganxa);
     void acabaGravacioMidi();
     void canviaNom (int pista);
+    void busNou (bool fx, int pista, bool comSortida);
     void canviaTempo();
     void demanaImportar (int pista, double on);
     void importa (const juce::StringArray& fitxers, int pista, double on);

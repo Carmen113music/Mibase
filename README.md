@@ -66,7 +66,7 @@ D'esquerra a dreta: la **columna esquerra** (pestanyes *Taula de treball* / *Tau
 - **Capçal**: es mou clicant (o arrossegant) la **regla**; clicar les pistes ja no el mou.
 - **Teclat**: Espai = reprodueix / atura; R = grava; **Z** = tot el projecte a la pantalla; **Maj+Z** = el que hi ha triat; **M** = silencia el triat (o la pista); **Q / W / E** = graella Compàs / Temps / Lliure; Ctrl+C / Ctrl+X / Ctrl+V; Insert = enganxar inserint o trepitjant; Supr = treure clips; Ctrl+D = duplicar; Ctrl+Z / Ctrl+Y = desfer / refer; Ctrl+A = triar-ho tot; Ctrl+S = no triar res; Ctrl+Maj+S = desar (es desa sol a cada canvi); Ctrl+I = importar; 1–6 = eines; Esc = res triat i fletxa; Inici = al principi.
 - **Faders i panorama**: arrossega amunt i avall; amb **Maj**, deu vegades més fi (per posar, per exemple, -0,2 dB). Doble clic: 0 dB (o el panorama al mig). Els vúmetres tenen la mateixa escala que el fader; si la pista té el botó de gravar encès, també mostren el que entra per la targeta.
-- **Taula de mescles**: una tira per pista amb els llocs per als **inserts** (efectes) i els **enviaments** a busos (arribaran més endavant), el **panorama**, M, S, gravar, el fader amb vúmetre i l'entrada; i, fixa a la dreta, la **Sortida** (volum general i vúmetre).
+- **Taula de mescles**: una tira per pista amb els llocs per als **inserts** (efectes), els **enviaments** i la **sortida** (vegeu *Busos, retorns i enviaments*), el **panorama**, M, S, gravar, el fader amb vúmetre i l'entrada; i, fixa a la dreta, la **Sortida** (volum general i vúmetre).
 - Tot es desa sol (i una còpia del projecte a `Còpies`, com a molt cada 10 minuts).
 
 ### Carpetes de pistes
@@ -178,6 +178,18 @@ Encara no: moure notes en el temps, dividir i unir notes, crear un clip nou corr
 - Files com les capçaleres de les pistes (llumeta que s'encén quan sona, tecla M) i poms (Vol, Pan, Afina, Llarg, Tall, Nota).
 - **Desa el kit…**: els sons de les files (per exemple, els arrossegats de la biblioteca) es copien a `Kits\<nom>` com un kit nou.
 
+### Busos, retorns i enviaments (0.33)
+Tot es fa a la **taula de mescles**. Cada pista té **una sortida** (on va tot el seu so) i pot tenir **enviaments** (còpies del seu so que, a més, van a un altre lloc).
+- **+ Grup** i **+ Retorn** (després de l'última tira): creen un **bus de grup** (verd) o un **retorn d'efectes** (rosa). Només demanen el nom. Els busos són sempre estèreo, només es veuen a la taula de mescles (després de les pistes) i tenen inserts, panorama, M, S i fader com qualsevol pista. Doble clic al nom: canviar-lo. Botó dret al nom: canviar-lo o **esborrar el bus** (el que hi anava torna a la sortida i els enviaments que hi apuntaven s'esborren; es pot desfer).
+- **Sortida** (la casella amb la fletxa, sota els enviaments): tria *Sortida* (el màster) o un **bus de grup**; també hi ha *Bus de grup nou…*, que el crea i hi connecta la pista. Un grup pot anar a un altre grup (BATERIA → MÚSICA → Sortida).
+- **Enviaments**: clic a la casella del **+** i tria el retorn (o *Retorn FX nou…*). Cada enviament mostra la **llumeta** (clic: l'encén o l'apaga), el **nom** del bus i el **nivell** en dB: arrossega amunt i avall per canviar-lo (Maj: més fi; doble clic: 0 dB). **Botó dret**: encès, silenciat, **mode**, canviar la destinació, *Ves al bus* i treure'l. Se'n veuen 4 per tira.
+- **Modes** (color de la llumeta): **post-fader** (verd, el normal: si abaixes la pista, també baixa el que envia), **pre-fader** (groc: no segueix el fader) i **post-pan** (blau: segueix el fader i el panorama).
+- **Reverb compartida**: crea un retorn, posa-hi el plugin de reverb amb el **mix al 100 % d'efecte** (si no, el so sec sonarà dues vegades) i envia-hi cada pista al gust. El fader del retorn és el volum de tota la reverb.
+- **Mut i solo**: el mut d'una pista calla també els seus enviaments. El solo d'una pista manté els seus grups i els seus retorns; el solo d'un grup, les pistes que hi van; el solo d'un retorn deixa sentir només l'efecte.
+- **No es poden fer cercles** (A → B → A): les destinacions que en farien un no surten als menús.
+- Els projectes d'abans s'obren igual, amb totes les pistes a la sortida.
+- Encara no hi ha: compensació del retard dels plugins als busos, panorama de l'enviament a la pantalla, sidechain ni automatització.
+
 ### Dreceres comunes dels editors (0.24)
 - **Arrossegar a la regla** (la franja dels compassos) del Piano Roll, del Drumpad o del Vocal Editor fa el **bucle** (enganxat a la graella). Un clic sol mou el capçal.
 - **/** del teclat numèric: encén o apaga el bucle.
@@ -227,6 +239,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.33.0** — **Busos, retorns i enviaments** (primera fase). **Busos de grup** i **retorns d'efectes** a la taula de mescles, amb inserts, fader, panorama, M i S; **sortida** de cada pista a la sortida o a un grup (i grups dins de grups); **enviaments** sense límit al motor (4 a la vista) amb nivell propi i modes **pre-fader**, **post-fader** i **post-pan**; crear el retorn des del mateix menú de l'enviament; el motor no deixa fer **cercles**; **solo i mut** que entenen els busos; un retorn es calcula un sol cop encara que hi enviïn moltes pistes, i aturat continua sonant la cua de l'efecte; tot es desa al projecte i els projectes d'abans s'obren igual. Els busos no surten a la taula de treball.
 - **0.32.0**
   - **Rasgueig: 166 ritmes.** Als 12 d'abans s'hi afegeixen els dels quatre PDF d'en Roger (catàleg de 50 moderns, volum 2 de pop/rock amb apagats, volum 3 de 50 cançons i el full de traducció MIDI). El botó **Rasgueig** els mostra per grups: Bàsics, Pop/rock/indie, Funk i percussiu, Ternaris (3/4, 6/8, 12/8), Fingerpicking, Llatins i flamenc, Prog i metal (5/4, 7/8), Apagats (3 grups) i Cançons (3 grups).
   - Tècniques noves: **palm mute** (curt i a les cordes greus), **nota morta**, **slap** (cop sec i fort), cops **només al baix** o **només a les agudes**, **staccato**, **fingerpicking** (polze, i, m, a, polze + acord, pluck), **tapping** i **rasgueado flamenc**. Cada ritme porta el seu retard entre cordes (més seguit al funk, més lent a les balades) i alguns un crescendo.

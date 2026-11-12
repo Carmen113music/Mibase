@@ -20,8 +20,10 @@ namespace
 
     bool sona (const Projecte& p, const Pista& t)
     {
-        const bool hiHaSolo = std::any_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& x) { return x.solo; });
-        return ! t.mut && (! hiHaSolo || t.solo);
+        // 0.33: amb busos, una pista en solo manté oberts els seus busos i retorns (i al revés).
+        const auto e = ed::estatSolo (p);
+        const auto i = (size_t) (&t - p.pistes.data());
+        return i < e.size() ? e[i] == 2 : ! t.mut;
     }
 
     void pintaCapcal (juce::Graphics& g, float x, float alt, int transport = 0)
@@ -2526,7 +2528,9 @@ TaulaMescles::Geo TaulaMescles::geo (juce::Rectangle<int> r, bool master) const
         g.etEnvia = { x, y, w, 12 };
         y += 14;
         for (int k = 0; k < numEnvia; ++k) { g.envia[(size_t) k] = { x, y, w, 18 }; y += 21; }
-        y += 4;
+        y += 2;
+        g.sortida = { x, y, w, 18 };   // 0.33: on va el so de la pista
+        y += 24;
         g.pan = { x, y, w, 46 };
         y += 50;
         const int ample = 26, sep = 3;
@@ -2535,7 +2539,7 @@ TaulaMescles::Geo TaulaMescles::geo (juce::Rectangle<int> r, bool master) const
         y += 30;
     }
     else
-        y = 44 + 14 + numInserts * 21 + 4 + 14 + numEnvia * 21 + 4 + 50 + 30;   // alineat amb les altres tires
+        y = 44 + 14 + numInserts * 21 + 4 + 14 + numEnvia * 21 + 2 + 24 + 50 + 30;   // alineat amb les altres tires
     const int alt = juce::jlimit (90, 280, getHeight() - y - 30 - 26);
     g.fader = { r.getX() + 4, y, r.getWidth() - 8, alt };
     g.lcd = { x + 2, g.fader.getBottom() + 4, w - 4, 26 };
@@ -2552,6 +2556,12 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
     const auto ge = geo (r, master);
 
     vintage::panell (g, r.reduced (2, 0).toFloat(), 6.0f);
+    if (! master && mibase::esBus (*t))
+    {
+        // 0.33: els busos, tenyits del seu color perquè es distingeixin de les pistes.
+        g.setColour (color.withAlpha (0.07f));
+        g.fillRoundedRectangle (r.reduced (2, 0).toFloat(), 6.0f);
+    }
     if (! master && i == estat.pistaTriada)
     {
         g.setColour (tema::accent.withAlpha (0.6f));
@@ -2605,7 +2615,50 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
     if (! master)
     {
         etiqueta (ge.etEnvia, "ENVIAMENTS");
-        for (auto& z : ge.envia) ranura (z);
+        for (int k = 0; k < numEnvia; ++k)
+        {
+            const auto z = ge.envia[(size_t) k];
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (z.toFloat(), 3.0f);
+            if (k >= (int) t->enviaments.size())
+            {
+                g.setColour (k == (int) t->enviaments.size() ? tema::suau : tema::linia2);
+                g.setFont (dibuix::lletra (10.5f));
+                g.drawText (k == (int) t->enviaments.size() ? juce::String ("+") : juce::String::fromUTF8 ("—"), z, juce::Justification::centred);
+                continue;
+            }
+            // Llumeta (color = mode; apagada si no envia), nom del bus i nivell.
+            const auto& e = t->enviaments[(size_t) k];
+            const int d = ed::pistaPerId (p, e.desti);
+            const bool encesa = e.actiu && ! e.mut;
+            const auto led = e.mode == 0 ? vintage::ledGroc : (e.mode == 2 ? vintage::ledBlau : vintage::ledVerd);
+            g.setColour (encesa ? led : tema::linia2);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ (float) z.getX() + 8.0f, (float) z.getCentreY() }));
+            g.setColour (encesa ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (10.0f));
+            g.drawText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("?"), z.withTrimmedLeft (15).withTrimmedRight (27),
+                        juce::Justification::centredLeft, true);
+            g.setColour (encesa ? tema::textMig : tema::suau);
+            g.setFont (dibuix::mono (9.5f));
+            g.drawText (e.nivellDb <= -59.9 ? juce::String ("-oo") : juce::String (e.nivellDb, 1), z.withTrimmedRight (3), juce::Justification::centredRight);
+        }
+        {
+            // On va el so: fletxa i nom del bus (o «Sortida»).
+            const auto z = ge.sortida;
+            const int d = ed::pistaPerId (p, t->sortida);
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (z.toFloat(), 3.0f);
+            const auto c = d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::suau;
+            juce::Path fletxa;
+            const float fx = (float) z.getX() + 5.0f, fy = (float) z.getCentreY();
+            fletxa.addTriangle (fx, fy - 4.0f, fx, fy + 4.0f, fx + 6.0f, fy);
+            g.setColour (c);
+            g.fillPath (fletxa);
+            g.setColour (d >= 0 ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (10.0f));
+            g.drawText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida"), z.withTrimmedLeft (15).withTrimmedRight (3),
+                        juce::Justification::centredLeft, true);
+        }
 
         const bool actiu = sona (p, *t);
         auto pomR = ge.pan.withWidth (44).withX (ge.pan.getX());
@@ -2620,13 +2673,20 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
 
         dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", t->mut, vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
-        dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
+        if (! mibase::esBus (*t)) dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
 
         dibuixEstudi::faderVertical (g, ge.fader.toFloat(), t->faderDb, color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
         vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
-        g.drawText (juce::String (i + 1) + "  " + (t->tipus == "bateria" ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
+        if (mibase::esBus (*t))
+        {
+            g.setColour (color);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawText (t->tipus == "fx" ? "RETORN FX" : "GRUP", ge.numero, juce::Justification::centred);
+        }
+        else
+            g.drawText (juce::String (i + 1) + "  " + (t->tipus == "bateria" ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
     }
     else
     {
@@ -2654,12 +2714,192 @@ void TaulaMescles::paint (juce::Graphics& g)
 
     juce::Graphics::ScopedSaveState guarda (g);
     g.reduceClipRegion (0, 0, rectMaster().getX() - 6, getHeight());
-    for (int i = 0; i < estat.numPistes(); ++i)
+    const auto ordre = ordreTires();
+    for (int lloc = 0; lloc < (int) ordre.size(); ++lloc)
     {
-        auto r = rectTira (i);
+        auto r = rectLloc (lloc);
         if (r.getRight() < 0 || r.getX() > getWidth()) continue;
-        pintaTira (g, r, i);
+        pintaTira (g, r, ordre[(size_t) lloc]);
     }
+    pintaNou (g);
+}
+
+void TaulaMescles::pintaNou (juce::Graphics& g)
+{
+    // 0.33: dos botons per fer busos, després de l'última tira.
+    const auto r = rectNou();
+    const char* textos[] = { "+ Grup", "+ Retorn" };
+    for (int k = 0; k < 2; ++k)
+    {
+        const auto z = juce::Rectangle<int> (r.getX() + 6, 14 + k * 30, r.getWidth() - 12, 24);
+        const auto c = k == 0 ? EstatEstudi::colorGrup : EstatEstudi::colorRetorn;
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRoundedRectangle (z.toFloat(), 4.0f);
+        g.setColour (c.withAlpha (0.8f));
+        g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 4.0f, 1.0f);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (11.0f, true));
+        g.drawText (textos[k], z, juce::Justification::centred);
+    }
+}
+
+std::vector<int> TaulaMescles::ordreTires() const
+{
+    std::vector<int> v;
+    const auto& ps = estat.projecte.pistes;
+    for (const char* tipus : { "", "bus", "fx" })
+        for (int i = 0; i < (int) ps.size(); ++i)
+            if (*tipus == 0 ? ! mibase::esBus (ps[(size_t) i]) : ps[(size_t) i].tipus == tipus) v.push_back (i);
+    return v;
+}
+
+juce::Rectangle<int> TaulaMescles::rectTira (int i) const
+{
+    const auto ordre = ordreTires();
+    for (int lloc = 0; lloc < (int) ordre.size(); ++lloc)
+        if (ordre[(size_t) lloc] == i) return rectLloc (lloc);
+    return {};
+}
+
+void TaulaMescles::canvia (const juce::String& evolucio, const std::function<void (mibase::Projecte&)>& f)
+{
+    comencaCanvi();
+    restaura();
+    f (estat.projecte);
+    acabaCanvi (evolucio);
+}
+
+void TaulaMescles::menuSortida (int pista)
+{
+    const auto& p = estat.projecte;
+    const auto& t = p.pistes[(size_t) pista];
+    juce::PopupMenu m;
+    m.addSectionHeader ("On va el so"_ca);
+    m.addItem (1, "Sortida", true, t.sortida.empty());
+    for (int i : ordreTires())   // només busos de grup (als retorns s'hi arriba amb els enviaments)
+        if (p.pistes[(size_t) i].tipus == "bus" && ed::potConnectar (p, t.id, p.pistes[(size_t) i].id))
+            m.addItem (100 + i, dibuix::utf8 (p.pistes[(size_t) i].nom), true, t.sortida == p.pistes[(size_t) i].id);
+    m.addSeparator();
+    m.addItem (2, "Bus de grup nou…"_ca);
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista] (int r)
+    {
+        if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
+        if (r == 2) { if (jo->onBusNou) jo->onBusNou (false, pista, true); return; }
+        const auto nom = dibuix::utf8 (jo->estat.projecte.pistes[(size_t) pista].nom);
+        const auto desti = r >= 100 && r - 100 < jo->estat.numPistes() ? jo->estat.projecte.pistes[(size_t) (r - 100)] : mibase::Pista();
+        jo->canvia ("«"_ca + nom + "» ara va a "_ca + (desti.id.empty() ? juce::String ("la sortida") : "«"_ca + dibuix::utf8 (desti.nom) + "»"_ca),
+                    [&] (mibase::Projecte& q) { ed::posaSortida (q, pista, desti.id); });
+    });
+}
+
+void TaulaMescles::menuEnviament (int pista, int k, bool nou)
+{
+    const auto& p = estat.projecte;
+    const auto& t = p.pistes[(size_t) pista];
+    juce::PopupMenu m, destins;
+    auto& on = nou ? m : destins;
+    if (nou) m.addSectionHeader ("Envia una còpia a"_ca);
+    bool algun = false;
+    for (const char* tipus : { "fx", "bus" })   // primer els retorns, després els grups
+    {
+        bool primer = true;
+        for (int i : ordreTires())
+            if (p.pistes[(size_t) i].tipus == tipus && ed::potConnectar (p, t.id, p.pistes[(size_t) i].id))
+            {
+                if (primer && algun) on.addSeparator();
+                primer = false;
+                on.addItem (100 + i, dibuix::utf8 (p.pistes[(size_t) i].nom), true, ! nou && t.enviaments[(size_t) k].desti == p.pistes[(size_t) i].id);
+                algun = true;
+            }
+    }
+    if (nou)
+    {
+        if (algun) m.addSeparator();
+        m.addItem (5, "Retorn FX nou…"_ca);
+    }
+    if (! nou)
+    {
+        const auto& e = t.enviaments[(size_t) k];
+        m.addItem (1, "Encès"_ca, true, e.actiu);
+        m.addItem (2, "Silenciat", true, e.mut);
+        m.addSeparator();
+        m.addItem (10, "Pre-fader (no segueix el fader)", true, e.mode == 0);
+        m.addItem (11, "Post-fader (segueix el fader)", true, e.mode == 1);
+        m.addItem (12, "Post-pan (segueix el fader i el panorama)", true, e.mode == 2);
+        m.addSeparator();
+        m.addSubMenu ("Canvia la destinació"_ca, destins);
+        m.addItem (3, "Ves al bus");
+        m.addSeparator();
+        m.addItem (4, "Treu l'enviament");
+    }
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista, k, nou] (int r)
+    {
+        if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
+        auto& est = jo->estat;
+        const auto& tt = est.projecte.pistes[(size_t) pista];
+        if (! nou && k >= (int) tt.enviaments.size()) return;
+        const auto nom = dibuix::utf8 (tt.nom);
+        if (r == 5) { if (jo->onBusNou) jo->onBusNou (true, pista, false); return; }
+        if (r == 3)
+        {
+            const int d = ed::pistaPerId (est.projecte, tt.enviaments[(size_t) k].desti);
+            if (d < 0) return;
+            est.capTriat();
+            est.pistaTriada = d;
+            jo->mostraTira (d);
+            est.avisa();
+            return;
+        }
+        if (r >= 100 && r - 100 < est.numPistes())
+        {
+            const auto desti = est.projecte.pistes[(size_t) (r - 100)];
+            jo->canvia ("«"_ca + nom + "» envia a «"_ca + dibuix::utf8 (desti.nom) + "»"_ca, [&] (mibase::Projecte& q)
+            {
+                if (nou) ed::afegeixEnviament (q, pista, desti.id);
+                else ed::destiEnviament (q, pista, k, desti.id);
+            });
+            return;
+        }
+        if (nou) return;
+        jo->canvia (r == 4 ? "«"_ca + nom + "»: enviament tret"_ca : juce::String(), [&] (mibase::Projecte& q)
+        {
+            auto& e = q.pistes[(size_t) pista].enviaments[(size_t) k];
+            if (r == 1) e.actiu = ! e.actiu;
+            else if (r == 2) e.mut = ! e.mut;
+            else if (r >= 10 && r <= 12) e.mode = r - 10;
+            else if (r == 4) ed::treuEnviament (q, pista, k);
+        });
+    });
+}
+
+void TaulaMescles::menuBus (int pista)
+{
+    juce::PopupMenu m;
+    m.addItem (1, "Canvia el nom…"_ca);
+    m.addSeparator();
+    m.addItem (2, "Esborra el bus");
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista] (int r)
+    {
+        if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
+        if (r == 1) { if (jo->onCanviaNom) jo->onCanviaNom (pista); return; }
+        const auto nom = dibuix::utf8 (jo->estat.projecte.pistes[(size_t) pista].nom);
+        jo->estat.capTriat();
+        jo->estat.pistaTriada = -1;
+        jo->canvia ("Bus esborrat: «"_ca + nom + "» (el que hi anava torna a la sortida)"_ca, [&] (mibase::Projecte& q) { ed::esborraPista (q, pista); });
+    });
+}
+
+void TaulaMescles::mostraTira (int i)
+{
+    const auto r = rectTira (i);
+    const int visible = rectMaster().getX() - 6;
+    if (r.getX() < 0) despl += r.getX();
+    else if (r.getRight() > visible) despl += r.getRight() - visible;
+    despl = juce::jmax (0, despl);
+    repaint();
 }
 
 bool TaulaMescles::troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla) const
@@ -2670,20 +2910,44 @@ bool TaulaMescles::troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla
     if (rectMaster().contains (p)) { quina = -1; r = rectMaster(); }
     else
     {
-        quina = tiraA (p.x);
-        if (quina < 0 || quina >= estat.numPistes() || p.x >= rectMaster().getX() - 6) return false;
-        r = rectTira (quina);
+        if (p.x >= rectMaster().getX() - 6) return false;
+        if (rectNou().contains (p))
+        {
+            // 0.33: els botons de bus nou.
+            for (int k = 0; k < 2; ++k)
+                if (juce::Rectangle<int> (rectNou().getX() + 6, 14 + k * 30, rectNou().getWidth() - 12, 24).contains (p))
+                {
+                    quina = -1; zona = Zona::BusNou; tecla = k;
+                    return true;
+                }
+            return false;
+        }
+        const auto ordre = ordreTires();
+        const int lloc = (p.x + despl) / ampleTira;
+        if (p.x + despl < 0 || lloc >= (int) ordre.size()) return false;
+        quina = ordre[(size_t) lloc];
+        r = rectLloc (lloc);
     }
     const auto ge = geo (r, quina < 0);
     if (quina >= 0)
         for (int k = 0; k < 3; ++k)
-            if (ge.tecles[(size_t) k].contains (p)) { zona = Zona::Tecla; tecla = k; return true; }
+            if (ge.tecles[(size_t) k].contains (p))
+            {
+                if (k == 2 && mibase::esBus (estat.projecte.pistes[(size_t) quina])) return true;   // un bus no grava
+                zona = Zona::Tecla; tecla = k;
+                return true;
+            }
     if (quina >= 0 && ge.pan.contains (p)) zona = Zona::Pan;
     else if (ge.fader.contains (p)) zona = Zona::Fader;
     else
     {
         for (int k = 0; k < numInserts; ++k) if (ge.inserts[(size_t) k].contains (p)) { zona = Zona::Insert; tecla = k; }
-        if (quina >= 0) for (auto& z : ge.envia) if (z.contains (p)) zona = Zona::Ranura;
+        if (quina >= 0)
+        {
+            for (int k = 0; k < numEnvia; ++k) if (ge.envia[(size_t) k].contains (p)) { zona = Zona::Envia; tecla = k; }
+            if (ge.sortida.contains (p)) zona = Zona::Sortida;
+            if (ge.nom.contains (p)) zona = Zona::Nom;
+        }
     }
     return true;
 }
@@ -2728,10 +2992,41 @@ void TaulaMescles::mouseDown (const juce::MouseEvent& e)
         estat.avisa();
         return;
     }
-    if (z == Zona::Ranura)
+    if (z == Zona::BusNou)
     {
-        estat.info = "Els enviaments a busos arriben més endavant."_ca;
+        if (onBusNou) onBusNou (k == 1, -1, false);
+        return;
+    }
+    if (z == Zona::Sortida)
+    {
         estat.avisa();
+        menuSortida (i);
+        return;
+    }
+    if (z == Zona::Nom)
+    {
+        estat.avisa();
+        if (e.mods.isPopupMenu() && mibase::esBus (estat.projecte.pistes[(size_t) i])) menuBus (i);
+        return;
+    }
+    if (z == Zona::Envia)
+    {
+        const auto& v = estat.projecte.pistes[(size_t) i].enviaments;
+        estat.info = "Enviament: arrossega amunt i avall = nivell (Maj: més fi; doble clic: 0 dB) · llumeta = encén/apaga · botó dret = mode, destinació, treure"_ca;
+        estat.avisa();
+        if (k >= (int) v.size()) { menuEnviament (i, (int) v.size(), true); return; }
+        if (e.mods.isPopupMenu()) { menuEnviament (i, k, false); return; }
+        const auto zona = geo (rectTira (i), false).envia[(size_t) k];
+        if (e.x < zona.getX() + 15)
+        {
+            canvia ({}, [&] (mibase::Projecte& q) { auto& x = q.pistes[(size_t) i].enviaments[(size_t) k]; x.actiu = ! x.actiu; });
+            return;
+        }
+        arrossega = z;
+        enviaK = k;
+        valor0 = EstatEstudi::posFader (v[(size_t) k].nivellDb);
+        ultimaY = e.position.y;
+        comencaCanvi();
         return;
     }
     if (z == Zona::Pan || z == Zona::Fader)
@@ -2758,6 +3053,17 @@ void TaulaMescles::mouseDrag (const juce::MouseEvent& e)
         valor0 = juce::jlimit (-1.0f, 1.0f, valor0 - dy / (fi ? 1500.0f : 150.0f));
         t.pan = std::abs (valor0) < 0.005f ? 0.0 : (double) valor0;
         estat.info = "Panorama de «"_ca + dibuix::utf8 (t.nom) + "»: "_ca + EstatEstudi::textPan (t.pan);
+    }
+    else if (arrossega == Zona::Envia && tira >= 0)
+    {
+        auto& t = estat.projecte.pistes[(size_t) tira];
+        if (enviaK < 0 || enviaK >= (int) t.enviaments.size()) return;
+        valor0 = juce::jlimit (0.0f, 1.0f, valor0 - dy / (fi ? 1500.0f : 150.0f));
+        auto& x = t.enviaments[(size_t) enviaK];
+        x.nivellDb = EstatEstudi::dbFader (valor0);
+        const int d = ed::pistaPerId (estat.projecte, x.desti);
+        estat.info = "Enviament de «"_ca + dibuix::utf8 (t.nom) + "» a «"_ca + (d >= 0 ? dibuix::utf8 (estat.projecte.pistes[(size_t) d].nom) : juce::String ("?"))
+                     + "»: "_ca + EstatEstudi::textDb (x.nivellDb);
     }
     else if (arrossega == Zona::Fader)
     {
@@ -2790,7 +3096,14 @@ void TaulaMescles::mouseDoubleClick (const juce::MouseEvent& e)
 {
     int i = -1, k = -1;
     Zona z;
-    if (! troba (e.getPosition(), i, z, k) || (z != Zona::Pan && z != Zona::Fader)) return;
+    if (! troba (e.getPosition(), i, z, k)) return;
+    if (z == Zona::Nom && i >= 0) { if (onCanviaNom) onCanviaNom (i); return; }
+    if (z == Zona::Envia && i >= 0 && k < (int) estat.projecte.pistes[(size_t) i].enviaments.size())
+    {
+        canvia ({}, [&] (mibase::Projecte& q) { q.pistes[(size_t) i].enviaments[(size_t) k].nivellDb = 0.0; });
+        return;
+    }
+    if (z != Zona::Pan && z != Zona::Fader) return;
     comencaCanvi();
     restaura();
     if (i < 0) estat.projecte.masterDb = 0.0;
@@ -2802,7 +3115,7 @@ void TaulaMescles::mouseDoubleClick (const juce::MouseEvent& e)
 void TaulaMescles::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
 {
     const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
-    const int maxim = juce::jmax (0, estat.numPistes() * ampleTira - (rectMaster().getX() - 6));
+    const int maxim = juce::jmax (0, estat.numPistes() * ampleTira + ampleNou - (rectMaster().getX() - 6));
     despl = juce::jlimit (0, maxim, despl - juce::roundToInt (d * 200.0f));
     repaint();
 }

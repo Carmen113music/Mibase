@@ -378,7 +378,14 @@ public:
         static const juce::uint32 colors[] = { 0xfff5c445, 0xff59d0d6, 0xffb18cff, 0xff7fd67a, 0xff6fa8ff, 0xffff8fc4, 0xffe8a87c, 0xffc9b8a6 };
         return juce::Colour (colors[(size_t) juce::jlimit (0, 7, i)]);
     }
-    static juce::Colour colorPista (const mibase::Pista& t) { return t.rgb != 0 ? juce::Colour (t.rgb) : colorPista (t.color); }
+    static juce::Colour colorPista (const mibase::Pista& t)
+    {
+        if (t.rgb != 0) return juce::Colour (t.rgb);
+        if (t.tipus == "bus") return colorGrup;     // 0.33: els busos tenen el seu color
+        if (t.tipus == "fx") return colorRetorn;
+        return colorPista (t.color);
+    }
+    static inline const juce::Colour colorGrup { 0xff5fd3b4 }, colorRetorn { 0xffe07be0 };
 
     static juce::String nomColor (int i)
     {

@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <set>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -144,6 +145,7 @@ namespace
 #include "proves_gm.inc"
 #include "proves_031.inc"
 #include "proves_032.inc"
+#include "proves_033.inc"
 
 int main()
 {
@@ -2270,6 +2272,7 @@ int main()
     provesGeneralMidi();
     proves031();
     proves032();
+    proves033();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

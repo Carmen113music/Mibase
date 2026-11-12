@@ -156,6 +156,17 @@ namespace mibase
         bool operator== (const FilaBateria&) const = default;
     };
 
+    /** 0.33: un enviament d'una pista o d'un bus cap a un altre bus (una còpia del so; no toca el senyal original). */
+    struct Enviament
+    {
+        std::string id;          // «v1», «v2»…
+        std::string desti;       // id del bus on va
+        double nivellDb = 0.0;   // de -60 (silenci) a +6
+        double pan = 0.0;        // de -1 a +1
+        bool actiu = true, mut = false;
+        int mode = 1;            // 0 pre-fader, 1 post-fader (abans del panorama), 2 post-pan
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
@@ -189,10 +200,15 @@ namespace mibase
         std::string kit;                           // bateria: nom del kit d'on surten els sons
         bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
         ParamsSampler sampler;                     // 0.26: instrument «sampler»
+        // ---- 0.33 ----
+        std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        std::vector<Enviament> enviaments;
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+    /** 0.33: és un bus (de grup, «bus», o retorn d'efectes, «fx»): no té clips, suma el que li arriba. */
+    inline bool esBus (const Pista& t) noexcept { return t.tipus == "bus" || t.tipus == "fx"; }
     /** 0.26: és una pista d'instrument amb el samplejador. */
     inline bool esSampler (const Pista& t) noexcept { return t.tipus == "midi" && t.instrument == instrumentSampler; }
 

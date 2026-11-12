@@ -94,6 +94,24 @@ namespace mibase::edicio
     /** Com es veu cada pista a la taula de treball: 0 = amagada, 1 = normal, 2 = fila de la carpeta plegada
         (la primera pista de la carpeta; la resta, amagades). */
     std::vector<int> filesVisibles (const Projecte& p);
+    // ---- 0.33: busos i enviaments ----
+    /** Bus nou al final de la llista (de grup, o retorn d'efectes si «fx»). Sempre estèreo. */
+    Pista& afegeixBus (Projecte& p, const std::string& nom, bool fx);
+    /** Índex de la pista amb aquest id (-1 si no hi és). */
+    int pistaPerId (const Projecte& p, const std::string& id) noexcept;
+    /** Es pot connectar «origen» (sortida o enviament) a «desti»? «desti» ha de ser un bus i no pot tancar un cercle. */
+    bool potConnectar (const Projecte& p, const std::string& origen, const std::string& desti);
+    /** Sortida d'una pista: id d'un bus, o buit per a la sortida. Si no es pot (cercle), no canvia res i torna false. */
+    bool posaSortida (Projecte& p, int pista, const std::string& bus);
+    /** Enviament nou (post-fader, 0 dB, al mig). Torna'n l'índex, o -1 si no es pot. */
+    int afegeixEnviament (Projecte& p, int pista, const std::string& bus);
+    /** Canvia la destinació d'un enviament (false si no es pot). */
+    bool destiEnviament (Projecte& p, int pista, int quin, const std::string& bus);
+    void treuEnviament (Projecte& p, int pista, int quin);
+    /** Per a cada pista: 0 = callada, 1 = només sonen els seus enviaments (alimenta un retorn en solo),
+        2 = sona. Té en compte els muts i els solos: una pista en solo manté els busos per on passa i els
+        retorns on envia; un bus en solo manté el que l'alimenta. */
+    std::vector<int> estatSolo (const Projecte& p);
     /** Només una pista pot tenir el botó de gravar encès. */
     void triaGravacio (Projecte& p, int pista);
     std::string nomPistaLliure (const Projecte& p, const std::string& base);

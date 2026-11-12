@@ -261,27 +261,41 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override;
 
     static constexpr int ampleTira = 100;
-    static constexpr int numInserts = 4, numEnvia = 2;
+    static constexpr int numInserts = 4, numEnvia = 4;
+    static constexpr int ampleNou = 74;   // 0.33: la columna dels botons de bus nou
     GestorPlugins* plugins = nullptr;   // 0.20: per als inserts
+    std::function<void (int pista)> onCanviaNom;
+    /** 0.33: demana el nom i crea un bus (de grup o retorn). Si «pista» >= 0, aquella pista hi queda connectada:
+        amb la sortida («comSortida») o amb un enviament nou. */
+    std::function<void (bool fx, int pista, bool comSortida)> onBusNou;
 
 private:
     struct Geo
     {
-        juce::Rectangle<int> nom, etInserts, etEnvia, pan, fader, lcd, numero;
+        juce::Rectangle<int> nom, etInserts, etEnvia, sortida, pan, fader, lcd, numero;
         std::array<juce::Rectangle<int>, numInserts> inserts;
         std::array<juce::Rectangle<int>, numEnvia> envia;
         std::array<juce::Rectangle<int>, 3> tecles;
     };
-    enum class Zona { Res, Tecla, Pan, Fader, Ranura, Insert };
+    enum class Zona { Res, Tecla, Pan, Fader, Envia, Insert, Sortida, Nom, BusNou };
 
     Geo geo (juce::Rectangle<int> tira, bool master) const;
     void pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i);   // i < 0: la sortida
     bool troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla) const;
-    juce::Rectangle<int> rectTira (int i) const { return { i * ampleTira - despl, 0, ampleTira, getHeight() }; }
+    /** 0.33: ordre de les tires: primer les pistes, després els busos de grup i al final els retorns. */
+    std::vector<int> ordreTires() const;
+    juce::Rectangle<int> rectLloc (int lloc) const { return { lloc * ampleTira - despl, 0, ampleTira, getHeight() }; }
+    juce::Rectangle<int> rectTira (int i) const;      // i = índex de la pista
+    juce::Rectangle<int> rectNou() const { return rectLloc (estat.numPistes()).withWidth (ampleNou); }
     juce::Rectangle<int> rectMaster() const { return { getWidth() - ampleTira - 4, 0, ampleTira, getHeight() }; }
-    int tiraA (int x) const { return (x + despl) / ampleTira; }
+    void pintaNou (juce::Graphics& g);
+    void mostraTira (int i);
+    void menuEnviament (int pista, int k, bool nou);
+    void menuSortida (int pista);
+    void menuBus (int pista);
+    void canvia (const juce::String& evolucio, const std::function<void (mibase::Projecte&)>& f);
 
-    int despl = 0, tira = -1;
+    int despl = 0, tira = -1, enviaK = -1;
     Zona arrossega = Zona::Res;
     float valor0 = 0.0f, ultimaY = 0.0f;
 };
