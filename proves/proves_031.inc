@@ -112,5 +112,31 @@ namespace
             comprova (std::abs (L[(size_t) (2.5 * 48000)] - 0.5f) < 0.002f, "a mig fade: 50 % i 50 %");
             comprova (pla->pistes[0].clips[0].tapes.size() == 1 && pla->pistes[0].clips[1].tapes.empty(), "només el de sota fa el contrari");
         });
+
+        prova ("crossfade amb la selecció i la X: el volum queda pla (sense baixar dues vegades)", [audioConstant]
+        {
+            Projecte q;
+            afegeixPista (q, "A", "audio");
+            q.clic = false;
+            const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 4.0).id;
+            const auto s2 = afegeixPresa (q, "Àudios/b.wav", "b", 4.0).id;
+            afegeixClip (q, 0, s1, 0.0);   // esquerra: 0..4 s
+            afegeixClip (q, 0, s2, 2.0);   // dreta: 2..6 s (a sobre)
+            comprova (crossfade (q, 0, 2.0, 3.0), "es fa el crossfade del tros 2..3 s");
+            MapaAudios m;
+            m[s1] = audioConstant (48000.0, 4.0, 0.5f);
+            m[s2] = audioConstant (48000.0, 4.0, 0.5f);
+            auto pla = construeixPla (q, m);
+            Mesclador mx;
+            mx.prepara (48000.0, 512);
+            const int total = 48000 * 6;
+            std::vector<float> L ((size_t) total), R ((size_t) total);
+            for (int p = 0; p < total; p += 512)
+                mx.processa (*pla, p, std::min (512, total - p), L.data() + p, R.data() + p, false, nullptr);
+            float maxErr = 0.0f;
+            for (int i = 1000; i < 6 * 48000 - 1000; i += 37) maxErr = std::max (maxErr, std::abs (L[(size_t) i] - 0.5f));
+            comprova (maxErr < 0.002f, "pla de cap a cap (error " + std::to_string (maxErr) + ")");
+            comprova (std::abs (L[(size_t) (2.5 * 48000)] - 0.5f) < 0.002f, "a mig crossfade, 50 % i 50 % (no 75 %)");
+        });
     }
 }

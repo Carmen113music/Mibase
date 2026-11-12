@@ -184,8 +184,17 @@ namespace mibase
                     // 0.31.1: i hi fa el fade contrari (si els fades del de dalt toquen aquest clip)
                     const double c0 = c.pos + c.inici, c1 = c.pos + c.fi, u0 = u.pos + u.inici, u1 = u.pos + u.fi;
                     const bool tocaIn = u.fadeIn > 0.0 && u0 < c1 && a > c0, tocaOut = u.fadeOut > 0.0 && b < c1 && u1 > c0;
-                    if ((tocaIn || tocaOut) && u0 < c1 && u1 > c0)
-                        c.tapes.push_back ({ u0, u0 + u.fadeIn, u1 - u.fadeOut, u1 });
+                    // 0.32: si el de sota ja fa el seu fade en aquell tros (el crossfade fet amb la selecció i la X posa el
+                    // fade out al de sota i el fade in al de dalt), no se n'hi afegeix cap altre: baixaria dues vegades.
+                    const double eps = 1.0e-6;
+                    const bool jaSurt = c.fadeOut > 0.0 && c1 <= u0 + u.fadeIn + eps;    // el de sota s'acaba fent fade out dins el fade in del de dalt
+                    const bool jaEntra = c.fadeIn > 0.0 && c0 >= u1 - u.fadeOut - eps;   // el de sota comença fent fade in dins el fade out del de dalt
+                    Pla::Clip::Tapa x { u0, u0 + u.fadeIn, u1 - u.fadeOut, u1 };
+                    bool posaIn = tocaIn && ! jaSurt, posaOut = tocaOut && ! jaEntra;
+                    if (! posaIn) { x.a0 = x.b0; x.a1 = x.b0; }
+                    if (! posaOut) { x.b0 = x.a1; x.b1 = x.a1; if (! posaIn) x.b1 = x.a0; }
+                    if ((posaIn || posaOut) && u0 < c1 && u1 > c0)
+                        c.tapes.push_back (x);
                     if (b <= a) continue;
                     std::vector<std::pair<double, double>> nous;
                     for (auto& t : trams)

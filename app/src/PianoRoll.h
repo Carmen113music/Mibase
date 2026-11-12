@@ -326,6 +326,8 @@ private:
     Segmentat voicingPads { { "Tancat", "Obert", "Guitarra" } };
     Boto btRasgueig { "Rasgueig", std::nullopt, Boto::Estil::Secundari };   // 0.29: només amb «Guitarra»
     std::string rasgueigPads = "folk";                                      // id del patró; buit = acord sencer, sense ritme
+    double variacioRasgueig = 0.5;                                          // 0.32: 0 cap, 0.25 poca, 0.5 normal, 1 molta
+    mutable unsigned llavorRasgueig = 1;                                    // 0.32: nova a cada pad arrossegat
     Segmentat selDuradaPads { { "1 compàs"_ca, "1/2", "1/4" } };
     Boto btMinimPads { "Mov. mínim"_ca, std::nullopt, Boto::Estil::Tecla };
     int padPremut = -1, padSobre = -1;

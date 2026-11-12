@@ -1205,6 +1205,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
                 const int i = padPremut;
                 padPremut = -1;
                 mode = Mode::Res;
+                llavorRasgueig = (unsigned) juce::Random::getSystemRandom().nextInt (0x7fffffff) + 1u;   // 0.32: cada acord, la seva variació
                 arrossegaAcord (*this, estat, notesPadPremut, juce::String::fromUTF8 (padsActuals()[(size_t) i].c_str()), duradaPads(),
                                 btMinimPads.getToggleState(), rasgueigDe (notesPadPremut));
                 repaint();
@@ -2511,22 +2512,49 @@ std::vector<Nota> PianoRoll::rasgueigDe (const std::vector<int>& cordes) const
     guitarra::Opcions o;
     o.vel = juce::jmax (30, velNova.getValor() - 12);   // els accents pugen fins a +32: que «Vel 100» no saturi
     o.tempo = edicio::tramA (estat.projecte, estat.capcal).tempo;
+    o.variacio = variacioRasgueig;   // 0.32
+    o.llavor = llavorRasgueig;
     return guitarra::rasgueja (cordes, *p, duradaPads(), o);
 }
 
 void PianoRoll::menuRasgueig()
 {
+    // 0.32: per grups (els bàsics i els dels PDF d'en Roger) i la variació
     juce::PopupMenu m;
     m.addItem (1, "Sense ritme (l'acord sencer, amb la posició de guitarra)"_ca, true, rasgueigPads.empty());
     m.addSeparator();
     const auto& v = guitarra::patrons();
-    for (int i = 0; i < (int) v.size(); ++i)
-        m.addItem (10 + i, juce::String::fromUTF8 (v[(size_t) i].nom.c_str()) + (v[(size_t) i].pasTicks > 0 ? "     " + juce::String::fromUTF8 (v[(size_t) i].dibuix.c_str()) : juce::String()),
-                   true, rasgueigPads == v[(size_t) i].id);
+    std::vector<std::string> grups;
+    for (auto& p : v) if (std::find (grups.begin(), grups.end(), p.grup) == grups.end()) grups.push_back (p.grup);
+    for (auto& g : grups)
+    {
+        juce::PopupMenu sub;
+        bool hiEs = false;
+        for (int i = 0; i < (int) v.size(); ++i)
+        {
+            const auto& p = v[(size_t) i];
+            if (p.grup != g) continue;
+            auto text = juce::String::fromUTF8 (p.nom.c_str());
+            if (p.pasTicks > 0)
+                text += (p.compas != "4/4" && p.nom.find (p.compas) == std::string::npos ? "  (" + juce::String (p.compas) + ")" : juce::String())
+                        + "     " + juce::String::fromUTF8 (p.dibuix.c_str());
+            sub.addItem (10 + i, text, true, rasgueigPads == p.id);
+            hiEs = hiEs || rasgueigPads == p.id;
+        }
+        m.addSubMenu (juce::String::fromUTF8 (g.c_str()), sub, true, juce::Image(), hiEs);
+    }
+    m.addSeparator();
+    juce::PopupMenu var;
+    const std::pair<double, const char*> nivells[] = { { 0.0, "Cap (sempre igual)" }, { 0.25, "Poca" }, { 0.5, "Normal" }, { 1.0, "Molta" } };
+    for (int k = 0; k < 4; ++k)
+        var.addItem (5 + k, juce::String::fromUTF8 (nivells[k].second), true, std::abs (variacioRasgueig - nivells[k].first) < 0.01);
+    m.addSubMenu ("Variació (cada compàs una mica diferent)"_ca, var);
+    m.addSectionHeader ("Llegenda: p palm · x nota morta · s slap · b greu · t agudes · > accent"_ca);
     juce::Component::SafePointer<PianoRoll> jo (this);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btRasgueig), [jo] (int r)
     {
         if (jo == nullptr || r <= 0) return;
+        if (r >= 5 && r <= 8) { const double nv[] = { 0.0, 0.25, 0.5, 1.0 }; jo->variacioRasgueig = nv[r - 5]; return; }
         jo->rasgueigPads = r == 1 ? std::string() : guitarra::patrons()[(size_t) (r - 10)].id;
         jo->actualitzaControlsPads();
         jo->repaint();

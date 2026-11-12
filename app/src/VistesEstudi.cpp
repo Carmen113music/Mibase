@@ -1173,6 +1173,11 @@ void VistaPistes::mouseMove (const juce::MouseEvent& e)
         setMouseCursor (l.pistaNova ? juce::MouseCursor::PointingHandCursor : cursor (estat.eina));
         return;
     }
+    if (e.mods.isShiftDown() && ! e.mods.isCommandDown() && l.pista >= 0)
+    {
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);   // 0.32: amb Maj només se selecciona
+        return;
+    }
 
     switch (l.maneta)
     {
@@ -1405,6 +1410,19 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
     auto& t = estat.projecte.pistes[(size_t) lloc0.pista];
     estat.rang.actiu = false;
 
+    // 0.32: amb Maj, el ratolí només selecciona (requadre o tros): mai mou, retalla ni toca els fades, encara que el clip
+    // ja estigui triat. Un clic sense arrossegar fa com abans (tria els clips de la pista fins a aquest).
+    nomesSeleccio = e.mods.isShiftDown() && ! e.mods.isCommandDown();
+    if (nomesSeleccio)
+    {
+        estat.pistaTriada = lloc0.pista;
+        triatsOriginals = estat.triats;
+        mode = Mode::Requadre;
+        puntRequadre = inici;
+        estat.avisa();
+        return;
+    }
+
     if (lloc0.maneta != Maneta::Cap)
     {
         auto& c = t.clips[(size_t) lloc0.clip];
@@ -1520,7 +1538,7 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
     // 0.29: un clip d'àudio arrossegat fora de les pistes es pot deixar al samplejador
     const auto clipFora = [&]
     {
-        if (! (mode == Mode::Decidint || mode == Mode::MouTemps || mode == Mode::MouPista || (mode == Mode::Requadre && lloc0.clip >= 0))) return false;
+        if (! (mode == Mode::Decidint || mode == Mode::MouTemps || mode == Mode::MouPista || (mode == Mode::Requadre && lloc0.clip >= 0 && ! nomesSeleccio))) return false;
         if (! arrossegaFora || ! arrossegaFora (e.getScreenPosition())) return false;
         // movent, el projecte bo és la còpia d'abans de moure; fent un requadre, no s'ha mogut res
         const auto& pr = mode == Mode::Requadre ? estat.projecte : copiaInici;
@@ -1727,6 +1745,28 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             break;
 
         case Mode::Requadre:
+            if (nomesSeleccio && e.getDistanceFromDragStart() < 4 && lloc0.pista >= 0 && lloc0.clip >= 0 && lloc0.pista < estat.numPistes())
+            {
+                // Maj + clic sense arrossegar: tots els de la pista entre l'últim triat i aquest (com abans)
+                const auto& t = estat.projecte.pistes[(size_t) lloc0.pista];
+                if (lloc0.clip < (int) t.clips.size())
+                {
+                    if (! estat.triats.empty() && estat.triats.back().pista == lloc0.pista && estat.triats.back().clip < (int) t.clips.size())
+                    {
+                        const double a = t.clips[(size_t) estat.triats.back().clip].iniciVisible();
+                        const double b = t.clips[(size_t) lloc0.clip].iniciVisible();
+                        for (int k = 0; k < (int) t.clips.size(); ++k)
+                        {
+                            const double x = t.clips[(size_t) k].iniciVisible();
+                            if (x >= juce::jmin (a, b) - 1e-9 && x <= juce::jmax (a, b) + 1e-9 && ! estat.clipTriat (lloc0.pista, k))
+                                estat.triats.push_back ({ lloc0.pista, k });
+                        }
+                    }
+                    else if (! estat.clipTriat (lloc0.pista, lloc0.clip))
+                        estat.triats.push_back ({ lloc0.pista, lloc0.clip });
+                }
+            }
+            nomesSeleccio = false;
             if (estat.triats.size() == 1) estat.pistaTriada = estat.triats[0].pista;
             if (! estat.rang.actiu && estat.triats.empty()) estat.info.clear();
             estat.avisa();

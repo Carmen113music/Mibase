@@ -130,6 +130,12 @@ public:
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;
+    void modifierKeysChanged (const juce::ModifierKeys& m) override   // 0.32: el cursor de Maj sense haver de moure el ratolí
+    {
+        if (! isMouseOver() || estat.eina != Eina::Fletxa || mode != Mode::Res) return;
+        if (m.isShiftDown() && ! m.isCommandDown()) setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        else setMouseCursor (juce::MouseCursor::NormalCursor);
+    }
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
@@ -178,6 +184,7 @@ private:
     double t0 = 0.0, punt0 = 0.0, bandera0 = 0.0, guany0 = 0.0, tLlapis = 0.0, tTisores = -1.0;
     int filaDeixar = -2;
     std::vector<mibase::edicio::RefClip> triatsOriginals;
+    bool nomesSeleccio = false;   // 0.32: Maj premut en clicar: el ratolí només selecciona (no mou ni retalla)
     juce::Point<int> puntCola, puntRequadre;
 };
 

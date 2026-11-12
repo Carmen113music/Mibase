@@ -22,6 +22,7 @@
 #include "mibase/Bateria.h"
 
 #include <algorithm>
+#include <set>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -142,6 +143,7 @@ namespace
 #include "proves_guitarra.inc"
 #include "proves_gm.inc"
 #include "proves_031.inc"
+#include "proves_032.inc"
 
 int main()
 {
@@ -2267,6 +2269,7 @@ int main()
     provesGuitarra();
     provesGeneralMidi();
     proves031();
+    proves032();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
