@@ -19,13 +19,15 @@ namespace
 class PanellHarmonia::Contingut : public juce::Component
 {
 public:
+    void obreMenuInstrument (juce::Component& b) { ancora = &b; menuInstrument(); }   // 0.38
+    void obreMenuSo (juce::Component& b) { ancora = &b; menuSo(); }
     Contingut (EstatEstudi& es, std::function<PianoRoll*()> ed, juce::PropertiesFile& aj, std::function<juce::Array<juce::MidiDeviceInfo>()> tec)
         : estat (es), editor (std::move (ed)), ajustos (aj), teclats (std::move (tec))
     {
         // ---- Pista ----
-        btInstrument.onClick = [this] { menuInstrument(); };
+        btInstrument.onClick = [this] { ancora = nullptr; menuInstrument(); };
         btInstrument.setTooltip ("Qui fa el so de la pista (els plugins VST3 arribaran a la versió següent)"_ca);
-        btSo.onClick = [this] { menuSo(); };
+        btSo.onClick = [this] { ancora = nullptr; menuSo(); };
         btSo.setTooltip ("So (preset) del sinte intern"_ca);
         btTeclat.onClick = [this] { menuTeclat(); };
         btTeclat.setTooltip ("Quin teclat MIDI toca aquesta pista. «Qualsevol»: el que toca la pista triada. "
@@ -530,6 +532,7 @@ private:
         });
     }
 
+    juce::Component::SafePointer<juce::Component> ancora;   // 0.38: el botó d'on surt el menú (si no és el del panell)
     void menuInstrument()
     {
         auto* t = pistaEditor();
@@ -542,7 +545,7 @@ private:
         m.addItem (3, "Samplejador"_ca, true, sampler);
         m.addSeparator();
         m.addItem (2, "Plugins VST3: a la columna esquerra de la taula de treball"_ca, false);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this] (int r)
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (ancora != nullptr ? ancora.getComponent() : &btInstrument), [this] (int r)
         {
             auto* p = pistaEditor();
             if (p == nullptr) return;
@@ -570,7 +573,7 @@ private:
             m.addItem (k + 1, txt (midi::sonsInterns()[(size_t) k].nom), true, actual == k && gm < 0);
         m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSo), [this] (int r)
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (ancora != nullptr ? ancora.getComponent() : &btSo), [this] (int r)
         {
             if (r <= 0) return;
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
@@ -852,6 +855,9 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
     estat.addChangeListener (this);
     startTimerHz (10);
 }
+
+void PanellHarmonia::menuInstrument (juce::Component& boto) { contingut->obreMenuInstrument (boto); }
+void PanellHarmonia::menuSo (juce::Component& boto) { contingut->obreMenuSo (boto); }
 
 PanellHarmonia::~PanellHarmonia()
 {

@@ -39,6 +39,71 @@ private:
     int mn, mx, valor, perDefecte, valor0 = 0;
 };
 
+/** 0.38: les pestanyes de sota de l'editor: amb quina eina es treballa el clip (Piano Roll, Chord Pad, Drumpad, patrons).
+    Les eines escriuen notes; el so el fa l'instrument de la pista. */
+class PestanyesEina : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    static constexpr int quantes = 5;
+    std::function<void (int)> onTria;
+    PestanyesEina() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+    void posa (int triada, std::array<bool, quantes> disponibles)
+    {
+        if (triada == activa && disponibles == actives) return;
+        activa = triada; actives = disponibles; repaint();
+    }
+    static juce::String nom (int i)
+    {
+        switch (i)
+        {
+            case 0: return "Piano Roll";
+            case 1: return "Chord Pad";
+            case 2: return "Drumpad";
+            case 3: return juce::String::fromUTF8 ("Patrons de guitarra");
+            default: return juce::String::fromUTF8 ("Patrons de piano");
+        }
+    }
+    juce::Rectangle<int> rect (int i) const
+    {
+        const int w = juce::jlimit (70, 170, (getWidth() - 12) / quantes);
+        return { 6 + i * w, 0, w - 2, getHeight() };
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (tema::lateral);
+        g.setColour (tema::linia2);
+        g.fillRect (0, 0, getWidth(), 1);
+        for (int i = 0; i < quantes; ++i)
+        {
+            auto r = rect (i).toFloat();
+            const bool a = i == activa;
+            if (a)
+            {
+                g.setColour (tema::fons);
+                g.fillRoundedRectangle (r.withTrimmedBottom (3.0f).withTop (-4.0f), 4.0f);
+                g.setColour (tema::accent);
+                g.fillRect (r.getX() + 8.0f, r.getBottom() - 6.0f, r.getWidth() - 16.0f, 2.0f);
+            }
+            else if (i == sobre && actives[(size_t) i])
+            {
+                g.setColour (tema::linia2.withAlpha (0.6f));
+                g.fillRoundedRectangle (r.withTrimmedBottom (3.0f).withTop (-4.0f), 4.0f);
+            }
+            g.setFont (dibuix::lletra (12.0f, a));
+            g.setColour (a ? tema::text : actives[(size_t) i] ? tema::suau : tema::suau.withAlpha (0.4f));
+            g.drawFittedText (nom (i), rect (i).reduced (4, 0).withTrimmedBottom (5), juce::Justification::centred, 1, 0.75f);
+        }
+    }
+    void mouseMove (const juce::MouseEvent& e) override { const int k = a (e.getPosition()); if (k != sobre) { sobre = k; repaint(); } }
+    void mouseExit (const juce::MouseEvent&) override { sobre = -1; repaint(); }
+    void mouseDown (const juce::MouseEvent& e) override { const int k = a (e.getPosition()); if (k >= 0 && onTria) onTria (k); }
+
+private:
+    int a (juce::Point<int> p) const { for (int i = 0; i < quantes; ++i) if (rect (i).contains (p)) return i; return -1; }
+    int activa = 0, sobre = -1;
+    std::array<bool, quantes> actives { true, true, false, false, false };
+};
+
 /** Un Piano Roll: editor d'un clip MIDI (el de EstatEstudi::editors[index]). N'hi pot haver fins a 3 apilats;
     tots comparteixen la vista horitzontal (EstatEstudi::vistaEditors), cadascun té la seva alçada de notes.
     Teclat vertical, regla, graella sincronitzada amb el tempo i el compàs del projecte, notes i carril de velocitats.
@@ -135,7 +200,9 @@ public:
 
     enum class EinaPR { Fletxa = 0, Llapis, Goma };
 
-    static constexpr int alcadaBarra = 46, ampleOctava = 18, alcadaRegla = 22, gruix = 10;
+    static constexpr int alcadaBarra = 46, ampleOctava = 18, alcadaRegla = 22, gruix = 10, alcadaPestanyes = 26;
+    /** 0.38: els menús d'instrument i de so de la pista, des de la barra del Chord Pad (el botó on s'han d'obrir). */
+    std::function<void (juce::Component&)> onMenuInstrument, onMenuSo;
 
 protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -319,7 +386,12 @@ private:
     bool reglaBucle = false;                                 // 0.24: arrossegant la regla es fa el bucle
     juce::Point<float> ratoli { -1.0f, -1.0f };   // per dibuixar el segell
 
-    Segmentat selMode { { "Notes", "Chord Pad" } };
+    PestanyesEina pestanyes;                                                // 0.38: l'eina, a sota
+    Boto btInstrPads { "Instrument", std::nullopt, Boto::Estil::Secundari };   // 0.38: què sona (Chord Pad)
+    Boto btSoPads { "So", std::nullopt, Boto::Estil::Secundari };
+    void triaPestanya (int i);
+    void actualitzaPestanyes();
+    int baix() const { return getHeight() - gruix - alcadaPestanyes; }    // on s'acaba la graella o el carril
     Boto btPresetPads { "Acords de la tonalitat", std::nullopt, Boto::Estil::Secundari };
     Boto btLlapisPads { "Edita", dibuix::Icona::Llapis, Boto::Estil::Tecla };
     CaixaNumero octavaPads { "Octava", 1, 7, 4 };

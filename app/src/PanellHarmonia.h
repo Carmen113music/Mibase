@@ -26,6 +26,9 @@ public:
     void paint (juce::Graphics& g) override;
     /** 0.26: obre l'editor del samplejador de la pista (si l'instrument és el samplejador). */
     std::function<void()> onObreSampler;
+    /** 0.38: els mateixos menús d'instrument i de so, oberts des d'un botó de l'eina (el Chord Pad). */
+    void menuInstrument (juce::Component& boto);
+    void menuSo (juce::Component& boto);
 
 private:
     class Contingut;

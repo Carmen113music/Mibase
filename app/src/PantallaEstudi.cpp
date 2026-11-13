@@ -2093,6 +2093,8 @@ void PantallaEstudi::configuraEditor (PianoRoll& pr)
         juce::MessageManager::callAsync ([jo, i] { if (jo != nullptr) jo->tancaEditor (i); });   // no es pot esborrar l'editor des de dins seu
     };
     pr.onVistaCanviada = [this] { zonaEditors.repintaTots(); };
+    pr.onMenuInstrument = [this] (juce::Component& b) { panellHarmonia.menuInstrument (b); };   // 0.38
+    pr.onMenuSo = [this] (juce::Component& b) { panellHarmonia.menuSo (b); };
     pr.onActiu = [this] { zonaEditors.repintaTots(); esquerra.repaint(); estat.avisa(); };
 }
 
