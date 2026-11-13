@@ -15,12 +15,16 @@
 #include "mibase/Midi.h"
 #include "mibase/SinteIntern.h"
 #include "mibase/Harmonia.h"
+#include "mibase/Guitarra.h"
+#include "mibase/GeneralMidi.h"
 #include "mibase/PresetsPads.h"
 #include "mibase/TeclatAcords.h"
 #include "mibase/Bateria.h"
 
 #include <algorithm>
+#include <set>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -137,6 +141,14 @@ namespace
 #include "proves_sampler.inc"
 #include "proves_biblioteca.inc"
 #include "proves_tempo.inc"
+#include "proves_guitarra.inc"
+#include "proves_gm.inc"
+#include "proves_031.inc"
+#include "proves_032.inc"
+#include "proves_034.inc"
+#include "proves_036.inc"
+#include "proves_033.inc"
+#include "proves_040.inc"
 
 int main()
 {
@@ -765,6 +777,7 @@ int main()
         for (int c = 0; c < canals; ++c) a->dades[c].assign ((size_t) a->longitud, c == 0 ? valor : -valor);
         return a;
     };
+    provesCrossfade (audioConstant);   // 0.31.1
 
     prova ("WAV: escriure i tornar a llegir (24 bits, estèreo, accents al camí)", [&]
     {
@@ -2229,9 +2242,9 @@ int main()
         fs::create_directories (arrel);
         auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-07T12:00:00", "07/11/2026 12:00");
         auto l = mibase::disc::llegeix (rc.fitxer);
-        comprova (l && l->pistes.size() == 1 && l->pistes[0].tipus == "bateria" && l->pistes[0].files == q.pistes[0].files
+        comprova (l && l->pistes.size() == 1 && l->pistes[0].tipus == "midi" && mibase::esKit (l->pistes[0]) && l->pistes[0].files == q.pistes[0].files
                   && l->pistes[0].padsPerOrdre && ! l->pistes[0].escalaTeclat && l->pistes[0].clips[0].notes.size() == c.notes.size(),
-                  "la pista de bateria es desa i es llegeix igual");
+                  "la pista de bateria es desa i es llegeix igual (0.39: un projecte antic amb tipus «bateria» es converteix en pista d'instrument amb el kit)");
         comprova (mibase::esMidi (t) && mibase::midi::compatible (t, c), "una pista de bateria és MIDI");
 
         auto sampler = [&] (const Pista& p) -> std::shared_ptr<Instrument>
@@ -2258,6 +2271,14 @@ int main()
     provesSampler();
     provesBiblioteca();
     provesTempo();
+    provesGuitarra();
+    provesGeneralMidi();
+    proves031();
+    proves032();
+    proves034();
+    proves036();
+    proves033();
+    proves040();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

@@ -20,6 +20,7 @@ namespace mibase::biblioteca
         std::string tonalitat;                 // «A3», «C#4»… o buit
         std::string forma;                     // 0.27: «One-shot» o «Loop» (buit: encara no se sap)
         long long data = 0;                    // quan es va afegir (ms des de 1970)
+        bool favorit = false;                  // 0.31: marcat com a favorit
     };
 
     struct Index
@@ -65,7 +66,7 @@ namespace mibase::biblioteca
                              const std::string& forma = {});
     /** 0.28: amb diverses categories i formes triades alhora (llista buida = totes). */
     std::vector<int> filtra (const Index& index, const std::string& text, const std::vector<std::string>& categories,
-                             const std::vector<std::string>& formes, Ordre ordre, bool descendent);
+                             const std::vector<std::string>& formes, Ordre ordre, bool descendent, bool nomesFavorits = false);
 
     /** Etiquetes a partir d'un text («veu, crit; futbol» → veu, crit, futbol). */
     std::vector<std::string> etiquetesDeText (const std::string& text);

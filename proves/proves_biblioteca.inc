@@ -1,5 +1,7 @@
 // 0.27: proves de la biblioteca de samples (índex, categories, cerca, ordre).
 #include "mibase/Biblioteca.h"
+#include <chrono>
+#include <fstream>
 
 namespace
 {
@@ -94,6 +96,34 @@ namespace
             auto n = bb::filtra (r, "", "", bb::Ordre::Nom, false);
             comprova (r.samples[(size_t) n[0]].nom == "Gooool", "ordena per nom");
             comprova (bb::nomLliure (dir, "Gooool", ".wav") == "Gooool 2.wav" && bb::nomLliure (dir, "Nou", ".wav") == "Nou.wav", "nom lliure");
+            fs::remove_all (dir);
+        });
+
+        prova ("biblioteca: moltes mostres (subcarpetes, ràpid)", []
+        {
+            namespace fs = std::filesystem;
+            const auto dir = fs::temp_directory_path() / "mibase_prova_bib_gran";
+            fs::remove_all (dir);
+            for (int c = 0; c < 30; ++c)
+            {
+                const auto sub = dir / ("Pack " + std::to_string (c)) / "Kicks";
+                fs::create_directories (sub);
+                for (int k = 0; k < 100; ++k) std::ofstream (sub / ("Kick " + std::to_string (k) + ".wav")) << "x";
+            }
+            bb::Index idx;
+            const auto t0 = std::chrono::steady_clock::now();
+            auto nous = bb::sincronitza (dir, idx);
+            comprova (nous.size() == 3000 && nous[0].find ('/') != std::string::npos, "3000 fitxers nous amb el camí de la subcarpeta");
+            for (auto& r : nous) { bb::Sample s; s.fitxer = r; s.nom = r; idx.samples.push_back (s); }
+            comprova (bb::sincronitza (dir, idx).empty() && idx.samples.size() == 3000, "ja hi són tots");
+            // 90.000 samples a l'índex: filtrar i ordenar ha de ser ràpid
+            bb::Index gran;
+            for (int i = 0; i < 90000; ++i) { bb::Sample s; s.fitxer = std::to_string (i) + ".wav"; s.nom = "Sample " + std::to_string ((i * 7919) % 90000); gran.samples.push_back (s); }
+            auto v = bb::filtra (gran, "", std::vector<std::string> {}, std::vector<std::string> {}, bb::Ordre::Nom, false);
+            auto w = bb::filtra (gran, "sample 12", std::vector<std::string> {}, std::vector<std::string> {}, bb::Ordre::Nom, false);
+            const double seg = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+            comprova (v.size() == 90000 && ! w.empty(), "filtra 90.000");
+            comprova (seg < 3.0, "tot plegat en menys de 3 s (" + std::to_string (seg) + " s)");
             fs::remove_all (dir);
         });
     }

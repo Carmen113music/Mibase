@@ -356,10 +356,29 @@ namespace mibase::disc
                 t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
+                // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
+                t.sortida = e.value ("sortida", std::string());
+                t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
+                if (e.contains ("enviaments") && e["enviaments"].is_array())
+                    for (auto& v : e["enviaments"])
+                    {
+                        if (! v.is_object()) continue;
+                        Enviament x;
+                        x.id = v.value ("id", std::string());
+                        x.desti = v.value ("desti", std::string());
+                        x.nivellDb = std::clamp (v.value ("nivellDb", 0.0), -60.0, 6.0);
+                        x.pan = std::clamp (v.value ("pan", 0.0), -1.0, 1.0);
+                        x.actiu = v.value ("actiu", true);
+                        x.mut = v.value ("mut", false);
+                        const std::string m = v.value ("mode", std::string ("post"));
+                        x.mode = m == "pre" ? 0 : (m == "postpan" ? 2 : 1);
+                        if (! x.desti.empty()) t.enviaments.push_back (x);
+                    }
                 t.escalaTeclat = e.value ("escalaTeclat", true);
                 t.modeEscala = std::clamp (e.value ("modeEscala", -1), -1, 2);
                 t.kit = e.value ("kit", std::string());
                 t.padsPerOrdre = e.value ("padsPerOrdre", false);
+                if (t.tipus == "bateria") { t.tipus = "midi"; t.instrument = instrumentKit; }   // 0.39: la bateria és un instrument, no un tipus de pista
                 if (e.contains ("files") && e["files"].is_array())
                     for (auto& f : e["files"])
                     {
@@ -439,6 +458,26 @@ namespace mibase::disc
                         c.mut = k.value ("mut", false);
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
+                        c.acord = k.value ("acord", std::string());   // 0.36
+                        if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
+                            for (auto& b : k["blocs"])
+                            {
+                                if (! b.is_object()) continue;
+                                BlocPatro x;
+                                x.ini = b.value ("ini", 0LL);
+                                x.dur = b.value ("dur", 0LL);
+                                x.acord = b.value ("acord", std::string());
+                                x.patro = b.value ("patro", std::string());
+                                x.nom = b.value ("nom", std::string());
+                                x.passos = b.value ("passos", std::string());
+                                x.pasTicks = b.value ("pasTicks", 480LL);
+                                x.msCorda = b.value ("msCorda", 0.0);
+                                x.crescendo = b.value ("crescendo", 0);
+                                x.variacio = std::clamp (b.value ("variacio", 0.0), 0.0, 1.0);
+                                x.llavor = b.value ("llavor", 1u);
+                                x.vel = std::clamp (b.value ("vel", 88), 1, 127);
+                                if (x.dur > 0 && ! x.acord.empty()) c.blocs.push_back (x);
+                            }
                         // Notes: [inici, durada, to, velocitat, canal] (ticks).
                         if (k.contains ("notes") && k["notes"].is_array())
                             for (auto& n : k["notes"])
@@ -474,6 +513,9 @@ namespace mibase::disc
                 if (t.id.empty()) t.id = "t" + std::to_string (++p.comptador);
                 p.pistes.push_back (t);
             }
+            // 0.34: els grups i retorns, a baix de tot; 0.36: la pista d'Acords, a dalt
+            std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
+            std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return esAcords (q); });
         }
 
         if (j.contains ("carpetes") && j["carpetes"].is_array())
@@ -651,6 +693,16 @@ namespace mibase::disc
                 json k = { { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
                            { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
                            { "rgb", c.rgb } };
+                if (c.esAcord()) k["acord"] = c.acord;   // 0.36
+                if (! c.blocs.empty())   // 0.40
+                {
+                    json bl = json::array();
+                    for (auto& b : c.blocs)
+                        bl.push_back ({ { "ini", b.ini }, { "dur", b.dur }, { "acord", b.acord }, { "patro", b.patro }, { "nom", b.nom },
+                                        { "passos", b.passos }, { "pasTicks", b.pasTicks }, { "msCorda", b.msCorda },
+                                        { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel } });
+                    k["blocs"] = bl;
+                }
                 if (c.midi)
                 {
                     k["midi"] = true;
@@ -672,6 +724,16 @@ namespace mibase::disc
             if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
+            if (! t.sortida.empty()) pista["sortida"] = t.sortida;
+            if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
+            if (! t.enviaments.empty())
+            {
+                json ev = json::array();
+                for (auto& x : t.enviaments)
+                    ev.push_back ({ { "id", x.id }, { "desti", x.desti }, { "nivellDb", x.nivellDb }, { "pan", x.pan }, { "actiu", x.actiu },
+                                    { "mut", x.mut }, { "mode", x.mode == 0 ? "pre" : (x.mode == 2 ? "postpan" : "post") } });
+                pista["enviaments"] = ev;
+            }
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             if (! t.escalaTeclat) pista["escalaTeclat"] = false;
             if (t.modeEscala >= 0) pista["modeEscala"] = t.modeEscala;
@@ -688,7 +750,7 @@ namespace mibase::disc
                     { "atac", x.atac }, { "decai", x.decai }, { "sosteniment", x.sosteniment }, { "alliberament", x.alliberament },
                     { "vel", x.vel }, { "entradaGrava", x.entradaGrava }, { "canalsGrava", x.canalsGrava } };
             }
-            if (t.tipus == "bateria")
+            if (! t.files.empty() || esKit (t))   // 0.39: les files són de la pista (les fa servir el kit i l'eina Drumpad)
             {
                 json filesJ = json::array();
                 for (auto& f : t.files)
