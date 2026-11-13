@@ -2,6 +2,7 @@
 #include <mibase/Bateria.h>
 
 #include <mibase/PresetsPads.h>
+#include "EditorAcord.h"
 
 #include <numeric>
 
@@ -103,13 +104,18 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     btTanca.onClick = [this] { if (onTanca) onTanca(); };
 
     for (auto* b : std::initializer_list<juce::Component*> { &btGraella, &btQuantitza, &velNova, &btFantasmes,
-                                                             &btBloqueja, &btDesenganxa, &btTanca, &selMode })
+                                                             &btBloqueja, &btDesenganxa, &btTanca, &pestanyes })
         addAndMakeVisible (b);
 
     // Chord Pad.
-    selMode.setLlum (vintage::ledTaronja);
-    selMode.setTooltip ("Notes: a baix, les velocitats. Chord Pad: a baix, pads d'acords per tocar i arrossegar al Piano Roll"_ca);
-    selMode.onCanvi = [this] (int i) { canviaModePads (i == 1); };
+    pestanyes.setTooltip ("L'eina amb què treballes el clip. Totes escriuen notes; el so el fa l'instrument de la pista"_ca);
+    pestanyes.onTria = [this] (int i) { triaPestanya (i); };
+    btInstrPads.setTooltip ("Instrument de la pista: qui fa el so"_ca);
+    btInstrPads.onClick = [this] { if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); } if (onMenuInstrument) onMenuInstrument (btInstrPads); };
+    btSoPads.setTooltip ("So (preset) de l'instrument de la pista"_ca);
+    btSoPads.onClick = [this] { if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); } if (onMenuSo) onMenuSo (btSoPads); };
+    addChildComponent (btInstrPads);
+    addChildComponent (btSoPads);
     btPresetPads.setTooltip ("Preset de pads: els acords de la tonalitat o les seqüències de 50 cançons"_ca);
     btPresetPads.onClick = [this] { menuPresetsPads(); };
     btLlapisPads.setLlum (vintage::ledTaronja);
@@ -118,14 +124,17 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     octavaPads.setTooltip ("Octava de la fonamental dels pads (4 = la del do central)");
     octavaPads.onCanvi = [this] (int) { estat.avisa(); };
     voicingPads.setLlum (vintage::ledTaronja);
-    voicingPads.onCanvi = [this] (int) { estat.avisa(); };
+    voicingPads.setTooltip ("Com es col·loquen les notes de l'acord. Guitarra: la posició de l'acord al mànec"_ca);
+    voicingPads.onCanvi = [this] (int) { actualitzaControlsPads(); resized(); repaint(); estat.avisa(); };
+    btRasgueig.setTooltip ("Rasgueig: ritme que s'escriu quan arrossegues un pad al Piano Roll (dura el que diu «1 compàs / 1/2 / 1/4»)"_ca);
+    btRasgueig.onClick = [this] { menuRasgueig(); };
     selDuradaPads.setLlum (vintage::ledTaronja);
     selDuradaPads.setTooltip ("Durada de l'acord quan l'arrossegues al Piano Roll");
     btMinimPads.setLlum (vintage::ledGroc);
     btMinimPads.setToggleState (true, juce::dontSendNotification);
     btMinimPads.setTooltip ("Moviment mínim: l'acord que deixes es col·loca a prop de l'anterior"_ca);
     btMinimPads.onClick = [this] { btMinimPads.setToggleState (! btMinimPads.getToggleState(), juce::dontSendNotification); };
-    for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads })
+    for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads, &btRasgueig })
         addChildComponent (b);
     for (auto* b : { &barraV, &barraH })
     {
@@ -155,11 +164,15 @@ void PianoRoll::setDesenganxat (bool d)
 //==============================================================================
 // Geometria
 //==============================================================================
-juce::Rectangle<int> PianoRoll::zonaRegla() const   { return { ampleTeclat(), alcadaBarra, getWidth() - ampleTeclat() - gruix, alcadaRegla }; }
+// 0.38: al Chord Pad, els pads són a dalt (sota la barra) i la graella a sota; al Piano Roll i al Drumpad, el carril és a baix.
+juce::Rectangle<int> PianoRoll::zonaRegla() const
+{
+    return { ampleTeclat(), alcadaBarra + (modePads() ? altCarrilEf() + 6 : 0), getWidth() - ampleTeclat() - gruix, alcadaRegla };
+}
 juce::Rectangle<int> PianoRoll::zonaGraella() const
 {
-    const int y = alcadaBarra + alcadaRegla;
-    return { ampleTeclat(), y, getWidth() - ampleTeclat() - gruix, juce::jmax (20, getHeight() - gruix - altCarrilEf() - 6 - y) };
+    const int y = zonaRegla().getBottom();
+    return { ampleTeclat(), y, getWidth() - ampleTeclat() - gruix, juce::jmax (20, baix() - (modePads() ? 0 : altCarrilEf() + 6) - y) };
 }
 juce::Rectangle<int> PianoRoll::zonaTeclat() const  { auto g = zonaGraella(); const int x0 = bateria() ? 0 : ampleOctava; return { x0, g.getY(), ampleTeclat() - x0, g.getHeight() }; }
 juce::Rectangle<int> PianoRoll::rectOctava (bool amunt) const
@@ -167,11 +180,17 @@ juce::Rectangle<int> PianoRoll::rectOctava (bool amunt) const
     auto g = zonaGraella();
     return { 1, g.getY() + (amunt ? 4 : 42), ampleOctava - 2, 34 };
 }
-juce::Rectangle<int> PianoRoll::zonaVoraCarril() const { auto g = zonaGraella(); return { 0, g.getBottom(), getWidth(), 6 }; }
+juce::Rectangle<int> PianoRoll::zonaVoraCarril() const
+{
+    if (modePads()) return { 0, alcadaBarra + altCarrilEf(), getWidth(), 6 };
+    auto g = zonaGraella();
+    return { 0, g.getBottom(), getWidth(), 6 };
+}
 juce::Rectangle<int> PianoRoll::zonaCarril() const
 {
+    if (modePads()) return { 0, alcadaBarra, getWidth(), altCarrilEf() };   // de banda a banda
     auto v = zonaVoraCarril();
-    return { ampleTeclat(), v.getBottom(), getWidth() - ampleTeclat() - gruix, juce::jmax (10, getHeight() - gruix - v.getBottom()) };
+    return { ampleTeclat(), v.getBottom(), getWidth() - ampleTeclat() - gruix, juce::jmax (10, baix() - v.getBottom()) };
 }
 
 PianoRoll::Zona PianoRoll::zonaA (juce::Point<int> p) const
@@ -203,7 +222,7 @@ int PianoRoll::toY (float y) const { return toDeFila (filaY (y)); }
 bool PianoRoll::bateria() const
 {
     const auto* t = const_cast<PianoRoll*> (this)->pista();
-    return t != nullptr && t->tipus == "bateria";
+    return t != nullptr && index >= 0 && index < (int) estat.editors.size() && estat.editors[(size_t) index].drum;   // 0.39: és l'eina, no el tipus de pista
 }
 int PianoRoll::numFiles() const
 {
@@ -246,8 +265,8 @@ int PianoRoll::altCarrilEf() const
 {
     // El carril de velocitats no es menja la graella quan l'editor és baix (per exemple, amb diversos editors).
     if (modePads())
-        return juce::jlimit (110, 250, (getHeight() - alcadaBarra - alcadaRegla - gruix) / 2);
-    return juce::jlimit (30, juce::jmax (30, altCarril), (getHeight() - alcadaBarra - alcadaRegla - gruix) / 3);
+        return juce::jlimit (110, 250, (baix() - alcadaBarra - alcadaRegla) / 2);
+    return juce::jlimit (30, juce::jmax (30, altCarril), (baix() - alcadaBarra - alcadaRegla) / 3);
 }
 
 int PianoRoll::pistaEditor() const
@@ -459,7 +478,7 @@ int PianoRoll::dToEscala (const Clip& k, const std::vector<int>& idx, int desitj
 std::vector<int> PianoRoll::segellA (juce::Point<float> p) const
 {
     auto n = estat.segell.notes;
-    if (n.empty()) return n;
+    if (n.empty() || ! estat.segell.rasgueig.empty()) return n;   // el rasgueig de guitarra no canvia d'octava
     const int salt = 12 * (int) std::round ((double) (toY (p.y) - n.front()) / 12.0);
     for (auto& x : n) x = juce::jlimit (0, 127, x + salt);
     return n;
@@ -482,6 +501,17 @@ void PianoRoll::posaSegell (juce::Point<float> p, bool mante)
     }
     const auto nom = estat.segell.nom;
     const long long dur = estat.segell.durada > 0 ? estat.segell.durada : duradaNova();
+    if (! estat.segell.rasgueig.empty())
+    {
+        // 0.29: rasgueig de guitarra, ja escrit nota per nota (són notes normals: després es poden editar).
+        const auto rasgueig = estat.segell.rasgueig;
+        aplica ([&] (Clip& k) { triadesNotes = guitarra::afegeix (k, rasgueig, ini); },
+                "Rasgueig de " + nom + " a " + posicioTick (estat.projecte, posTicks() + (double) ini));
+        escoltaAcord (notes);
+        estat.segell = {};
+        estat.avisa();
+        return;
+    }
     aplica ([&] (Clip& k) { triadesNotes = harmonia::afegeixAcord (k, notes, ini, dur, velNova.getValor()); },
             "Acord " + nom + " a " + posicioTick (estat.projecte, posTicks() + (double) ini) + (mante ? "" : "  (Maj+clic: continua posant-ne)"));
     escoltaAcord (notes);
@@ -619,7 +649,7 @@ void PianoRoll::resized()
     b.removeFromRight (10);
 
     // Si l'editor és estret, els botons de graella, durada i quantitza s'estrenyen.
-    const int fixos = eines.size() * 39 + 12 + 8 + 10 + 86 + 46 + selMode.ampladaIdeal() + 16 + 39;
+    const int fixos = eines.size() * 39 + 12 + 8 + 10 + 86 + 46 + 39;
     const int ideal = 112 + btQuantitza.ampladaIdeal() + 8;
     const float fs = juce::jlimit (0.55f, 1.0f, (float) (b.getWidth() - fixos) / (float) ideal);
     for (auto* t : eines) { t->setBounds (b.removeFromLeft (36)); b.removeFromLeft (3); }
@@ -629,23 +659,30 @@ void PianoRoll::resized()
     btQuantitza.setBounds (b.removeFromLeft (juce::roundToInt ((btQuantitza.ampladaIdeal() + 8) * fs))); b.removeFromLeft (10);
     velNova.setBounds (b.removeFromLeft (76).reduced (0, 2)); b.removeFromLeft (10);
     btFantasmes.setBounds (b.removeFromLeft (36)); b.removeFromLeft (10);
-    selMode.setBounds (b.removeFromLeft (juce::jmin (b.getWidth(), selMode.ampladaIdeal() + 6))); b.removeFromLeft (10);
     zonaInfo = b;
 
     const auto g = zonaGraella();
     barraV.setBounds (g.getRight(), g.getY(), gruix, g.getHeight());
-    barraH.setBounds (ampleTeclat(), getHeight() - gruix, getWidth() - ampleTeclat() - gruix, gruix);
+    barraH.setBounds (ampleTeclat(), baix(), getWidth() - ampleTeclat() - gruix, gruix);
+    pestanyes.setBounds (0, getHeight() - alcadaPestanyes, getWidth(), alcadaPestanyes);
     if (vistaPendent && clip() != nullptr) encaixaVista (estat.editors.size() <= 1 || ! estat.vistaEditors.feta);
     {
         // Barra dels pads (a dalt de la zona de baix).
         auto c = zonaCarril();
         auto f = juce::Rectangle<int> (c.getX() + 6, c.getY() + 4, c.getWidth() - 12, 28);
-        btPresetPads.setBounds (f.removeFromLeft (juce::jmin (330, f.getWidth() / 3))); f.removeFromLeft (6);
+        // 0.29: el botó dels presets s'estreny el que calgui perquè la resta de controls hi càpiguen.
+        // 0.38: preset, instrument i so (què sona) i després com es toquen els acords. Si no hi cap tot, s'estrenyen els tres primers.
+        const int resta = 84 + 10 + 6 + voicingPads.ampladaIdeal() + 6 + selDuradaPads.ampladaIdeal() + 6 + (padsGuitarra() ? 200 : 84 + 6 + 110);
+        const int lliure = f.getWidth() - resta - 22;
+        const int wi = juce::jlimit (84, 140, lliure / 4);
+        btPresetPads.setBounds (f.removeFromLeft (juce::jlimit (110, 300, lliure - 2 * wi))); f.removeFromLeft (6);
+        btInstrPads.setBounds (f.removeFromLeft (wi)); f.removeFromLeft (6);
+        btSoPads.setBounds (f.removeFromLeft (wi)); f.removeFromLeft (10);
         btLlapisPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (10);
-        octavaPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (6);
+        if (! padsGuitarra()) { octavaPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (6); }
         voicingPads.setBounds (f.removeFromLeft (voicingPads.ampladaIdeal())); f.removeFromLeft (6);
         selDuradaPads.setBounds (f.removeFromLeft (selDuradaPads.ampladaIdeal())); f.removeFromLeft (6);
-        btMinimPads.setBounds (f.removeFromLeft (110));
+        if (! padsGuitarra()) btMinimPads.setBounds (f.removeFromLeft (110));
     }
     actualitzaBarres();
 }
@@ -1188,8 +1225,9 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
                 const int i = padPremut;
                 padPremut = -1;
                 mode = Mode::Res;
+                llavorRasgueig = (unsigned) juce::Random::getSystemRandom().nextInt (0x7fffffff) + 1u;   // 0.32: cada acord, la seva variació
                 arrossegaAcord (*this, estat, notesPadPremut, juce::String::fromUTF8 (padsActuals()[(size_t) i].c_str()), duradaPads(),
-                                btMinimPads.getToggleState());
+                                btMinimPads.getToggleState(), {});   // 0.38.1: l'acord sencer; els ritmes (rasgueigDe) aniran a l'eina de patrons (0.40)
                 repaint();
             }
             return;
@@ -1539,6 +1577,7 @@ bool PianoRoll::keyPressed (const juce::KeyPress& k)
     {
         if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { esborraTriades(); return true; }
         if (mods.isCommandDown() && lletra ('A')) { triaTotes(); return true; }
+        if (mods.isCommandDown() && ! mods.isShiftDown() && lletra ('S')) { desseleccionaTot(); info = "Res triat"; repaint(); return true; }   // 0.31
         if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
         if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
         if (mods.isCommandDown() && lletra ('V')) { enganxa(); return true; }
@@ -1602,7 +1641,7 @@ void PianoRoll::paint (juce::Graphics& g)
     g.fillRect (v.getCentreX() - 18, v.getCentreY() - 1, 36, 2);
     // Racó de baix a l'esquerra.
     g.setColour (tema::lateral);
-    g.fillRect (0, getHeight() - gruix, ampleTeclat(), gruix);
+    g.fillRect (0, baix(), ampleTeclat(), gruix);
 }
 
 void PianoRoll::pintaBuit (juce::Graphics& g)
@@ -1716,6 +1755,15 @@ void PianoRoll::pintaGraella (juce::Graphics& g)
         const float xa = xTick (midi::ticks (p, ed::iniciBucle (p))), xb = xTick (midi::ticks (p, ed::fiBucle (p)));
         g.setColour (tema::guitarra.withAlpha (p.bucle.actiu ? 0.06f : 0.03f));
         g.fillRect (juce::Rectangle<float> (xa, (float) zg.getY(), xb - xa, (float) zg.getHeight()));
+    }
+
+    // 0.35: fora de la finestra del clip, més fosc (el que hi ha abans i després no és la part que s'edita)
+    {
+        const float xa = juce::jlimit ((float) zg.getX(), (float) zg.getRight(), xTick (a));
+        const float xb = juce::jlimit ((float) zg.getX(), (float) zg.getRight(), xTick (b));
+        g.setColour (juce::Colours::black.withAlpha (0.42f));
+        if (xa > (float) zg.getX()) g.fillRect (juce::Rectangle<float> ((float) zg.getX(), (float) zg.getY(), xa - (float) zg.getX(), (float) zg.getHeight()));
+        if (xb < (float) zg.getRight()) g.fillRect (juce::Rectangle<float> (xb, (float) zg.getY(), (float) zg.getRight() - xb, (float) zg.getHeight()));
     }
 
     // Vores de la finestra del clip.
@@ -1838,6 +1886,14 @@ void PianoRoll::pintaNotes (juce::Graphics& g)
         const auto notes = segellA (ratoli);
         const double ini = posTicks() + (double) enganxaAbs (tickX (ratoli.x), true);
         const double dur = (double) (estat.segell.durada > 0 ? estat.segell.durada : duradaNova());
+        for (auto& n : estat.segell.rasgueig)   // 0.29: el rasgueig, cop per cop
+        {
+            auto r = juce::Rectangle<float> (xTick (ini + (double) n.ini), yTo (n.to) + 1.0f,
+                                             juce::jmax (3.0f, xTick (ini + (double) (n.ini + n.dur)) - xTick (ini + (double) n.ini)), (float) altNota - 2.0f);
+            g.setColour (vintage::ledVerd.withAlpha (0.2f + 0.4f * (float) n.vel / 127.0f));
+            g.fillRoundedRectangle (r, 2.0f);
+        }
+        if (estat.segell.rasgueig.empty())
         for (int n : notes)
         {
             auto r = juce::Rectangle<float> (xTick (ini), yTo (n) + 1.0f, juce::jmax (4.0f, xTick (ini + dur) - xTick (ini)), (float) altNota - 2.0f);
@@ -2163,13 +2219,14 @@ void PianoRoll::menuFantasmes()
 // Arrossegar acords
 //==============================================================================
 void PianoRoll::arrossegaAcord (juce::Component& origen, EstatEstudi& estat, const std::vector<int>& notes, const juce::String& nom,
-                                long long durada, bool enllaca)
+                                long long durada, bool enllaca, std::vector<mibase::Nota> rasgueig)
 {
     auto* contenidor = juce::DragAndDropContainer::findParentDragContainerFor (&origen);
     if (contenidor == nullptr || notes.empty()) return;
     estat.segell.notes = notes;
     estat.segell.durada = durada;
-    estat.segell.enllaca = enllaca;
+    estat.segell.enllaca = enllaca && rasgueig.empty();
+    estat.segell.rasgueig = std::move (rasgueig);
     estat.segell.nom = nom;
     estat.segell.perArrossegar = true;
     estat.info = "Deixa " + nom + " al Piano Roll, on vulguis"_ca;
@@ -2261,142 +2318,6 @@ void PianoRoll::itemDropped (const SourceDetails& d)
 //==============================================================================
 namespace
 {
-    /** Editor d'un acord (com el de la captura): fonamental, tipus, tensions i nota greu; o escriure'l. */
-    class EditorAcord : public juce::Component
-    {
-    public:
-        EditorAcord (harmonia::AcordPad inicial, std::function<void (const harmonia::AcordPad&)> canvi,
-                     std::function<void (const harmonia::AcordPad&)> escolta)
-            : acord (inicial), onCanvi (std::move (canvi)), onEscolta (std::move (escolta))
-        {
-            if (acord.buit()) acord = { 0, 0, 0, -1 };
-            auto columna = [this] (juce::OwnedArray<Boto>& v, int n, std::function<juce::String (int)> etiqueta, std::function<void (int)> clic)
-            {
-                for (int i = 0; i < n; ++i)
-                {
-                    auto* b = v.add (new Boto (etiqueta (i), std::nullopt, Boto::Estil::Tecla));
-                    b->setLlum (vintage::ledTaronja);
-                    b->setMidaText (12.5f);
-                    b->onClick = [clic, i] { clic (i); };
-                    addAndMakeVisible (b);
-                }
-            };
-            columna (fonamentals, 12, [] (int i) { return juce::String (harmonia::nomTo (i)); }, [this] (int i) { acord.arrel = i; canviat(); });
-            columna (tipus, harmonia::numTipusPad, [] (int i) { return juce::String (harmonia::nomTipusPad (i)); }, [this] (int i) { acord.tipus = i; canviat(); });
-            columna (tensions, harmonia::numTensions, [] (int i) { return juce::String (harmonia::nomTensio (i)); },
-                     [this] (int i)
-                     {
-                         acord.tensions ^= (1u << i);
-                         if (i == 0 && (acord.tensions & 1u)) acord.tensions &= ~2u;   // 7 i j7 no van junts
-                         if (i == 1 && (acord.tensions & 2u)) acord.tensions &= ~1u;
-                         canviat();
-                     });
-            columna (greus, 12, [] (int i) { return juce::String (harmonia::nomTo (i)); },
-                     [this] (int i) { acord.baix = (acord.baix == i || i == acord.arrel) ? -1 : i; canviat(); });
-            btEscolta.onClick = [this] { if (onEscolta) onEscolta (acord); };
-            btBuida.onClick = [this] { if (onCanvi) onCanvi ({}); tanca(); };
-            btMenys.onClick = [this] { inverteix (-1); };
-            btMes.onClick = [this] { inverteix (1); };
-            btAplica.onClick = [this] { tanca(); };
-            btEscolta.setTooltip ("Escolta l'acord"_ca);
-            btBuida.setTooltip ("Buida el pad"_ca);
-            btMenys.setTooltip ("Inversió avall: la nota de dalt baixa una octava"_ca);
-            btMes.setTooltip ("Inversió amunt: la nota de baix puja una octava"_ca);
-            btAplica.setTooltip ("Desa l'acord al pad i tanca l'editor (Retorn)"_ca);
-            for (auto* b : { &btEscolta, &btBuida, &btMenys, &btMes, &btAplica }) { b->setMidaText (12.0f); addAndMakeVisible (b); }
-            btMenys.setMidaText (16.0f);
-            btMes.setMidaText (16.0f);
-            setWantsKeyboardFocus (true);
-            refresca();
-            setSize (520, 404);
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            vintage::panell (g, getLocalBounds().toFloat(), 8.0f);
-            g.setColour (tema::text);
-            g.setFont (dibuix::lletra (22.0f, true));
-            g.drawText (juce::String::fromUTF8 (harmonia::nomPad (acord).c_str()), 16, 8, 160, 30, juce::Justification::centredLeft);
-            g.setFont (dibuix::lletra (11.5f));
-            g.setColour (tema::suau);
-            g.drawText (textInversio (acord.inversio), 16, 34, 170, 14, juce::Justification::centredLeft);
-            const char* titols[] = { "Fonamental", "Tipus", "Tensions", "Nota greu" };
-            g.setFont (dibuix::lletra (11.5f, true));
-            g.setColour (tema::suau);
-            for (int c = 0; c < 4; ++c)
-                g.drawText (dibuix::majuscules (juce::String::fromUTF8 (titols[c])), 16 + c * 124, 54, 120, 16, juce::Justification::centredLeft);
-        }
-
-        bool keyPressed (const juce::KeyPress& k) override
-        {
-            if (k == juce::KeyPress::returnKey) { tanca(); return true; }
-            if (k == juce::KeyPress::escapeKey) { tanca(); return true; }
-            if (k.getTextCharacter() == '+') { inverteix (1); return true; }
-            if (k.getTextCharacter() == '-') { inverteix (-1); return true; }
-            return false;
-        }
-
-        void resized() override
-        {
-            // A dalt a la dreta, botons petits: Escolta, Buida, −, + i Aplica (que tanca l'editor).
-            auto f = juce::Rectangle<int> (176, 14, getWidth() - 16 - 176, 26);
-            btAplica.setBounds (f.removeFromRight (70)); f.removeFromRight (8);
-            btMes.setBounds (f.removeFromRight (28)); f.removeFromRight (3);
-            btMenys.setBounds (f.removeFromRight (28)); f.removeFromRight (8);
-            btBuida.setBounds (f.removeFromRight (58)); f.removeFromRight (4);
-            btEscolta.setBounds (f.removeFromRight (86));
-            auto col = [this] (juce::OwnedArray<Boto>& v, int c)
-            {
-                for (int i = 0; i < v.size(); ++i) v[i]->setBounds (16 + c * 124, 74 + i * 27, 116, 25);
-            };
-            col (fonamentals, 0); col (tipus, 1); col (tensions, 2); col (greus, 3);
-        }
-
-    private:
-        void canviat()
-        {
-            refresca();
-            if (onCanvi) onCanvi (acord);
-            if (onEscolta) onEscolta (acord);
-        }
-
-        void inverteix (int d)
-        {
-            if (acord.buit()) return;
-            acord.inversio = juce::jlimit (-harmonia::maxInversio, harmonia::maxInversio, acord.inversio + d);
-            canviat();
-        }
-
-        void tanca()
-        {
-            if (auto* c = findParentComponentOfClass<juce::CallOutBox>()) c->dismiss();
-        }
-
-        static juce::String textInversio (int i)
-        {
-            if (i == 0) return "Posició fonamental"_ca;
-            if (i > 0) return juce::String (i) + "a inversió (amunt)"_ca;
-            return juce::String (-i) + "a inversió (avall)"_ca;
-        }
-
-        void refresca()
-        {
-            for (int i = 0; i < 12; ++i) fonamentals[i]->setToggleState (acord.arrel == i, juce::dontSendNotification);
-            for (int i = 0; i < tipus.size(); ++i) tipus[i]->setToggleState (acord.tipus == i, juce::dontSendNotification);
-            for (int i = 0; i < tensions.size(); ++i) tensions[i]->setToggleState ((acord.tensions >> i) & 1u, juce::dontSendNotification);
-            for (int i = 0; i < 12; ++i) greus[i]->setToggleState (acord.baix == i, juce::dontSendNotification);
-            repaint();
-        }
-
-        harmonia::AcordPad acord;
-        std::function<void (const harmonia::AcordPad&)> onCanvi, onEscolta;
-        juce::OwnedArray<Boto> fonamentals, tipus, tensions, greus;
-        Boto btEscolta { "Escolta", dibuix::Icona::Play, Boto::Estil::Secundari };
-        Boto btBuida { "Buida", std::nullopt, Boto::Estil::Secundari };
-        Boto btMenys { "-", std::nullopt, Boto::Estil::Secundari };
-        Boto btMes { "+", std::nullopt, Boto::Estil::Secundari };
-        Boto btAplica { "Aplica", std::nullopt, Boto::Estil::Primari };
-    };
 }
 
 bool PianoRoll::modePads() const
@@ -2414,13 +2335,67 @@ void PianoRoll::canviaModePads (bool pads)
     estat.avisa();   // el teclat MIDI passa a tocar acords (o deixa de fer-ho)
 }
 
+void PianoRoll::actualitzaPestanyes()
+{
+    const bool bt = bateria();
+    pestanyes.posa (bt ? 2 : modePads() ? 1 : 0, { true, true, true, false, false });   // 0.39: qualsevol eina a qualsevol pista d'instrument
+}
+
+void PianoRoll::triaPestanya (int i)
+{
+    if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); }
+    const bool bt = bateria();
+    if (i >= 3) info = "Els patrons de guitarra i de piano arribaran a la 0.40"_ca;
+    else
+    {
+        // 0.39: l'eina es tria; no depèn del tipus de pista.
+        auto& e = estat.editors[(size_t) index];
+        if (i == 2 && ! bt)
+        {
+            if (auto* t = pista(); t != nullptr && t->files.empty())
+            {
+                // el Drumpad necessita files (quina nota és cada so): les del kit, que segueixen el mapa de bateria General MIDI
+                estat.desfes.abans (estat.projecte);
+                kits::posaKit (*t, kits::ultimKit());
+                estat.canviat ("Drumpad: files del kit a la pista"_ca);
+            }
+            e.drum = true;
+            info = pista() != nullptr && ! mibase::esKit (*pista()) ? "Drumpad: cada fila és una nota. Sona amb l'instrument de la pista"_ca : juce::String();
+        }
+        else if (i < 2) { if (bt) altNota = 14; e.drum = false; info.clear(); }
+        triadesNotes.clear();
+        desplY = 0;
+        canviaModePads (i == 1);
+        encaixaVista (false);
+    }
+    repaint();
+}
+
 void PianoRoll::actualitzaControlsPads()
 {
     const bool p = modePads();
-    selMode.setTriat (p ? 1 : 0);
-    selMode.setVisible (! bateria());
+    actualitzaPestanyes();
+    {
+        const bool v = p && clip() != nullptr;
+        btInstrPads.setVisible (v); btSoPads.setVisible (v);
+        if (const auto* t = const_cast<PianoRoll*> (this)->pista(); v && t != nullptr)
+        {
+            const bool smp = mibase::esSampler (*t), kit = mibase::esKit (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
+            btInstrPads.setButtonText (kit ? "Kit de bateria"_ca : smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
+                                       : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte intern"_ca);
+            btSoPads.setButtonText (kit ? "Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()) : smp ? (t->sampler.nom.empty() ? "Sample: cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str()))
+                                    : vst ? "So: el del plugin"_ca
+                                    : juce::String::fromUTF8 (midi::nomInstrument (t->instrument.empty() ? "intern:piano" : t->instrument).c_str()));
+        }
+    }
     for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads })
         b->setVisible (p && clip() != nullptr);
+    // 0.29: amb «Guitarra», el botó del rasgueig ocupa el lloc de l'octava i del moviment mínim (que no hi pinten res).
+    const bool gt = padsGuitarra();
+    btRasgueig.setVisible (false);   // 0.38.1: el ritme no és cosa del Chord Pad; tornarà a l'eina de patrons de guitarra
+    if (gt) { octavaPads.setVisible (false); btMinimPads.setVisible (false); }
+    const auto* pr = guitarra::patro (rasgueigPads);
+    btRasgueig.setButtonText (pr != nullptr ? juce::String::fromUTF8 (pr->nom.c_str()) : "Sense ritme"_ca);
     if (const auto* t = const_cast<PianoRoll*> (this)->pista())
         btPresetPads.setButtonText (t->presetPads.empty() || t->pads.empty() ? "Acords de la tonalitat"_ca : juce::String::fromUTF8 (t->presetPads.c_str()));
 }
@@ -2461,7 +2436,70 @@ std::vector<int> PianoRoll::notesDelPad (int i) const
 {
     const auto v = padsActuals();
     if (i < 0 || i >= (int) v.size()) return {};
-    return harmonia::notesPad (harmonia::llegeixAcord (v[(size_t) i]), octavaPads.getValor(), (harmonia::Voicing) voicingPads.getTriat());
+    return notesAcordPad (harmonia::llegeixAcord (v[(size_t) i]));
+}
+
+std::vector<int> PianoRoll::notesAcordPad (const harmonia::AcordPad& a) const
+{
+    if (padsGuitarra()) return guitarra::notes (a);   // 0.29: la posició de guitarra (sempre a la seva octava real)
+    return harmonia::notesPad (a, octavaPads.getValor(), (harmonia::Voicing) voicingPads.getTriat());
+}
+
+std::vector<Nota> PianoRoll::rasgueigDe (const std::vector<int>& cordes) const
+{
+    if (! padsGuitarra() || cordes.empty()) return {};
+    const auto* p = guitarra::patro (rasgueigPads);
+    if (p == nullptr) return {};
+    guitarra::Opcions o;
+    o.vel = juce::jmax (30, velNova.getValor() - 12);   // els accents pugen fins a +32: que «Vel 100» no saturi
+    o.tempo = edicio::tramA (estat.projecte, estat.capcal).tempo;
+    o.variacio = variacioRasgueig;   // 0.32
+    o.llavor = llavorRasgueig;
+    return guitarra::rasgueja (cordes, *p, duradaPads(), o);
+}
+
+void PianoRoll::menuRasgueig()
+{
+    // 0.32: per grups (els bàsics i els dels PDF d'en Roger) i la variació
+    juce::PopupMenu m;
+    m.addItem (1, "Sense ritme (l'acord sencer, amb la posició de guitarra)"_ca, true, rasgueigPads.empty());
+    m.addSeparator();
+    const auto& v = guitarra::patrons();
+    std::vector<std::string> grups;
+    for (auto& p : v) if (std::find (grups.begin(), grups.end(), p.grup) == grups.end()) grups.push_back (p.grup);
+    for (auto& g : grups)
+    {
+        juce::PopupMenu sub;
+        bool hiEs = false;
+        for (int i = 0; i < (int) v.size(); ++i)
+        {
+            const auto& p = v[(size_t) i];
+            if (p.grup != g) continue;
+            auto text = juce::String::fromUTF8 (p.nom.c_str());
+            if (p.pasTicks > 0)
+                text += (p.compas != "4/4" && p.nom.find (p.compas) == std::string::npos ? "  (" + juce::String (p.compas) + ")" : juce::String())
+                        + "     " + juce::String::fromUTF8 (p.dibuix.c_str());
+            sub.addItem (10 + i, text, true, rasgueigPads == p.id);
+            hiEs = hiEs || rasgueigPads == p.id;
+        }
+        m.addSubMenu (juce::String::fromUTF8 (g.c_str()), sub, true, juce::Image(), hiEs);
+    }
+    m.addSeparator();
+    juce::PopupMenu var;
+    const std::pair<double, const char*> nivells[] = { { 0.0, "Cap (sempre igual)" }, { 0.25, "Poca" }, { 0.5, "Normal" }, { 1.0, "Molta" } };
+    for (int k = 0; k < 4; ++k)
+        var.addItem (5 + k, juce::String::fromUTF8 (nivells[k].second), true, std::abs (variacioRasgueig - nivells[k].first) < 0.01);
+    m.addSubMenu ("Variació (cada compàs una mica diferent)"_ca, var);
+    m.addSectionHeader ("Llegenda: p palm · x nota morta · s slap · b greu · t agudes · > accent"_ca);
+    juce::Component::SafePointer<PianoRoll> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btRasgueig), [jo] (int r)
+    {
+        if (jo == nullptr || r <= 0) return;
+        if (r >= 5 && r <= 8) { const double nv[] = { 0.0, 0.25, 0.5, 1.0 }; jo->variacioRasgueig = nv[r - 5]; return; }
+        jo->rasgueigPads = r == 1 ? std::string() : guitarra::patrons()[(size_t) (r - 10)].id;
+        jo->actualitzaControlsPads();
+        jo->repaint();
+    });
 }
 
 std::array<std::vector<int>, 12> PianoRoll::acordsTeclat() const
@@ -2501,7 +2539,7 @@ void PianoRoll::obreEditorPad (int i)
         [jo, i] (const harmonia::AcordPad& a) { if (jo != nullptr) jo->desaPad (i, harmonia::textPad (a)); },
         [jo] (const harmonia::AcordPad& a)
         {
-            if (jo != nullptr) jo->escoltaAcord (harmonia::notesPad (a, jo->octavaPads.getValor(), (harmonia::Voicing) jo->voicingPads.getTriat()));
+            if (jo != nullptr) jo->escoltaAcord (jo->notesAcordPad (a));
         });
     juce::CallOutBox::launchAsynchronously (std::move (ed), localAreaToGlobal (rectPad (i)), nullptr);
 }
@@ -2581,13 +2619,6 @@ void PianoRoll::menuPresetsPads()
 void PianoRoll::pintaPads (juce::Graphics& g)
 {
     const auto zc = zonaCarril();
-    g.setColour (tema::lateral);
-    g.fillRect (0, zc.getY(), ampleTeclat(), zc.getHeight());
-    dibuix::pintaEtiquetaSeccio (g, "Chord Pad", juce::Rectangle<int> (8, zc.getY() + 8, ampleTeclat() - 10, 16));
-    g.setFont (dibuix::lletra (10.5f));
-    g.setColour (tema::suau);
-    g.drawFittedText ("Clic: sona. Arrossega'l al Piano Roll. El teclat toca els acords."_ca, juce::Rectangle<int> (8, zc.getY() + 26, ampleTeclat() - 10, 80),
-                      juce::Justification::topLeft, 6);
     vintage::panell (g, zc.toFloat());
     if (clip() == nullptr) return;
 

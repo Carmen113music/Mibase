@@ -113,6 +113,9 @@ private:
     void sampleAFila (int fila, const juce::File& f);
     int pistaSamplerNova (const juce::File& f);
     void enviaAlSampler (int pista, int clip, bool nomesBiblioteca);   // 0.28
+    juce::File escriuTros (int pista, int clip, const juce::File& dir);   // 0.29
+    void clipAlSampler (int pista, int clip);                            // 0.29
+    void samplerABiblioteca();                                           // 0.29
     void gravaSampler();                                               // 0.28
     void commutaVeuAB();
     /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
@@ -130,6 +133,7 @@ private:
     void desenganxaPianoRoll (bool desenganxa);
     void acabaGravacioMidi();
     void canviaNom (int pista);
+    void busNou (bool fx, int pista, bool comSortida);
     void canviaTempo();
     void demanaImportar (int pista, double on);
     void importa (const juce::StringArray& fitxers, int pista, double on);

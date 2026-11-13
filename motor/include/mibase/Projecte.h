@@ -91,6 +91,10 @@ namespace mibase
         /** És un clip MIDI: les notes són a «notes» (ticks des de «pos») i «inici»/«fi» és la finestra que sona.
             Com l'àudio, no destructiu: el que queda fora de la finestra no sona però no s'esborra. */
         bool midi = false;
+        /** 0.36: bloc de la pista d'Acords: el nom de l'acord («Am7», «G/B»). Buit = no és un bloc d'acord.
+            No sona: és la guia de la cançó. Ocupa de iniciVisible() a fiVisible(). */
+        std::string acord;
+        bool esAcord() const noexcept { return ! acord.empty(); }
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
 
@@ -156,11 +160,22 @@ namespace mibase
         bool operator== (const FilaBateria&) const = default;
     };
 
+    /** 0.33: un enviament d'una pista o d'un bus cap a un altre bus (una còpia del so; no toca el senyal original). */
+    struct Enviament
+    {
+        std::string id;          // «v1», «v2»…
+        std::string desti;       // id del bus on va
+        double nivellDb = 0.0;   // de -60 (silenci) a +6
+        double pan = 0.0;        // de -1 a +1
+        bool actiu = true, mut = false;
+        int mode = 1;            // 0 pre-fader, 1 post-fader (abans del panorama), 2 post-pan
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // audio, midi, bateria (0.20; és MIDI amb el sampler de bateria). Més endavant: bus
+        std::string tipus = "audio";   // audio, midi (instrument), bus, fx, acords. 0.39: «bateria» ja no és un tipus: és una pista midi amb l'instrument «intern:bateria» (el kit)
         /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
             més endavant «vst3:<identificador>». */
         std::string instrument;
@@ -189,10 +204,22 @@ namespace mibase
         std::string kit;                           // bateria: nom del kit d'on surten els sons
         bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
         ParamsSampler sampler;                     // 0.26: instrument «sampler»
+        // ---- 0.33 ----
+        std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
+        std::vector<Enviament> enviaments;
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+    /** 0.39: l'instrument «kit de bateria» (el sampler de bateria amb les files de la pista). */
+    inline constexpr const char* instrumentKit = "intern:bateria";
+    /** 0.39: la pista sona amb un kit de bateria. (Els projectes antics amb tipus «bateria» es converteixen en llegir-los.) */
+    inline bool esKit (const Pista& t) noexcept { return t.tipus == "bateria" || (t.tipus == "midi" && t.instrument == instrumentKit); }
+    /** 0.33: és un bus (de grup, «bus», o retorn d'efectes, «fx»): no té clips, suma el que li arriba. */
+    inline bool esBus (const Pista& t) noexcept { return t.tipus == "bus" || t.tipus == "fx"; }
+    /** 0.36: la pista d'Acords (n'hi ha com a molt una, a dalt de tot). */
+    inline bool esAcords (const Pista& t) noexcept { return t.tipus == "acords"; }
     /** 0.26: és una pista d'instrument amb el samplejador. */
     inline bool esSampler (const Pista& t) noexcept { return t.tipus == "midi" && t.instrument == instrumentSampler; }
 

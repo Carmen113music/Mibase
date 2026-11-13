@@ -94,7 +94,8 @@ public:
         mibase::edicio::RefClip clip;
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
-        bool pads = false;          // a baix, els pads d'acords (Chord Pad) en lloc de les velocitats
+        bool pads = false;          // eina Chord Pad
+        bool drum = false;          // 0.39: eina Drumpad (en obrir un clip: sí, si la pista sona amb un kit de bateria)
         std::vector<std::string> fantasmes;   // 0.10: pistes (id) de les quals es veuen les notes fantasma (per defecte, cap)
     };
     static constexpr int maxEditors = 3;
@@ -177,6 +178,7 @@ public:
         bool enllaca = false;       // amb moviment mínim des de l'acord d'abans
         juce::String nom;
         bool perArrossegar = false; // es posa arrossegant (s'esborra quan s'amolla, caigui on caigui)
+        std::vector<mibase::Nota> rasgueig;   // 0.29: si n'hi ha, es posen aquestes notes (ticks des de l'inici) en lloc de l'acord en bloc
         bool actiu() const noexcept { return ! notes.empty(); }
     } segell;
 
@@ -185,6 +187,7 @@ public:
         if (i < 0 || i >= (int) editors.size()) return;
         editors[(size_t) i].clip = r;
         editors[(size_t) i].idPista = pista (r.pista) != nullptr ? projecte.pistes[(size_t) r.pista].id : std::string();
+        editors[(size_t) i].drum = pista (r.pista) != nullptr && mibase::esKit (projecte.pistes[(size_t) r.pista]);   // 0.39: l'eina per defecte
     }
 
     /** El clip d'un editor, si encara existeix i és MIDI. */
@@ -262,6 +265,64 @@ public:
             v = juce::jmax (v, nivellsEntrada[(size_t) e]);
         }
         return v;
+    }
+
+    /** 0.34: menú d'entrada per gravar, com a Pro Tools: les entrades soles (mono) i els parells (estèreo) junts.
+        Ids: base + e (mono, entrada e) i base + 100 + e (estèreo, e i e+1). */
+    static juce::PopupMenu menuEntrades (const juce::StringArray& noms, const mibase::Pista& t, int base)
+    {
+        juce::PopupMenu m;
+        if (noms.isEmpty())
+        {
+            m.addItem (base - 1, "La targeta no té entrades (o està aturada)"_ca, false);
+            return m;
+        }
+        auto nom = [&] (int e) { return noms[e].isNotEmpty() ? noms[e] : "apagada a les Preferències"_ca; };
+        m.addSectionHeader ("Mono"_ca);
+        for (int e = 0; e < noms.size(); ++e)
+            m.addItem (base + e, juce::String (e + 1) + "   " + nom (e), noms[e].isNotEmpty(), t.canals == 1 && t.entrada == e);
+        if (noms.size() >= 2)
+        {
+            m.addSectionHeader ("Estèreo"_ca);
+            for (int e = 0; e + 1 < noms.size(); ++e)
+                m.addItem (base + 100 + e, juce::String (e + 1) + "+" + juce::String (e + 2) + "   " + nom (e) + " / " + nom (e + 1),
+                           noms[e].isNotEmpty() && noms[e + 1].isNotEmpty(), t.canals == 2 && t.entrada == e);
+        }
+        return m;
+    }
+    /** 0.36: la part OUT del botó E/S (i de la sortida de la taula de mescles): MASTER L+R destacat, FX ▸ i Grups ▸.
+        Ids: 1 = màster, 100 + índex de la pista del bus. */
+    static void afegeixMenuSortida (juce::PopupMenu& m, const mibase::Projecte& p, const mibase::Pista& t)
+    {
+        m.addSectionHeader ("OUT");
+        juce::PopupMenu::Item master ("MASTER L+R");
+        master.itemID = 1;
+        master.isTicked = t.sortida.empty();
+        master.colour = tema::accent;
+        m.addItem (master);
+        for (const char* tipus : { "fx", "bus" })
+        {
+            juce::PopupMenu sub;
+            bool hiEs = false;
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+            {
+                const auto& b = p.pistes[(size_t) i];
+                if (b.tipus != tipus || b.id == t.id || ! mibase::edicio::potConnectar (p, t.id, b.id)) continue;
+                sub.addItem (100 + i, juce::String::fromUTF8 (b.nom.c_str()), true, t.sortida == b.id);
+                hiEs = hiEs || t.sortida == b.id;
+            }
+            const juce::String nom = juce::String (*tipus == 'f' ? "FX" : "Grups");
+            if (sub.getNumItems() == 0) sub.addItem (-1, *tipus == 'f' ? "No n'hi ha cap"_ca : "No n'hi ha cap"_ca, false);
+            m.addSubMenu (nom, sub, true, juce::Image(), hiEs);
+        }
+    }
+
+    /** Aplica el que s'ha triat a menuEntrades. Retorna false si «r» no n'és. */
+    static bool aplicaEntrada (mibase::Pista& t, int r, int base)
+    {
+        if (r >= base + 100 && r < base + 200) { t.entrada = r - base - 100; t.canals = 2; return true; }
+        if (r >= base && r < base + 100) { t.entrada = r - base; t.canals = 1; return true; }
+        return false;
     }
 
     /** «E1» o «E1-2»: d'on grava la pista. */
@@ -377,7 +438,14 @@ public:
         static const juce::uint32 colors[] = { 0xfff5c445, 0xff59d0d6, 0xffb18cff, 0xff7fd67a, 0xff6fa8ff, 0xffff8fc4, 0xffe8a87c, 0xffc9b8a6 };
         return juce::Colour (colors[(size_t) juce::jlimit (0, 7, i)]);
     }
-    static juce::Colour colorPista (const mibase::Pista& t) { return t.rgb != 0 ? juce::Colour (t.rgb) : colorPista (t.color); }
+    static juce::Colour colorPista (const mibase::Pista& t)
+    {
+        if (t.rgb != 0) return juce::Colour (t.rgb);
+        if (t.tipus == "bus") return colorGrup;     // 0.33: els busos tenen el seu color
+        if (t.tipus == "fx") return colorRetorn;
+        return colorPista (t.color);
+    }
+    static inline const juce::Colour colorGrup { 0xff5fd3b4 }, colorRetorn { 0xffe07be0 };
 
     static juce::String nomColor (int i)
     {
@@ -391,6 +459,7 @@ public:
     /** Després d'un canvi fet (ja guardat el «com era» a desfes): avisa, desa i anota. */
     void canviat (const juce::String& evolucio = {})
     {
+        mibase::edicio::resAbansDelZero (projecte);   // 0.35: el compàs de compte enrere no és per a clips
         netejaSeleccio();
         avisa();
         if (onCanviat) onCanviat (evolucio);
