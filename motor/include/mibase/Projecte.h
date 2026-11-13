@@ -91,6 +91,10 @@ namespace mibase
         /** És un clip MIDI: les notes són a «notes» (ticks des de «pos») i «inici»/«fi» és la finestra que sona.
             Com l'àudio, no destructiu: el que queda fora de la finestra no sona però no s'esborra. */
         bool midi = false;
+        /** 0.36: bloc de la pista d'Acords: el nom de l'acord («Am7», «G/B»). Buit = no és un bloc d'acord.
+            No sona: és la guia de la cançó. Ocupa de iniciVisible() a fiVisible(). */
+        std::string acord;
+        bool esAcord() const noexcept { return ! acord.empty(); }
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
 
@@ -209,6 +213,8 @@ namespace mibase
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
     /** 0.33: és un bus (de grup, «bus», o retorn d'efectes, «fx»): no té clips, suma el que li arriba. */
     inline bool esBus (const Pista& t) noexcept { return t.tipus == "bus" || t.tipus == "fx"; }
+    /** 0.36: la pista d'Acords (n'hi ha com a molt una, a dalt de tot). */
+    inline bool esAcords (const Pista& t) noexcept { return t.tipus == "acords"; }
     /** 0.26: és una pista d'instrument amb el samplejador. */
     inline bool esSampler (const Pista& t) noexcept { return t.tipus == "midi" && t.instrument == instrumentSampler; }
 

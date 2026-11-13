@@ -103,11 +103,16 @@ public:
 
     /** 0.27: un sample de la biblioteca deixat a la taula (fila -1: sota les pistes). */
     std::function<void (const juce::File&, int fila, double temps)> onSample;
-    bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("mibase-sample:"); }
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("mibase-sample:")
+            || (d.description.toString() == "mibase-acord" && estat.segell.actiu());   // 0.36: acords del Chord Pad a la pista d'Acords
+    }
     void itemDragMove (const SourceDetails& d) override { const int f = estat.pistaA (d.localPosition.y); if (f != filaDeixar) { filaDeixar = f < estat.numPistes() ? f : -1; repaint(); } }
     void itemDragExit (const SourceDetails&) override { filaDeixar = -2; repaint(); }
     void itemDropped (const SourceDetails& d) override
     {
+        if (d.description.toString() == "mibase-acord") { deixaAcord (d.localPosition); return; }   // 0.36
         filaDeixar = -2;
         int fila = estat.pistaA (d.localPosition.y);
         if (fila >= 0 && fila < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) fila])) fila = -1;   // 0.34: a un bus no
@@ -115,6 +120,10 @@ public:
         if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
         repaint();
     }
+
+    /** 0.36: menú d'acords de la pista d'Acords: clip -1 = posar-ne un de nou (al compàs de «t»); si no, canviar-lo. */
+    void menuAcords (int pista, int clip, double t);
+    void deixaAcord (juce::Point<int> on);
 
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova
@@ -184,6 +193,7 @@ private:
     juce::Point<int> inici;
     double t0 = 0.0, punt0 = 0.0, bandera0 = 0.0, guany0 = 0.0, tLlapis = 0.0, tTisores = -1.0;
     int filaDeixar = -2;
+    std::unique_ptr<DialegText> dialegAcord;   // 0.36
     std::vector<mibase::edicio::RefClip> triatsOriginals;
     bool nomesSeleccio = false;   // 0.32: Maj premut en clicar: el ratolí només selecciona (no mou ni retalla)
     juce::Point<int> puntCola, puntRequadre;
@@ -227,7 +237,13 @@ public:
     explicit ColumnaEsquerra (EstatEstudi& e);
     /** Panell per als editors (el d'harmonia): quan hi ha un editor obert, ocupa el lloc del fader de la pista. */
     void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
-    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.foraTreball() && estat.focusEditor; }
+    bool ambEditor() const
+    {
+        if (panellEditor == nullptr || estat.foraTreball()) return false;
+        if (acordsTriada()) return true;   // 0.36: amb la pista d'Acords triada, la tonalitat i els acords per arrossegar
+        return estat.pianoRoll && estat.focusEditor;
+    }
+    bool acordsTriada() const { auto* t = estat.pista (estat.pistaTriada); return t != nullptr && mibase::esAcords (*t); }
     OpcionsPista opcions { estat };
     void paint (juce::Graphics& g) override;
     void resized() override;

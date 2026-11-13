@@ -57,6 +57,17 @@ namespace mibase::edicio
     /** 0.35: cap clip comença abans del zero (el compàs -1 només és per al compte enrere): el que hi quedi es
         desplaça just fins al zero. Retorna quants n'ha mogut. */
     int resAbansDelZero (Projecte& p);
+
+    // ---- 0.36: pista d'Acords ----
+    /** L'índex de la pista d'Acords, o -1 si no n'hi ha. */
+    int pistaAcords (const Projecte& p);
+    /** La crea (a dalt de tot) si no n'hi ha; retorna el seu índex. */
+    int creaPistaAcords (Projecte& p);
+    /** Posa un acord de «ini» a «fi» (segons): el que hi havia en aquest tros es retalla o s'esborra.
+        Retorna l'índex del bloc nou, o -1 si el nom no és un acord. Crea la pista si cal. */
+    int posaAcord (Projecte& p, double ini, double fi, const std::string& nom);
+    /** L'acord que sona en el moment t (el bloc de més amunt si se'n trepitgen); buit si cap. */
+    std::string acordA (const Projecte& p, double t);
     Presa& afegeixPresa (Projecte& p, const std::string& fitxer, const std::string& nom, double durada);
     /** Clip sencer d'una presa a la pista, amb l'inici visible a «on». */
     Clip& afegeixClip (Projecte& p, int pista, const std::string& idPresa, double on);

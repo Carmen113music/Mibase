@@ -288,6 +288,33 @@ public:
         }
         return m;
     }
+    /** 0.36: la part OUT del botó E/S (i de la sortida de la taula de mescles): MASTER L+R destacat, FX ▸ i Grups ▸.
+        Ids: 1 = màster, 100 + índex de la pista del bus. */
+    static void afegeixMenuSortida (juce::PopupMenu& m, const mibase::Projecte& p, const mibase::Pista& t)
+    {
+        m.addSectionHeader ("OUT");
+        juce::PopupMenu::Item master ("MASTER L+R");
+        master.itemID = 1;
+        master.isTicked = t.sortida.empty();
+        master.colour = tema::accent;
+        m.addItem (master);
+        for (const char* tipus : { "fx", "bus" })
+        {
+            juce::PopupMenu sub;
+            bool hiEs = false;
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+            {
+                const auto& b = p.pistes[(size_t) i];
+                if (b.tipus != tipus || b.id == t.id || ! mibase::edicio::potConnectar (p, t.id, b.id)) continue;
+                sub.addItem (100 + i, juce::String::fromUTF8 (b.nom.c_str()), true, t.sortida == b.id);
+                hiEs = hiEs || t.sortida == b.id;
+            }
+            const juce::String nom = juce::String (*tipus == 'f' ? "FX" : "Grups");
+            if (sub.getNumItems() == 0) sub.addItem (-1, *tipus == 'f' ? "No n'hi ha cap"_ca : "No n'hi ha cap"_ca, false);
+            m.addSubMenu (nom, sub, true, juce::Image(), hiEs);
+        }
+    }
+
     /** Aplica el que s'ha triat a menuEntrades. Retorna false si «r» no n'és. */
     static bool aplicaEntrada (mibase::Pista& t, int r, int base)
     {

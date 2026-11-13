@@ -418,7 +418,11 @@ namespace mibase::midi
         p.tempo = nou;
     }
 
-    bool compatible (const Pista& t, const Clip& c) { return ! esBus (t) && c.midi == esMidi (t); }   // 0.34: als busos no hi van clips
+    bool compatible (const Pista& t, const Clip& c)
+    {
+        if (esAcords (t) || c.esAcord()) return esAcords (t) && c.esAcord();   // 0.36: els acords, només a la pista d'Acords
+        return ! esBus (t) && c.midi == esMidi (t);   // 0.34: als busos no hi van clips
+    }
 
     //==========================================================================
     const std::vector<SoIntern>& sonsInterns()

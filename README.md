@@ -239,6 +239,14 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.36.0**
+  - **Pista d'ACORDS** (com la Chord Track de Cubase): + Pista nova → «Pista d'acords». N'hi ha una i va sempre a dalt de tot. Hi poses els acords de la cançó (G · D · Am · G…). No sona: és la guia que faran servir els patrons de guitarra i piano (properes versions).
+    - **Posar un acord**: doble clic (o el llapis) en un compàs → menú amb els acords de la tonalitat (també amb setena) o «Escriu un acord…» (Am, G7, C/E, Fmaj7, Dsus4…). Ocupa aquell compàs.
+    - **Arrossegar**: amb la pista d'Acords triada, la columna esquerra mostra la tonalitat i els **acords de la tonalitat**; arrossega'n un a la pista. També s'hi poden deixar acords del **Chord Pad** del Piano Roll.
+    - Els blocs es mouen, s'allarguen, es parteixen (tisores) i s'esborren (goma) com els clips. Botó dret o doble clic sobre un bloc: canviar-lo o esborrar-lo. Un acord nou trepitja (retalla) el que hi havia en aquell tros.
+    - No surt a la taula de mescles. Els acords no van a les altres pistes ni els clips a la pista d'Acords.
+  - **Botó E/S** sempre (un sol botó), ordenat: **IN ▸** (entrades) i **OUT**: **MASTER L+R** (destacat), **FX ▸** i **Grups ▸**. La sortida de la taula de mescles té el mateix ordre. Ara una pista també pot sortir cap a un canal FX.
+  - Al menú de pista nova, «Grup» i «Retorn d'efectes (FX)» ja es poden crear des d'allà.
 - **0.35.0**
   - **Botó E/S a cada pista** (com a Pro Tools): a la capçalera de la pista hi ha el botó **E/S**, que obre un menú amb l'entrada (mono o estèreo) i la sortida (Sortida o un grup). Si la columna de pistes és prou ampla, en lloc del botó surten dues caixes: entrada («E7-8») i sortida («Sortida» / nom del grup).
   - **Res abans del zero**: cap clip pot començar abans del compàs 1. El compàs -1 només serveix per al compte enrere. Si un clip hi va a parar (deixar un fitxer, enganxar, moure…), es posa just al començament.

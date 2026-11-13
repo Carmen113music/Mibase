@@ -1,4 +1,5 @@
 #include "mibase/Edicio.h"
+#include "mibase/Harmonia.h"
 #include "mibase/Midi.h"
 
 #include <map>
@@ -171,6 +172,8 @@ namespace mibase::edicio
         t.nom = nom;
         t.tipus = tipus;
         t.color = colorLliure (p);
+        // 0.36: la pista d'Acords, a dalt de tot
+        if (esAcords (t)) return *p.pistes.insert (p.pistes.begin(), t);
         // 0.34: els grups i retorns sempre van a baix de tot: les pistes noves, abans del primer bus
         const auto lloc = std::find_if (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return esBus (q); });
         return *p.pistes.insert (lloc, t);
@@ -183,6 +186,59 @@ namespace mibase::edicio
             for (auto& c : t.clips)
                 if (c.iniciVisible() < 0.0) { c.pos -= c.iniciVisible(); ++n; }
         return n;
+    }
+
+    int pistaAcords (const Projecte& p)
+    {
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (esAcords (p.pistes[(size_t) i])) return i;
+        return -1;
+    }
+
+    int creaPistaAcords (Projecte& p)
+    {
+        if (const int i = pistaAcords (p); i >= 0) return i;
+        afegeixPista (p, "Acords", "acords");
+        return pistaAcords (p);
+    }
+
+    int posaAcord (Projecte& p, double ini, double fi, const std::string& nom)
+    {
+        if (nom.empty() || harmonia::llegeixAcord (nom).buit()) return -1;
+        ini = std::max (0.0, ini);
+        if (fi <= ini + longitudMinima) return -1;
+        auto& t = p.pistes[(size_t) creaPistaAcords (p)];
+        // el que hi havia en aquest tros: es retalla, es parteix o s'esborra
+        std::vector<Clip> resta;
+        for (auto& c : t.clips)
+        {
+            const double a = c.iniciVisible(), b = c.fiVisible();
+            if (b <= ini + 1e-9 || a >= fi - 1e-9) { resta.push_back (c); continue; }
+            if (a < ini) { auto e = c; e.fi = ini - e.pos; resta.push_back (e); }
+            if (b > fi)  { auto d = c; d.inici = fi - d.pos; resta.push_back (d); }
+        }
+        Clip nou;
+        nou.acord = nom;
+        nou.pos = ini;
+        nou.inici = 0.0;
+        nou.fi = fi - ini;
+        resta.push_back (nou);
+        std::sort (resta.begin(), resta.end(), [] (const Clip& x, const Clip& y) { return x.iniciVisible() < y.iniciVisible(); });
+        t.clips = std::move (resta);
+        for (int i = 0; i < (int) t.clips.size(); ++i)
+            if (t.clips[(size_t) i].pos == ini && t.clips[(size_t) i].acord == nom && t.clips[(size_t) i].inici == 0.0) return i;
+        return -1;
+    }
+
+    std::string acordA (const Projecte& p, double t)
+    {
+        const int i = pistaAcords (p);
+        if (i < 0) return {};
+        const auto& cl = p.pistes[(size_t) i].clips;
+        for (int k = (int) cl.size(); --k >= 0;)
+            if (cl[(size_t) k].esAcord() && ! cl[(size_t) k].mut && t >= cl[(size_t) k].iniciVisible() && t < cl[(size_t) k].fiVisible())
+                return cl[(size_t) k].acord;
+        return {};
     }
 
     void busosABaix (Projecte& p)
@@ -732,6 +788,9 @@ namespace mibase::edicio
         const int normals = (int) std::count_if (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
         if (esBus (p.pistes[(size_t) de])) a = std::max (a, normals);
         else a = std::min (a, normals - 1);
+        // 0.36: la pista d'Acords no es mou de dalt i ningú hi passa per sobre
+        if (esAcords (p.pistes[(size_t) de])) return;
+        if (pistaAcords (p) == 0) a = std::max (a, 1);
         if (a == de) return;
         auto t = p.pistes[(size_t) de];
         p.pistes.erase (p.pistes.begin() + de);

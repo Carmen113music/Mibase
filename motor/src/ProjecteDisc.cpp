@@ -456,6 +456,7 @@ namespace mibase::disc
                         c.mut = k.value ("mut", false);
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
+                        c.acord = k.value ("acord", std::string());   // 0.36
                         // Notes: [inici, durada, to, velocitat, canal] (ticks).
                         if (k.contains ("notes") && k["notes"].is_array())
                             for (auto& n : k["notes"])
@@ -491,8 +492,9 @@ namespace mibase::disc
                 if (t.id.empty()) t.id = "t" + std::to_string (++p.comptador);
                 p.pistes.push_back (t);
             }
-            // 0.34: els grups i retorns, a baix de tot
+            // 0.34: els grups i retorns, a baix de tot; 0.36: la pista d'Acords, a dalt
             std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
+            std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return esAcords (q); });
         }
 
         if (j.contains ("carpetes") && j["carpetes"].is_array())
@@ -670,6 +672,7 @@ namespace mibase::disc
                 json k = { { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
                            { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
                            { "rgb", c.rgb } };
+                if (c.esAcord()) k["acord"] = c.acord;   // 0.36
                 if (c.midi)
                 {
                     k["midi"] = true;

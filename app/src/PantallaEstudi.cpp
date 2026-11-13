@@ -659,7 +659,7 @@ void PantallaEstudi::colocaSeccions()
     auto r = getLocalBounds().withTrimmedTop (alcadaBarra);
     const bool m = estat.foraTreball();
 
-    const bool ambEditor = estat.pianoRoll && ! m;   // amb un editor obert, la columna esquerra té el panell d'harmonia
+    const bool ambEditor = (estat.pianoRoll || esquerra.acordsTriada()) && ! m;   // amb un editor obert (o la pista d'Acords triada, 0.36), la columna esquerra té el panell d'harmonia
     int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
     const bool ambCarpetes = estat.panellCarpetes && ! m;
     int carp = ambCarpetes ? ampleCarpetes : 0;
@@ -1304,7 +1304,16 @@ void PantallaEstudi::obreKits()
 
 void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
 {
+    if (tipus == "bus" || tipus == "fx") { busNou (tipus == "fx", -1, false); return; }   // 0.36: des del menú de pista nova
     estat.desfes.abans (estat.projecte);
+    if (tipus == "acords")
+    {
+        // 0.36: la pista d'Acords (una, a dalt)
+        estat.pistaTriada = ed::creaPistaAcords (estat.projecte);
+        estat.capTriat();
+        estat.canviat ("Pista d'acords"_ca);
+        return;
+    }
     if (tipus == "bateria")
     {
         // 0.20: pista de bateria amb el kit intern (o el darrer que s'ha fet servir) i un clip de 4 compassos amb un ritme bàsic.
