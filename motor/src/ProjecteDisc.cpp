@@ -459,6 +459,25 @@ namespace mibase::disc
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
                         c.acord = k.value ("acord", std::string());   // 0.36
+                        if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
+                            for (auto& b : k["blocs"])
+                            {
+                                if (! b.is_object()) continue;
+                                BlocPatro x;
+                                x.ini = b.value ("ini", 0LL);
+                                x.dur = b.value ("dur", 0LL);
+                                x.acord = b.value ("acord", std::string());
+                                x.patro = b.value ("patro", std::string());
+                                x.nom = b.value ("nom", std::string());
+                                x.passos = b.value ("passos", std::string());
+                                x.pasTicks = b.value ("pasTicks", 480LL);
+                                x.msCorda = b.value ("msCorda", 0.0);
+                                x.crescendo = b.value ("crescendo", 0);
+                                x.variacio = std::clamp (b.value ("variacio", 0.0), 0.0, 1.0);
+                                x.llavor = b.value ("llavor", 1u);
+                                x.vel = std::clamp (b.value ("vel", 88), 1, 127);
+                                if (x.dur > 0 && ! x.acord.empty()) c.blocs.push_back (x);
+                            }
                         // Notes: [inici, durada, to, velocitat, canal] (ticks).
                         if (k.contains ("notes") && k["notes"].is_array())
                             for (auto& n : k["notes"])
@@ -675,6 +694,15 @@ namespace mibase::disc
                            { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
                            { "rgb", c.rgb } };
                 if (c.esAcord()) k["acord"] = c.acord;   // 0.36
+                if (! c.blocs.empty())   // 0.40
+                {
+                    json bl = json::array();
+                    for (auto& b : c.blocs)
+                        bl.push_back ({ { "ini", b.ini }, { "dur", b.dur }, { "acord", b.acord }, { "patro", b.patro }, { "nom", b.nom },
+                                        { "passos", b.passos }, { "pasTicks", b.pasTicks }, { "msCorda", b.msCorda },
+                                        { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel } });
+                    k["blocs"] = bl;
+                }
                 if (c.midi)
                 {
                     k["midi"] = true;

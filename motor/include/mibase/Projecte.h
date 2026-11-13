@@ -76,6 +76,24 @@ namespace mibase
 
     /** Un tros d'una presa col·locat a la línia de temps (una «finestra»). No toca mai el fitxer.
         Sense presa (presa buida) és una finestra buida, feta amb el llapis. */
+    /** 0.40: bloc de patró dins d'un clip MIDI: la «recepta» (acord + rasgueig) amb què s'han escrit les notes
+        d'aquell tros. Les notes són normals i es poden editar; «regenerar» les torna a escriure. El bloc porta
+        el rasgueig sencer en text: no depèn de la llista de patrons de l'ordinador. */
+    struct BlocPatro
+    {
+        long long ini = 0, dur = 0;   // ticks des de l'inici del clip
+        std::string acord;            // «Am7», «G/B»
+        std::string patro, nom;       // id i nom del rasgueig (per ensenyar-lo)
+        std::string passos;           // el rasgueig (sintaxi de guitarra::llegeixPassos); buit = l'acord sencer
+        long long pasTicks = 480;
+        double msCorda = 0.0;
+        int crescendo = 0;
+        double variacio = 0.0;
+        unsigned llavor = 1;
+        int vel = 88;
+        bool operator== (const BlocPatro&) const = default;
+    };
+
     struct Clip
     {
         std::string presa;
@@ -97,6 +115,7 @@ namespace mibase
         bool esAcord() const noexcept { return ! acord.empty(); }
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
+        std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
 
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }

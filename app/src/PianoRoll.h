@@ -209,7 +209,7 @@ protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
-    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril, Pads };
+    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril, Pads, Llista, Blocs };
     enum class Mode { Res, Requadre, Decidint, Mou, DuradaFi, DuradaInici, Dibuixa, Goma, Teclat, Velocitat, LiniaVel, VoraCarril, Regla, Pad };
     enum class Part { Cos, Inici, Fi };
 
@@ -277,7 +277,31 @@ private:
     void pintaPads (juce::Graphics& g);
     void menuPresetsPads();
     void menuRasgueig();                                             // 0.29
-    bool padsGuitarra() const { return voicingPads.getTriat() == 2; }
+    bool padsGuitarra() const { return voicingPads.getTriat() == 2 || modeGuitarra(); }
+
+    // ---- 0.40: eina de patrons de guitarra (els pads d'acords, la llista de rasgueigs i la línia dels blocs) ----
+    bool modeGuitarra() const;
+    static constexpr int altBlocs = 24, altFilaLlista = 22;
+    int ampleLlista() const { return juce::jlimit (230, 300, getWidth() / 3); }
+    juce::Rectangle<int> zonaLlista() const;     // a la dreta dels pads
+    juce::Rectangle<int> zonaFilesLlista() const;
+    juce::Rectangle<int> zonaBlocs() const;      // sota la regla
+    std::vector<const mibase::guitarra::Patro*> patronsLlista() const;
+    void pintaLlista (juce::Graphics& g);
+    void pintaBlocs (juce::Graphics& g);
+    int blocA (juce::Point<int> p) const;
+    void menuBloc (int quin);
+    void regeneraBloc (int quin, bool ambElTriat);
+    void triaRasgueig (const std::string& id, bool escolta);
+    void escoltaRasgueig (const std::vector<mibase::Nota>& notes);
+    void obreEditorRasgueig();
+    void acordsDeLaCanco();
+    std::vector<int> cordesDeProva() const;
+    int velRasgueig() const;
+    Boto btEditaRasgueig { "Editor", dibuix::Icona::Llapis, Boto::Estil::Secundari };
+    Boto btAcordsCanco { "Acords cançó"_ca, std::nullopt, Boto::Estil::Secundari };
+    int desplLlista = 0, blocTriat = -1;
+    unsigned escolta = 0;
     std::vector<int> notesAcordPad (const mibase::harmonia::AcordPad& a) const;   // amb l'octava i el voicing triats (o la posició de guitarra)
     std::vector<mibase::Nota> rasgueigDe (const std::vector<int>& cordes) const;  // buit si no hi ha rasgueig triat
     void obreEditorPad (int i);

@@ -2570,17 +2570,39 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
                 }
                 else m = EstatEstudi::menuEntrades (estat.nomsEntrades, t, 1000);
             }
+            const auto llistaTeclats = clicES && mibase::esMidi (t) && teclats ? teclats() : juce::Array<juce::MidiDeviceInfo>();
+            if (clicES && mibase::esMidi (t))
+            {
+                // 0.40: a les pistes d'instrument, IN és el teclat MIDI que la toca
+                m.addSectionHeader ("IN");
+                juce::PopupMenu sub;
+                sub.addItem (5000, "Qualsevol (el que toca la pista triada)", true, t.entradaMidi.empty());
+                for (int k = 0; k < llistaTeclats.size(); ++k)
+                    sub.addItem (5001 + k, llistaTeclats[k].name, true, t.entradaMidi == llistaTeclats[k].identifier.toStdString());
+                if (llistaTeclats.isEmpty()) sub.addItem (-1, "No hi ha cap teclat MIDI connectat", false);
+                m.addSubMenu ("Teclat: "_ca + (t.entradaMidi.empty() ? "qualsevol"_ca : dibuix::utf8 (t.entradaMidiNom)), sub);
+            }
             if (clicSortida || clicES)
                 EstatEstudi::afegeixMenuSortida (m, p, t);   // OUT: MASTER L+R, FX ▸, Grups ▸
             juce::Component::SafePointer<Capcaleres> jo (this);
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, fila] (int r)
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, fila, llistaTeclats] (int r)
             {
                 if (jo == nullptr || r <= 0 || fila >= jo->estat.numPistes()) return;
                 jo->comencaCanvi();
                 jo->restaura();
                 auto& tt = jo->estat.projecte.pistes[(size_t) fila];
                 juce::String text;
-                if (EstatEstudi::aplicaEntrada (tt, r, 1000)) text = "entrada "_ca + EstatEstudi::textEntrada (tt);
+                if (r >= 5000 && r <= 5000 + llistaTeclats.size())
+                {
+                    if (r == 5000) { tt.entradaMidi.clear(); tt.entradaMidiNom.clear(); text = "la toca qualsevol teclat"_ca; }
+                    else
+                    {
+                        const auto d = llistaTeclats[r - 5001];
+                        tt.entradaMidi = d.identifier.toStdString(); tt.entradaMidiNom = d.name.toStdString();
+                        text = "la toca el teclat «"_ca + d.name + "»"_ca;
+                    }
+                }
+                else if (EstatEstudi::aplicaEntrada (tt, r, 1000)) text = "entrada "_ca + EstatEstudi::textEntrada (tt);
                 else
                 {
                     const auto bus = r >= 100 && r - 100 < jo->estat.numPistes() ? jo->estat.projecte.pistes[(size_t) (r - 100)].id : std::string();

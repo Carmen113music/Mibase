@@ -89,6 +89,33 @@ namespace mibase::guitarra
         d'aguda a greu, més fluix. Cada corda sona fins que es torna a tocar, s'apaga (cop apagat o silenci) o s'acaba
         la durada. */
     std::vector<Nota> rasgueja (const std::vector<int>& cordes, const Patro& p, long long durada, const Opcions& o);
+    // ---- 0.40: editor de rasgueigs, rasgueigs propis i blocs de patró ----
+    /** El contrari de llegeixPassos: el text d'una fila de passos. */
+    std::string textPassos (const std::vector<Pas>& v);
+    /** El dibuix amb fletxes («↓ · ↓ ↑») d'una fila de passos. */
+    std::string dibuixPassos (const std::vector<Pas>& v);
+    inline constexpr const char* grupPropis = "Els meus rasgueigs";
+    /** Els rasgueigs que ha fet l'usuari (id «propi:<nom>»). patro() també els troba. */
+    const std::vector<Patro>& propis();
+    void posaPropis (std::vector<Patro> v);
+    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos);
+    /** Per desar-los en un fitxer (JSON) i tornar-los a llegir. */
+    std::string textPropis (const std::vector<Patro>& v);
+    std::vector<Patro> llegeixPropis (const std::string& json);
+
+    BlocPatro blocDe (const Patro* p, const std::string& acord, long long ini, long long dur, double variacio, unsigned llavor, int vel);
+    Patro patroDeBloc (const BlocPatro& b);
+    /** Torna a escriure les notes d'un bloc: treu les que comencen dins seu, talla les que hi entren sonant
+        i hi posa el rasgueig de la recepta. */
+    void escriuBloc (Clip& c, int quin, double tempo);
+    /** Posa un bloc (i n'escriu les notes). Els blocs que trepitja s'escurcen o desapareixen. Torna'n l'índex. */
+    int posaBloc (Clip& c, BlocPatro b, double tempo);
+    /** Treu un bloc; amb «ambNotes», també les notes que comencen dins seu. */
+    void treuBloc (Clip& c, int quin, bool ambNotes);
+    /** Omple el clip amb un bloc per cada acord de la pista d'Acords que hi cau a sobre (treu els blocs i les
+        notes que hi havia als trossos nous). Torna quants n'ha posat. */
+    int blocsDeAcords (Projecte& p, int pista, int clip, const Patro* patro, double variacio, int vel, double tempo, unsigned llavor);
+
     /** Posa les notes al clip a partir de «ini» (ticks del clip). Retorna els índexs de les notes noves. */
     std::vector<int> afegeix (Clip& c, const std::vector<Nota>& notes, long long ini);
 }

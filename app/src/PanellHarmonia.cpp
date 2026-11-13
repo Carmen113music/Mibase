@@ -30,6 +30,9 @@ public:
         btSo.onClick = [this] { ancora = nullptr; menuSo(); };
         btSo.setTooltip ("So (preset) del sinte intern"_ca);
         btTeclat.onClick = [this] { menuTeclat(); };
+        // 0.40: sortida i enviaments de la pista de l'editor
+        btSortida.onClick = [this] { if (auto* t = pistaEditor()) estat.menuSortidaPista (btSortida, (int) (t - estat.projecte.pistes.data())); };
+        btEnvia.onClick = [this] { if (auto* t = pistaEditor()) estat.menuEnviamentsPista (btEnvia, (int) (t - estat.projecte.pistes.data())); };
         btTeclat.setTooltip ("Quin teclat MIDI toca aquesta pista. «Qualsevol»: el que toca la pista triada. "
                              "Un teclat concret: toca sempre aquesta pista, encara que no estigui triada."_ca);
 
@@ -132,7 +135,7 @@ public:
         btInsereix.onClick = [this] { insereixProgressio(); };
         btInsereix.setTooltip ("Posa la progressió al clip de l'editor actiu, a partir del compàs del capçal (un acord per compàs)"_ca);
 
-        for (auto* c : std::initializer_list<juce::Component*> { &btInstrument, &btSo, &btTeclat, &btEscala, &btAuto, &mode, &btAcord, &setenes, &durada, &btMinim,
+        for (auto* c : std::initializer_list<juce::Component*> { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia, &btEscala, &btAuto, &mode, &btAcord, &setenes, &durada, &btMinim,
                                                                  &btFonamental, &btTipus, &inversio, &voicing, &octava, &btDobla, &btBaix,
                                                                  &btEscolta, &btPosa, &btFesAcord, &btFesEscala, &btInvAmunt, &btInvAvall,
                                                                  &btEnllaca, &btProgressio, &compassos, &btEscoltaProg, &btInsereix, &btAplicaPads })
@@ -141,7 +144,7 @@ public:
         reproductor.tic = [this] { pasProgressio(); };
 
         // Seccions (plegables clicant el títol).
-        seccions[0] = { "Pista", "pista", { &btInstrument, &btSo, &btTeclat }, false, {} };
+        seccions[0] = { "Pista", "pista", { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia }, false, {} };
         seccions[1] = { "Tonalitat", "tonalitat", { &btEscala, &btAuto }, false, {} };
         for (auto* b : arrels) seccions[1].fills.push_back (b);
         seccions[2] = { "Escala al Piano Roll", "escala", { &mode }, false, {} };   // 0.12: sense «Ressalta l'acord» (sempre encès)
@@ -236,8 +239,10 @@ public:
                 btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
             }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
+            btSortida.setButtonText (EstatEstudi::textSortida (estat.projecte, *pe));
+            btEnvia.setButtonText (EstatEstudi::textEnviaments (estat.projecte, *pe));
         }
-        for (auto* b : { &btInstrument, &btSo, &btTeclat }) b->setEnabled (pistaEditor() != nullptr);
+        for (auto* b : { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia }) b->setEnabled (pistaEditor() != nullptr);
         repaint();
     }
 
@@ -264,6 +269,8 @@ public:
             btInstrument.setBounds (fila (28));
             btSo.setBounds (fila (28));
             btTeclat.setBounds (fila (28));
+            btSortida.setBounds (fila (28));
+            btEnvia.setBounds (fila (28));
             y += 8;
         }
 
@@ -811,6 +818,8 @@ private:
     Boto btInstrument { "Instrument: sinte intern", std::nullopt, Boto::Estil::Secundari };
     Boto btSo { "So: Piano", std::nullopt, Boto::Estil::Secundari };
     Boto btTeclat { "Teclat MIDI: qualsevol", std::nullopt, Boto::Estil::Secundari };
+    Boto btSortida { "Sortida", std::nullopt, Boto::Estil::Secundari };       // 0.40
+    Boto btEnvia { "Enviaments", std::nullopt, Boto::Estil::Secundari };
     juce::OwnedArray<Boto> arrels;
     juce::OwnedArray<BotoArrossegable> graus;
     Boto btEscala { "Major", std::nullopt, Boto::Estil::Secundari };

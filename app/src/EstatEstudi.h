@@ -95,6 +95,7 @@ public:
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
         bool pads = false;          // eina Chord Pad
+        bool patro = false;         // 0.40: eina de patrons de guitarra (els pads i, al costat, els rasgueigs)
         bool drum = false;          // 0.39: eina Drumpad (en obrir un clip: sí, si la pista sona amb un kit de bateria)
         std::vector<std::string> fantasmes;   // 0.10: pistes (id) de les quals es veuen les notes fantasma (per defecte, cap)
     };
@@ -178,6 +179,7 @@ public:
         bool enllaca = false;       // amb moviment mínim des de l'acord d'abans
         juce::String nom;
         bool perArrossegar = false; // es posa arrossegant (s'esborra quan s'amolla, caigui on caigui)
+        std::string acordBloc;                // 0.40: si no és buit, es posa un bloc de patró amb aquest acord (eina de patrons)
         std::vector<mibase::Nota> rasgueig;   // 0.29: si n'hi ha, es posen aquestes notes (ticks des de l'inici) en lloc de l'acord en bloc
         bool actiu() const noexcept { return ! notes.empty(); }
     } segell;
@@ -188,6 +190,12 @@ public:
         editors[(size_t) i].clip = r;
         editors[(size_t) i].idPista = pista (r.pista) != nullptr ? projecte.pistes[(size_t) r.pista].id : std::string();
         editors[(size_t) i].drum = pista (r.pista) != nullptr && mibase::esKit (projecte.pistes[(size_t) r.pista]);   // 0.39: l'eina per defecte
+        if (auto* t = pista (r.pista); t != nullptr && r.clip >= 0 && r.clip < (int) t->clips.size() && ! t->clips[(size_t) r.clip].blocs.empty())
+        {
+            // 0.40: un clip fet amb patrons de guitarra s'obre amb la seva eina
+            editors[(size_t) i].drum = false;
+            editors[(size_t) i].pads = editors[(size_t) i].patro = true;
+        }
     }
 
     /** El clip d'un editor, si encara existeix i és MIDI. */
@@ -292,6 +300,104 @@ public:
     }
     /** 0.36: la part OUT del botó E/S (i de la sortida de la taula de mescles): MASTER L+R destacat, FX ▸ i Grups ▸.
         Ids: 1 = màster, 100 + índex de la pista del bus. */
+    // ---- 0.40: sortida i enviaments als panells (també a les pistes d'instrument) ----
+    static juce::String textSortida (const mibase::Projecte& p, const mibase::Pista& t)
+    {
+        const int d = mibase::edicio::pistaPerId (p, t.sortida);
+        return "Sortida: "_ca + (d >= 0 ? juce::String::fromUTF8 (p.pistes[(size_t) d].nom.c_str()) : "Màster (L+R)"_ca);
+    }
+    static juce::String textNivell (double db) { return db <= -59.9 ? juce::String ("-oo") : (db > 0.0 ? "+" : "") + juce::String (db, 1) + " dB"; }
+    static juce::String textEnviaments (const mibase::Projecte& p, const mibase::Pista& t)
+    {
+        if (t.enviaments.empty()) return "Enviaments: cap"_ca;
+        if (t.enviaments.size() > 1) return "Enviaments: "_ca + juce::String ((int) t.enviaments.size());
+        const int d = mibase::edicio::pistaPerId (p, t.enviaments[0].desti);
+        return "Enviament: "_ca + (d >= 0 ? juce::String::fromUTF8 (p.pistes[(size_t) d].nom.c_str()) : juce::String ("?")) + "  " + textNivell (t.enviaments[0].nivellDb);
+    }
+    /** El menú dels enviaments d'una pista: cada un amb el seu submenú, i afegir-ne a un retorn. */
+    static juce::PopupMenu menuEnviaments (const mibase::Projecte& p, const mibase::Pista& t)
+    {
+        juce::PopupMenu m;
+        m.addSectionHeader ("ENVIAMENTS");
+        static constexpr double nivells[] = { 3.0, 0.0, -3.0, -6.0, -9.0, -12.0, -18.0 };
+        for (int k = 0; k < (int) t.enviaments.size() && k < 20; ++k)
+        {
+            const auto& e = t.enviaments[(size_t) k];
+            const int d = mibase::edicio::pistaPerId (p, e.desti), base = 3000 + k * 20;
+            juce::PopupMenu sub;
+            sub.addItem (base, "Encès"_ca, true, e.actiu && ! e.mut);
+            sub.addSeparator();
+            for (int n = 0; n < 7; ++n) sub.addItem (base + 1 + n, textNivell (nivells[n]), true, std::abs (e.nivellDb - nivells[n]) < 0.05);
+            sub.addSeparator();
+            sub.addItem (base + 10, "Pre-fader", true, e.mode == 0);
+            sub.addItem (base + 11, "Post-fader", true, e.mode == 1);
+            sub.addItem (base + 12, "Post-pan", true, e.mode == 2);
+            sub.addSeparator();
+            sub.addItem (base + 19, "Treu l'enviament");
+            m.addSubMenu ((d >= 0 ? juce::String::fromUTF8 (p.pistes[(size_t) d].nom.c_str()) : juce::String ("?")) + "    " + textNivell (e.nivellDb), sub,
+                          true, juce::Image(), e.actiu && ! e.mut);
+        }
+        juce::PopupMenu nous;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (p.pistes[(size_t) i].tipus == "fx" && mibase::edicio::potConnectar (p, t.id, p.pistes[(size_t) i].id))
+                nous.addItem (2000 + i, juce::String::fromUTF8 (p.pistes[(size_t) i].nom.c_str()));
+        if (nous.getNumItems() == 0) nous.addItem (-1, "No hi ha cap retorn: crea'l a la taula de mescles (+ Retorn)"_ca, false);
+        if (! t.enviaments.empty()) m.addSeparator();
+        m.addSubMenu ("Afegeix un enviament a"_ca, nous);
+        return m;
+    }
+    /** Aplica una tria de menuEnviaments. Torna el text per a l'historial (buit si «r» no n'era). */
+    static juce::String aplicaEnviament (mibase::Projecte& p, int pista, int r)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return {};
+        auto& t = p.pistes[(size_t) pista];
+        const auto nom = juce::String::fromUTF8 (t.nom.c_str());
+        if (r >= 2000 && r < 3000 && r - 2000 < (int) p.pistes.size())
+        {
+            const auto desti = p.pistes[(size_t) (r - 2000)];
+            return mibase::edicio::afegeixEnviament (p, pista, desti.id) >= 0 ? "«"_ca + nom + "» envia a «"_ca + juce::String::fromUTF8 (desti.nom.c_str()) + "»"_ca : juce::String();
+        }
+        if (r < 3000 || r >= 3400) return {};
+        const int k = (r - 3000) / 20, que = (r - 3000) % 20;
+        if (k >= (int) t.enviaments.size()) return {};
+        auto& e = t.enviaments[(size_t) k];
+        static constexpr double nivells[] = { 3.0, 0.0, -3.0, -6.0, -9.0, -12.0, -18.0 };
+        if (que == 0) { const bool ara = e.actiu && ! e.mut; e.actiu = ! ara; e.mut = false; }
+        else if (que >= 1 && que <= 7) e.nivellDb = nivells[que - 1];
+        else if (que >= 10 && que <= 12) e.mode = que - 10;
+        else if (que == 19) mibase::edicio::treuEnviament (p, pista, k);
+        else return {};
+        return "«"_ca + nom + "»: enviament canviat"_ca;
+    }
+    void menuSortidaPista (juce::Component& boto, int pista)
+    {
+        if (this->pista (pista) == nullptr) return;
+        juce::PopupMenu m;
+        afegeixMenuSortida (m, projecte, projecte.pistes[(size_t) pista]);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&boto), [this, pista] (int r)
+        {
+            if (r <= 0 || this->pista (pista) == nullptr) return;
+            const auto bus = r >= 100 && r - 100 < numPistes() ? projecte.pistes[(size_t) (r - 100)].id : std::string();
+            desfes.abans (projecte);
+            mibase::edicio::posaSortida (projecte, pista, bus);
+            canviat ("Pista «"_ca + juce::String::fromUTF8 (projecte.pistes[(size_t) pista].nom.c_str()) + "»: sortida canviada"_ca);
+        });
+    }
+    void menuEnviamentsPista (juce::Component& boto, int pista)
+    {
+        if (this->pista (pista) == nullptr) return;
+        menuEnviaments (projecte, projecte.pistes[(size_t) pista]).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&boto), [this, pista] (int r)
+        {
+            if (r <= 0 || this->pista (pista) == nullptr) return;
+            auto copia = projecte;
+            const auto text = aplicaEnviament (copia, pista, r);
+            if (text.isEmpty()) return;
+            desfes.abans (projecte);
+            projecte = std::move (copia);
+            canviat (text);
+        });
+    }
+
     static void afegeixMenuSortida (juce::PopupMenu& m, const mibase::Projecte& p, const mibase::Pista& t)
     {
         m.addSectionHeader ("OUT");

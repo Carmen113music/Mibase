@@ -1,5 +1,6 @@
 #include "mibase/Guitarra.h"
 #include "mibase/Midi.h"
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
@@ -248,6 +249,11 @@ namespace mibase::guitarra
 
     namespace
     {
+        std::string dibuixa (const std::vector<Pas>& v);
+    }
+    std::string dibuixPassos (const std::vector<Pas>& v) { return dibuixa (v); }
+    namespace
+    {
         std::string dibuixa (const std::vector<Pas>& v)
         {
             std::string d;
@@ -487,10 +493,182 @@ namespace mibase::guitarra
         return llista;
     }
 
+    namespace { std::vector<Patro>& elsPropis() { static std::vector<Patro> v; return v; } }
+
+    const std::vector<Patro>& propis() { return elsPropis(); }
+    void posaPropis (std::vector<Patro> v) { elsPropis() = std::move (v); }
+
     const Patro* patro (const std::string& id)
     {
         for (auto& p : patrons()) if (p.id == id) return &p;
+        for (auto& p : elsPropis()) if (p.id == id) return &p;
         return nullptr;
+    }
+
+    std::string textPassos (const std::vector<Pas>& v)
+    {
+        std::string r;
+        for (auto& s : v)
+        {
+            if (! r.empty()) r += ' ';
+            if (s.dit != Dit::Cap)
+            {
+                static const char* const noms[] = { "", "p", "p2", "i", "m", "a", "pl", "pc", "tap", "r" };
+                r += std::string ("[") + noms[(int) s.dit] + "]";
+                if (s.accent) r += '>';
+                continue;
+            }
+            if (s.cop == Cop::Res) { r += '.'; continue; }
+            if (s.cop == Cop::Silenci) { r += '_'; continue; }
+            if (s.cop == Cop::MutAvall) r += 'X';
+            else if (s.cop == Cop::MutAmunt) r += 'x';
+            else if (s.tec == Tecnica::Slap) r += 'S';
+            else
+            {
+                if (s.tec == Tecnica::Palm) r += 'P';
+                r += s.cop == Cop::Avall ? (s.suau ? 'd' : 'D') : (s.suau ? 'u' : 'U');
+            }
+            if (s.accent) r += '>';
+            if (s.curt) r += '!';
+            if (s.abast == Abast::Baix) r += "(b)";
+            else if (s.abast == Abast::Aguts) r += "(t)";
+        }
+        return r;
+    }
+
+    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos)
+    {
+        Patro p;
+        p.id = "propi:" + nom;
+        p.nom = nom;
+        p.grup = grupPropis;
+        p.compas = compas;
+        p.pasTicks = pasTicks;
+        p.passos = passos;
+        p.dibuix = dibuixPassos (passos);
+        return p;
+    }
+
+    std::string textPropis (const std::vector<Patro>& v)
+    {
+        nlohmann::ordered_json j = nlohmann::ordered_json::array();
+        for (auto& p : v)
+            j.push_back ({ { "nom", p.nom }, { "compas", p.compas }, { "pasTicks", p.pasTicks }, { "passos", textPassos (p.passos) } });
+        return nlohmann::ordered_json ({ { "rasgueigs", j } }).dump (2);
+    }
+
+    std::vector<Patro> llegeixPropis (const std::string& text)
+    {
+        std::vector<Patro> r;
+        const auto j = nlohmann::ordered_json::parse (text, nullptr, false);
+        if (! j.is_object() || ! j.contains ("rasgueigs") || ! j["rasgueigs"].is_array()) return r;
+        for (auto& e : j["rasgueigs"])
+        {
+            if (! e.is_object()) continue;
+            const std::string nom = e.value ("nom", std::string());
+            const auto passos = llegeixPassos (e.value ("passos", std::string()));
+            if (nom.empty() || passos.empty()) continue;
+            r.push_back (fesPropi (nom, e.value ("compas", std::string ("4/4")), std::clamp (e.value ("pasTicks", 480LL), 60LL, 1920LL), passos));
+        }
+        return r;
+    }
+
+    BlocPatro blocDe (const Patro* p, const std::string& acord, long long ini, long long dur, double variacio, unsigned llavor, int vel)
+    {
+        BlocPatro b;
+        b.ini = ini; b.dur = dur; b.acord = acord; b.variacio = variacio; b.llavor = llavor; b.vel = vel;
+        if (p != nullptr)
+        {
+            b.patro = p->id; b.nom = p->nom; b.passos = textPassos (p->passos); b.pasTicks = p->pasTicks;
+            b.msCorda = p->msCorda; b.crescendo = p->crescendo;
+        }
+        return b;
+    }
+
+    Patro patroDeBloc (const BlocPatro& b)
+    {
+        Patro p;
+        p.id = b.patro; p.nom = b.nom; p.pasTicks = b.pasTicks; p.passos = llegeixPassos (b.passos);
+        p.msCorda = b.msCorda; p.crescendo = b.crescendo;
+        return p;
+    }
+
+    void escriuBloc (Clip& c, int quin, double tempo)
+    {
+        if (quin < 0 || quin >= (int) c.blocs.size()) return;
+        const auto b = c.blocs[(size_t) quin];
+        std::erase_if (c.notes, [&] (const Nota& n) { return n.ini >= b.ini && n.ini < b.ini + b.dur; });
+        for (auto& n : c.notes)
+            if (n.ini < b.ini && n.ini + n.dur > b.ini) n.dur = b.ini - n.ini;   // el que venia sonant s'apaga aquí
+        const auto cordes = notes (harmonia::llegeixAcord (b.acord));
+        if (cordes.empty()) return;
+        const auto p = patroDeBloc (b);
+        std::vector<Nota> noves;
+        if (p.passos.empty())
+            for (int to : cordes) noves.push_back ({ 0, b.dur, to, b.vel, 0 });   // sense ritme: l'acord sencer
+        else
+        {
+            Opcions o;
+            o.vel = b.vel; o.tempo = tempo; o.variacio = b.variacio; o.llavor = b.llavor;
+            noves = rasgueja (cordes, p, b.dur, o);
+        }
+        afegeix (c, noves, b.ini);
+    }
+
+    int posaBloc (Clip& c, BlocPatro b, double tempo)
+    {
+        if (b.dur <= 0) return -1;
+        const long long fi = b.ini + b.dur;
+        for (size_t i = 0; i < c.blocs.size();)
+        {
+            auto& v = c.blocs[i];
+            const long long vfi = v.ini + v.dur;
+            if (v.ini < b.ini && vfi > b.ini) { v.dur = b.ini - v.ini; ++i; }                 // comença abans: s'escurça
+            else if (v.ini >= b.ini && v.ini < fi)
+            {
+                if (vfi > fi) { v.dur = vfi - fi; v.ini = fi; ++i; }                          // acaba després: en queda la cua
+                else c.blocs.erase (c.blocs.begin() + (std::ptrdiff_t) i);                    // queda a sota: fora
+            }
+            else ++i;
+        }
+        const auto on = std::find_if (c.blocs.begin(), c.blocs.end(), [&] (const BlocPatro& v) { return v.ini > b.ini; });
+        const int quin = (int) (on - c.blocs.begin());
+        c.blocs.insert (on, b);
+        escriuBloc (c, quin, tempo);
+        return quin;
+    }
+
+    void treuBloc (Clip& c, int quin, bool ambNotes)
+    {
+        if (quin < 0 || quin >= (int) c.blocs.size()) return;
+        const auto b = c.blocs[(size_t) quin];
+        if (ambNotes) std::erase_if (c.notes, [&] (const Nota& n) { return n.ini >= b.ini && n.ini < b.ini + b.dur; });
+        c.blocs.erase (c.blocs.begin() + quin);
+    }
+
+    int blocsDeAcords (Projecte& p, int pista, int clip, const Patro* patro, double variacio, int vel, double tempo, unsigned llavor)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return 0;
+        auto& t = p.pistes[(size_t) pista];
+        if (clip < 0 || clip >= (int) t.clips.size() || ! t.clips[(size_t) clip].midi) return 0;
+        auto& c = t.clips[(size_t) clip];
+        const double t0 = midi::ticks (p, c.pos);
+        int quants = 0;
+        for (const auto& ta : p.pistes)
+        {
+            if (! esAcords (ta)) continue;
+            for (const auto& k : ta.clips)
+            {
+                if (! k.esAcord() || k.mut) continue;
+                const double a = std::max (k.iniciVisible(), c.iniciVisible()), b = std::min (k.fiVisible(), c.fiVisible());
+                if (b - a < 0.02) continue;
+                const long long ini = std::llround (midi::ticks (p, a) - t0), fi = std::llround (midi::ticks (p, b) - t0);
+                if (fi - ini < 30) continue;
+                posaBloc (c, blocDe (patro, k.acord, ini, fi - ini, variacio, llavor + (unsigned) quants * 7919u, vel), tempo);
+                ++quants;
+            }
+        }
+        return quants;
     }
 
     namespace

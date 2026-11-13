@@ -190,6 +190,16 @@ Tot es fa a la **taula de mescles**. Cada pista té **una sortida** (on va tot e
 - Els projectes d'abans s'obren igual, amb totes les pistes a la sortida.
 - Encara no hi ha: compensació del retard dels plugins als busos, panorama de l'enviament a la pantalla, sidechain ni automatització.
 
+### Patrons de guitarra (0.40)
+És la quarta pestanya de sota de l'editor (**Piano Roll · Chord Pad · Drumpad · Patrons de guitarra**). Escriu acords rasguejats com a notes normals, que sonen amb l'instrument de la pista.
+- **A dalt, els pads d'acords** (els mateixos del Chord Pad: preset, instrument i so). Clicar un pad el fa sonar **amb el rasgueig triat**; botó dret: canviar l'acord del pad.
+- **A la dreta, els rasgueigs**: el botó de dalt obre tots els grups (i la **variació**: cap, poca, normal, molta); la llista de sota mostra els del grup triat amb el seu dibuix. Clicar-ne un el tria i el fa sonar.
+- **Editor** (el llapis): el rasgueig pas a pas. A cada pas tries el **cop** (avall, amunt, nota morta avall o amunt, silenci, o res = deixa sonar) i com es toca: **accent**, **fluix**, **palm mute**, **slap**, **curt**, **cordes** (totes, la greu, les agudes) i **dit** (p, p2, i, m, a, pluck, polze + acord, tap, rasgueado). Tries si els passos són corxeres o semicorxeres i quants n'hi ha (fins a 24). **Escolta** el fa sonar; **Desa** el guarda a «Els meus rasgueigs» (fitxer `Documents\Mibase\Rasgueigs.json`); **Esborra** el treu.
+- **La línia de sota la regla** és on es posen els acords: **arrossega-hi un pad** (o a la graella) i s'hi escriu un **bloc** amb aquell acord i el rasgueig triat, de la durada que diu «1 compàs / 1/2 / 1/4». Un bloc nou escurça o treu els que trepitja.
+- **Blocs**: doble clic = **una altra variació**; botó dret = regenerar, posar-hi el rasgueig triat ara, treure el bloc deixant les notes, o esborrar-lo amb les notes. Regenerar només toca les notes de dins del bloc.
+- **Acords cançó**: omple el clip amb un bloc per cada acord de la **pista d'Acords** que hi cau a sobre.
+- Un clip fet amb blocs es torna a obrir amb aquesta eina. Les notes es poden retocar al Piano Roll; si després regeneres el bloc, es tornen a escriure.
+
 ### Dreceres comunes dels editors (0.24)
 - **Arrossegar a la regla** (la franja dels compassos) del Piano Roll, del Drumpad o del Vocal Editor fa el **bucle** (enganxat a la graella). Un clic sol mou el capçal.
 - **/** del teclat numèric: encén o apaga el bucle.
@@ -239,6 +249,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.40.0** — **Patrons de guitarra**: eina nova a les pestanyes de l'editor, amb els pads d'acords, la llista de rasgueigs al costat, la línia de **blocs** (acord + rasgueig) sota la regla, escoltar abans de posar, regenerar amb una altra variació i **Acords cançó** (omple el clip amb la pista d'Acords). **Editor de rasgueigs** pas a pas, que es desen com a propis. **Pistes d'instrument**: la sortida i els enviaments també a la columna esquerra i a la secció «Pista» de l'editor (i el botó de sortida de les pistes d'àudio ja obre el menú de debò); al botó **E/S**, IN tria el **teclat MIDI**. **Biblioteca**: tornar a clicar el sample que sona l'atura. **Panell de l'esquerra**: ja no canvia sol en passar el ratolí entre l'editor i la taula de treball (cal clicar).
 - **0.39.0** — *Instruments i eines, pas 2*
   - **La bateria ja no és un tipus de pista**: és una **pista d'instrument** amb l'instrument **Kit de bateria**. Al menú d'instrument (columna esquerra) hi ha: Sinte intern, General MIDI, Samplejador, Kit de bateria i VST3; es pot canviar quan vulguis. Amb el kit, el botó de sota és «Kit: …» i obre la finestra dels kits.
   - **El Drumpad és una eina per a qualsevol pista d'instrument**: la pestanya «Drumpad» s'obre sobre qualsevol clip (per exemple, per programar una bateria VST3 o General MIDI). El primer cop hi posa les files del darrer kit (cada fila és una nota). I al revés: una pista amb kit es pot obrir amb el Piano Roll o el Chord Pad.

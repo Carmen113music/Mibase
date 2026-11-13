@@ -20,7 +20,9 @@ public:
 
     explicit OpcionsPista (EstatEstudi& e) : estat (e)
     {
-        for (auto* b : { &btInstrument, &btSo, &btTeclat, &btSortida, &btObre, &btKit })
+        btEnvia.setTooltip ("Enviaments de la pista als retorns d'efectes (nivell, mode, treure, afegir-ne)"_ca);
+        btEnvia.onClick = [this] { estat.menuEnviamentsPista (btEnvia, estat.pistaTriada); };
+        for (auto* b : { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia, &btObre, &btKit })
         {
             b->setMidaText (12.0f);
             addChildComponent (b);
@@ -60,11 +62,7 @@ public:
                 });
                 return;
             }
-            m.addItem (1, "Màster (L+R)"_ca, true, true);
-            m.addItem (2, "Sortida directa  · més endavant"_ca, false);
-            m.addItem (3, "Subgrup  · més endavant"_ca, false);
-            m.addItem (4, "Bus d'efectes  · més endavant"_ca, false);
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSortida), [] (int) {});
+            estat.menuSortidaPista (btSortida, estat.pistaTriada);   // 0.40: el menú de debò (MASTER, FX, Grups)
         };
     }
 
@@ -85,8 +83,9 @@ public:
         if (estat.masterTriat()) return 16 + slots * 26 + 28 + 8;
         const auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return 0;
-        if (t->tipus == "midi") return (GestorPlugins::esVst3 (t->instrument) ? 2 : 3) * 32 + 16 + slots * 26 + 6;
-        return 16 + slots * 26 + 28 + 10;
+        // 0.40: sortida i enviaments a totes les pistes (dues files més a les d'instrument, una més a la resta)
+        if (t->tipus == "midi") return (GestorPlugins::esVst3 (t->instrument) ? 2 : 3) * 32 + 16 + slots * 26 + 6 + 2 * 32;
+        return 16 + slots * 26 + 28 + 10 + 32;
     }
 
     void actualitza()
@@ -108,7 +107,9 @@ public:
         }
         const bool sampler = midiPista && mibase::esSampler (*t);
         btSo.setVisible (midiPista && ! vst && ! bateria);   // 0.39: amb el kit de bateria, el «so» és el kit
-        btSortida.setVisible (audio || master);
+        btSortida.setVisible (t != nullptr || master);   // 0.40: també a les pistes d'instrument
+        btEnvia.setVisible (! master && t != nullptr);
+        if (! master && t != nullptr) btEnvia.setButtonText (EstatEstudi::textEnviaments (estat.projecte, *t));
 
         const auto* v = llistaInserts();
         const int slots = numSlots();
@@ -137,7 +138,7 @@ public:
             btSortida.setButtonText ("Sortida: "_ca + (k + 1 < noms.size() ? noms[k] + " / " + noms[k + 1]
                                                                           : juce::String (k + 1) + "/" + juce::String (k + 2)));
         }
-        else if (audio)
+        else if (t != nullptr)
         {
             // 0.33: si la pista va a un bus, es diu aquí (es tria a la taula de mescles).
             const int d = t != nullptr ? mibase::edicio::pistaPerId (estat.projecte, t->sortida) : -1;
@@ -173,6 +174,8 @@ public:
             if (b->isVisible()) b->setBounds (fila (22));
         if (btSortida.isVisible())
             btSortida.setBounds (fila (28));
+        if (btEnvia.isVisible())
+            btEnvia.setBounds (fila (28));
     }
 
     void paint (juce::Graphics& g) override
@@ -342,6 +345,7 @@ private:
     Boto btSo { "So", std::nullopt, Boto::Estil::Secundari };
     Boto btTeclat { "Teclat", std::nullopt, Boto::Estil::Secundari };
     Boto btSortida { "Sortida", std::nullopt, Boto::Estil::Secundari };
+    Boto btEnvia { "Enviaments", std::nullopt, Boto::Estil::Secundari };   // 0.40
     Boto btObre { {}, dibuix::Icona::Finestra, Boto::Estil::Secundari };
     Boto btKit { "Kit", dibuix::Icona::Bateria, Boto::Estil::Secundari };
     juce::OwnedArray<FilaInsert> inserts;

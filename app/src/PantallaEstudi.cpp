@@ -330,7 +330,23 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pestDreta.onCanvi = [this] (int i) { dretaBiblioteca = i == 1; ajustos.setValue ("estudi.dretaBiblioteca", dretaBiblioteca); colocaSeccions(); };
     escGlobal() = [this] { tancaTot(); };
     biblioteca.onInfo = [this] (const juce::String& t) { estat.info = t; estat.avisa(); };
-    biblioteca.onEscolta = [this] (const juce::File& fs) { if (auto mo = kits::llegeix (fs, 30.0)) servei.escoltaSo (mo); };
+    biblioteca.onEscolta = [this] (const juce::File& fs)
+    {
+        // 0.40: tornar a clicar el sample que està sonant l'atura (n'hi ha de molt llargs).
+        const auto ara = juce::Time::getMillisecondCounter();
+        if (fs == sampleEscoltat && ara < sampleEscoltatFins)
+        {
+            servei.escoltaSo (nullptr);
+            sampleEscoltat = juce::File();
+            return;
+        }
+        if (auto mo = kits::llegeix (fs, 30.0))
+        {
+            sampleEscoltat = fs;
+            sampleEscoltatFins = ara + (juce::uint32) (1000.0 * (double) mo->L.size() / juce::jmax (1.0, mo->fs));
+            servei.escoltaSo (mo);
+        }
+    };
     biblioteca.onObreAlSampler = [this] (const juce::File& fs)
     {
         if (estat.sampler.obert) carregaSample (estat.sampler.pista, fs);
@@ -414,6 +430,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         else esquerra.opcions.obreInstrument();   // la pista ja és la triada
     };
     esquerra.opcions.teclats = [this] { return servei.getTeclatsMidi(); };
+    capcaleres.teclats = [this] { return servei.getTeclatsMidi(); };
     esquerra.opcions.setPlugins (&plugins);
     mescles.plugins = &plugins;
     esquerra.opcions.sortides = [this]
@@ -439,13 +456,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         if (ed == nullptr) ed = dynamic_cast<EditorVeu*> (c) != nullptr ? c : c->findParentComponentOfClass<EditorVeu>();
         if (ed == nullptr) ed = dynamic_cast<EditorSampler*> (c) != nullptr ? c : c->findParentComponentOfClass<EditorSampler>();
         if (ed != nullptr && ! ed->hasKeyboardFocus (true)) ed->grabKeyboardFocus();
-        if (! estat.focusEditor && dynamic_cast<PianoRoll*> (ed) != nullptr) { estat.focusEditor = true; estat.avisa(); }
+        // 0.40: el panell de l'esquerra no canvia només de passar-hi el ratolí (era massa aleatori): cal clicar.
     };
     focusPistes.entra = [this] (juce::Component*)
     {
         if (! potAgafarFocus()) return;
         if (! pistes.hasKeyboardFocus (true)) pistes.grabKeyboardFocus();
-        if (estat.focusEditor && estat.pianoRoll) { estat.focusEditor = false; estat.avisa(); }
     };
     editorVeu.addMouseListener (&focusEditor, true);
     editorSampler.addMouseListener (&focusEditor, true);

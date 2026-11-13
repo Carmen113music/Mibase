@@ -134,6 +134,8 @@ private:
     void acabaGravacioMidi();
     void canviaNom (int pista);
     void busNou (bool fx, int pista, bool comSortida);
+    juce::File sampleEscoltat;               // 0.40: el sample de la biblioteca que s'està escoltant
+    juce::uint32 sampleEscoltatFins = 0;     // fins quan sona (ms del comptador)
     void canviaTempo();
     void demanaImportar (int pista, double on);
     void importa (const juce::StringArray& fitxers, int pista, double on);
