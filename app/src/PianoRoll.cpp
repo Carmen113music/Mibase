@@ -124,7 +124,7 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     octavaPads.setTooltip ("Octava de la fonamental dels pads (4 = la del do central)");
     octavaPads.onCanvi = [this] (int) { estat.avisa(); };
     voicingPads.setLlum (vintage::ledTaronja);
-    voicingPads.setTooltip ("Com es col·loquen les notes de l'acord. Guitarra: la posició al mànec, i el pad s'arrossega amb un rasgueig"_ca);
+    voicingPads.setTooltip ("Com es col·loquen les notes de l'acord. Guitarra: la posició de l'acord al mànec"_ca);
     voicingPads.onCanvi = [this] (int) { actualitzaControlsPads(); resized(); repaint(); estat.avisa(); };
     btRasgueig.setTooltip ("Rasgueig: ritme que s'escriu quan arrossegues un pad al Piano Roll (dura el que diu «1 compàs / 1/2 / 1/4»)"_ca);
     btRasgueig.onClick = [this] { menuRasgueig(); };
@@ -682,8 +682,7 @@ void PianoRoll::resized()
         if (! padsGuitarra()) { octavaPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (6); }
         voicingPads.setBounds (f.removeFromLeft (voicingPads.ampladaIdeal())); f.removeFromLeft (6);
         selDuradaPads.setBounds (f.removeFromLeft (selDuradaPads.ampladaIdeal())); f.removeFromLeft (6);
-        if (padsGuitarra()) btRasgueig.setBounds (f.removeFromLeft (juce::jmin (250, f.getWidth())));
-        else btMinimPads.setBounds (f.removeFromLeft (110));
+        if (! padsGuitarra()) btMinimPads.setBounds (f.removeFromLeft (110));
     }
     actualitzaBarres();
 }
@@ -1228,7 +1227,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
                 mode = Mode::Res;
                 llavorRasgueig = (unsigned) juce::Random::getSystemRandom().nextInt (0x7fffffff) + 1u;   // 0.32: cada acord, la seva variació
                 arrossegaAcord (*this, estat, notesPadPremut, juce::String::fromUTF8 (padsActuals()[(size_t) i].c_str()), duradaPads(),
-                                btMinimPads.getToggleState(), rasgueigDe (notesPadPremut));
+                                btMinimPads.getToggleState(), {});   // 0.38.1: l'acord sencer; els ritmes (rasgueigDe) aniran a l'eina de patrons (0.40)
                 repaint();
             }
             return;
@@ -2374,7 +2373,7 @@ void PianoRoll::actualitzaControlsPads()
         b->setVisible (p && clip() != nullptr);
     // 0.29: amb «Guitarra», el botó del rasgueig ocupa el lloc de l'octava i del moviment mínim (que no hi pinten res).
     const bool gt = padsGuitarra();
-    btRasgueig.setVisible (p && clip() != nullptr && gt);
+    btRasgueig.setVisible (false);   // 0.38.1: el ritme no és cosa del Chord Pad; tornarà a l'eina de patrons de guitarra
     if (gt) { octavaPads.setVisible (false); btMinimPads.setVisible (false); }
     const auto* pr = guitarra::patro (rasgueigPads);
     btRasgueig.setButtonText (pr != nullptr ? juce::String::fromUTF8 (pr->nom.c_str()) : "Sense ritme"_ca);
