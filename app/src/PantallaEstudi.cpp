@@ -245,6 +245,26 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     mescles.onBusNou = [this] (bool fx, int pista, bool comSortida) { busNou (fx, pista, comSortida); };
     capcaleres.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
     pistes.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
+    pistes.onEscoltaNotes = [this] (const std::vector<int>& notes)
+    {
+        // 0.37: escoltar un acord de la pista d'Acords: sona per la primera pista que segueix els acords
+        // (o la MIDI triada, o la primera MIDI que hi hagi)
+        int on = -1;
+        for (int i = 0; i < estat.numPistes() && on < 0; ++i)
+            if (estat.projecte.pistes[(size_t) i].segueixAcords && estat.projecte.pistes[(size_t) i].tipus == "midi") on = i;
+        if (on < 0 && estat.pista (estat.pistaTriada) != nullptr && estat.pista (estat.pistaTriada)->tipus == "midi") on = estat.pistaTriada;
+        for (int i = 0; i < estat.numPistes() && on < 0; ++i)
+            if (estat.projecte.pistes[(size_t) i].tipus == "midi") on = i;
+        if (on < 0) { estat.info = "Per escoltar l'acord cal una pista MIDI"_ca; estat.avisa(); return; }
+        const int slot = slotDePista (estat.projecte.pistes[(size_t) on]);
+        for (int n : notes) servei.estudi().enviaDirecte ({ slot, (std::uint8_t) 0x90, (std::uint8_t) juce::jlimit (0, 127, n), (std::uint8_t) 92 });
+        juce::Component::SafePointer<PantallaEstudi> jo (this);
+        juce::Timer::callAfterDelay (900, [jo, slot, notes]
+        {
+            if (jo == nullptr) return;
+            for (int n : notes) jo->servei.estudi().enviaDirecte ({ slot, (std::uint8_t) 0x80, (std::uint8_t) juce::jlimit (0, 127, n), (std::uint8_t) 0 });
+        });
+    };
     pistes.onImporta = [this] (const juce::StringArray& fitxers, int pista, double on) { importa (fitxers, pista, on); };
     pistes.onDemanaImportar = [this] (int pista, double on) { demanaImportar (pista, on); };
     pistes.onConsolida = [this] (int pista, int clipA, int clipB) { consolida (pista, clipA, clipB); };
@@ -659,7 +679,7 @@ void PantallaEstudi::colocaSeccions()
     auto r = getLocalBounds().withTrimmedTop (alcadaBarra);
     const bool m = estat.foraTreball();
 
-    const bool ambEditor = (estat.pianoRoll || esquerra.acordsTriada()) && ! m;   // amb un editor obert (o la pista d'Acords triada, 0.36), la columna esquerra té el panell d'harmonia
+    const bool ambEditor = estat.pianoRoll && ! m && ! esquerra.acordsTriada();   // amb un editor obert, la columna esquerra té el panell d'harmonia (0.37: no amb la pista d'Acords triada)
     int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
     const bool ambCarpetes = estat.panellCarpetes && ! m;
     int carp = ambCarpetes ? ampleCarpetes : 0;

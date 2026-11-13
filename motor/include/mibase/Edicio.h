@@ -68,6 +68,9 @@ namespace mibase::edicio
     int posaAcord (Projecte& p, double ini, double fi, const std::string& nom);
     /** L'acord que sona en el moment t (el bloc de més amunt si se'n trepitgen); buit si cap. */
     std::string acordA (const Projecte& p, double t);
+    /** 0.37: on va un acord nou posat al moment t: des del temps (pulsació) on cau fins al final del compàs, o fins
+        on comença el següent acord d'aquest compàs. */
+    std::pair<double, double> trosAcordNou (const Projecte& p, double t);
     Presa& afegeixPresa (Projecte& p, const std::string& fitxer, const std::string& nom, double durada);
     /** Clip sencer d'una presa a la pista, amb l'inici visible a «on». */
     Clip& afegeixClip (Projecte& p, int pista, const std::string& idPresa, double on);

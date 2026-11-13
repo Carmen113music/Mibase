@@ -239,9 +239,20 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.37.0**
+  - **Pista d'acords**
+    - Un acord nou comença al **temps** on cliques i arriba fins al final del compàs (o fins al següent acord d'aquell compàs): dins un compàs hi pot haver diversos acords.
+    - **Llapis o doble clic** → s'obre una finestra amb un **mini Chord Pad** (tries el preset: acords de la tonalitat, Pop, Funk…) i el **constructor d'acords** a sota. Clica un pad (sona i es carrega al constructor), retoca'l si vols i prem **Posa-ho** (o Retorn). Clic dret: el menú ràpid de sempre.
+    - Color lila propi, diferent del Màster.
+    - Amb la pista d'acords triada, la columna esquerra mostra **SEGUEIXEN ELS ACORDS**: la llista de pistes MIDI amb un botó per activar o desactivar si segueixen la pista d'acords (els patrons de les properes versions ho faran servir). Res de fader ni inserts.
+    - El clip mostra el nom net de l'acord (sense la marca interna d'inversió).
+    - No surt a la Taula d'estructura; reordenar l'estructura igualment mou els acords, perquè són a la mateixa línia de temps.
+  - **Menú E/S**: IN i OUT es veuen igual (dues seccions; l'entrada triada és un submenú).
+  - **Arreglat**: clicar just després de M/S/Rec/Instr en una pista MIDI ja no obre el menú E/S.
+
 - **0.36.0**
   - **Pista d'ACORDS** (com la Chord Track de Cubase): + Pista nova → «Pista d'acords». N'hi ha una i va sempre a dalt de tot. Hi poses els acords de la cançó (G · D · Am · G…). No sona: és la guia que faran servir els patrons de guitarra i piano (properes versions).
-    - **Posar un acord**: doble clic (o el llapis) en un compàs → menú amb els acords de la tonalitat (també amb setena) o «Escriu un acord…» (Am, G7, C/E, Fmaj7, Dsus4…). Ocupa aquell compàs.
+    - **Posar un acord**: doble clic (o el llapis) en un compàs → menú amb els acords de la tonalitat (també amb setena) o «Escriu un acord…» (Am, G7, C/E, Fmaj7, Dsus4…). Ocupa aquell compàs (0.37: des del temps on cliques).
     - **Arrossegar**: amb la pista d'Acords triada, la columna esquerra mostra la tonalitat i els **acords de la tonalitat**; arrossega'n un a la pista. També s'hi poden deixar acords del **Chord Pad** del Piano Roll.
     - Els blocs es mouen, s'allarguen, es parteixen (tisores) i s'esborren (goma) com els clips. Botó dret o doble clic sobre un bloc: canviar-lo o esborrar-lo. Un acord nou trepitja (retalla) el que hi havia en aquell tros.
     - No surt a la taula de mescles. Els acords no van a les altres pistes ni els clips a la pista d'Acords.

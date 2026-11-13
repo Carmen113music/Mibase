@@ -358,6 +358,7 @@ namespace mibase::disc
                 t.carpeta = e.value ("carpeta", std::string());
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
+                t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
                 if (e.contains ("enviaments") && e["enviaments"].is_array())
                     for (auto& v : e["enviaments"])
                     {
@@ -695,6 +696,7 @@ namespace mibase::disc
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
+            if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
             if (! t.enviaments.empty())
             {
                 json ev = json::array();

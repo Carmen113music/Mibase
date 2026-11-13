@@ -206,6 +206,7 @@ namespace mibase
         ParamsSampler sampler;                     // 0.26: instrument «sampler»
         // ---- 0.33 ----
         std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
     };
 

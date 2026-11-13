@@ -41,12 +41,28 @@ namespace
             const auto dir = fs::temp_directory_path() / "mibase_prova_acords036";
             fs::remove_all (dir);
             fs::create_directories (dir);
+            q.pistes[1].segueixAcords = true;   // 0.37: «segueix la pista d'Acords» es desa
+            const auto idSegueix = q.pistes[1].id;
             std::rotate (q.pistes.begin(), q.pistes.begin() + 1, q.pistes.end());   // (barrejat a propòsit)
             comprova (disc::desa (dir / "p.mibase", q, "2026-11-13T09:00:00", "2026-11-13 090000", false).correcte, "desa");
             const auto llegit = disc::llegeix (dir / "p.mibase");
             comprova (llegit.has_value() && esAcords (llegit->pistes[0]) && acordA (*llegit, 9.5) == "Em" && acordA (*llegit, 14.0) == "G",
                       "en obrir-lo, els acords hi són i la pista torna a dalt");
+            comprova (llegit.has_value() && llegit->pistes[(size_t) pistaPerId (*llegit, idSegueix)].segueixAcords
+                      && ! llegit->pistes[(size_t) pistaPerId (*llegit, q.pistes[3].id)].segueixAcords, "«segueix la pista d'Acords» es desa (0.37)");
             fs::remove_all (dir);
+        });
+
+        prova ("pista d'Acords: un acord nou va del temps on cau al final del compàs (0.37)", []
+        {
+            Projecte q;   // 120 bpm, 4/4: un compàs = 2 s, un temps = 0,5 s
+            auto tros = trosAcordNou (q, 2.6);   // compàs 2, temps 2
+            comprova (std::abs (tros.first - 2.5) < 1e-9 && std::abs (tros.second - 4.0) < 1e-9, "del temps 2 al final del compàs");
+            posaAcord (q, 2.0, 4.0, "G");
+            posaAcord (q, 3.0, 4.0, "D");   // dos acords al mateix compàs
+            comprova (acordA (q, 2.4) == "G" && acordA (q, 3.2) == "D", "dos acords dins un compàs");
+            tros = trosAcordNou (q, 2.2);
+            comprova (std::abs (tros.first - 2.0) < 1e-9 && std::abs (tros.second - 3.0) < 1e-9, "s'atura on comença el D");
         });
     }
 }

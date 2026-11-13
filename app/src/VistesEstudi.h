@@ -124,6 +124,8 @@ public:
     /** 0.36: menú d'acords de la pista d'Acords: clip -1 = posar-ne un de nou (al compàs de «t»); si no, canviar-lo. */
     void menuAcords (int pista, int clip, double t);
     void deixaAcord (juce::Point<int> on);
+    void obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on);   // 0.37
+    std::function<void (const std::vector<int>&)> onEscoltaNotes;                    // 0.37: fer sonar un acord (per escoltar-lo)
 
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova
@@ -212,6 +214,7 @@ public:
     juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
     juce::Rectangle<int> zonaES (int fila) const;
     bool esEstreta (int fila) const;
+    juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
 
     void paint (juce::Graphics& g) override;
@@ -230,6 +233,79 @@ private:
     juce::Point<int> inici;
 };
 
+/** 0.37: amb la pista d'Acords triada, la columna esquerra mostra les pistes MIDI amb un botó cadascuna:
+    encès = la pista segueix la pista d'Acords (els seus clips de patró llegiran els acords). */
+class PanellSeguidors : public juce::Component
+{
+public:
+    explicit PanellSeguidors (EstatEstudi& e) : estat (e) {}
+
+    void refresca()
+    {
+        std::vector<std::string> ids;
+        for (const auto& t : estat.projecte.pistes) if (t.tipus == "midi") ids.push_back (t.id);
+        if (ids != idsBotons)
+        {
+            idsBotons = ids;
+            botons.clear();
+            for (const auto& id : ids)
+            {
+                auto* b = botons.add (new Boto ({}, std::nullopt, Boto::Estil::Tecla));
+                b->setLlum (juce::Colour (0xffa98bff));
+                b->setMidaText (12.5f);
+                b->setClickingTogglesState (false);
+                b->onClick = [this, id] { commuta (id); };
+                addAndMakeVisible (b);
+            }
+            resized();
+        }
+        for (int i = 0; i < botons.size(); ++i)
+            if (const int k = mibase::edicio::pistaPerId (estat.projecte, idsBotons[(size_t) i]); k >= 0)
+            {
+                const auto& t = estat.projecte.pistes[(size_t) k];
+                botons[i]->setButtonText (juce::String (k + 1) + "  " + juce::String::fromUTF8 (t.nom.c_str()));
+                botons[i]->setToggleState (t.segueixAcords, juce::dontSendNotification);
+                botons[i]->setTooltip (t.segueixAcords ? "Segueix la pista d'Acords. Clica per deixar-la anar sola."_ca
+                                                       : "No segueix la pista d'Acords. Clica perquè la segueixi."_ca);
+            }
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (juce::Colour (0xffa98bff));
+        g.setFont (dibuix::lletra (11.5f, true));
+        g.drawFittedText ("SEGUEIXEN ELS ACORDS"_ca, 4, 0, getWidth() - 8, 30, juce::Justification::centredLeft, 2, 1.0f);
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (11.0f));
+        const int y = 34 + botons.size() * 34 + 6;
+        g.drawFittedText (botons.isEmpty() ? "Encara no hi ha cap pista MIDI."_ca
+                                           : "Encès: els clips de patró de la pista llegeixen els acords d'aquí. Llapis o doble clic a la pista d'Acords: posar-hi acords."_ca,
+                          4, botons.isEmpty() ? 34 : y, getWidth() - 8, 60, juce::Justification::topLeft, 5, 0.85f);
+    }
+
+    void resized() override
+    {
+        for (int i = 0; i < botons.size(); ++i) botons[i]->setBounds (2, 34 + i * 34, getWidth() - 4, 30);
+    }
+
+private:
+    void commuta (const std::string& id)
+    {
+        const int k = mibase::edicio::pistaPerId (estat.projecte, id);
+        if (k < 0) return;
+        estat.desfes.abans (estat.projecte);
+        auto& t = estat.projecte.pistes[(size_t) k];
+        t.segueixAcords = ! t.segueixAcords;
+        estat.canviat ("«"_ca + juce::String::fromUTF8 (t.nom.c_str()) + (t.segueixAcords ? "» segueix la pista d'Acords"_ca : "» ja no segueix la pista d'Acords"_ca));
+        refresca();
+    }
+
+    EstatEstudi& estat;
+    std::vector<std::string> idsBotons;
+    juce::OwnedArray<Boto> botons;
+};
+
 /** Columna de l'esquerra: pestanyes Taula de treball / Taula de mescles i el fader de la pista triada. */
 class ColumnaEsquerra : public SeccioEstudi
 {
@@ -239,10 +315,12 @@ public:
     void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
     bool ambEditor() const
     {
-        if (panellEditor == nullptr || estat.foraTreball()) return false;
-        if (acordsTriada()) return true;   // 0.36: amb la pista d'Acords triada, la tonalitat i els acords per arrossegar
+        if (panellEditor == nullptr || estat.foraTreball() || acordsTriada()) return false;
         return estat.pianoRoll && estat.focusEditor;
     }
+    /** 0.37: amb la pista d'Acords triada, la llista de pistes que la segueixen (en lloc del fader i els inserts). */
+    bool ambAcords() const { return ! estat.foraTreball() && acordsTriada(); }
+    PanellSeguidors seguidors { estat };
     bool acordsTriada() const { auto* t = estat.pista (estat.pistaTriada); return t != nullptr && mibase::esAcords (*t); }
     OpcionsPista opcions { estat };
     void paint (juce::Graphics& g) override;

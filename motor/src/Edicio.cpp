@@ -241,6 +241,21 @@ namespace mibase::edicio
         return {};
     }
 
+    std::pair<double, double> trosAcordNou (const Projecte& p, double t)
+    {
+        t = std::max (0.0, t);
+        const double c = std::floor (compasDeSegons (p, t) + 1e-9);
+        const double a = segonsDeCompas (p, c), b = segonsDeCompas (p, c + 1.0);
+        const int num = std::max (1, tramA (p, t).num);
+        const double temps = (b - a) / num;
+        const double ini = std::min (b - temps, a + std::floor ((t - a) / temps + 1e-9) * temps);
+        double fi = b;
+        if (const int i = pistaAcords (p); i >= 0)
+            for (const auto& k : p.pistes[(size_t) i].clips)
+                if (k.esAcord() && k.iniciVisible() > ini + 1e-6 && k.iniciVisible() < fi) fi = k.iniciVisible();
+        return { ini, fi };
+    }
+
     void busosABaix (Projecte& p)
     {
         std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });
