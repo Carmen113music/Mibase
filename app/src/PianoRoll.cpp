@@ -1737,6 +1737,15 @@ void PianoRoll::pintaGraella (juce::Graphics& g)
         g.fillRect (juce::Rectangle<float> (xa, (float) zg.getY(), xb - xa, (float) zg.getHeight()));
     }
 
+    // 0.35: fora de la finestra del clip, més fosc (el que hi ha abans i després no és la part que s'edita)
+    {
+        const float xa = juce::jlimit ((float) zg.getX(), (float) zg.getRight(), xTick (a));
+        const float xb = juce::jlimit ((float) zg.getX(), (float) zg.getRight(), xTick (b));
+        g.setColour (juce::Colours::black.withAlpha (0.42f));
+        if (xa > (float) zg.getX()) g.fillRect (juce::Rectangle<float> ((float) zg.getX(), (float) zg.getY(), xa - (float) zg.getX(), (float) zg.getHeight()));
+        if (xb < (float) zg.getRight()) g.fillRect (juce::Rectangle<float> (xb, (float) zg.getY(), (float) zg.getRight() - xb, (float) zg.getHeight()));
+    }
+
     // Vores de la finestra del clip.
     const auto colorPista = t != nullptr ? EstatEstudi::colorPista (*t) : tema::midi;
     g.setColour (colorPista.withAlpha (0.7f));

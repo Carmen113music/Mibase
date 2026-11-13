@@ -176,6 +176,15 @@ namespace mibase::edicio
         return *p.pistes.insert (lloc, t);
     }
 
+    int resAbansDelZero (Projecte& p)
+    {
+        int n = 0;
+        for (auto& t : p.pistes)
+            for (auto& c : t.clips)
+                if (c.iniciVisible() < 0.0) { c.pos -= c.iniciVisible(); ++n; }
+        return n;
+    }
+
     void busosABaix (Projecte& p)
     {
         std::stable_partition (p.pistes.begin(), p.pistes.end(), [] (const Pista& q) { return ! esBus (q); });

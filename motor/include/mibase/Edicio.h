@@ -54,6 +54,9 @@ namespace mibase::edicio
     Pista& afegeixPista (Projecte& p, const std::string& nom, const std::string& tipus);
     /** 0.34: posa els grups i retorns al final de la llista (sense canviar l'ordre entre ells). */
     void busosABaix (Projecte& p);
+    /** 0.35: cap clip comença abans del zero (el compàs -1 només és per al compte enrere): el que hi quedi es
+        desplaça just fins al zero. Retorna quants n'ha mogut. */
+    int resAbansDelZero (Projecte& p);
     Presa& afegeixPresa (Projecte& p, const std::string& fitxer, const std::string& nom, double durada);
     /** Clip sencer d'una presa a la pista, amb l'inici visible a «on». */
     Clip& afegeixClip (Projecte& p, int pista, const std::string& idPresa, double on);

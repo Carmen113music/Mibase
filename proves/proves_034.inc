@@ -36,5 +36,18 @@ namespace
                       "en obrir-lo, els busos a baix");
             fs::remove_all (dir);
         });
+
+        prova ("res abans del zero (0.35)", []
+        {
+            Projecte q;
+            afegeixPista (q, "A", "audio");
+            const auto s1 = afegeixPresa (q, "Àudios/a.wav", "a", 4.0).id;
+            afegeixClip (q, 0, s1, -1.5);
+            afegeixClip (q, 0, s1, 6.0);
+            q.pistes[0].clips[1].inici = 1.0;   // visible des de 7 s
+            comprova (resAbansDelZero (q) == 1, "en mou un");
+            comprova (q.pistes[0].clips[0].iniciVisible() == 0.0 && q.pistes[0].clips[1].iniciVisible() == 7.0, "el primer al zero, l'altre on era");
+            comprova (resAbansDelZero (q) == 0, "la segona vegada, res");
+        });
     }
 }

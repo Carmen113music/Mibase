@@ -430,6 +430,7 @@ public:
     /** Després d'un canvi fet (ja guardat el «com era» a desfes): avisa, desa i anota. */
     void canviat (const juce::String& evolucio = {})
     {
+        mibase::edicio::resAbansDelZero (projecte);   // 0.35: el compàs de compte enrere no és per a clips
         netejaSeleccio();
         avisa();
         if (onCanviat) onCanviat (evolucio);

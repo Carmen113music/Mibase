@@ -239,6 +239,10 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.35.0**
+  - **Botó E/S a cada pista** (com a Pro Tools): a la capçalera de la pista hi ha el botó **E/S**, que obre un menú amb l'entrada (mono o estèreo) i la sortida (Sortida o un grup). Si la columna de pistes és prou ampla, en lloc del botó surten dues caixes: entrada («E7-8») i sortida («Sortida» / nom del grup).
+  - **Res abans del zero**: cap clip pot començar abans del compàs 1. El compàs -1 només serveix per al compte enrere. Si un clip hi va a parar (deixar un fitxer, enganxar, moure…), es posa just al començament.
+  - **Piano Roll i Drumpad**: el que queda abans i després del clip que edites es veu més fosc, i així queda clar quina és la part de treball.
 - **0.34.0**
   - **Enviaments només als retorns d'efectes.** Els grups ja no surten al menú d'enviaments: a un grup s'hi va amb la **sortida** de la pista. Els projectes que ja en tinguin cap a un grup sonen igual.
   - **Grups i retorns a la taula de treball**, a baix de tot i separats de les pistes per una ratlla. La fila d'un bus és tenyida, no s'hi poden posar clips (si s'hi deixa un fitxer o un sample, es fa una pista nova), i la capçalera té el nom, M, S i on va. Les pistes noves es posen sempre abans dels busos, i en moure pistes no es barregen.
