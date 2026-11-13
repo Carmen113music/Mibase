@@ -248,7 +248,7 @@ private:
         auto* pr = editor ? editor() : nullptr;
         if (pr == nullptr) return nullptr;
         auto* t = estat.pista (pr->pistaDeLEditor());
-        return t != nullptr && t->tipus == "bateria" ? t : nullptr;
+        return t != nullptr && pr->bateria() ? t : nullptr;   // 0.39: amb l'eina Drumpad oberta (a qualsevol pista d'instrument)
     }
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override { actualitza(); }

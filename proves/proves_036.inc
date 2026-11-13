@@ -64,5 +64,27 @@ namespace
             tros = trosAcordNou (q, 2.2);
             comprova (std::abs (tros.first - 2.0) < 1e-9 && std::abs (tros.second - 3.0) < 1e-9, "s'atura on comença el D");
         });
+        prova ("0.39: el kit de bateria és un instrument i les files del Drumpad són de la pista", []
+        {
+            namespace fs = std::filesystem;
+            Projecte q;
+            q.nom = "Eines";
+            auto& a = afegeixPista (q, "Bat", "midi");
+            a.instrument = mibase::instrumentKit; a.kit = "Intern"; a.files = mibase::bateria::filesInternes();
+            auto& b = afegeixPista (q, "Piano", "midi");
+            b.instrument = "intern:piano"; b.files = mibase::bateria::filesInternes();   // Drumpad obert sobre un piano
+            auto& c = afegeixPista (q, "Sinte", "midi");
+            c.instrument = "intern:piano";
+            comprova (mibase::esKit (q.pistes[0]) && ! mibase::esKit (q.pistes[1]) && mibase::esMidi (q.pistes[0]), "esKit mira l'instrument, no el tipus");
+            const auto arrel = fs::temp_directory_path() / "mibase_proves39";
+            fs::remove_all (arrel);
+            fs::create_directories (arrel);
+            auto rc = mibase::disc::creaProjecte (arrel, q, "2026-11-13T12:00:00", "13/11/2026 12:00");
+            auto l = mibase::disc::llegeix (rc.fitxer);
+            comprova (l && l->pistes.size() == 3 && l->pistes[0].tipus == "midi" && mibase::esKit (l->pistes[0])
+                      && l->pistes[0].files == q.pistes[0].files, "la pista amb kit es desa com a pista d'instrument");
+            comprova (l && l->pistes[1].instrument == "intern:piano" && l->pistes[1].files == q.pistes[1].files, "una pista amb un altre instrument conserva les files del Drumpad");
+            comprova (l && l->pistes[2].files.empty(), "sense Drumpad no hi ha files");
+        });
     }
 }

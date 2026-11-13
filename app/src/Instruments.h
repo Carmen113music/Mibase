@@ -37,7 +37,7 @@ public:
             else s->posaParams (t.sampler);
             return e.instrument;
         }
-        if (t.tipus == "bateria")
+        if (mibase::esKit (t))
         {
             // 0.20: el sampler de bateria. Si canvien els sons, un de nou; si només canvien volums, afinació… s'hi posen sense parar.
             auto& e = llista[t.id];
@@ -98,7 +98,7 @@ public:
         return [fs, bloc, carpetaProjecte] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
         {
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
-            if (t.tipus == "bateria") return kits::sampler (t, fs, bloc);
+            if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
             if (const int prog = mibase::gm::programa (t.instrument); prog >= 0) return creaGM (prog, fs, bloc);
             return crea (descripcio (t), fs, bloc);

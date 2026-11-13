@@ -26,6 +26,7 @@ public:
     void paint (juce::Graphics& g) override;
     /** 0.26: obre l'editor del samplejador de la pista (si l'instrument és el samplejador). */
     std::function<void()> onObreSampler;
+    std::function<void()> onObreKits;   // 0.39: la finestra dels kits (quan l'instrument és el kit de bateria)
     /** 0.38: els mateixos menús d'instrument i de so, oberts des d'un botó de l'eina (el Chord Pad). */
     void menuInstrument (juce::Component& boto);
     void menuSo (juce::Component& boto);

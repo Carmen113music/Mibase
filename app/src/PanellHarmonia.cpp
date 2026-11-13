@@ -167,6 +167,7 @@ public:
 
     std::function<void()> onMida;   // l'alçada ha canviat (s'ha plegat o desplegat una secció)
     std::function<void()> onObreSampler;   // 0.26
+    std::function<void()> onObreKits;      // 0.39
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -218,7 +219,12 @@ public:
 
         if (auto* pe = pistaEditor())
         {
-            if (mibase::esSampler (*pe))
+            if (mibase::esKit (*pe))
+            {
+                btInstrument.setButtonText ("Instrument: kit de bateria"_ca);
+                btSo.setButtonText ("Kit: "_ca + txt (pe->kit.empty() ? std::string ("Intern") : pe->kit));
+            }
+            else if (mibase::esSampler (*pe))
             {
                 btInstrument.setButtonText ("Instrument: samplejador"_ca);
                 btSo.setButtonText ("Sample: "_ca + (pe->sampler.nom.empty() ? "cap"_ca : txt (pe->sampler.nom)));
@@ -540,9 +546,11 @@ private:
         const bool sampler = mibase::esSampler (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
         const int gm = mibase::gm::programa (t->instrument);
         juce::PopupMenu m;
-        m.addItem (1, "Sinte intern", true, ! sampler && ! vst && gm < 0);
+        const bool kit = mibase::esKit (*t);
+        m.addItem (1, "Sinte intern", true, ! sampler && ! vst && gm < 0 && ! kit);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addItem (3, "Samplejador"_ca, true, sampler);
+        m.addItem (4, "Kit de bateria"_ca, true, kit);   // 0.39
         m.addSeparator();
         m.addItem (2, "Plugins VST3: a la columna esquerra de la taula de treball"_ca, false);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (ancora != nullptr ? ancora.getComponent() : &btInstrument), [this] (int r)
@@ -550,7 +558,8 @@ private:
             auto* p = pistaEditor();
             if (p == nullptr) return;
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
-            if (r == 1 && (mibase::esSampler (*p) || mibase::gm::programa (p->instrument) >= 0))
+            if (r == 4) { if (! mibase::esKit (*p)) canviaPista ([] (Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); return; }
+            if (r == 1 && (mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
                 canviaPista ([] (Pista& q) { q.instrument = "intern:piano"; }, "Instrument: sinte intern"_ca);
             else if (r == 3)
             {
@@ -566,6 +575,7 @@ private:
         auto* t = pistaEditor();
         if (t == nullptr) return;
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
+        if (mibase::esKit (*t)) { if (onObreKits) onObreKits(); return; }   // 0.39: el «so» del kit és el kit
         juce::PopupMenu m;
         const int actual = juce::jmax (0, midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
         const int gm = mibase::gm::programa (t->instrument);
@@ -848,6 +858,7 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
     contingut = std::make_unique<Contingut> (e, std::move (editorActiu), ajustos, std::move (teclats));
     contingut->onMida = [this] { resized(); };
     contingut->onObreSampler = [this] { if (onObreSampler) onObreSampler(); };
+    contingut->onObreKits = [this] { if (onObreKits) onObreKits(); };
     vista.setViewedComponent (contingut.get(), false);
     vista.setScrollBarsShown (true, false);
     vista.setScrollBarThickness (8);

@@ -222,7 +222,7 @@ int PianoRoll::toY (float y) const { return toDeFila (filaY (y)); }
 bool PianoRoll::bateria() const
 {
     const auto* t = const_cast<PianoRoll*> (this)->pista();
-    return t != nullptr && t->tipus == "bateria";
+    return t != nullptr && index >= 0 && index < (int) estat.editors.size() && estat.editors[(size_t) index].drum;   // 0.39: és l'eina, no el tipus de pista
 }
 int PianoRoll::numFiles() const
 {
@@ -2338,7 +2338,7 @@ void PianoRoll::canviaModePads (bool pads)
 void PianoRoll::actualitzaPestanyes()
 {
     const bool bt = bateria();
-    pestanyes.posa (bt ? 2 : modePads() ? 1 : 0, { ! bt, ! bt, bt, false, false });
+    pestanyes.posa (bt ? 2 : modePads() ? 1 : 0, { true, true, true, false, false });   // 0.39: qualsevol eina a qualsevol pista d'instrument
 }
 
 void PianoRoll::triaPestanya (int i)
@@ -2346,9 +2346,28 @@ void PianoRoll::triaPestanya (int i)
     if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); }
     const bool bt = bateria();
     if (i >= 3) info = "Els patrons de guitarra i de piano arribaran a la 0.40"_ca;
-    else if (i == 2 && ! bt) info = "De moment el Drumpad només és a les pistes de bateria (a la 0.39 serà una eina per a qualsevol pista)"_ca;
-    else if (i < 2 && bt) info = "De moment les pistes de bateria només tenen el Drumpad (a la 0.39 s'hi podrà obrir qualsevol eina)"_ca;
-    else if (i < 2) { info.clear(); canviaModePads (i == 1); }
+    else
+    {
+        // 0.39: l'eina es tria; no depèn del tipus de pista.
+        auto& e = estat.editors[(size_t) index];
+        if (i == 2 && ! bt)
+        {
+            if (auto* t = pista(); t != nullptr && t->files.empty())
+            {
+                // el Drumpad necessita files (quina nota és cada so): les del kit, que segueixen el mapa de bateria General MIDI
+                estat.desfes.abans (estat.projecte);
+                kits::posaKit (*t, kits::ultimKit());
+                estat.canviat ("Drumpad: files del kit a la pista"_ca);
+            }
+            e.drum = true;
+            info = pista() != nullptr && ! mibase::esKit (*pista()) ? "Drumpad: cada fila és una nota. Sona amb l'instrument de la pista"_ca : juce::String();
+        }
+        else if (i < 2) { if (bt) altNota = 14; e.drum = false; info.clear(); }
+        triadesNotes.clear();
+        desplY = 0;
+        canviaModePads (i == 1);
+        encaixaVista (false);
+    }
     repaint();
 }
 
@@ -2361,10 +2380,10 @@ void PianoRoll::actualitzaControlsPads()
         btInstrPads.setVisible (v); btSoPads.setVisible (v);
         if (const auto* t = const_cast<PianoRoll*> (this)->pista(); v && t != nullptr)
         {
-            const bool smp = mibase::esSampler (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
-            btInstrPads.setButtonText (smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
+            const bool smp = mibase::esSampler (*t), kit = mibase::esKit (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
+            btInstrPads.setButtonText (kit ? "Kit de bateria"_ca : smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
                                        : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte intern"_ca);
-            btSoPads.setButtonText (smp ? (t->sampler.nom.empty() ? "Sample: cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str()))
+            btSoPads.setButtonText (kit ? "Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()) : smp ? (t->sampler.nom.empty() ? "Sample: cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str()))
                                     : vst ? "So: el del plugin"_ca
                                     : juce::String::fromUTF8 (midi::nomInstrument (t->instrument.empty() ? "intern:piano" : t->instrument).c_str()));
         }

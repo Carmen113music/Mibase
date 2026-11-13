@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Kits.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "Controls.h"
 #include "EstatEstudi.h"
@@ -84,7 +85,6 @@ public:
         if (estat.masterTriat()) return 16 + slots * 26 + 28 + 8;
         const auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return 0;
-        if (t->tipus == "bateria") return 2 * 32 + 16 + slots * 26 + 6;
         if (t->tipus == "midi") return (GestorPlugins::esVst3 (t->instrument) ? 2 : 3) * 32 + 16 + slots * 26 + 6;
         return 16 + slots * 26 + 28 + 10;
     }
@@ -94,11 +94,11 @@ public:
         const auto* t = estat.pista (estat.pistaTriada);
         const bool master = estat.masterTriat();
         const bool midiPista = ! master && t != nullptr && t->tipus == "midi";
-        const bool bateria = ! master && t != nullptr && t->tipus == "bateria";
+        const bool bateria = ! master && t != nullptr && mibase::esKit (*t);
         const bool audio = ! master && t != nullptr && ! midiPista && ! bateria;
         const bool vst = midiPista && GestorPlugins::esVst3 (t->instrument);
         btInstrument.setVisible (midiPista);
-        btObre.setVisible (midiPista);
+        btObre.setVisible (midiPista && ! bateria);
         btKit.setVisible (bateria);
         btTeclat.setVisible (midiPista || bateria);
         if (bateria)
@@ -107,7 +107,7 @@ public:
             btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
         }
         const bool sampler = midiPista && mibase::esSampler (*t);
-        btSo.setVisible (midiPista && ! vst);
+        btSo.setVisible (midiPista && ! vst && ! bateria);   // 0.39: amb el kit de bateria, el «so» és el kit
         btSortida.setVisible (audio || master);
 
         const auto* v = llistaInserts();
@@ -121,9 +121,9 @@ public:
         if (midiPista)
         {
             // 0.20: només el nom (al costat hi ha el botó per obrir-lo); el detall, a la bafarada.
-            btInstrument.setButtonText (vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca
+            btInstrument.setButtonText (bateria ? "Kit de bateria"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca
                                         : mibase::gm::programa (t->instrument) >= 0 ? "General MIDI"_ca : "Sinte intern"_ca);
-            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, General MIDI, samplejador o VST3)"_ca);
+            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, General MIDI, samplejador, kit de bateria o VST3)"_ca);
             if (sampler)
                 btSo.setButtonText ("Sample: "_ca + (t->sampler.nom.empty() ? "cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str())));
             else
@@ -159,6 +159,7 @@ public:
             f.removeFromRight (4);
             btInstrument.setBounds (f);
             if (btSo.isVisible()) btSo.setBounds (fila (28));
+            if (btKit.isVisible()) btKit.setBounds (fila (28));
             btTeclat.setBounds (fila (28));
         }
         else if (btKit.isVisible())
@@ -247,9 +248,11 @@ private:
         if (vst) { m.addItem (2, "Obre la finestra del plugin"); m.addSeparator(); }
         const bool sampler = mibase::esSampler (*t);
         const int gm = mibase::gm::programa (t->instrument);
-        m.addItem (1, "Sinte intern", true, ! vst && ! sampler && gm < 0);
+        const bool kit = mibase::esKit (*t);
+        m.addItem (1, "Sinte intern", true, ! vst && ! sampler && gm < 0 && ! kit);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addItem (3, "Samplejador"_ca, true, sampler);
+        m.addItem (4, "Kit de bateria"_ca, true, kit);   // 0.39
         if (plugins != nullptr) m.addSubMenu ("Instruments VST3", plugins->menu (true, 1000, *tipus));
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this, tipus] (int r)
         {
@@ -258,7 +261,8 @@ private:
             const auto id = p->id;
             if (r == 2) obreInstrument();
             else if (r >= 500 && r < 628) triaGM (r - 500);
-            else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p) || mibase::gm::programa (p->instrument) >= 0))
+            else if (r == 4) { if (! mibase::esKit (*p)) canvia ([] (mibase::Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); }
+            else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
                 canvia ([] (mibase::Pista& q) { q.instrument = "intern:piano"; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: sinte intern"_ca);
             else if (r == 3)
             {

@@ -239,6 +239,13 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.39.0** — *Instruments i eines, pas 2*
+  - **La bateria ja no és un tipus de pista**: és una **pista d'instrument** amb l'instrument **Kit de bateria**. Al menú d'instrument (columna esquerra) hi ha: Sinte intern, General MIDI, Samplejador, Kit de bateria i VST3; es pot canviar quan vulguis. Amb el kit, el botó de sota és «Kit: …» i obre la finestra dels kits.
+  - **El Drumpad és una eina per a qualsevol pista d'instrument**: la pestanya «Drumpad» s'obre sobre qualsevol clip (per exemple, per programar una bateria VST3 o General MIDI). El primer cop hi posa les files del darrer kit (cada fila és una nota). I al revés: una pista amb kit es pot obrir amb el Piano Roll o el Chord Pad.
+  - En obrir un clip, surt l'eina que toca: Drumpad si la pista sona amb un kit, Piano Roll si no.
+  - **Projectes antics**: les pistes de bateria es converteixen soles en obrir el projecte (no es perd res). Un projecte desat amb la 0.39 ja no s'obre bé amb versions anteriors.
+  - Menú de pista nova: «Pista d'instrument», «…amb kit de bateria», «…amb samplejador».
+
 - **0.38.1**
   - **Chord Pad sense selector de ritme**: el botó «Rasgueig» ja no hi surt. El Chord Pad posa acords sencers (amb «Guitarra», a la posició del mànec). Els ritmes de rasgueig tornaran a l'eina de **patrons de guitarra** (0.40), amb el seu editor.
 

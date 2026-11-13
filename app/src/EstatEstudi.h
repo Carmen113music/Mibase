@@ -94,7 +94,8 @@ public:
         mibase::edicio::RefClip clip;
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
-        bool pads = false;          // a baix, els pads d'acords (Chord Pad) en lloc de les velocitats
+        bool pads = false;          // eina Chord Pad
+        bool drum = false;          // 0.39: eina Drumpad (en obrir un clip: sí, si la pista sona amb un kit de bateria)
         std::vector<std::string> fantasmes;   // 0.10: pistes (id) de les quals es veuen les notes fantasma (per defecte, cap)
     };
     static constexpr int maxEditors = 3;
@@ -186,6 +187,7 @@ public:
         if (i < 0 || i >= (int) editors.size()) return;
         editors[(size_t) i].clip = r;
         editors[(size_t) i].idPista = pista (r.pista) != nullptr ? projecte.pistes[(size_t) r.pista].id : std::string();
+        editors[(size_t) i].drum = pista (r.pista) != nullptr && mibase::esKit (projecte.pistes[(size_t) r.pista]);   // 0.39: l'eina per defecte
     }
 
     /** El clip d'un editor, si encara existeix i és MIDI. */

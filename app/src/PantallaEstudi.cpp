@@ -404,11 +404,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         if (auto* pr = zonaEditors.actiu()) obreSampler (pr->pistaDeLEditor());
     };
     panellBateria.onObreKits = [this] { obreKits(); };
+    panellHarmonia.onObreKits = [this] { obreKits(); };
     capcaleres.onObreInstrument = [this] (int fila)
     {
         auto* t = estat.pista (fila);
         if (t == nullptr) return;
-        if (t->tipus == "bateria") obreKits();
+        if (mibase::esKit (*t)) obreKits();
         else if (mibase::esSampler (*t)) obreSampler (fila);
         else esquerra.opcions.obreInstrument();   // la pista ja és la triada
     };
@@ -574,7 +575,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
             int slotBat = -1;
             std::vector<int> notesFiles;
             const auto* tb = gravacio.midi && gravacio.pista >= 0 ? estat.pista (gravacio.pista) : estat.pista (estat.pistaTriada);
-            if (tb != nullptr && tb->tipus == "bateria" && tb->padsPerOrdre)
+            if (tb != nullptr && mibase::esKit (*tb) && tb->padsPerOrdre)
             {
                 slotBat = slotDePista (*tb);
                 for (auto& f : tb->files) notesFiles.push_back (f.nota);
@@ -589,7 +590,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
             for (int n = 0; n < 12; ++n) esc[(size_t) n] = harmonia::aEscala (n, t);
             // 0.20: una pista que toca lliure (o la bateria) no fa cas de l'escala.
             const auto* tt = estat.pista (estat.pistaTriada);
-            const bool lliure = tt != nullptr && (! tt->escalaTeclat || tt->tipus == "bateria");
+            const bool lliure = tt != nullptr && (! tt->escalaTeclat || mibase::esKit (*tt));
             servei.setEscalaTeclat (lliure ? 0 : (int) (tt != nullptr ? mibase::modeEscalaDe (estat.projecte, *tt) : estat.projecte.modeEscala), esc);
         }
     }
@@ -1338,13 +1339,13 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
     {
         // 0.20: pista de bateria amb el kit intern (o el darrer que s'ha fet servir) i un clip de 4 compassos amb un ritme bàsic.
         const auto nom = ed::nomPistaLliure (estat.projecte, "Bateria");
-        auto& t = ed::afegeixPista (estat.projecte, nom, "bateria");
+        auto& t = ed::afegeixPista (estat.projecte, nom, "midi");   // 0.39: pista d'instrument amb el kit de bateria
         t.canals = 2;
-        t.instrument = "intern:bateria";
+        t.instrument = mibase::instrumentKit;
         kits::posaKit (t, kits::ultimKit());
         estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
         estat.capTriat();
-        estat.info = "Pista de bateria: fes un clip amb el llapis (2) i fes-hi doble clic per obrir el Drumpad"_ca;
+        estat.info = "Pista amb kit de bateria: fes un clip amb el llapis (2) i fes-hi doble clic per obrir el Drumpad"_ca;
         estat.canviat ("Pista nova: «"_ca + dibuix::utf8 (nom) + "» (bateria)"_ca);
         return;
     }
@@ -2654,7 +2655,7 @@ void PantallaEstudi::sampleAFila (int fila, const juce::File& f)
 {
     auto* pr = zonaEditors.actiu();
     auto* t = pr != nullptr ? estat.pista (pr->pistaDeLEditor()) : nullptr;
-    if (t == nullptr || t->tipus != "bateria" || fila < 0 || fila >= (int) t->files.size()) return;
+    if (t == nullptr || fila < 0 || fila >= (int) t->files.size()) return;
     // El so es copia a la carpeta dels kits («Biblioteca/…»), d'on la bateria llegeix els seus sons.
     const auto carpetaKits = kits::carpeta().getChildFile ("Biblioteca");
     auto desti = carpetaKits.getChildFile (juce::File::createLegalFileName (f.getFileNameWithoutExtension()) + ".wav");

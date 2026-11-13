@@ -378,6 +378,7 @@ namespace mibase::disc
                 t.modeEscala = std::clamp (e.value ("modeEscala", -1), -1, 2);
                 t.kit = e.value ("kit", std::string());
                 t.padsPerOrdre = e.value ("padsPerOrdre", false);
+                if (t.tipus == "bateria") { t.tipus = "midi"; t.instrument = instrumentKit; }   // 0.39: la bateria és un instrument, no un tipus de pista
                 if (e.contains ("files") && e["files"].is_array())
                     for (auto& f : e["files"])
                     {
@@ -721,7 +722,7 @@ namespace mibase::disc
                     { "atac", x.atac }, { "decai", x.decai }, { "sosteniment", x.sosteniment }, { "alliberament", x.alliberament },
                     { "vel", x.vel }, { "entradaGrava", x.entradaGrava }, { "canalsGrava", x.canalsGrava } };
             }
-            if (t.tipus == "bateria")
+            if (! t.files.empty() || esKit (t))   // 0.39: les files són de la pista (les fa servir el kit i l'eina Drumpad)
             {
                 json filesJ = json::array();
                 for (auto& f : t.files)

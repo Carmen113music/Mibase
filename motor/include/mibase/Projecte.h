@@ -175,7 +175,7 @@ namespace mibase
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // audio, midi, bateria (0.20; és MIDI amb el sampler de bateria). Més endavant: bus
+        std::string tipus = "audio";   // audio, midi (instrument), bus, fx, acords. 0.39: «bateria» ja no és un tipus: és una pista midi amb l'instrument «intern:bateria» (el kit)
         /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
             més endavant «vst3:<identificador>». */
         std::string instrument;
@@ -212,6 +212,10 @@ namespace mibase
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+    /** 0.39: l'instrument «kit de bateria» (el sampler de bateria amb les files de la pista). */
+    inline constexpr const char* instrumentKit = "intern:bateria";
+    /** 0.39: la pista sona amb un kit de bateria. (Els projectes antics amb tipus «bateria» es converteixen en llegir-los.) */
+    inline bool esKit (const Pista& t) noexcept { return t.tipus == "bateria" || (t.tipus == "midi" && t.instrument == instrumentKit); }
     /** 0.33: és un bus (de grup, «bus», o retorn d'efectes, «fx»): no té clips, suma el que li arriba. */
     inline bool esBus (const Pista& t) noexcept { return t.tipus == "bus" || t.tipus == "fx"; }
     /** 0.36: la pista d'Acords (n'hi ha com a molt una, a dalt de tot). */

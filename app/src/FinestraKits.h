@@ -137,7 +137,7 @@ private:
         std::string kitPista()
         {
             auto* t = estat.pista (estat.pistaTriada);
-            return t != nullptr && t->tipus == "bateria" ? t->kit : std::string();
+            return t != nullptr && mibase::esKit (*t) ? t->kit : std::string();
         }
 
         void recarrega (const juce::String& triar = {})
@@ -157,7 +157,7 @@ private:
         void actualitzaBotons()
         {
             auto* t = estat.pista (estat.pistaTriada);
-            const bool pistaBat = t != nullptr && t->tipus == "bateria";
+            const bool pistaBat = t != nullptr && mibase::esKit (*t);
             btFesServir.setEnabled (pistaBat && kitTriat() != nullptr);
             btFesServir.setButtonText (pistaBat ? "Posa'l a «"_ca + juce::String::fromUTF8 (t->nom.c_str()) + "»" : "Tria una pista de bateria"_ca);
             btEsborra.setEnabled (kitTriat() != nullptr && kitTriat()->nom != mibase::bateria::kitIntern);
@@ -168,7 +168,7 @@ private:
         void desaActual()
         {
             auto* t = estat.pista (estat.pistaTriada);
-            if (t == nullptr || t->tipus != "bateria") return;
+            if (t == nullptr || ! mibase::esKit (*t)) return;
             const auto inicial = t->kit.empty() || t->kit == mibase::bateria::kitIntern ? juce::String::fromUTF8 (t->nom.c_str())
                                                                                          : juce::String::fromUTF8 (t->kit.c_str()) + " (meu)"_ca;
             dialeg = std::make_unique<DialegText> ("Desa el kit actual"_ca,
@@ -282,7 +282,7 @@ private:
         {
             auto* k = kitTriat();
             auto* t = estat.pista (estat.pistaTriada);
-            if (k == nullptr || t == nullptr || t->tipus != "bateria") return;
+            if (k == nullptr || t == nullptr || ! mibase::esKit (*t)) return;
             estat.desfes.abans (estat.projecte);
             kits::posaKit (*t, k->nom);
             estat.canviat ("Kit de bateria: "_ca + juce::String::fromUTF8 (k->nom.c_str()));

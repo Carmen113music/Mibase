@@ -6,6 +6,7 @@
 #include <mibase/Guitarra.h>
 #include <mibase/Midi.h>
 #include "EscGlobal.h"
+#include "Kits.h"
 
 /** Petit camp numèric que es canvia arrossegant amunt i avall (o amb la roda). Doble clic: valor inicial. */
 class CaixaNumero : public juce::Component, public juce::SettableTooltipClient

@@ -48,7 +48,7 @@ namespace
 
     juce::String textCanals (const Pista& t)
     {
-        if (t.tipus == "bateria") return "Bateria";
+        if (mibase::esKit (t)) return "Bateria";
         if (t.tipus == "midi") return "MIDI";
         return t.canals == 2 ? juce::String::fromUTF8 ("estèreo") : juce::String ("mono");
     }
@@ -62,7 +62,7 @@ namespace
     /** «MIDI · Piano» o «mono · E1». */
     [[maybe_unused]] juce::String textPistaCurt (const Pista& t)
     {
-        if (t.tipus == "bateria") return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
+        if (mibase::esKit (t)) return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
         if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "intern:piano" : t.instrument)).c_str());
         return textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t);
     }
@@ -921,7 +921,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         const float xn = juce::jmax (r.getX(), 0.0f) + 8.0f;
         if (xn < r.getRight() - 24.0f)
         {
-            juce::String nom = c.midi && t.tipus == "bateria" ? "Bateria · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " cop" : " cops")
+            juce::String nom = c.midi && mibase::esKit (t) ? "Bateria · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " cop" : " cops")
                              : c.midi ? "MIDI · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " nota" : " notes")
                              : (s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida"));
             if (c.midi && estat.pianoRoll && estat.editorDe ({ pista, indexClip }) >= 0) nom += "  (Piano Roll)";
@@ -1380,9 +1380,10 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
     m.addItem (1, "Àudio mono"_ca);
     m.addItem (2, "Àudio estèreo"_ca);
     m.addSeparator();
-    m.addItem (10, "Instrument MIDI (sinte intern o VST3)"_ca);
-    m.addItem (11, "Bateria (Drumpad)"_ca);
-    m.addItem (14, "Samplejador"_ca);
+    // 0.39: tot són pistes d'instrument; només canvia amb quin instrument comencen (després es pot canviar).
+    m.addItem (10, "Pista d'instrument (sinte, General MIDI, VST3…)"_ca);
+    m.addItem (11, "Pista d'instrument amb kit de bateria"_ca);
+    m.addItem (14, "Pista d'instrument amb samplejador"_ca);
     m.addSeparator();
     m.addItem (12, "Pista d'acords (la guia de la cançó)"_ca);   // 0.36 (només n'hi ha una: si ja hi és, la tria)
     m.addItem (15, "Grup"_ca);
@@ -2266,7 +2267,7 @@ void Capcaleres::paint (juce::Graphics& g)
             // 0.20: botonet per obrir l'instrument (o els kits, a la bateria).
             const auto rb = rectObreInstrument (i).toFloat();
             vintage::tecla (g, rb, false, false, EstatEstudi::colorPista (t));
-            dibuix::pintaIcona (g, t.tipus == "bateria" ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
+            dibuix::pintaIcona (g, mibase::esKit (t) ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
             zonaCanals.removeFromLeft (rb.toNearestInt().getWidth() + 6);
         }
         if (zonaCanals.getWidth() > 30)
@@ -2362,7 +2363,7 @@ void Capcaleres::menu (int pista)
     m.addSubMenu ("Color", colors);
     if (t.tipus == "midi")
         m.addSubMenu ("Instrument"_ca, sons);
-    else if (t.tipus == "bateria" || mibase::esBus (t) || mibase::esAcords (t)) {}
+    else if (mibase::esKit (t) || mibase::esBus (t) || mibase::esAcords (t)) {}
     else
     {
         m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
@@ -3109,7 +3110,7 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
             g.drawText (t->tipus == "fx" ? "RETORN FX" : "GRUP", ge.numero, juce::Justification::centred);
         }
         else
-            g.drawText (juce::String (i + 1) + "  " + (t->tipus == "bateria" ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
+            g.drawText (juce::String (i + 1) + "  " + (mibase::esKit (*t) ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
     }
     else
     {
