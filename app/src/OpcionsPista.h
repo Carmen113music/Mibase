@@ -10,6 +10,7 @@
 #include <mibase/Midi.h>
 #include "BancGM.h"
 #include "Guitarres.h"
+#include "FinestraGuitarra.h"
 
 /** Opcions de la pista triada (o del màster), a la columna esquerra sobre el fader (0.16).
     Pista d'instrument (MIDI): instrument (sinte intern o VST3), so i teclat MIDI, i els inserts.
@@ -239,6 +240,14 @@ public:
                                        [this, id] { return std::make_unique<PanellEscala> (estat, id); });
             return;
         }
+        if (t->instrument.rfind ("sf2:", 0) == 0)
+        {
+            // 0.44: la guitarra virtual
+            if (auto f = finestresGuitarra.find (id); f != finestresGuitarra.end()) { f->second->toFront (true); return; }
+            finestresGuitarra[id] = std::make_unique<FinestraGuitarra> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · guitarra virtual"_ca,
+                                                                      [this, id] { finestresGuitarra.erase (id); });
+            return;
+        }
         if (auto f = finestresSinte.find (id); f != finestresSinte.end()) { f->second->toFront (true); return; }
         finestresSinte[id] = std::make_unique<FinestraSinte> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · sinte intern"_ca,
                                                               [this, id] { finestresSinte.erase (id); });
@@ -365,8 +374,9 @@ private:
     Boto btKit { "Kit", dibuix::Icona::Bateria, Boto::Estil::Secundari };
     juce::OwnedArray<FilaInsert> inserts;
     std::map<std::string, std::unique_ptr<FinestraSinte>> finestresSinte;
+    std::map<std::string, std::unique_ptr<FinestraGuitarra>> finestresGuitarra;   // 0.44
 public:
-    void tancaFinestresSinte() { finestresSinte.clear(); }   // 0.27: Esc
+    void tancaFinestresSinte() { finestresSinte.clear(); finestresGuitarra.clear(); }   // 0.27: Esc
 private:
     int yTitol = 0;
 };

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "mibase/Instrument.h"
+#include "mibase/Projecte.h"
+#include <atomic>
+#include <cstdint>
 
 #include <memory>
 #include <string>
@@ -54,6 +57,8 @@ namespace mibase::gm
         bool fentSo() const noexcept override;
 
         int getPrograma() const noexcept { return prog; }
+        /** 0.44: controls de la guitarra virtual (es poden canviar mentre sona; fil de la interfície). */
+        void posaParams (const ParamsGuitarra& p) noexcept;
 
     private:
         void renderitza (float* L, float* R, int ini, int fi) noexcept;
@@ -63,5 +68,10 @@ namespace mibase::gm
         int prog = 0, bancMidi = 0;
         int maxBloc = 0;
         std::vector<float> entrellacat;
+        std::atomic<float> pVolum { 1.0f }, pTo { 1.0f }, pAtac { 0.0f }, pSustain { 0.5f }, pAfina { 0.0f };
+        std::atomic<int> pOctava { 0 };
+        std::uint8_t teclaSonant[128] {};   // amb quina tecla (després de l'octava) s'ha encès cada nota
+        float volumAra = 1.0f, afinaAra = 0.0f, lpL = 0.0f, lpR = 0.0f;
+        double fsAra = 48000.0;
     };
 }

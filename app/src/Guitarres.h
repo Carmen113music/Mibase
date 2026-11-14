@@ -31,6 +31,52 @@ namespace guitarres
         return so ? nom.fromFirstOccurrenceOf (sep, false, false) : nom.upToFirstOccurrenceOf (sep, false, false);
     }
 
+    /** 0.44: els sons d'un .sf2, nets per ensenyar (sense separadors ni sorolls, i sense el guió del davant). */
+    inline std::vector<mibase::gm::InfoPreset> sons (const juce::File& f)
+    {
+        std::vector<mibase::gm::InfoPreset> v;
+        for (auto p : mibase::gm::presetsDeFitxer (f.getFullPathName().toStdString()))
+        {
+            auto nom = juce::String::fromUTF8 (p.nom.c_str()).trim();
+            if (nom.startsWithChar ('^') || nom.containsIgnoreCase ("Fret Noise")) continue;
+            while (nom.startsWithChar ('-')) nom = nom.substring (1).trim();
+            p.nom = nom.toStdString();
+            v.push_back (p);
+        }
+        return v;
+    }
+
+    inline std::string instrumentDe (const juce::String& fitxer, const mibase::gm::InfoPreset& p)
+    {
+        mibase::gm::RefSf2 r;
+        r.fitxer = fitxer.toStdString();
+        r.banc = p.banc;
+        r.programa = p.programa;
+        r.nom = (nomGuitarra (fitxer) + juce::String::fromUTF8 (" \xc2\xb7 ") + juce::String::fromUTF8 (p.nom.c_str())).toStdString();
+        return mibase::gm::instrumentSf2 (r);
+    }
+
+    /** 0.44: la imatge d'una guitarra: un .png o .jpg de Documents\\Mibase\\Guitarres amb un nom que surti dins del nom del
+        .sf2 («Jaguar.png» per a «FS-Jaguar-I5-HedSound.sf2»). Si n'hi ha més d'una, la de nom més llarg. Buida si no n'hi ha. */
+    inline juce::File carpetaImatges() { return bancgm::carpeta().getParentDirectory().getChildFile ("Guitarres"); }
+    inline juce::Image imatge (const juce::String& fitxerSf2)
+    {
+        static std::map<juce::String, juce::Image> cau;
+        auto net = [] (const juce::String& s) { return s.toLowerCase().retainCharacters ("abcdefghijklmnopqrstuvwxyz0123456789"); };
+        juce::File millor;
+        const auto nom = net (fitxerSf2.upToLastOccurrenceOf (".", false, false));
+        for (auto& f : carpetaImatges().findChildFiles (juce::File::findFiles, false, "*.png;*.jpg;*.jpeg"))
+        {
+            const auto n = net (f.getFileNameWithoutExtension());
+            if (n.isNotEmpty() && nom.contains (n) && n.length() > net (millor.getFileNameWithoutExtension()).length()) millor = f;
+        }
+        if (! millor.existsAsFile()) return {};
+        const auto clau = millor.getFullPathName() + "|" + juce::String (millor.getLastModificationTime().toMilliseconds());
+        auto& img = cau[clau];
+        if (img.isNull()) img = juce::ImageFileFormat::loadFrom (millor);
+        return img;
+    }
+
     struct Entrada { juce::String fitxer; mibase::gm::InfoPreset preset; };
     inline std::vector<Entrada>& darreraLlista() { static std::vector<Entrada> v; return v; }
 

@@ -2,6 +2,7 @@
 
 #include "mibase/ProjecteDisc.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -211,24 +212,48 @@ namespace mibase::gm
         auto* f = static_cast<tsf*> (sinte);
         if (f == nullptr) return;
         tsf_reset (f);
+        fsAra = fs;
+        volumAra = pVolum.load();
         tsf_set_output (f, TSF_STEREO_INTERLEAVED, (int) (fs + 0.5), -6.0f);
         tsf_set_max_voices (f, 64);                 // reserva les veus ara: tocar no demana memòria
         tsf_channel_set_presetnumber (f, 0, prog);  // reserva el canal
         tsf_channel_set_bank_preset (f, 0, bancMidi, prog);
     }
 
+    void SinteGM::posaParams (const ParamsGuitarra& p) noexcept
+    {
+        pVolum.store ((float) std::pow (10.0, std::clamp (p.volumDb, -24.0, 6.0) / 20.0));
+        pTo.store ((float) std::clamp (p.to, 0.0, 1.0));
+        pAtac.store ((float) std::clamp (p.atac, -1.0, 1.0));
+        pSustain.store ((float) std::clamp (p.sustain, 0.0, 1.0));
+        pOctava.store (std::clamp (p.octava, -2, 2));
+        pAfina.store ((float) std::clamp (p.afina, -50.0, 50.0));
+    }
+
     void SinteGM::renderitza (float* L, float* R, int ini, int fi) noexcept
     {
         auto* f = static_cast<tsf*> (sinte);
+        // 0.44: volum (suavitzat) i to (un passa-baixos suau, com el pom de la guitarra). Amb els valors per
+        // defecte no toquen res: el General MIDI sona igual que sempre.
+        const float volum = pVolum.load(), to = pTo.load();
+        const bool filtra = to < 0.98f;
+        const float tall = 350.0f * std::pow (40.0f, to);   // de 350 Hz a 14 kHz
+        const float k = filtra ? 1.0f - std::exp (-6.2831853f * tall / (float) fsAra) : 1.0f;
         while (ini < fi)
         {
             const int n = std::min (fi - ini, maxBloc);
             tsf_render_float (f, entrellacat.data(), n, 0);
+            const float dv = (volum - volumAra) / (float) n;
             for (int i = 0; i < n; ++i)
             {
-                L[ini + i] = entrellacat[(size_t) (2 * i)];
-                R[ini + i] = entrellacat[(size_t) (2 * i + 1)];
+                float l = entrellacat[(size_t) (2 * i)], r = entrellacat[(size_t) (2 * i + 1)];
+                if (filtra) { lpL += k * (l - lpL); lpR += k * (r - lpR); l = lpL; r = lpR; }
+                else { lpL = l; lpR = r; }
+                const float g = volumAra + dv * (float) (i + 1);
+                L[ini + i] = l * g;
+                R[ini + i] = r * g;
             }
+            volumAra = volum;
             ini += n;
         }
     }
@@ -242,6 +267,11 @@ namespace mibase::gm
             std::fill (R, R + n, 0.0f);
             return;
         }
+        if (const float af = pAfina.load(); std::abs (af - afinaAra) > 0.01f)
+        {
+            afinaAra = af;
+            tsf_channel_set_tuning (f, 0, af / 100.0f);   // 0.44: afinació fina, en semitons
+        }
         int pos = 0;
         for (int e = 0; e < numEvents; ++e)
         {
@@ -249,8 +279,26 @@ namespace mibase::gm
             const int off = std::clamp (ev.offset, 0, n);
             if (off > pos) { renderitza (L, R, pos, off); pos = off; }
             const int tipus = ev.estat & 0xF0;
-            if (tipus == 0x90 && ev.dada2 > 0) tsf_channel_note_on (f, 0, ev.dada1, ev.dada2 / 127.0f);
-            else if (tipus == 0x80 || tipus == 0x90) tsf_channel_note_off (f, 0, ev.dada1);
+            if (tipus == 0x90 && ev.dada2 > 0)
+            {
+                // 0.44: octava, atac (força) i sustain (quant triga a apagar-se en deixar la nota)
+                const int tecla = std::clamp ((int) ev.dada1 + 12 * pOctava.load(), 0, 127);
+                teclaSonant[ev.dada1 & 127] = (std::uint8_t) tecla;
+                const float atac = pAtac.load();
+                float vel = ev.dada2 / 127.0f;
+                if (std::abs (atac) > 0.01f) vel = std::pow (vel, std::pow (2.0f, -1.3f * atac));
+                const unsigned int abans = f->voicePlayIndex;
+                tsf_channel_note_on (f, 0, tecla, std::clamp (vel, 0.01f, 1.0f));
+                const float sus = pSustain.load();
+                if (std::abs (sus - 0.5f) > 0.01f)
+                    for (int v = 0; v < f->voiceNum; ++v)
+                        if (f->voices[v].playingPreset != -1 && f->voices[v].playIndex == abans)
+                        {
+                            auto& rel = f->voices[v].ampenv.parameters.release;
+                            rel = rel * std::pow (4.0f, (sus - 0.5f) * 2.0f) + (sus > 0.5f ? (sus - 0.5f) * 1.2f : 0.0f);
+                        }
+            }
+            else if (tipus == 0x80 || tipus == 0x90) tsf_channel_note_off (f, 0, teclaSonant[ev.dada1 & 127] != 0 ? teclaSonant[ev.dada1 & 127] : ev.dada1);
             else if (tipus == 0xB0)
             {
                 if (ev.dada1 == 0 || ev.dada1 == 32) continue;   // canvis de banc: no

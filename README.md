@@ -203,11 +203,15 @@ Tot es fa a la **taula de mescles**. Cada pista té **una sortida** (on va tot e
 - **Editor** (el llapis): el rasgueig pas a pas (cop, accent, fluix, palm mute, slap, curt, cordes, dit), fins a 32 passos. Canviar entre corxeres i semicorxeres **conserva els compassos** (el doble o la meitat de caselles). **Desa** el guarda a «Els meus rasgueigs» (`Documents\Mibase\Rasgueigs.json`).
 - Els pads continuen servint per escoltar un acord amb el rasgueig triat.
 
-### Guitarres en SoundFont (0.43, primera part)
-- Posa els teus `.sf2` de guitarra a **`Documents\Mibase\SoundFonts\Guitarres`** (el menú té «Obre la carpeta de les guitarres»). No van al repositori: són grans i d'altres autors.
-- A una pista d'instrument: **Instrument** o **So** → **Guitarres (SoundFonts)** → la guitarra → el so (net, apagat, jazz, 12 cordes, chorus…). Cada fitxer es carrega el primer cop que una pista el fa servir.
-- Sona amb les notes del clip com qualsevol instrument (Piano Roll, Chord Pad, patrons de guitarra). La força de la nota canvia el so si el fitxer ho preveu.
-- Encara no hi ha la finestra de la guitarra (imatge, controls de to, atac i sustain) ni el màstil: són les parts següents.
+### Guitarra virtual (0.43 i 0.44)
+Un instrument de pista que sona amb els teus SoundFonts de guitarra.
+- **Fitxers**: els `.sf2` van a **`Documents\Mibase\SoundFonts\Guitarres`** i les imatges (`.png` o `.jpg`) a **`Documents\Mibase\Guitarres`**. Una imatge va amb un `.sf2` quan el seu nom surt dins del nom del fitxer (`Jaguar.png` amb `FS-Jaguar-I5-HedSound.sf2`). Res d'això va al repositori.
+- **Triar-la**: a una pista d'instrument, **Instrument** o **So** → **Guitarres (SoundFonts)** → la guitarra → el so.
+- **La finestra** (el botó d'obrir l'instrument, a la pista o a la columna esquerra): la imatge de la guitarra, el botó **Guitarra** (canvia de fitxer i conserva el mateix tipus de so si la nova també el té), el botó **So** (tots els sons d'aquell fitxer: net, apagat, jazz, 12 cordes, chorus…) i sis poms:
+  - **Volum** (−24 a +6 dB) · **To** (com el pom de la guitarra: a l'esquerra, menys aguts) · **Atac** (més fort o més suau)
+  - **Sustain** (quant queda sonant en deixar la nota) · **Octava** (−2 a +2) · **Afinació** (±50 centèsimes)
+  - Doble clic a un pom: el valor de sempre. Els valors es desen amb la pista.
+- Cada fitxer es carrega el primer cop que una pista el fa servir. Encara no hi ha el màstil amb les notes.
 
 ### Graella de la taula de treball, tempo i altres (0.42)
 - **Compàs / Graella / Lliure**: amb **Graella**, els clips s'enganxen a la subdivisió que tries al botó del costat (1/1 … 1/32 i tresets). Les ratlles de la subdivisió es dibuixen quan el zoom les deixa veure; si no, es veuen els temps o només els compassos.
@@ -265,6 +269,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.44.0** — **Guitarra virtual, la finestra**: s'obre amb el botó de l'instrument i mostra la imatge de la guitarra (de `Documents\Mibase\Guitarres`), els selectors de guitarra i de so, i sis controls que es desen amb la pista: volum, to, atac, sustain, octava i afinació.
 - **0.43.0** — **Guitarres en SoundFont** (primera part: el so): les pistes d'instrument poden triar un so de qualsevol `.sf2` de `Documents\Mibase\SoundFonts\Guitarres` (menú «Guitarres (SoundFonts)», amb tots els sons de cada fitxer); la llista es llegeix sense carregar el fitxer i el banc només es carrega quan una pista el fa sonar.
 - **0.42.0** — **Tempo**: canviar el tempo de la cançó o d'una part deixa els clips d'instrument i els acords exactament als mateixos compassos (abans els acords no es movien i, amb parts de tempo propi, els clips quedaven desplaçats). **Graella**: «Temps» passa a dir-se «Graella», amb un botó per triar la subdivisió (fins a 1/32 i tresets) i les seves ratlles a la taula de treball segons el zoom. **Pista d'Acords**: amb el llapis, primer es dibuixa la finestra i després es tria l'acord. **Botó dret a una pista**: «Afegeix una pista…». **Biblioteca**: els sons que no es poden obrir ja no surten; es distingeixen millor els loops dels one-shots (un loop pot acabar en silenci) i es pot tornar a analitzar.
 - **0.41.1** — Patrons de guitarra: el patró arrossegat comença just al primer temps del compàs (agafava els compassos d'una altra manera que la regla quan el projecte té canvis de tempo, i quedava un pèl tard); si el clip comença gairebé al compàs, el patró comença amb el clip.

@@ -397,6 +397,16 @@ namespace mibase::disc
                         x.mut = f.value ("mut", false);
                         t.files.push_back (x);
                     }
+                if (e.contains ("guitarra") && e["guitarra"].is_object())   // 0.44
+                {
+                    auto& g = e["guitarra"];
+                    t.guitarra.volumDb = std::clamp (g.value ("volumDb", 0.0), -24.0, 6.0);
+                    t.guitarra.to = std::clamp (g.value ("to", 1.0), 0.0, 1.0);
+                    t.guitarra.atac = std::clamp (g.value ("atac", 0.0), -1.0, 1.0);
+                    t.guitarra.sustain = std::clamp (g.value ("sustain", 0.5), 0.0, 1.0);
+                    t.guitarra.octava = std::clamp (g.value ("octava", 0), -2, 2);
+                    t.guitarra.afina = std::clamp (g.value ("afina", 0.0), -50.0, 50.0);
+                }
                 if (e.contains ("sampler") && e["sampler"].is_object())
                 {
                     auto& m = e["sampler"];
@@ -753,6 +763,9 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             if (! t.escalaTeclat) pista["escalaTeclat"] = false;
             if (t.modeEscala >= 0) pista["modeEscala"] = t.modeEscala;
+            if (! (t.guitarra == ParamsGuitarra()))   // 0.44
+                pista["guitarra"] = { { "volumDb", t.guitarra.volumDb }, { "to", t.guitarra.to }, { "atac", t.guitarra.atac },
+                                      { "sustain", t.guitarra.sustain }, { "octava", t.guitarra.octava }, { "afina", t.guitarra.afina } };
             if (esSampler (t))
             {
                 const auto& x = t.sampler;

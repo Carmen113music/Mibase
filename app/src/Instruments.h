@@ -65,6 +65,7 @@ public:
                 e.tipus = sig;
                 e.fs = fs;
             }
+            if (auto* sg = dynamic_cast<mibase::gm::SinteGM*> (e.instrument.get())) sg->posaParams (t.guitarra);   // 0.44
             return e.instrument;
         }
         if (const int prog = mibase::gm::programa (t.instrument); prog >= 0)
@@ -114,7 +115,12 @@ public:
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
             if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
-            if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref)) return creaSf2 (ref, fs, bloc);
+            if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
+            {
+                auto s = creaSf2 (ref, fs, bloc);
+                if (auto* sg = dynamic_cast<mibase::gm::SinteGM*> (s.get())) sg->posaParams (t.guitarra);
+                return s;
+            }
             if (const int prog = mibase::gm::programa (t.instrument); prog >= 0) return creaGM (prog, fs, bloc);
             return crea (descripcio (t), fs, bloc);
         };

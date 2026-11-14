@@ -142,6 +142,18 @@ namespace mibase
         std::string estat;       // ajustos del plugin (base64)
     };
 
+    /** 0.44: els controls de la «Guitarra virtual» (instrument «sf2:…») d'una pista. */
+    struct ParamsGuitarra
+    {
+        double volumDb = 0.0;    // -24 … +6
+        double to = 1.0;         // 0 (fosc) … 1 (obert): com el pom de to de la guitarra
+        double atac = 0.0;       // -1 (suau) … +1 (fort): desplaça la força amb què es toca
+        double sustain = 0.5;    // 0 (s'apaga de seguida en deixar la nota) … 1 (queda sonant)
+        int octava = 0;          // -2 … +2
+        double afina = 0.0;      // cents, -50 … +50
+        bool operator== (const ParamsGuitarra&) const = default;
+    };
+
     /** 0.26: el samplejador d'una pista (instrument «sampler»). Temps en segons dins el fitxer original. */
     struct ParamsSampler
     {
@@ -233,6 +245,7 @@ namespace mibase
         std::string kit;                           // bateria: nom del kit d'on surten els sons
         bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
         ParamsSampler sampler;                     // 0.26: instrument «sampler»
+        ParamsGuitarra guitarra;                   // 0.44: controls de la guitarra virtual
         // ---- 0.33 ----
         std::string sortida;                       // id del bus on va el so (buit: a la sortida)
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
