@@ -166,7 +166,9 @@ public:
                 return;
             }
             // Fila d'una pista: aquella pista sona o no en aquesta peça.
-            const int fila = filaPista (e.y);
+            const auto files = filesEstr();
+            const int filaV = filaPista (e.y);
+            const int fila = filaV >= 0 && filaV < (int) files.size() ? files[(size_t) filaV] : -1;
             if (fila >= 0 && fila < estat.numPistes())
             {
                 comencaCanvi();
@@ -330,9 +332,17 @@ private:
         const int w = (int) std::round (compassosPart (e->peces[(size_t) k].part) * px);
         return { xa, z.getY() + altRegla, juce::jmax (8, w - 3), z.getHeight() - altRegla };
     }
+    /** 0.37: les pistes que surten a l'estructura (totes menys la d'Acords, que es mou amb les parts igualment). */
+    std::vector<int> filesEstr() const
+    {
+        std::vector<int> v;
+        for (int i = 0; i < estat.numPistes(); ++i)
+            if (! mibase::esAcords (estat.projecte.pistes[(size_t) i])) v.push_back (i);
+        return v;
+    }
     int altFila() const
     {
-        const int n = juce::jmax (1, estat.numPistes());
+        const int n = juce::jmax (1, (int) filesEstr().size());
         return juce::jlimit (8, 28, (zonaPeces().getHeight() - altRegla - altCap - 6) / n);
     }
     int yFila (int i) const { return zonaPeces().getY() + altRegla + altCap + 6 + i * altFila(); }
@@ -443,13 +453,14 @@ private:
         const auto& p = estat.projecte;
         const int h = altFila();
         g.setFont (dibuix::lletra (juce::jmin (12.0f, (float) h - 2.0f)));
-        for (int i = 0; i < estat.numPistes(); ++i)
+        const auto files = filesEstr();
+        for (int j = 0; j < (int) files.size(); ++j)
         {
-            const auto& t = p.pistes[(size_t) i];
+            const auto& t = p.pistes[(size_t) files[(size_t) j]];
             g.setColour (EstatEstudi::colorPista (t));
-            g.fillRect (8, yFila (i) + 2, 3, h - 4);
+            g.fillRect (8, yFila (j) + 2, 3, h - 4);
             g.setColour (tema::textMig);
-            g.drawText (dibuix::utf8 (t.nom), 16, yFila (i), ampleNomsPistes - 20, h, juce::Justification::centredLeft, true);
+            g.drawText (dibuix::utf8 (t.nom), 16, yFila (j), ampleNomsPistes - 20, h, juce::Justification::centredLeft, true);
         }
     }
 
@@ -474,11 +485,12 @@ private:
         const double t0 = mibase::edicio::segonsDeCompas (p, part.de), t1 = mibase::edicio::segonsDeCompas (p, part.a);
         const double pxs = (double) r.getWidth() / juce::jmax (1e-6, t1 - t0);
         const int h = altFila();
-        for (int i = 0; i < estat.numPistes(); ++i)
+        const auto files = filesEstr();
+        for (int j = 0; j < (int) files.size(); ++j)
         {
-            const auto& t = p.pistes[(size_t) i];
+            const auto& t = p.pistes[(size_t) files[(size_t) j]];
             const bool calla = std::find (pc.silencis.begin(), pc.silencis.end(), t.id) != pc.silencis.end();
-            auto fila = juce::Rectangle<int> (r.getX(), yFila (i) + 1, r.getWidth(), h - 2);
+            auto fila = juce::Rectangle<int> (r.getX(), yFila (j) + 1, r.getWidth(), h - 2);
             g.setColour (juce::Colours::white.withAlpha (0.03f));
             g.fillRect (fila);
             const auto col = calla ? tema::suau.withAlpha (0.25f) : EstatEstudi::colorPista (t).withAlpha (t.mut ? 0.3f : 0.85f);

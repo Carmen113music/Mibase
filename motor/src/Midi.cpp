@@ -2,6 +2,7 @@
 #include "mibase/Edicio.h"
 
 #include <algorithm>
+#include "mibase/GeneralMidi.h"
 #include <cmath>
 #include <numeric>
 
@@ -130,8 +131,25 @@ namespace mibase::midi
     {
         idx = valids (c, idx);
         std::sort (idx.rbegin(), idx.rend());
+        // 0.31: amb les notes també se'n van els controladors (expressió, modulació, pitch bend, aftertouch…) del seu tros,
+        // si cap altra nota que es queda no hi sona. Sense cap nota, no en queda cap (els canvis de programa sí).
+        std::vector<Nota> treure;
+        for (int i : idx) treure.push_back (c.notes[(size_t) i]);
         for (int i : idx)
             c.notes.erase (c.notes.begin() + i);
+        auto dins = [] (const Nota& n, long long t) { return t >= n.ini && t < n.ini + std::max (1LL, n.dur); };
+        std::erase_if (c.events, [&] (const EventMidi& e)
+        {
+            if (e.tipus == 0xC0) return false;
+            if (c.notes.empty()) return true;
+            bool delTros = false;
+            for (auto& n : treure)
+                if (dins (n, e.tick) && (e.tipus != 0xA0 || e.num == n.to)) { delTros = true; break; }
+            if (! delTros) return false;
+            if (e.tipus == 0xA0)   // aftertouch d'una nota concreta
+                return std::none_of (c.notes.begin(), c.notes.end(), [&] (const Nota& n) { return n.to == e.num && dins (n, e.tick); });
+            return std::none_of (c.notes.begin(), c.notes.end(), [&] (const Nota& n) { return dins (n, e.tick); });
+        });
     }
 
     void mou (Clip& c, std::vector<int>& idx, long long dT, int dTo, long long minTick)
@@ -400,7 +418,11 @@ namespace mibase::midi
         p.tempo = nou;
     }
 
-    bool compatible (const Pista& t, const Clip& c) { return c.midi == esMidi (t); }
+    bool compatible (const Pista& t, const Clip& c)
+    {
+        if (esAcords (t) || c.esAcord()) return esAcords (t) && c.esAcord();   // 0.36: els acords, només a la pista d'Acords
+        return ! esBus (t) && c.midi == esMidi (t);   // 0.34: als busos no hi van clips
+    }
 
     //==========================================================================
     const std::vector<SoIntern>& sonsInterns()
@@ -435,6 +457,7 @@ namespace mibase::midi
         if (i >= 0) return sonsInterns()[(size_t) i].nom;
         if (instrument.empty()) return "Cap";
         if (instrument == instrumentSampler) return "Samplejador";
+        if (const int p = gm::programa (instrument); p >= 0) return std::string ("GM · ") + gm::nomPrograma (p);
         return instrument;
     }
 }

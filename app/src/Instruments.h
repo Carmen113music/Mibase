@@ -10,6 +10,8 @@
 #include <mibase/SinteIntern.h>
 #include <mibase/Sampler.h>
 #include "Kits.h"
+#include "BancGM.h"
+#include <mibase/GeneralMidi.h>
 
 /** Els instruments de les pistes MIDI del projecte obert (un per pista, viu mentre la pista hi és).
     És l'únic lloc que sap crear-los: ara el sinte intern; quan arribin els VST3, aquí es crearà
@@ -35,7 +37,7 @@ public:
             else s->posaParams (t.sampler);
             return e.instrument;
         }
-        if (t.tipus == "bateria")
+        if (mibase::esKit (t))
         {
             // 0.20: el sampler de bateria. Si canvien els sons, un de nou; si només canvien volums, afinació… s'hi posen sense parar.
             auto& e = llista[t.id];
@@ -51,6 +53,19 @@ public:
             return e.instrument;
         }
         if (t.tipus != "midi") return nullptr;
+        if (const int prog = mibase::gm::programa (t.instrument); prog >= 0)
+        {
+            // 0.31: General MIDI. Si canvia el so o el banc, un de nou (és lleuger: comparteix les mostres del banc).
+            auto& e = llista[t.id];
+            const auto sig = t.instrument + "|" + bancgm::signatura();
+            if (e.instrument == nullptr || e.tipus != sig)
+            {
+                e.instrument = creaGM (prog, fs, maxBloc);
+                e.tipus = sig;
+                e.fs = fs;
+            }
+            return e.instrument;
+        }
         const auto desc = descripcio (t);
         auto& e = llista[t.id];
         const bool intern = mibase::midi::soIntern (desc) >= 0;
@@ -83,8 +98,9 @@ public:
         return [fs, bloc, carpetaProjecte] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
         {
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
-            if (t.tipus == "bateria") return kits::sampler (t, fs, bloc);
+            if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
+            if (const int prog = mibase::gm::programa (t.instrument); prog >= 0) return creaGM (prog, fs, bloc);
             return crea (descripcio (t), fs, bloc);
         };
     }
@@ -144,6 +160,13 @@ private:
         auto s = std::make_shared<mibase::sampler::Samplejador> (mibase::sampler::prepara (m, t.sampler));
         s->posaParams (t.sampler);
         s->prepara (fs, bloc);
+        return s;
+    }
+
+    static std::shared_ptr<mibase::Instrument> creaGM (int prog, double fs, int maxBloc)
+    {
+        auto s = std::make_shared<mibase::gm::SinteGM> (bancgm::banc(), prog);
+        s->prepara (fs, maxBloc);
         return s;
     }
 

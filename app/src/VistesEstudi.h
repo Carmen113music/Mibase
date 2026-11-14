@@ -26,10 +26,13 @@ protected:
     /** Torna al projecte de l'inici del gest (per aplicar-hi el canvi de nou, des de zero). */
     void restaura() { estat.projecte = copiaInici; canviFet = true; }
     /** Acaba el gest: si s'ha canviat res, queda al Desfés i es desa. */
+    /** 0.41: es crida quan un canvi s'acaba, amb el projecte de com estava abans. */
+    std::function<void (const mibase::Projecte& abans)> onAbansDeTancar;
     void acabaCanvi (const juce::String& evolucio = {})
     {
         if (canviFet)
         {
+            if (onAbansDeTancar) onAbansDeTancar (copiaInici);   // 0.41
             estat.desfes.abans (copiaInici);
             estat.canviat (evolucio);
         }
@@ -103,17 +106,29 @@ public:
 
     /** 0.27: un sample de la biblioteca deixat a la taula (fila -1: sota les pistes). */
     std::function<void (const juce::File&, int fila, double temps)> onSample;
-    bool isInterestedInDragSource (const SourceDetails& d) override { return d.description.toString().startsWith ("mibase-sample:"); }
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("mibase-sample:")
+            || (d.description.toString() == "mibase-acord" && estat.segell.actiu());   // 0.36: acords del Chord Pad a la pista d'Acords
+    }
     void itemDragMove (const SourceDetails& d) override { const int f = estat.pistaA (d.localPosition.y); if (f != filaDeixar) { filaDeixar = f < estat.numPistes() ? f : -1; repaint(); } }
     void itemDragExit (const SourceDetails&) override { filaDeixar = -2; repaint(); }
     void itemDropped (const SourceDetails& d) override
     {
+        if (d.description.toString() == "mibase-acord") { deixaAcord (d.localPosition); return; }   // 0.36
         filaDeixar = -2;
-        const int fila = estat.pistaA (d.localPosition.y);
+        int fila = estat.pistaA (d.localPosition.y);
+        if (fila >= 0 && fila < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) fila])) fila = -1;   // 0.34: a un bus no
         const juce::File f (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false));
         if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
         repaint();
     }
+
+    /** 0.36: menú d'acords de la pista d'Acords: clip -1 = posar-ne un de nou (al compàs de «t»); si no, canviar-lo. */
+    void menuAcords (int pista, int clip, double t);
+    void deixaAcord (juce::Point<int> on);
+    void obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on);   // 0.37
+    std::function<void (const std::vector<int>&)> onEscoltaNotes;                    // 0.37: fer sonar un acord (per escoltar-lo)
 
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     std::function<void (const juce::StringArray&, int pista, double on)> onImporta;    // pista -1: nova
@@ -123,11 +138,19 @@ public:
     /** 0.22: obre el clip d'àudio (pista, clip) al Vocal Editor. */
     std::function<void (int, int)> onObreVeu;
     std::function<void (int pista, int clip, bool nomesBiblioteca)> onEnviaSampler;   // 0.28
+    EstatEstudi::Rang rang0;   // 0.29
+    std::function<bool (juce::Point<int> pantalla)> arrossegaFora;   // 0.29: si el ratolí és a sobre d'on es pot deixar un clip (el samplejador)
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;
+    void modifierKeysChanged (const juce::ModifierKeys& m) override   // 0.32: el cursor de Maj sense haver de moure el ratolí
+    {
+        if (! isMouseOver() || estat.eina != Eina::Fletxa || mode != Mode::Res) return;
+        if (m.isShiftDown() && ! m.isCommandDown()) setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        else setMouseCursor (juce::MouseCursor::NormalCursor);
+    }
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
@@ -175,7 +198,9 @@ private:
     juce::Point<int> inici;
     double t0 = 0.0, punt0 = 0.0, bandera0 = 0.0, guany0 = 0.0, tLlapis = 0.0, tTisores = -1.0;
     int filaDeixar = -2;
+    std::unique_ptr<DialegText> dialegAcord;   // 0.36
     std::vector<mibase::edicio::RefClip> triatsOriginals;
+    bool nomesSeleccio = false;   // 0.32: Maj premut en clicar: el ratolí només selecciona (no mou ni retalla)
     juce::Point<int> puntCola, puntRequadre;
 };
 
@@ -188,6 +213,13 @@ public:
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     /** 0.20: el botonet de la pista d'instrument (obre el sinte o el VST) o de bateria (obre els kits). */
     std::function<void (int pista)> onObreInstrument;
+    juce::Rectangle<int> rectEntradaCap (int fila) const;   // 0.34
+    juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
+    juce::Rectangle<int> zonaES (int fila) const;
+    juce::Rectangle<int> rectSegueix (int fila) const;   // 0.41
+    std::function<juce::Array<juce::MidiDeviceInfo>()> teclats;   // 0.40: per al menú E/S de les pistes d'instrument
+    bool esEstreta (int fila) const;
+    juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
 
     void paint (juce::Graphics& g) override;
@@ -206,6 +238,79 @@ private:
     juce::Point<int> inici;
 };
 
+/** 0.37: amb la pista d'Acords triada, la columna esquerra mostra les pistes MIDI amb un botó cadascuna:
+    encès = la pista segueix la pista d'Acords (els seus clips de patró llegiran els acords). */
+class PanellSeguidors : public juce::Component
+{
+public:
+    explicit PanellSeguidors (EstatEstudi& e) : estat (e) {}
+
+    void refresca()
+    {
+        std::vector<std::string> ids;
+        for (const auto& t : estat.projecte.pistes) if (t.tipus == "midi") ids.push_back (t.id);
+        if (ids != idsBotons)
+        {
+            idsBotons = ids;
+            botons.clear();
+            for (const auto& id : ids)
+            {
+                auto* b = botons.add (new Boto ({}, std::nullopt, Boto::Estil::Tecla));
+                b->setLlum (juce::Colour (0xffa98bff));
+                b->setMidaText (12.5f);
+                b->setClickingTogglesState (false);
+                b->onClick = [this, id] { commuta (id); };
+                addAndMakeVisible (b);
+            }
+            resized();
+        }
+        for (int i = 0; i < botons.size(); ++i)
+            if (const int k = mibase::edicio::pistaPerId (estat.projecte, idsBotons[(size_t) i]); k >= 0)
+            {
+                const auto& t = estat.projecte.pistes[(size_t) k];
+                botons[i]->setButtonText (juce::String (k + 1) + "  " + juce::String::fromUTF8 (t.nom.c_str()));
+                botons[i]->setToggleState (t.segueixAcords, juce::dontSendNotification);
+                botons[i]->setTooltip (t.segueixAcords ? "Segueix la pista d'Acords. Clica per deixar-la anar sola."_ca
+                                                       : "No segueix la pista d'Acords. Clica perquè la segueixi."_ca);
+            }
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (juce::Colour (0xffa98bff));
+        g.setFont (dibuix::lletra (11.5f, true));
+        g.drawFittedText ("SEGUEIXEN ELS ACORDS"_ca, 4, 0, getWidth() - 8, 30, juce::Justification::centredLeft, 2, 1.0f);
+        g.setColour (tema::suau);
+        g.setFont (dibuix::lletra (11.0f));
+        const int y = 34 + botons.size() * 34 + 6;
+        g.drawFittedText (botons.isEmpty() ? "Encara no hi ha cap pista MIDI."_ca
+                                           : "Encès: els clips de patró de la pista llegeixen els acords d'aquí. Llapis o doble clic a la pista d'Acords: posar-hi acords."_ca,
+                          4, botons.isEmpty() ? 34 : y, getWidth() - 8, 60, juce::Justification::topLeft, 5, 0.85f);
+    }
+
+    void resized() override
+    {
+        for (int i = 0; i < botons.size(); ++i) botons[i]->setBounds (2, 34 + i * 34, getWidth() - 4, 30);
+    }
+
+private:
+    void commuta (const std::string& id)
+    {
+        const int k = mibase::edicio::pistaPerId (estat.projecte, id);
+        if (k < 0) return;
+        estat.desfes.abans (estat.projecte);
+        auto& t = estat.projecte.pistes[(size_t) k];
+        t.segueixAcords = ! t.segueixAcords;
+        estat.canviat ("«"_ca + juce::String::fromUTF8 (t.nom.c_str()) + (t.segueixAcords ? "» segueix la pista d'Acords"_ca : "» ja no segueix la pista d'Acords"_ca));
+        refresca();
+    }
+
+    EstatEstudi& estat;
+    std::vector<std::string> idsBotons;
+    juce::OwnedArray<Boto> botons;
+};
+
 /** Columna de l'esquerra: pestanyes Taula de treball / Taula de mescles i el fader de la pista triada. */
 class ColumnaEsquerra : public SeccioEstudi
 {
@@ -213,7 +318,15 @@ public:
     explicit ColumnaEsquerra (EstatEstudi& e);
     /** Panell per als editors (el d'harmonia): quan hi ha un editor obert, ocupa el lloc del fader de la pista. */
     void setPanellEditor (juce::Component* c) { panellEditor = c; if (c != nullptr) addChildComponent (c); changeListenerCallback (nullptr); }
-    bool ambEditor() const { return panellEditor != nullptr && estat.pianoRoll && ! estat.foraTreball() && estat.focusEditor; }
+    bool ambEditor() const
+    {
+        if (panellEditor == nullptr || estat.foraTreball() || acordsTriada()) return false;
+        return estat.pianoRoll && estat.focusEditor;
+    }
+    /** 0.37: amb la pista d'Acords triada, la llista de pistes que la segueixen (en lloc del fader i els inserts). */
+    bool ambAcords() const { return ! estat.foraTreball() && acordsTriada(); }
+    PanellSeguidors seguidors { estat };
+    bool acordsTriada() const { auto* t = estat.pista (estat.pistaTriada); return t != nullptr && mibase::esAcords (*t); }
     OpcionsPista opcions { estat };
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -252,27 +365,42 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override;
 
     static constexpr int ampleTira = 100;
-    static constexpr int numInserts = 4, numEnvia = 2;
+    static constexpr int numInserts = 4, numEnvia = 4;
+    static constexpr int ampleNou = 74;   // 0.33: la columna dels botons de bus nou
     GestorPlugins* plugins = nullptr;   // 0.20: per als inserts
+    std::function<void (int pista)> onCanviaNom;
+    /** 0.33: demana el nom i crea un bus (de grup o retorn). Si «pista» >= 0, aquella pista hi queda connectada:
+        amb la sortida («comSortida») o amb un enviament nou. */
+    std::function<void (bool fx, int pista, bool comSortida)> onBusNou;
 
 private:
     struct Geo
     {
-        juce::Rectangle<int> nom, etInserts, etEnvia, pan, fader, lcd, numero;
+        juce::Rectangle<int> nom, etInserts, etEnvia, entrada, sortida, pan, fader, lcd, numero;
         std::array<juce::Rectangle<int>, numInserts> inserts;
         std::array<juce::Rectangle<int>, numEnvia> envia;
         std::array<juce::Rectangle<int>, 3> tecles;
     };
-    enum class Zona { Res, Tecla, Pan, Fader, Ranura, Insert };
+    enum class Zona { Res, Tecla, Pan, Fader, Envia, Insert, Entrada, Sortida, Nom, BusNou };
 
     Geo geo (juce::Rectangle<int> tira, bool master) const;
     void pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i);   // i < 0: la sortida
     bool troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla) const;
-    juce::Rectangle<int> rectTira (int i) const { return { i * ampleTira - despl, 0, ampleTira, getHeight() }; }
+    /** 0.33: ordre de les tires: primer les pistes, després els busos de grup i al final els retorns. */
+    std::vector<int> ordreTires() const;
+    juce::Rectangle<int> rectLloc (int lloc) const { return { lloc * ampleTira - despl, 0, ampleTira, getHeight() }; }
+    juce::Rectangle<int> rectTira (int i) const;      // i = índex de la pista
+    juce::Rectangle<int> rectNou() const { return rectLloc (estat.numPistes()).withWidth (ampleNou); }
     juce::Rectangle<int> rectMaster() const { return { getWidth() - ampleTira - 4, 0, ampleTira, getHeight() }; }
-    int tiraA (int x) const { return (x + despl) / ampleTira; }
+    void pintaNou (juce::Graphics& g);
+    void mostraTira (int i);
+    void menuEnviament (int pista, int k, bool nou);
+    void menuSortida (int pista);
+    void menuEntrada (int pista);   // 0.34
+    void menuBus (int pista);
+    void canvia (const juce::String& evolucio, const std::function<void (mibase::Projecte&)>& f);
 
-    int despl = 0, tira = -1;
+    int despl = 0, tira = -1, enviaK = -1;
     Zona arrossega = Zona::Res;
     float valor0 = 0.0f, ultimaY = 0.0f;
 };
