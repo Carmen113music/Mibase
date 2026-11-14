@@ -2674,9 +2674,25 @@ bool PianoRoll::compasA (int x, long long& ini, long long& dur) const
 {
     const auto* c = clip();
     if (c == nullptr || x < ampleTeclat()) return false;
-    const double tpc = (double) juce::jmax (1LL, midi::ticksPerCompas (estat.projecte));
-    const double a = std::floor (tickX ((float) x) / tpc) * tpc;
-    const long long i0 = std::llround (a - posTicks()), i1 = std::llround (a + tpc - posTicks());
+    // 0.41.1: els compassos, exactament on els pinta la regla (amb canvis de tempo no són múltiples fixos de ticks)
+    const auto& p = estat.projecte;
+    const double tpc = (double) juce::jmax (1LL, midi::ticksPerCompas (p));
+    const double t = juce::jmax (0.0, tickX ((float) x));
+    double a = std::floor (t / tpc) * tpc, b = a + tpc;
+    if (ed::teCanvisTempo (p))
+    {
+        const double k = std::floor (ed::compasDeSegons (p, midi::segons (p, t)) + 1.0e-6);
+        a = midi::ticks (p, ed::segonsDeCompas (p, k));
+        b = midi::ticks (p, ed::segonsDeCompas (p, k + 1.0));
+    }
+    // Si el clip comença a menys d'una fusa del compàs, el patró comença amb el clip (no un pèl més tard).
+    long long i0 = std::llround (a - posTicks());
+    const long long i1 = std::llround (b - posTicks());
+    if (const auto* cl = clip())
+    {
+        const long long iniciClip = std::llround (midi::ticks (p, cl->iniciVisible()) - posTicks());
+        if (std::llabs (i0 - iniciClip) < 180 && iniciClip < i1) i0 = iniciClip;
+    }
     ini = juce::jmax (0LL, i0);
     dur = i1 - ini;
     return dur > 30;
