@@ -25,7 +25,7 @@ class EditorRasgueig : public juce::Component
 public:
     using Pas = mibase::guitarra::Pas;
     using Cop = mibase::guitarra::Cop;
-    static constexpr int maxPassos = 24, ampleNoms = 86, ampleCasella = 27, altFila = 26, numFiles = 8;
+    static constexpr int maxPassos = 32, ampleNoms = 86, ampleCasella = 24, altFila = 26, numFiles = 8;
 
     std::function<void (const mibase::guitarra::Patro&)> onEscolta, onDesa;
     std::function<void (const std::string& id)> onEsborra;
@@ -55,7 +55,30 @@ public:
         nom.setColour (juce::TextEditor::outlineColourId, tema::linia2);
         selPas.setLlum (vintage::ledTaronja);
         selPas.setTooltip (juce::String::fromUTF8 ("Quant dura cada pas"));
-        selPas.onCanvi = [this] (int) { repaint(); };
+        pasAnterior = selPas.getTriat();
+        selPas.onCanvi = [this] (int quin)
+        {
+            // 0.41: els mateixos compassos amb el doble (o la meitat) de caselles
+            if (quin == pasAnterior) return;
+            std::vector<Pas> nou;
+            if (quin == 1)
+                for (auto& p : passos) { nou.push_back (p); nou.push_back (Pas()); }
+            else
+            {
+                bool perdut = false;
+                for (size_t i = 0; i < passos.size(); ++i)
+                    if (i % 2 == 0) nou.push_back (passos[i]);
+                    else perdut = perdut || passos[i].cop != Cop::Res;
+                avis = perdut ? juce::String::fromUTF8 ("En passar a corxeres s'han perdut els cops que queien entremig.") : juce::String();
+            }
+            if ((int) nou.size() > maxPassos) nou.resize ((size_t) maxPassos);
+            if (nou.size() < 2) nou.resize (2);
+            passos = std::move (nou);
+            pasAnterior = quin;
+            numPassos.setValor ((int) passos.size());
+            setSize (ampleTotal(), getHeight());
+            repaint();
+        };
         numPassos.onCanvi = [this] (int n)
         {
             passos.resize ((size_t) juce::jlimit (2, maxPassos, n));
@@ -214,6 +237,7 @@ private:
 
     std::vector<Pas> passos;
     std::string idOriginal, compas = "4/4";
+    int pasAnterior = 0;
     juce::TextEditor nom;
     Segmentat selPas { { "Corxeres", "Semicorxeres" } };
     CaixaNumero numPassos { "Passos", 2, maxPassos, 8 };

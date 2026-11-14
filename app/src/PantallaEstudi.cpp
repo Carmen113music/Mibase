@@ -155,7 +155,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     rellotge.startTimerHz (30);
 
     ampleEsquerra = ajustos.getIntValue ("estudi.ampleEsquerra", 132);
-    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms2", 190);
+    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms3", 244);   // 0.41: més ampla, perquè hi càpiguen «Ac» i E/S
     amplePanell = ajustos.getIntValue ("estudi.amplePanell", 270);
 
     // Caixa d'eines.
@@ -390,7 +390,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         {
             ajustos.setValue ("estudi.ampleEsquerra", ampleEsquerra);
             ajustos.setValue ("estudi.ampleEsquerraEditor", ampleEsquerraEditor);
-            ajustos.setValue ("estudi.ampleNoms2", ampleNoms);
+            ajustos.setValue ("estudi.ampleNoms3", ampleNoms);
             ajustos.setValue ("estudi.amplePanell", amplePanell);
             ajustos.saveIfNeeded();
         };
@@ -405,7 +405,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     divEsquerra.onDobleClic = [this] { if (esquerra.ambEditor()) ampleEsquerraEditor = 270; else ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
     divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (120, ampleInici + dx); colocaSeccions(); };
-    divNoms.onDobleClic = [this] { ampleNoms = 190; colocaSeccions(); divNoms.onAcaba(); };
+    divNoms.onDobleClic = [this] { ampleNoms = 244; colocaSeccions(); divNoms.onAcaba(); };
     divPanell.onComenca = [this] { ampleInici = panell.getWidth(); };
     divPanell.onArrossega = [this] (int dx) { amplePanell = juce::jmax (200, ampleInici - dx); colocaSeccions(); };
     divPanell.onDobleClic = [this] { amplePanell = 270; colocaSeccions(); divPanell.onAcaba(); };

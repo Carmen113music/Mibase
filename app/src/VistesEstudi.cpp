@@ -2270,6 +2270,12 @@ void Capcaleres::paint (juce::Graphics& g)
             dibuix::pintaIcona (g, mibase::esKit (t) ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
             zonaCanals.removeFromLeft (rb.toNearestInt().getWidth() + 6);
         }
+        if (const auto rs = rectSegueix (i); ! rs.isEmpty())
+        {
+            // 0.41: interruptor «segueix la pista d'Acords» (lila quan està encès)
+            dibuixEstudi::teclaPetita (g, rs, "Ac", t.segueixAcords, juce::Colour (0xffb18cff));
+            zonaCanals.removeFromLeft (rs.getWidth() + 6);
+        }
         if (zonaCanals.getWidth() > 30)
         {
             // 0.35: entrada i sortida a la vista, com el E/S de Pro Tools (clic: les tries)
@@ -2416,6 +2422,7 @@ juce::Rectangle<int> Capcaleres::zonaES (int fila) const
     // igual que quan es pinta: el botó de l'instrument només hi és si hi cap
     if (fila < estat.numPistes() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && z.getWidth() > 50)
         z.removeFromLeft (rectObreInstrument (fila).getWidth() + 6);
+    if (const auto s = rectSegueix (fila); ! s.isEmpty()) z.removeFromLeft (s.getWidth() + 6);   // 0.41
     return z;
 }
 
@@ -2446,6 +2453,17 @@ juce::Rectangle<int> Capcaleres::rectSortidaCap (int fila) const
     auto z = zonaES (fila);
     if (fila < estat.numPistes() && estat.projecte.pistes[(size_t) fila].tipus == "audio") z.removeFromLeft ((z.getWidth() - 4) / 2 + 4);
     return z;
+}
+
+juce::Rectangle<int> Capcaleres::rectSegueix (int fila) const
+{
+    // 0.41: «segueix la pista d'Acords», a les pistes d'instrument, després del botó de l'instrument (si hi cap)
+    if (fila < 0 || fila >= estat.numPistes()) return {};
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (! mibase::esMidi (t) || mibase::esAcords (t) || mibase::esKit (t)) return {};
+    const auto r = rectObreInstrument (fila);
+    const juce::Rectangle<int> z (r.getRight() + 6, r.getY(), 26, r.getHeight());
+    return z.getRight() <= getWidth() - 24 ? z : juce::Rectangle<int>();
 }
 
 juce::Rectangle<int> Capcaleres::rectObreInstrument (int fila) const
@@ -2545,6 +2563,16 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
     }
 
     // 0.35: entrada i sortida (les dues caixes, o el botó E/S si la capçalera és estreta)
+    if (! e.mods.isPopupMenu() && rectSegueix (fila).contains (e.getPosition()))
+    {
+        // 0.41: els patrons d'aquesta pista llegeixen (o no) la pista d'Acords
+        comencaCanvi();
+        restaura();
+        auto& ts = estat.projecte.pistes[(size_t) fila];
+        ts.segueixAcords = ! ts.segueixAcords;
+        acabaCanvi ("«"_ca + dibuix::utf8 (ts.nom) + (ts.segueixAcords ? "» segueix la pista d'Acords"_ca : "» ja no segueix la pista d'Acords"_ca));
+        return;
+    }
     if (! mibase::esBus (estat.projecte.pistes[(size_t) fila]))
     {
         const auto pos = e.getPosition();

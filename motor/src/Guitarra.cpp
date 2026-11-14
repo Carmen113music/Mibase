@@ -1,6 +1,8 @@
 #include "mibase/Guitarra.h"
 #include "mibase/Midi.h"
+#include "mibase/Edicio.h"
 #include <nlohmann/json.hpp>
+#include <map>
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
@@ -496,12 +498,22 @@ namespace mibase::guitarra
     namespace { std::vector<Patro>& elsPropis() { static std::vector<Patro> v; return v; } }
 
     const std::vector<Patro>& propis() { return elsPropis(); }
-    void posaPropis (std::vector<Patro> v) { elsPropis() = std::move (v); }
+    namespace { std::map<std::string, Patro>& cauVariacions() { static std::map<std::string, Patro> m; return m; } }
+    void posaPropis (std::vector<Patro> v) { elsPropis() = std::move (v); cauVariacions().clear(); }
 
     const Patro* patro (const std::string& id)
     {
         for (auto& p : patrons()) if (p.id == id) return &p;
         for (auto& p : elsPropis()) if (p.id == id) return &p;
+        // 0.41: una variació («folk~ple») es fa a partir del seu patró
+        if (const auto on = id.rfind ('~'); on != std::string::npos)
+        {
+            auto& cau = cauVariacions();
+            if (auto it = cau.find (id); it != cau.end()) return &it->second;
+            if (const auto* base = patro (id.substr (0, on)))
+                for (auto& v : variacions (*base)) cau[v.id] = v;
+            if (auto it = cau.find (id); it != cau.end()) return &it->second;
+        }
         return nullptr;
     }
 
@@ -573,10 +585,64 @@ namespace mibase::guitarra
         return r;
     }
 
-    BlocPatro blocDe (const Patro* p, const std::string& acord, long long ini, long long dur, double variacio, unsigned llavor, int vel)
+std::vector<Patro> variacions (const Patro& p)
+    {
+        std::vector<Patro> r;
+        const int n = (int) p.passos.size();
+        if (n < 2) return r;
+        auto esCop = [] (const Pas& s) { return s.cop == Cop::Avall || s.cop == Cop::Amunt; };
+        auto afegeix = [&] (const char* sufix, std::vector<Pas> v)
+        {
+            if (v == p.passos) return;
+            for (auto& x : r) if (x.passos == v) return;
+            Patro q = p;
+            q.id = p.id + "~" + sufix;
+            q.nom = p.nom + " · " + sufix;
+            q.passos = std::move (v);
+            q.dibuix = dibuixPassos (q.passos);
+            r.push_back (std::move (q));
+        };
+        {   // més ple: els forats s'omplen amb cops fluixos (avall als passos parells, amunt als senars)
+            auto v = p.passos;
+            for (int i = 1; i < n; ++i)
+                if (v[(size_t) i].cop == Cop::Res && v[(size_t) i].dit == Dit::Cap)
+                {
+                    v[(size_t) i] = Pas();
+                    v[(size_t) i].cop = i % 2 == 0 ? Cop::Avall : Cop::Amunt;
+                    v[(size_t) i].suau = true;
+                }
+            afegeix ("ple", v);
+        }
+        {   // més buit: fora els cops amunt sense accent (queda el que marca el ritme)
+            auto v = p.passos;
+            int trets = 0;
+            for (int i = 1; i < n; ++i)
+                if (v[(size_t) i].cop == Cop::Amunt && ! v[(size_t) i].accent && v[(size_t) i].dit == Dit::Cap && trets % 2 == 0) { v[(size_t) i] = Pas(); ++trets; }
+                else if (v[(size_t) i].cop == Cop::Amunt && ! v[(size_t) i].accent) ++trets;
+            afegeix ("buit", v);
+        }
+        {   // amb notes mortes: al segon i al quart temps (o, si el patró és curt, al mig), una nota morta
+            auto v = p.passos;
+            const int perTemps = (int) std::max (1LL, 960 / std::max (1LL, p.pasTicks));
+            bool alguna = false;
+            for (int i = perTemps; i < n; i += 2 * perTemps)
+            {
+                const bool accent = v[(size_t) i].accent;
+                v[(size_t) i] = Pas();
+                v[(size_t) i].cop = Cop::MutAvall;
+                v[(size_t) i].accent = accent;
+                alguna = true;
+            }
+            if (! alguna && esCop (v[(size_t) (n / 2)])) { v[(size_t) (n / 2)] = Pas(); v[(size_t) (n / 2)].cop = Cop::MutAvall; }
+            afegeix ("mutes", v);
+        }
+        return r;
+    }
+
+    BlocPatro blocDe (const Patro* p, long long ini, long long dur, double variacio, unsigned llavor, int vel)
     {
         BlocPatro b;
-        b.ini = ini; b.dur = dur; b.acord = acord; b.variacio = variacio; b.llavor = llavor; b.vel = vel;
+        b.ini = ini; b.dur = dur; b.variacio = variacio; b.llavor = llavor; b.vel = vel;
         if (p != nullptr)
         {
             b.patro = p->id; b.nom = p->nom; b.passos = textPassos (p->passos); b.pasTicks = p->pasTicks;
@@ -593,48 +659,106 @@ namespace mibase::guitarra
         return p;
     }
 
-    void escriuBloc (Clip& c, int quin, double tempo)
+    std::vector<Tram> acordsDe (const Projecte& p, const Pista& t, const Clip& c)
     {
-        if (quin < 0 || quin >= (int) c.blocs.size()) return;
-        const auto b = c.blocs[(size_t) quin];
-        std::erase_if (c.notes, [&] (const Nota& n) { return n.ini >= b.ini && n.ini < b.ini + b.dur; });
-        for (auto& n : c.notes)
-            if (n.ini < b.ini && n.ini + n.dur > b.ini) n.dur = b.ini - n.ini;   // el que venia sonant s'apaga aquí
-        const auto cordes = notes (harmonia::llegeixAcord (b.acord));
-        if (cordes.empty()) return;
-        const auto p = patroDeBloc (b);
-        std::vector<Nota> noves;
-        if (p.passos.empty())
-            for (int to : cordes) noves.push_back ({ 0, b.dur, to, b.vel, 0 });   // sense ritme: l'acord sencer
-        else
+        std::vector<Tram> r;
+        if (t.segueixAcords)
         {
-            Opcions o;
-            o.vel = b.vel; o.tempo = tempo; o.variacio = b.variacio; o.llavor = b.llavor;
-            noves = rasgueja (cordes, p, b.dur, o);
+            const double t0 = midi::ticks (p, c.pos);
+            for (const auto& ta : p.pistes)
+            {
+                if (! esAcords (ta)) continue;
+                for (const auto& k : ta.clips)
+                {
+                    if (! k.esAcord() || k.mut) continue;
+                    const double a = k.iniciVisible(), b = k.fiVisible();
+                    if (b - a < 0.01) continue;
+                    r.push_back ({ std::llround (midi::ticks (p, a) - t0), std::llround (midi::ticks (p, b) - t0), k.acord });
+                }
+            }
         }
-        afegeix (c, noves, b.ini);
+        else
+            for (const auto& a : c.acords) r.push_back ({ a.ini, a.ini + a.dur, a.acord });
+        std::stable_sort (r.begin(), r.end(), [] (const Tram& x, const Tram& y) { return x.ini < y.ini; });
+        for (size_t i = 0; i + 1 < r.size(); ++i) r[i].fi = std::min (r[i].fi, r[i + 1].ini);   // el següent talla l'anterior
+        std::erase_if (r, [] (const Tram& x) { return x.fi <= x.ini; });
+        return r;
     }
 
-    int posaBloc (Clip& c, BlocPatro b, double tempo)
+    std::vector<Nota> notesBloc (const BlocPatro& b, const std::vector<Tram>& acords, double tempo)
+    {
+        std::vector<Nota> r;
+        const long long bi = b.ini, bf = b.ini + b.dur;
+        const auto p = patroDeBloc (b);
+        for (const auto& a : acords)
+        {
+            const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
+            if (y - x < 10) continue;
+            const auto cordes = notes (harmonia::llegeixAcord (a.acord));
+            if (cordes.empty()) continue;
+            if (p.passos.empty())
+            {
+                for (int to : cordes) r.push_back ({ x, y - x, to, b.vel, 0 });   // sense ritme: l'acord sencer
+                continue;
+            }
+            Opcions o;
+            o.vel = b.vel; o.tempo = tempo; o.variacio = b.variacio; o.llavor = b.llavor;
+            for (auto n : rasgueja (cordes, p, b.dur, o))   // tot el bloc amb aquest acord; se'n queda el seu tros
+            {
+                n.ini += bi;
+                if (n.ini < x || n.ini >= y) continue;
+                n.dur = std::min (n.dur, y - n.ini);
+                if (n.dur > 0) r.push_back (n);
+            }
+        }
+        return r;
+    }
+
+    bool escriuBloc (Clip& c, int quin, const std::vector<Tram>& acords, double tempo)
+    {
+        if (quin < 0 || quin >= (int) c.blocs.size()) return false;
+        const auto b = c.blocs[(size_t) quin];
+        Clip nou;
+        nou.midi = true;
+        nou.notes = c.notes;
+        std::erase_if (nou.notes, [&] (const Nota& n) { return n.ini >= b.ini && n.ini < b.ini + b.dur; });
+        for (auto& n : nou.notes)
+            if (n.ini < b.ini && n.ini + n.dur > b.ini) n.dur = b.ini - n.ini;   // el que venia sonant s'apaga aquí
+        afegeix (nou, notesBloc (b, acords, tempo), 0);
+        { std::vector<int> cap; midi::ordena (nou.notes, cap); }
+        if (nou.notes == c.notes) return false;
+        c.notes = std::move (nou.notes);
+        return true;
+    }
+
+    namespace
+    {
+        /** Fa lloc a [ini, fi) dins d'una llista de trossos (blocs o acords): escurça o treu els que trepitja. */
+        template <typename T>
+        int faLloc (std::vector<T>& v, long long ini, long long fi)
+        {
+            for (size_t i = 0; i < v.size();)
+            {
+                auto& x = v[i];
+                const long long xfi = x.ini + x.dur;
+                if (x.ini < ini && xfi > ini) { x.dur = ini - x.ini; ++i; }
+                else if (x.ini >= ini && x.ini < fi)
+                {
+                    if (xfi > fi) { x.dur = xfi - fi; x.ini = fi; ++i; }
+                    else v.erase (v.begin() + (std::ptrdiff_t) i);
+                }
+                else ++i;
+            }
+            return (int) (std::find_if (v.begin(), v.end(), [&] (const T& x) { return x.ini > ini; }) - v.begin());
+        }
+    }
+
+    int posaBloc (Clip& c, BlocPatro b)
     {
         if (b.dur <= 0) return -1;
-        const long long fi = b.ini + b.dur;
-        for (size_t i = 0; i < c.blocs.size();)
-        {
-            auto& v = c.blocs[i];
-            const long long vfi = v.ini + v.dur;
-            if (v.ini < b.ini && vfi > b.ini) { v.dur = b.ini - v.ini; ++i; }                 // comença abans: s'escurça
-            else if (v.ini >= b.ini && v.ini < fi)
-            {
-                if (vfi > fi) { v.dur = vfi - fi; v.ini = fi; ++i; }                          // acaba després: en queda la cua
-                else c.blocs.erase (c.blocs.begin() + (std::ptrdiff_t) i);                    // queda a sota: fora
-            }
-            else ++i;
-        }
-        const auto on = std::find_if (c.blocs.begin(), c.blocs.end(), [&] (const BlocPatro& v) { return v.ini > b.ini; });
-        const int quin = (int) (on - c.blocs.begin());
-        c.blocs.insert (on, b);
-        escriuBloc (c, quin, tempo);
+        const int quin = faLloc (c.blocs, b.ini, b.ini + b.dur);
+        std::erase_if (c.notes, [&] (const Nota& n) { return n.ini >= b.ini && n.ini < b.ini + b.dur; });
+        c.blocs.insert (c.blocs.begin() + quin, b);
         return quin;
     }
 
@@ -646,27 +770,52 @@ namespace mibase::guitarra
         c.blocs.erase (c.blocs.begin() + quin);
     }
 
-    int blocsDeAcords (Projecte& p, int pista, int clip, const Patro* patro, double variacio, int vel, double tempo, unsigned llavor)
+    int posaAcord (Clip& c, AcordClip a)
     {
-        if (pista < 0 || pista >= (int) p.pistes.size()) return 0;
-        auto& t = p.pistes[(size_t) pista];
-        if (clip < 0 || clip >= (int) t.clips.size() || ! t.clips[(size_t) clip].midi) return 0;
-        auto& c = t.clips[(size_t) clip];
-        const double t0 = midi::ticks (p, c.pos);
-        int quants = 0;
-        for (const auto& ta : p.pistes)
+        if (a.dur <= 0 || a.acord.empty()) return -1;
+        const int quin = faLloc (c.acords, a.ini, a.ini + a.dur);
+        c.acords.insert (c.acords.begin() + quin, a);
+        return quin;
+    }
+
+    void treuAcord (Clip& c, int quin)
+    {
+        if (quin >= 0 && quin < (int) c.acords.size()) c.acords.erase (c.acords.begin() + quin);
+    }
+
+    bool actualitza (Projecte& p)
+    {
+        bool canvi = false;
+        for (auto& t : p.pistes)
         {
-            if (! esAcords (ta)) continue;
-            for (const auto& k : ta.clips)
+            if (! esMidi (t)) continue;
+            for (auto& c : t.clips)
             {
-                if (! k.esAcord() || k.mut) continue;
-                const double a = std::max (k.iniciVisible(), c.iniciVisible()), b = std::min (k.fiVisible(), c.fiVisible());
-                if (b - a < 0.02) continue;
-                const long long ini = std::llround (midi::ticks (p, a) - t0), fi = std::llround (midi::ticks (p, b) - t0);
-                if (fi - ini < 30) continue;
-                posaBloc (c, blocDe (patro, k.acord, ini, fi - ini, variacio, llavor + (unsigned) quants * 7919u, vel), tempo);
-                ++quants;
+                if (! c.midi || c.blocs.empty()) continue;
+                const auto acords = acordsDe (p, t, c);
+                const double tempo = edicio::tramA (p, c.pos).tempo;
+                for (int i = 0; i < (int) c.blocs.size(); ++i)
+                    if (! c.blocs[(size_t) i].fix) canvi = escriuBloc (c, i, acords, tempo) || canvi;
             }
+        }
+        return canvi;
+    }
+
+    int marcaEditats (Clip& despres, const Clip& abans)
+    {
+        int quants = 0;
+        for (auto& b : despres.blocs)
+        {
+            if (b.fix) continue;
+            const bool hiEra = std::any_of (abans.blocs.begin(), abans.blocs.end(), [&] (const BlocPatro& x) { return x.ini == b.ini && x.dur == b.dur; });
+            if (! hiEra) continue;   // un bloc nou o mogut no és un retoc de notes
+            auto dins = [&] (const Clip& c)
+            {
+                std::vector<Nota> v;
+                for (auto& n : c.notes) if (n.ini >= b.ini && n.ini < b.ini + b.dur) v.push_back (n);
+                return v;
+            };
+            if (dins (despres) != dins (abans)) { b.fix = true; ++quants; }
         }
         return quants;
     }

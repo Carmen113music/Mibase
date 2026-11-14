@@ -190,15 +190,18 @@ Tot es fa a la **taula de mescles**. Cada pista té **una sortida** (on va tot e
 - Els projectes d'abans s'obren igual, amb totes les pistes a la sortida.
 - Encara no hi ha: compensació del retard dels plugins als busos, panorama de l'enviament a la pantalla, sidechain ni automatització.
 
-### Patrons de guitarra (0.40)
-És la quarta pestanya de sota de l'editor (**Piano Roll · Chord Pad · Drumpad · Patrons de guitarra**). Escriu acords rasguejats com a notes normals, que sonen amb l'instrument de la pista.
-- **A dalt, els pads d'acords** (els mateixos del Chord Pad: preset, instrument i so). Clicar un pad el fa sonar **amb el rasgueig triat**; botó dret: canviar l'acord del pad.
-- **A la dreta, els rasgueigs**: el botó de dalt obre tots els grups (i la **variació**: cap, poca, normal, molta); la llista de sota mostra els del grup triat amb el seu dibuix. Clicar-ne un el tria i el fa sonar.
-- **Editor** (el llapis): el rasgueig pas a pas. A cada pas tries el **cop** (avall, amunt, nota morta avall o amunt, silenci, o res = deixa sonar) i com es toca: **accent**, **fluix**, **palm mute**, **slap**, **curt**, **cordes** (totes, la greu, les agudes) i **dit** (p, p2, i, m, a, pluck, polze + acord, tap, rasgueado). Tries si els passos són corxeres o semicorxeres i quants n'hi ha (fins a 24). **Escolta** el fa sonar; **Desa** el guarda a «Els meus rasgueigs» (fitxer `Documents\Mibase\Rasgueigs.json`); **Esborra** el treu.
-- **La línia de sota la regla** és on es posen els acords: **arrossega-hi un pad** (o a la graella) i s'hi escriu un **bloc** amb aquell acord i el rasgueig triat, de la durada que diu «1 compàs / 1/2 / 1/4». Un bloc nou escurça o treu els que trepitja.
-- **Blocs**: doble clic = **una altra variació**; botó dret = regenerar, posar-hi el rasgueig triat ara, treure el bloc deixant les notes, o esborrar-lo amb les notes. Regenerar només toca les notes de dins del bloc.
-- **Acords cançó**: omple el clip amb un bloc per cada acord de la **pista d'Acords** que hi cau a sobre.
-- Un clip fet amb blocs es torna a obrir amb aquesta eina. Les notes es poden retocar al Piano Roll; si després regeneres el bloc, es tornen a escriure.
+### Patrons de guitarra (0.40, refet a la 0.41)
+És la quarta pestanya de sota de l'editor. Escriu acords rasguejats com a notes normals, que sonen amb l'instrument de la pista. **El patró posa el ritme; l'acord ve d'un altre lloc**:
+- **Segueix acords** (interruptor a la barra de l'eina i botó **Ac** a la pista, al costat de M / S / gravar / instrument): **encès**, els patrons toquen els acords de la **pista d'Acords**; **apagat**, els que hi posis tu arrossegant un pad a la línia de sota la regla.
+- **Línia de sota la regla**: els acords que valen (liles si venen de la pista d'Acords). Apagat «Segueix acords»: arrossega-hi un pad per posar un acord (de la durada triada); botó dret per treure'l.
+- **Línia «Patrons», a baix de tot**: arrossega-hi un rasgueig de la llista (o una variació) i ocupa **tot el compàs** on el deixes. Es pot posar encara que no hi hagi cap acord: queda en silenci fins que n'hi hagi.
+- **Les notes s'escriuen soles**: quan canvies, mous o esborres un acord (a la pista d'Acords o al clip), o encens i apagues «Segueix acords», les notes dels patrons es tornen a escriure. Si l'acord canvia a mig compàs, el rasgueig no torna a començar: segueix el ritme i canvia de notes.
+- **Retocs a mà**: les notes es poden editar al Piano Roll. Un patró amb notes retocades queda **bloquejat** (gris, amb un cadenat) i ja no es reescriu. Botó dret → *Desbloqueja'l* perquè torni a seguir els acords (es perden els retocs).
+- **Rasgueigs** (a la dreta dels pads): el botó de dalt obre tots els grups i la variació de tocar; la llista mostra els del grup triat. Clicar-ne un el tria i el fa sonar.
+- **Variacions** (a la dreta de la llista): l'original i fins a tres variacions del rasgueig triat — *ple* (omple els forats amb cops fluixos), *buit* (treu cops amunt) i *mutes* (notes mortes al segon i al quart temps). També s'arrosseguen.
+- **Patrons**: doble clic = tocat d'una altra manera (petites diferències); botó dret = posar-hi el rasgueig triat, bloquejar o desbloquejar, i treure'l amb les notes o sense.
+- **Editor** (el llapis): el rasgueig pas a pas (cop, accent, fluix, palm mute, slap, curt, cordes, dit), fins a 32 passos. Canviar entre corxeres i semicorxeres **conserva els compassos** (el doble o la meitat de caselles). **Desa** el guarda a «Els meus rasgueigs» (`Documents\Mibase\Rasgueigs.json`).
+- Els pads continuen servint per escoltar un acord amb el rasgueig triat.
 
 ### Dreceres comunes dels editors (0.24)
 - **Arrossegar a la regla** (la franja dels compassos) del Piano Roll, del Drumpad o del Vocal Editor fa el **bucle** (enganxat a la graella). Un clic sol mou el capçal.
@@ -249,6 +252,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.41.0** — **Patrons de guitarra refets**: el patró és només el ritme i llegeix els acords de la **pista d'Acords** (o els posats a mà amb els pads, si «Segueix acords» està apagat); les notes es reescriuen soles quan canvia un acord; línia **Patrons** a baix on s'arrosseguen els rasgueigs, un per compàs, encara que no hi hagi acord; panell de **variacions** (ple, buit, mutes); un patró retocat a mà queda **bloquejat** i es pot desbloquejar. Botó **Ac** («segueix acords») a la capçalera de les pistes d'instrument i columna dels noms més ampla perquè hi càpiga l'**E/S**. Editor de rasgueigs: corxeres ↔ semicorxeres conserva els compassos; fins a 32 passos. Ja no hi ha «Acords cançó». Els clips de la 0.40 es converteixen sols.
 - **0.40.0** — **Patrons de guitarra**: eina nova a les pestanyes de l'editor, amb els pads d'acords, la llista de rasgueigs al costat, la línia de **blocs** (acord + rasgueig) sota la regla, escoltar abans de posar, regenerar amb una altra variació i **Acords cançó** (omple el clip amb la pista d'Acords). **Editor de rasgueigs** pas a pas, que es desen com a propis. **Pistes d'instrument**: la sortida i els enviaments també a la columna esquerra i a la secció «Pista» de l'editor (i el botó de sortida de les pistes d'àudio ja obre el menú de debò); al botó **E/S**, IN tria el **teclat MIDI**. **Biblioteca**: tornar a clicar el sample que sona l'atura. **Panell de l'esquerra**: ja no canvia sol en passar el ratolí entre l'editor i la taula de treball (cal clicar).
 - **0.39.0** — *Instruments i eines, pas 2*
   - **La bateria ja no és un tipus de pista**: és una **pista d'instrument** amb l'instrument **Kit de bateria**. Al menú d'instrument (columna esquerra) hi ha: Sinte intern, General MIDI, Samplejador, Kit de bateria i VST3; es pot canviar quan vulguis. Amb el kit, el botó de sota és «Kit: …» i obre la finestra dels kits.

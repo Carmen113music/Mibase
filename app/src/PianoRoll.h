@@ -209,8 +209,8 @@ protected:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
-    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril, Pads, Llista, Blocs };
-    enum class Mode { Res, Requadre, Decidint, Mou, DuradaFi, DuradaInici, Dibuixa, Goma, Teclat, Velocitat, LiniaVel, VoraCarril, Regla, Pad };
+    enum class Zona { Res, Barra, Octava, Teclat, Regla, Graella, VoraCarril, Carril, Pads, Llista, Blocs, Patrons, Variacions };
+    enum class Mode { Res, Requadre, Decidint, Mou, DuradaFi, DuradaInici, Dibuixa, Goma, Teclat, Velocitat, LiniaVel, VoraCarril, Regla, Pad, Patro };
     enum class Part { Cos, Inici, Fi };
 
     struct Toc { int nota = -1; Part part = Part::Cos; };
@@ -279,28 +279,44 @@ private:
     void menuRasgueig();                                             // 0.29
     bool padsGuitarra() const { return voicingPads.getTriat() == 2 || modeGuitarra(); }
 
-    // ---- 0.40: eina de patrons de guitarra (els pads d'acords, la llista de rasgueigs i la línia dels blocs) ----
+    // ---- 0.40/0.41: eina de patrons de guitarra ----
+    // A dalt: pads d'acords, llista de rasgueigs i les seves variacions. Sota la regla: els acords que valen
+    // (els de la pista d'Acords, o els posats a mà amb els pads). A baix de tot: la línia dels patrons.
     bool modeGuitarra() const;
-    static constexpr int altBlocs = 24, altFilaLlista = 22;
-    int ampleLlista() const { return juce::jlimit (230, 300, getWidth() / 3); }
-    juce::Rectangle<int> zonaLlista() const;     // a la dreta dels pads
+    static constexpr int altBlocs = 22, altPatrons = 30, altFilaLlista = 22;
+    int ampleColumna() const { return juce::jlimit (190, 280, getWidth() / 5); }
+    int ampleLlista() const { return 2 * ampleColumna(); }     // llista + variacions
+    juce::Rectangle<int> zonaLlista() const;       // a la dreta dels pads
     juce::Rectangle<int> zonaFilesLlista() const;
-    juce::Rectangle<int> zonaBlocs() const;      // sota la regla
+    juce::Rectangle<int> zonaVariacions() const;   // a la dreta de la llista
+    juce::Rectangle<int> zonaBlocs() const;        // sota la regla: els acords
+    juce::Rectangle<int> zonaPatrons() const;      // sota la graella: els patrons
     std::vector<const mibase::guitarra::Patro*> patronsLlista() const;
+    std::string patroBase() const;                 // el rasgueig triat, sense la variació
+    bool segueixAcords() const;
     void pintaLlista (juce::Graphics& g);
+    void pintaVariacions (juce::Graphics& g);
     void pintaBlocs (juce::Graphics& g);
+    void pintaPatrons (juce::Graphics& g);
     int blocA (juce::Point<int> p) const;
+    int acordA (juce::Point<int> p) const;
     void menuBloc (int quin);
-    void regeneraBloc (int quin, bool ambElTriat);
+    void menuAcord (int quin);
+    void canviaBlocs (const std::function<void (mibase::Clip&)>& f, const juce::String& text);
+    void variaBloc (int quin);
+    void posaPatroA (int x);
+    bool compasA (int x, long long& ini, long long& dur) const;
+    void commutaSegueix();
     void triaRasgueig (const std::string& id, bool escolta);
     void escoltaRasgueig (const std::vector<mibase::Nota>& notes);
     void obreEditorRasgueig();
-    void acordsDeLaCanco();
     std::vector<int> cordesDeProva() const;
     int velRasgueig() const;
     Boto btEditaRasgueig { "Editor", dibuix::Icona::Llapis, Boto::Estil::Secundari };
-    Boto btAcordsCanco { "Acords cançó"_ca, std::nullopt, Boto::Estil::Secundari };
-    int desplLlista = 0, blocTriat = -1;
+    Boto btSegueix { "Segueix acords", std::nullopt, Boto::Estil::Tecla };
+    int desplLlista = 0, blocTriat = -1, acordTriat = -1;
+    std::string patroArrossegat;      // id del rasgueig que s'està arrossegant cap a un compàs
+    bool arrossegaPatro = false;
     unsigned escolta = 0;
     std::vector<int> notesAcordPad (const mibase::harmonia::AcordPad& a) const;   // amb l'octava i el voicing triats (o la posició de guitarra)
     std::vector<mibase::Nota> rasgueigDe (const std::vector<int>& cordes) const;  // buit si no hi ha rasgueig triat

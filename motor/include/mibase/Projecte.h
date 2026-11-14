@@ -76,13 +76,21 @@ namespace mibase
 
     /** Un tros d'una presa col·locat a la línia de temps (una «finestra»). No toca mai el fitxer.
         Sense presa (presa buida) és una finestra buida, feta amb el llapis. */
-    /** 0.40: bloc de patró dins d'un clip MIDI: la «recepta» (acord + rasgueig) amb què s'han escrit les notes
-        d'aquell tros. Les notes són normals i es poden editar; «regenerar» les torna a escriure. El bloc porta
-        el rasgueig sencer en text: no depèn de la llista de patrons de l'ordinador. */
-    struct BlocPatro
+    /** 0.41: un acord posat a mà dins d'un clip (amb els pads), per a les pistes que no segueixen la pista d'Acords. */
+    struct AcordClip
     {
         long long ini = 0, dur = 0;   // ticks des de l'inici del clip
         std::string acord;            // «Am7», «G/B»
+        bool operator== (const AcordClip&) const = default;
+    };
+
+    /** 0.41: bloc de patró dins d'un clip MIDI: el ritme (rasgueig) d'aquell tros. L'acord no és seu: surt de la
+        pista d'Acords (si la pista la segueix) o dels acords del clip. Les notes són normals i es reescriuen soles
+        quan canvia l'acord o el patró, tret que el bloc estigui «fix» (retocat a mà). Porta el rasgueig sencer en
+        text: no depèn de la llista de patrons de l'ordinador. */
+    struct BlocPatro
+    {
+        long long ini = 0, dur = 0;   // ticks des de l'inici del clip
         std::string patro, nom;       // id i nom del rasgueig (per ensenyar-lo)
         std::string passos;           // el rasgueig (sintaxi de guitarra::llegeixPassos); buit = l'acord sencer
         long long pasTicks = 480;
@@ -91,6 +99,7 @@ namespace mibase
         double variacio = 0.0;
         unsigned llavor = 1;
         int vel = 88;
+        bool fix = false;             // retocat a mà: no es reescriu fins que es desbloqueja
         bool operator== (const BlocPatro&) const = default;
     };
 
@@ -116,6 +125,7 @@ namespace mibase
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
         std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
+        std::vector<AcordClip> acords;  // 0.41: acords posats a mà (si la pista no segueix la pista d'Acords)
 
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }

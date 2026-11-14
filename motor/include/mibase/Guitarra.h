@@ -103,18 +103,37 @@ namespace mibase::guitarra
     std::string textPropis (const std::vector<Patro>& v);
     std::vector<Patro> llegeixPropis (const std::string& json);
 
-    BlocPatro blocDe (const Patro* p, const std::string& acord, long long ini, long long dur, double variacio, unsigned llavor, int vel);
+/** 0.41: tres variacions d'un rasgueig, fetes pas a pas (més ple, més buit, amb notes mortes). Només les que
+        surten diferents de l'original. */
+    std::vector<Patro> variacions (const Patro& p);
+
+    // ---- 0.41: blocs de patró que llegeixen els acords ----
+    struct Tram { long long ini = 0, fi = 0; std::string acord; };
+    /** Els acords que valen per a un clip, en ticks del clip i per ordre: els de la pista d'Acords si la pista
+        la segueix; si no, els que s'hi han posat a mà. */
+    std::vector<Tram> acordsDe (const Projecte& p, const Pista& t, const Clip& c);
+    BlocPatro blocDe (const Patro* p, long long ini, long long dur, double variacio, unsigned llavor, int vel);
     Patro patroDeBloc (const BlocPatro& b);
-    /** Torna a escriure les notes d'un bloc: treu les que comencen dins seu, talla les que hi entren sonant
-        i hi posa el rasgueig de la recepta. */
-    void escriuBloc (Clip& c, int quin, double tempo);
-    /** Posa un bloc (i n'escriu les notes). Els blocs que trepitja s'escurcen o desapareixen. Torna'n l'índex. */
-    int posaBloc (Clip& c, BlocPatro b, double tempo);
-    /** Treu un bloc; amb «ambNotes», també les notes que comencen dins seu. */
+    /** Les notes d'un bloc amb aquests acords (ticks del clip). El rasgueig no torna a començar a cada acord:
+        segueix el seu ritme i canvia de notes on canvia l'acord. On no hi ha acord, silenci. */
+    std::vector<Nota> notesBloc (const BlocPatro& b, const std::vector<Tram>& acords, double tempo);
+    /** Torna a escriure les notes d'un bloc (treu les que comencen dins seu i talla les que hi entren sonant).
+        Torna si ha canviat alguna cosa. */
+    bool escriuBloc (Clip& c, int quin, const std::vector<Tram>& acords, double tempo);
+    /** Posa un bloc: els que trepitja s'escurcen o desapareixen, i les notes d'aquell tros s'esborren (les noves
+        les escriu actualitza). Torna'n l'índex. */
+    int posaBloc (Clip& c, BlocPatro b);
     void treuBloc (Clip& c, int quin, bool ambNotes);
-    /** Omple el clip amb un bloc per cada acord de la pista d'Acords que hi cau a sobre (treu els blocs i les
-        notes que hi havia als trossos nous). Torna quants n'ha posat. */
-    int blocsDeAcords (Projecte& p, int pista, int clip, const Patro* patro, double variacio, int vel, double tempo, unsigned llavor);
+    /** Posa un acord a mà al clip (els que trepitja s'escurcen o desapareixen). */
+    int posaAcord (Clip& c, AcordClip a);
+    void treuAcord (Clip& c, int quin);
+    /** Reescriu les notes de tots els blocs que no estan fixos, a tot el projecte. Es crida després de cada canvi:
+        així, canviar un acord a la pista d'Acords (o encendre «segueix els acords») posa les notes bones. Torna si
+        ha canviat alguna cosa. */
+    bool actualitza (Projecte& p);
+    /** Després d'un retoc a mà al Piano Roll: els blocs de «despres» amb notes diferents de les d'«abans» queden
+        fixos. Torna quants. */
+    int marcaEditats (Clip& despres, const Clip& abans);
 
     /** Posa les notes al clip a partir de «ini» (ticks del clip). Retorna els índexs de les notes noves. */
     std::vector<int> afegeix (Clip& c, const std::vector<Nota>& notes, long long ini);

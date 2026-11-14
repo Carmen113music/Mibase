@@ -459,14 +459,13 @@ namespace mibase::disc
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
                         c.acord = k.value ("acord", std::string());   // 0.36
-                        if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
+if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                             for (auto& b : k["blocs"])
                             {
                                 if (! b.is_object()) continue;
                                 BlocPatro x;
                                 x.ini = b.value ("ini", 0LL);
                                 x.dur = b.value ("dur", 0LL);
-                                x.acord = b.value ("acord", std::string());
                                 x.patro = b.value ("patro", std::string());
                                 x.nom = b.value ("nom", std::string());
                                 x.passos = b.value ("passos", std::string());
@@ -476,8 +475,16 @@ namespace mibase::disc
                                 x.variacio = std::clamp (b.value ("variacio", 0.0), 0.0, 1.0);
                                 x.llavor = b.value ("llavor", 1u);
                                 x.vel = std::clamp (b.value ("vel", 88), 1, 127);
-                                if (x.dur > 0 && ! x.acord.empty()) c.blocs.push_back (x);
+                                x.fix = b.value ("fix", false);
+                                if (x.dur <= 0) continue;
+                                c.blocs.push_back (x);
+                                // 0.40 desava l'acord dins del bloc: ara va a la llista d'acords del clip.
+                                if (const std::string ac = b.value ("acord", std::string()); ! ac.empty()) c.acords.push_back ({ x.ini, x.dur, ac });
                             }
+                        if (k.contains ("acordsClip") && k["acordsClip"].is_array())   // 0.41
+                            for (auto& b : k["acordsClip"])
+                                if (b.is_object() && b.value ("dur", 0LL) > 0 && ! b.value ("acord", std::string()).empty())
+                                    c.acords.push_back ({ b.value ("ini", 0LL), b.value ("dur", 0LL), b.value ("acord", std::string()) });
                         // Notes: [inici, durada, to, velocitat, canal] (ticks).
                         if (k.contains ("notes") && k["notes"].is_array())
                             for (auto& n : k["notes"])
@@ -698,10 +705,17 @@ namespace mibase::disc
                 {
                     json bl = json::array();
                     for (auto& b : c.blocs)
-                        bl.push_back ({ { "ini", b.ini }, { "dur", b.dur }, { "acord", b.acord }, { "patro", b.patro }, { "nom", b.nom },
+                        bl.push_back ({ { "ini", b.ini }, { "dur", b.dur }, { "patro", b.patro }, { "nom", b.nom },
                                         { "passos", b.passos }, { "pasTicks", b.pasTicks }, { "msCorda", b.msCorda },
-                                        { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel } });
+                                        { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel },
+                                        { "fix", b.fix } });
                     k["blocs"] = bl;
+                }
+                if (! c.acords.empty())   // 0.41
+                {
+                    json al = json::array();
+                    for (auto& x : c.acords) al.push_back ({ { "ini", x.ini }, { "dur", x.dur }, { "acord", x.acord } });
+                    k["acordsClip"] = al;
                 }
                 if (c.midi)
                 {

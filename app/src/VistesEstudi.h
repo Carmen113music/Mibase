@@ -26,10 +26,13 @@ protected:
     /** Torna al projecte de l'inici del gest (per aplicar-hi el canvi de nou, des de zero). */
     void restaura() { estat.projecte = copiaInici; canviFet = true; }
     /** Acaba el gest: si s'ha canviat res, queda al Desfés i es desa. */
+    /** 0.41: es crida quan un canvi s'acaba, amb el projecte de com estava abans. */
+    std::function<void (const mibase::Projecte& abans)> onAbansDeTancar;
     void acabaCanvi (const juce::String& evolucio = {})
     {
         if (canviFet)
         {
+            if (onAbansDeTancar) onAbansDeTancar (copiaInici);   // 0.41
             estat.desfes.abans (copiaInici);
             estat.canviat (evolucio);
         }
@@ -213,6 +216,7 @@ public:
     juce::Rectangle<int> rectEntradaCap (int fila) const;   // 0.34
     juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
     juce::Rectangle<int> zonaES (int fila) const;
+    juce::Rectangle<int> rectSegueix (int fila) const;   // 0.41
     std::function<juce::Array<juce::MidiDeviceInfo>()> teclats;   // 0.40: per al menú E/S de les pistes d'instrument
     bool esEstreta (int fila) const;
     juce::Rectangle<int> rectES (int fila) const;   // 0.37
