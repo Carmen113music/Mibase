@@ -25,6 +25,16 @@ namespace mibase::gm
     int programa (const std::string& instrument);
     std::string instrument (int programa);
 
+    // ---- 0.43: sons de qualsevol .sf2 (les guitarres d'en Roger) ----
+    /** L'instrument d'una pista pot ser «sf2:<fitxer>|<banc>|<programa>|<nom>»: un so concret d'un .sf2 de la carpeta
+        de guitarres. El nom hi va per poder-lo ensenyar sense obrir el fitxer. */
+    struct InfoPreset { std::string nom; int banc = 0, programa = 0; };
+    struct RefSf2 { std::string fitxer, nom; int banc = 0, programa = 0; };
+    /** Els sons que porta un .sf2, sense carregar-ne les mostres (només en llegeix la llista). */
+    std::vector<InfoPreset> presetsDeFitxer (const std::string& cami);
+    bool llegeixRef (const std::string& instrument, RefSf2& r);
+    std::string instrumentSf2 (const RefSf2& r);
+
     /** Nom en català dels 128 programes i de les 16 famílies (8 programes cadascuna). */
     const char* nomPrograma (int programa);
     const char* nomFamilia (int familia);
@@ -35,7 +45,7 @@ namespace mibase::gm
     class SinteGM : public Instrument
     {
     public:
-        SinteGM (std::shared_ptr<Banc> banc, int programa);
+        SinteGM (std::shared_ptr<Banc> banc, int programa, int bancMidi = 0);   // 0.43: «bancMidi», per als .sf2 amb diversos bancs
         ~SinteGM() override;
 
         void prepara (double fs, int maxBloc) override;
@@ -50,7 +60,7 @@ namespace mibase::gm
 
         std::shared_ptr<Banc> banc;
         void* sinte = nullptr;     // tsf* (una còpia del banc: comparteix les mostres)
-        int prog = 0;
+        int prog = 0, bancMidi = 0;
         int maxBloc = 0;
         std::vector<float> entrellacat;
     };

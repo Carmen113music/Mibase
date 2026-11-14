@@ -1,5 +1,6 @@
 #include "VistesEstudi.h"
 #include "BancGM.h"
+#include "Guitarres.h"
 #include "FinestraAcords.h"
 #include "TempoPart.h"
 
@@ -2408,6 +2409,7 @@ void Capcaleres::menu (int pista)
             sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument) >= 0);
         sons.addSeparator();
         sons.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (200, mibase::gm::programa (t.instrument)), true, juce::Image(), mibase::gm::programa (t.instrument) >= 0);   // 0.31
+        sons.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t.instrument), true, juce::Image(), t.instrument.rfind ("sf2:", 0) == 0);   // 0.43
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
@@ -2452,6 +2454,16 @@ void Capcaleres::menu (int pista)
         {
             tt.instrument = mibase::instrumentSampler;
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: samplejador"_ca;
+        }
+        else if (r >= 7000 && r < 12000)
+        {
+            const auto ins = guitarres::tria (r - 7000);   // 0.43
+            if (! ins.empty())
+            {
+                tt.instrument = ins;
+                tt.nomInstrument.clear(); tt.estatInstrument.clear();
+                evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: "_ca + juce::String::fromUTF8 (mibase::midi::nomInstrument (ins).c_str());
+            }
         }
         else if (r >= 200 && r < 328)
         {

@@ -473,6 +473,7 @@ namespace mibase::midi
         if (instrument.empty()) return "Cap";
         if (instrument == instrumentSampler) return "Samplejador";
         if (const int p = gm::programa (instrument); p >= 0) return std::string ("GM · ") + gm::nomPrograma (p);
+        if (gm::RefSf2 ref; gm::llegeixRef (instrument, ref)) return ref.nom.empty() ? ref.fitxer : ref.nom;   // 0.43
         return instrument;
     }
 }

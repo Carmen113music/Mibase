@@ -1,5 +1,6 @@
 #include "PanellHarmonia.h"
 #include "BancGM.h"
+#include "Guitarres.h"
 
 using namespace mibase;
 namespace hm = mibase::harmonia;
@@ -235,8 +236,10 @@ public:
             else
             {
                 btInstrument.setButtonText (pe->instrument.rfind ("vst3:", 0) == 0 ? "Instrument: "_ca + txt (pe->nomInstrument)
-                                            : mibase::gm::programa (pe->instrument) >= 0 ? "Instrument: General MIDI"_ca : "Instrument: sinte intern"_ca);
-                btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
+                                            : mibase::gm::programa (pe->instrument) >= 0 ? "Instrument: General MIDI"_ca
+                                            : guitarres::part (pe->instrument, false).isNotEmpty() ? "Guitarra: "_ca + guitarres::part (pe->instrument, false) : "Instrument: sinte intern"_ca);
+                btSo.setButtonText ("So: "_ca + (guitarres::part (pe->instrument, true).isNotEmpty() ? guitarres::part (pe->instrument, true)
+                                     : txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument))));
             }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
             btSortida.setButtonText (EstatEstudi::textSortida (estat.projecte, *pe));
@@ -536,6 +539,14 @@ private:
     }
 
     /** 0.31: posa un so General MIDI a la pista (si no hi ha el banc, pregunta si es baixa). */
+    void triaGuitarra (int index)
+    {
+        const auto ins = guitarres::tria (index);   // 0.43
+        if (ins.empty()) return;
+        canviaPista ([ins] (Pista& q) { q.instrument = ins; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                     "Instrument: "_ca + txt (mibase::midi::nomInstrument (ins)));
+    }
+
     void triaGM (int prog)
     {
         bancgm::assegura (this, [this, prog]
@@ -556,6 +567,7 @@ private:
         const bool kit = mibase::esKit (*t);
         m.addItem (1, "Sinte intern", true, ! sampler && ! vst && gm < 0 && ! kit);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
+        m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.addItem (3, "Samplejador"_ca, true, sampler);
         m.addItem (4, "Kit de bateria"_ca, true, kit);   // 0.39
         m.addSeparator();
@@ -565,6 +577,7 @@ private:
             auto* p = pistaEditor();
             if (p == nullptr) return;
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
+            if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
             if (r == 4) { if (! mibase::esKit (*p)) canviaPista ([] (Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); return; }
             if (r == 1 && (mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
                 canviaPista ([] (Pista& q) { q.instrument = "intern:piano"; }, "Instrument: sinte intern"_ca);
@@ -590,10 +603,12 @@ private:
             m.addItem (k + 1, txt (midi::sonsInterns()[(size_t) k].nom), true, actual == k && gm < 0);
         m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
+        m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (ancora != nullptr ? ancora.getComponent() : &btSo), [this] (int r)
         {
             if (r <= 0) return;
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
+            if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
             const auto& so = midi::sonsInterns()[(size_t) (r - 1)];
             canviaPista ([&so] (Pista& p) { p.instrument = std::string ("intern:") + so.id; },
                          "Pista «"_ca + (pistaEditor() ? dibuix::utf8 (pistaEditor()->nom) : juce::String()) + "»: so "_ca + txt (so.nom));

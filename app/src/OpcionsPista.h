@@ -9,6 +9,7 @@
 #include "Inserts.h"
 #include <mibase/Midi.h>
 #include "BancGM.h"
+#include "Guitarres.h"
 
 /** Opcions de la pista triada (o del màster), a la columna esquerra sobre el fader (0.16).
     Pista d'instrument (MIDI): instrument (sinte intern o VST3), so i teclat MIDI, i els inserts.
@@ -123,12 +124,14 @@ public:
         {
             // 0.20: només el nom (al costat hi ha el botó per obrir-lo); el detall, a la bafarada.
             btInstrument.setButtonText (bateria ? "Kit de bateria"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca
-                                        : mibase::gm::programa (t->instrument) >= 0 ? "General MIDI"_ca : "Sinte intern"_ca);
+                                        : mibase::gm::programa (t->instrument) >= 0 ? "General MIDI"_ca
+                                        : guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false) : "Sinte intern"_ca);   // 0.43
             btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, General MIDI, samplejador, kit de bateria o VST3)"_ca);
             if (sampler)
                 btSo.setButtonText ("Sample: "_ca + (t->sampler.nom.empty() ? "cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str())));
             else
-                btSo.setButtonText ("So: "_ca + juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "intern:piano" : t->instrument).c_str()));
+                btSo.setButtonText ("So: "_ca + (guitarres::part (t->instrument, true).isNotEmpty() ? guitarres::part (t->instrument, true)
+                                     : juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "intern:piano" : t->instrument).c_str())));
             btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
         }
         if (master)
@@ -254,6 +257,7 @@ private:
         const bool kit = mibase::esKit (*t);
         m.addItem (1, "Sinte intern", true, ! vst && ! sampler && gm < 0 && ! kit);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
+        m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.addItem (3, "Samplejador"_ca, true, sampler);
         m.addItem (4, "Kit de bateria"_ca, true, kit);   // 0.39
         if (plugins != nullptr) m.addSubMenu ("Instruments VST3", plugins->menu (true, 1000, *tipus));
@@ -264,6 +268,7 @@ private:
             const auto id = p->id;
             if (r == 2) obreInstrument();
             else if (r >= 500 && r < 628) triaGM (r - 500);
+            else if (r >= 7000 && r < 12000) triaGuitarra (r - 7000);
             else if (r == 4) { if (! mibase::esKit (*p)) canvia ([] (mibase::Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); }
             else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
                 canvia ([] (mibase::Pista& q) { q.instrument = "intern:piano"; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: sinte intern"_ca);
@@ -288,6 +293,14 @@ private:
     }
 
     /** 0.31: posa un so General MIDI a la pista triada (si no hi ha el banc, pregunta si es baixa). */
+    void triaGuitarra (int index)
+    {
+        const auto ins = guitarres::tria (index);   // 0.43
+        if (ins.empty()) return;
+        canvia ([ins] (mibase::Pista& q) { q.instrument = ins; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                "Instrument: "_ca + juce::String::fromUTF8 (mibase::midi::nomInstrument (ins).c_str()));
+    }
+
     void triaGM (int prog)
     {
         bancgm::assegura (this, [this, prog]
@@ -309,10 +322,12 @@ private:
             m.addItem (k + 1, juce::String::fromUTF8 (mibase::midi::sonsInterns()[(size_t) k].nom), true, actual == k && gm < 0);
         m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
+        m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSo), [this] (int r)
         {
             if (r <= 0) return;
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
+            if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
             const std::string id = mibase::midi::sonsInterns()[(size_t) (r - 1)].id;
             canvia ([id] (mibase::Pista& p) { p.instrument = "intern:" + id; }, {});
         });

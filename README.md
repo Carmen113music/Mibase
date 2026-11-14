@@ -203,6 +203,12 @@ Tot es fa a la **taula de mescles**. Cada pista té **una sortida** (on va tot e
 - **Editor** (el llapis): el rasgueig pas a pas (cop, accent, fluix, palm mute, slap, curt, cordes, dit), fins a 32 passos. Canviar entre corxeres i semicorxeres **conserva els compassos** (el doble o la meitat de caselles). **Desa** el guarda a «Els meus rasgueigs» (`Documents\Mibase\Rasgueigs.json`).
 - Els pads continuen servint per escoltar un acord amb el rasgueig triat.
 
+### Guitarres en SoundFont (0.43, primera part)
+- Posa els teus `.sf2` de guitarra a **`Documents\Mibase\SoundFonts\Guitarres`** (el menú té «Obre la carpeta de les guitarres»). No van al repositori: són grans i d'altres autors.
+- A una pista d'instrument: **Instrument** o **So** → **Guitarres (SoundFonts)** → la guitarra → el so (net, apagat, jazz, 12 cordes, chorus…). Cada fitxer es carrega el primer cop que una pista el fa servir.
+- Sona amb les notes del clip com qualsevol instrument (Piano Roll, Chord Pad, patrons de guitarra). La força de la nota canvia el so si el fitxer ho preveu.
+- Encara no hi ha la finestra de la guitarra (imatge, controls de to, atac i sustain) ni el màstil: són les parts següents.
+
 ### Graella de la taula de treball, tempo i altres (0.42)
 - **Compàs / Graella / Lliure**: amb **Graella**, els clips s'enganxen a la subdivisió que tries al botó del costat (1/1 … 1/32 i tresets). Les ratlles de la subdivisió es dibuixen quan el zoom les deixa veure; si no, es veuen els temps o només els compassos.
 - **Canviar el tempo** (de la cançó o d'una part): els clips d'instrument i els de la pista d'Acords queden exactament als mateixos compassos i amb la mateixa llargada en compassos. Els d'àudio no es mouen.
@@ -259,6 +265,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.43.0** — **Guitarres en SoundFont** (primera part: el so): les pistes d'instrument poden triar un so de qualsevol `.sf2` de `Documents\Mibase\SoundFonts\Guitarres` (menú «Guitarres (SoundFonts)», amb tots els sons de cada fitxer); la llista es llegeix sense carregar el fitxer i el banc només es carrega quan una pista el fa sonar.
 - **0.42.0** — **Tempo**: canviar el tempo de la cançó o d'una part deixa els clips d'instrument i els acords exactament als mateixos compassos (abans els acords no es movien i, amb parts de tempo propi, els clips quedaven desplaçats). **Graella**: «Temps» passa a dir-se «Graella», amb un botó per triar la subdivisió (fins a 1/32 i tresets) i les seves ratlles a la taula de treball segons el zoom. **Pista d'Acords**: amb el llapis, primer es dibuixa la finestra i després es tria l'acord. **Botó dret a una pista**: «Afegeix una pista…». **Biblioteca**: els sons que no es poden obrir ja no surten; es distingeixen millor els loops dels one-shots (un loop pot acabar en silenci) i es pot tornar a analitzar.
 - **0.41.1** — Patrons de guitarra: el patró arrossegat comença just al primer temps del compàs (agafava els compassos d'una altra manera que la regla quan el projecte té canvis de tempo, i quedava un pèl tard); si el clip comença gairebé al compàs, el patró comença amb el clip.
 - **0.41.0** — **Patrons de guitarra refets**: el patró és només el ritme i llegeix els acords de la **pista d'Acords** (o els posats a mà amb els pads, si «Segueix acords» està apagat); les notes es reescriuen soles quan canvia un acord; línia **Patrons** a baix on s'arrosseguen els rasgueigs, un per compàs, encara que no hi hagi acord; panell de **variacions** (ple, buit, mutes); un patró retocat a mà queda **bloquejat** i es pot desbloquejar. Botó **Ac** («segueix acords») a la capçalera de les pistes d'instrument i columna dels noms més ampla perquè hi càpiga l'**E/S**. Editor de rasgueigs: corxeres ↔ semicorxeres conserva els compassos; fins a 32 passos. Ja no hi ha «Acords cançó». Els clips de la 0.40 es converteixen sols.

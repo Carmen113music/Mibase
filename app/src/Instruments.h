@@ -11,6 +11,7 @@
 #include <mibase/Sampler.h>
 #include "Kits.h"
 #include "BancGM.h"
+#include "Guitarres.h"
 #include <mibase/GeneralMidi.h>
 
 /** Els instruments de les pistes MIDI del projecte obert (un per pista, viu mentre la pista hi és).
@@ -53,6 +54,19 @@ public:
             return e.instrument;
         }
         if (t.tipus != "midi") return nullptr;
+        if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
+        {
+            // 0.43: una guitarra d'un .sf2 (el banc es carrega el primer cop que una pista el fa servir)
+            auto& e = llista[t.id];
+            const auto sig = t.instrument + "|" + guitarres::signatura (ref.fitxer);
+            if (e.instrument == nullptr || e.tipus != sig || e.fs != fs)
+            {
+                e.instrument = creaSf2 (ref, fs, maxBloc);
+                e.tipus = sig;
+                e.fs = fs;
+            }
+            return e.instrument;
+        }
         if (const int prog = mibase::gm::programa (t.instrument); prog >= 0)
         {
             // 0.31: General MIDI. Si canvia el so o el banc, un de nou (és lleuger: comparteix les mostres del banc).
@@ -100,6 +114,7 @@ public:
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
             if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
+            if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref)) return creaSf2 (ref, fs, bloc);
             if (const int prog = mibase::gm::programa (t.instrument); prog >= 0) return creaGM (prog, fs, bloc);
             return crea (descripcio (t), fs, bloc);
         };
@@ -160,6 +175,13 @@ private:
         auto s = std::make_shared<mibase::sampler::Samplejador> (mibase::sampler::prepara (m, t.sampler));
         s->posaParams (t.sampler);
         s->prepara (fs, bloc);
+        return s;
+    }
+
+    static std::shared_ptr<mibase::Instrument> creaSf2 (const mibase::gm::RefSf2& ref, double fs, int maxBloc)
+    {
+        auto s = std::make_shared<mibase::gm::SinteGM> (guitarres::banc (ref.fitxer), ref.programa, ref.banc);
+        s->prepara (fs, maxBloc);
         return s;
     }
 

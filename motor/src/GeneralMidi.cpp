@@ -1,6 +1,10 @@
 #include "mibase/GeneralMidi.h"
 
+#include "mibase/ProjecteDisc.h"
 #include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <cstring>
 
 #if defined(_MSC_VER)
@@ -115,7 +119,81 @@ namespace mibase::gm
 
     // ---- SinteGM ----
 
-    SinteGM::SinteGM (std::shared_ptr<Banc> b, int p) : banc (std::move (b)), prog (std::clamp (p, 0, 127))
+    std::vector<InfoPreset> presetsDeFitxer (const std::string& cami)
+    {
+        // Un .sf2 és un RIFF: RIFF·mida·«sfbk», i a dins LIST(INFO), LIST(sdta: les mostres) i LIST(pdta: les llistes).
+        std::vector<InfoPreset> r;
+        std::ifstream f (disc::cami (cami), std::ios::binary);
+        if (! f) return r;
+        auto u32 = [&] { unsigned char b[4] = { 0, 0, 0, 0 }; f.read ((char*) b, 4); return (std::uint32_t) b[0] | ((std::uint32_t) b[1] << 8) | ((std::uint32_t) b[2] << 16) | ((std::uint32_t) b[3] << 24); };
+        auto id = [&] { char b[5] = { 0, 0, 0, 0, 0 }; f.read (b, 4); return std::string (b, 4); };
+        if (id() != "RIFF") return r;
+        u32();
+        if (id() != "sfbk") return r;
+        while (f)
+        {
+            const auto nom = id();
+            const std::uint32_t mida = u32();
+            if (! f) break;
+            const auto ini = f.tellg();
+            if (nom == "LIST" && id() == "pdta")
+            {
+                while (f && f.tellg() < ini + (std::streamoff) mida)
+                {
+                    const auto sub = id();
+                    const std::uint32_t m = u32();
+                    if (! f) break;
+                    if (sub == "phdr")
+                    {
+                        for (std::uint32_t k = 0; k + 38 <= m; k += 38)
+                        {
+                            unsigned char b[38];
+                            f.read ((char*) b, 38);
+                            if (! f || k + 76 > m) break;   // l'últim és el final de llista (EOP)
+                            InfoPreset p;
+                            p.nom.assign ((const char*) b, strnlen ((const char*) b, 20));
+                            p.programa = b[20] | (b[21] << 8);
+                            p.banc = b[22] | (b[23] << 8);
+                            r.push_back (p);
+                        }
+                        return r;
+                    }
+                    f.seekg ((std::streamoff) (m + (m & 1)), std::ios::cur);
+                }
+                return r;
+            }
+            f.seekg (ini + (std::streamoff) (mida + (mida & 1)));
+        }
+        return r;
+    }
+
+    bool llegeixRef (const std::string& instrument, RefSf2& r)
+    {
+        if (instrument.rfind ("sf2:", 0) != 0) return false;
+        std::vector<std::string> parts;
+        size_t a = 4;
+        for (int k = 0; k < 3; ++k)
+        {
+            const auto b = instrument.find ('|', a);
+            if (b == std::string::npos) break;
+            parts.push_back (instrument.substr (a, b - a));
+            a = b + 1;
+        }
+        parts.push_back (instrument.substr (a));
+        if (parts.size() < 3 || parts[0].empty()) return false;
+        r.fitxer = parts[0];
+        r.banc = std::clamp (std::atoi (parts[1].c_str()), 0, 16383);
+        r.programa = std::clamp (std::atoi (parts[2].c_str()), 0, 127);
+        r.nom = parts.size() > 3 ? parts[3] : std::string();
+        return true;
+    }
+
+    std::string instrumentSf2 (const RefSf2& r)
+    {
+        return "sf2:" + r.fitxer + "|" + std::to_string (r.banc) + "|" + std::to_string (r.programa) + "|" + r.nom;
+    }
+
+    SinteGM::SinteGM (std::shared_ptr<Banc> b, int p, int bm) : banc (std::move (b)), prog (std::clamp (p, 0, 127)), bancMidi (std::max (0, bm))
     {
         if (banc != nullptr && banc->f != nullptr)
             sinte = tsf_copy (banc->f);
@@ -136,7 +214,7 @@ namespace mibase::gm
         tsf_set_output (f, TSF_STEREO_INTERLEAVED, (int) (fs + 0.5), -6.0f);
         tsf_set_max_voices (f, 64);                 // reserva les veus ara: tocar no demana memòria
         tsf_channel_set_presetnumber (f, 0, prog);  // reserva el canal
-        tsf_channel_set_bank_preset (f, 0, 0, prog);
+        tsf_channel_set_bank_preset (f, 0, bancMidi, prog);
     }
 
     void SinteGM::renderitza (float* L, float* R, int ini, int fi) noexcept
