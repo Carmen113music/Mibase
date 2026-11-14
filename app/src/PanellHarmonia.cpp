@@ -1,4 +1,6 @@
 #include "PanellHarmonia.h"
+#include "BancGM.h"
+#include "Guitarres.h"
 
 using namespace mibase;
 namespace hm = mibase::harmonia;
@@ -18,15 +20,20 @@ namespace
 class PanellHarmonia::Contingut : public juce::Component
 {
 public:
+    void obreMenuInstrument (juce::Component& b) { ancora = &b; menuInstrument(); }   // 0.38
+    void obreMenuSo (juce::Component& b) { ancora = &b; menuSo(); }
     Contingut (EstatEstudi& es, std::function<PianoRoll*()> ed, juce::PropertiesFile& aj, std::function<juce::Array<juce::MidiDeviceInfo>()> tec)
         : estat (es), editor (std::move (ed)), ajustos (aj), teclats (std::move (tec))
     {
         // ---- Pista ----
-        btInstrument.onClick = [this] { menuInstrument(); };
+        btInstrument.onClick = [this] { ancora = nullptr; menuInstrument(); };
         btInstrument.setTooltip ("Qui fa el so de la pista (els plugins VST3 arribaran a la versió següent)"_ca);
-        btSo.onClick = [this] { menuSo(); };
+        btSo.onClick = [this] { ancora = nullptr; menuSo(); };
         btSo.setTooltip ("So (preset) del sinte intern"_ca);
         btTeclat.onClick = [this] { menuTeclat(); };
+        // 0.40: sortida i enviaments de la pista de l'editor
+        btSortida.onClick = [this] { if (auto* t = pistaEditor()) estat.menuSortidaPista (btSortida, (int) (t - estat.projecte.pistes.data())); };
+        btEnvia.onClick = [this] { if (auto* t = pistaEditor()) estat.menuEnviamentsPista (btEnvia, (int) (t - estat.projecte.pistes.data())); };
         btTeclat.setTooltip ("Quin teclat MIDI toca aquesta pista. «Qualsevol»: el que toca la pista triada. "
                              "Un teclat concret: toca sempre aquesta pista, encara que no estigui triada."_ca);
 
@@ -129,7 +136,7 @@ public:
         btInsereix.onClick = [this] { insereixProgressio(); };
         btInsereix.setTooltip ("Posa la progressió al clip de l'editor actiu, a partir del compàs del capçal (un acord per compàs)"_ca);
 
-        for (auto* c : std::initializer_list<juce::Component*> { &btInstrument, &btSo, &btTeclat, &btEscala, &btAuto, &mode, &btAcord, &setenes, &durada, &btMinim,
+        for (auto* c : std::initializer_list<juce::Component*> { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia, &btEscala, &btAuto, &mode, &btAcord, &setenes, &durada, &btMinim,
                                                                  &btFonamental, &btTipus, &inversio, &voicing, &octava, &btDobla, &btBaix,
                                                                  &btEscolta, &btPosa, &btFesAcord, &btFesEscala, &btInvAmunt, &btInvAvall,
                                                                  &btEnllaca, &btProgressio, &compassos, &btEscoltaProg, &btInsereix, &btAplicaPads })
@@ -138,7 +145,7 @@ public:
         reproductor.tic = [this] { pasProgressio(); };
 
         // Seccions (plegables clicant el títol).
-        seccions[0] = { "Pista", "pista", { &btInstrument, &btSo, &btTeclat }, false, {} };
+        seccions[0] = { "Pista", "pista", { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia }, false, {} };
         seccions[1] = { "Tonalitat", "tonalitat", { &btEscala, &btAuto }, false, {} };
         for (auto* b : arrels) seccions[1].fills.push_back (b);
         seccions[2] = { "Escala al Piano Roll", "escala", { &mode }, false, {} };   // 0.12: sense «Ressalta l'acord» (sempre encès)
@@ -164,6 +171,7 @@ public:
 
     std::function<void()> onMida;   // l'alçada ha canviat (s'ha plegat o desplegat una secció)
     std::function<void()> onObreSampler;   // 0.26
+    std::function<void()> onObreKits;      // 0.39
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -215,19 +223,29 @@ public:
 
         if (auto* pe = pistaEditor())
         {
-            if (mibase::esSampler (*pe))
+            if (mibase::esKit (*pe))
+            {
+                btInstrument.setButtonText ("Instrument: kit de bateria"_ca);
+                btSo.setButtonText ("Kit: "_ca + txt (pe->kit.empty() ? std::string ("Intern") : pe->kit));
+            }
+            else if (mibase::esSampler (*pe))
             {
                 btInstrument.setButtonText ("Instrument: samplejador"_ca);
                 btSo.setButtonText ("Sample: "_ca + (pe->sampler.nom.empty() ? "cap"_ca : txt (pe->sampler.nom)));
             }
             else
             {
-                btInstrument.setButtonText (pe->instrument.rfind ("vst3:", 0) == 0 ? "Instrument: "_ca + txt (pe->nomInstrument) : "Instrument: sinte intern"_ca);
-                btSo.setButtonText ("So: "_ca + txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument)));
+                btInstrument.setButtonText (pe->instrument.rfind ("vst3:", 0) == 0 ? "Instrument: "_ca + txt (pe->nomInstrument)
+                                            : mibase::gm::programa (pe->instrument) >= 0 ? "Instrument: General MIDI"_ca
+                                            : guitarres::part (pe->instrument, false).isNotEmpty() ? "Guitarra: "_ca + guitarres::part (pe->instrument, false) : "Instrument: sinte intern"_ca);
+                btSo.setButtonText ("So: "_ca + (guitarres::part (pe->instrument, true).isNotEmpty() ? guitarres::part (pe->instrument, true)
+                                     : txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument))));
             }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
+            btSortida.setButtonText (EstatEstudi::textSortida (estat.projecte, *pe));
+            btEnvia.setButtonText (EstatEstudi::textEnviaments (estat.projecte, *pe));
         }
-        for (auto* b : { &btInstrument, &btSo, &btTeclat }) b->setEnabled (pistaEditor() != nullptr);
+        for (auto* b : { &btInstrument, &btSo, &btTeclat, &btSortida, &btEnvia }) b->setEnabled (pistaEditor() != nullptr);
         repaint();
     }
 
@@ -254,6 +272,8 @@ public:
             btInstrument.setBounds (fila (28));
             btSo.setBounds (fila (28));
             btTeclat.setBounds (fila (28));
+            btSortida.setBounds (fila (28));
+            btEnvia.setBounds (fila (28));
             y += 8;
         }
 
@@ -518,21 +538,48 @@ private:
         actualitza();
     }
 
+    /** 0.31: posa un so General MIDI a la pista (si no hi ha el banc, pregunta si es baixa). */
+    void triaGuitarra (int index)
+    {
+        const auto ins = guitarres::tria (index);   // 0.43
+        if (ins.empty()) return;
+        canviaPista ([ins] (Pista& q) { q.instrument = ins; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                     "Instrument: "_ca + txt (mibase::midi::nomInstrument (ins)));
+    }
+
+    void triaGM (int prog)
+    {
+        bancgm::assegura (this, [this, prog]
+        {
+            canviaPista ([prog] (Pista& q) { q.instrument = mibase::gm::instrument (prog); q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                         "Instrument: General MIDI "_ca + txt (mibase::gm::nomPrograma (prog)));
+        });
+    }
+
+    juce::Component::SafePointer<juce::Component> ancora;   // 0.38: el botó d'on surt el menú (si no és el del panell)
     void menuInstrument()
     {
         auto* t = pistaEditor();
         if (t == nullptr) return;
         const bool sampler = mibase::esSampler (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
+        const int gm = mibase::gm::programa (t->instrument);
         juce::PopupMenu m;
-        m.addItem (1, "Sinte intern", true, ! sampler && ! vst);
+        const bool kit = mibase::esKit (*t);
+        m.addItem (1, "Sinte intern", true, ! sampler && ! vst && gm < 0 && ! kit);
+        m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
+        m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.addItem (3, "Samplejador"_ca, true, sampler);
+        m.addItem (4, "Kit de bateria"_ca, true, kit);   // 0.39
         m.addSeparator();
         m.addItem (2, "Plugins VST3: a la columna esquerra de la taula de treball"_ca, false);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this] (int r)
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (ancora != nullptr ? ancora.getComponent() : &btInstrument), [this] (int r)
         {
             auto* p = pistaEditor();
             if (p == nullptr) return;
-            if (r == 1 && mibase::esSampler (*p))
+            if (r >= 500 && r < 628) { triaGM (r - 500); return; }
+            if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
+            if (r == 4) { if (! mibase::esKit (*p)) canviaPista ([] (Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); return; }
+            if (r == 1 && (mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
                 canviaPista ([] (Pista& q) { q.instrument = "intern:piano"; }, "Instrument: sinte intern"_ca);
             else if (r == 3)
             {
@@ -548,13 +595,20 @@ private:
         auto* t = pistaEditor();
         if (t == nullptr) return;
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
+        if (mibase::esKit (*t)) { if (onObreKits) onObreKits(); return; }   // 0.39: el «so» del kit és el kit
         juce::PopupMenu m;
         const int actual = juce::jmax (0, midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
+        const int gm = mibase::gm::programa (t->instrument);
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
-            m.addItem (k + 1, txt (midi::sonsInterns()[(size_t) k].nom), true, actual == k);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSo), [this] (int r)
+            m.addItem (k + 1, txt (midi::sonsInterns()[(size_t) k].nom), true, actual == k && gm < 0);
+        m.addSeparator();
+        m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
+        m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (ancora != nullptr ? ancora.getComponent() : &btSo), [this] (int r)
         {
             if (r <= 0) return;
+            if (r >= 500 && r < 628) { triaGM (r - 500); return; }
+            if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
             const auto& so = midi::sonsInterns()[(size_t) (r - 1)];
             canviaPista ([&so] (Pista& p) { p.instrument = std::string ("intern:") + so.id; },
                          "Pista «"_ca + (pistaEditor() ? dibuix::utf8 (pistaEditor()->nom) : juce::String()) + "»: so "_ca + txt (so.nom));
@@ -779,6 +833,8 @@ private:
     Boto btInstrument { "Instrument: sinte intern", std::nullopt, Boto::Estil::Secundari };
     Boto btSo { "So: Piano", std::nullopt, Boto::Estil::Secundari };
     Boto btTeclat { "Teclat MIDI: qualsevol", std::nullopt, Boto::Estil::Secundari };
+    Boto btSortida { "Sortida", std::nullopt, Boto::Estil::Secundari };       // 0.40
+    Boto btEnvia { "Enviaments", std::nullopt, Boto::Estil::Secundari };
     juce::OwnedArray<Boto> arrels;
     juce::OwnedArray<BotoArrossegable> graus;
     Boto btEscala { "Major", std::nullopt, Boto::Estil::Secundari };
@@ -826,6 +882,7 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
     contingut = std::make_unique<Contingut> (e, std::move (editorActiu), ajustos, std::move (teclats));
     contingut->onMida = [this] { resized(); };
     contingut->onObreSampler = [this] { if (onObreSampler) onObreSampler(); };
+    contingut->onObreKits = [this] { if (onObreKits) onObreKits(); };
     vista.setViewedComponent (contingut.get(), false);
     vista.setScrollBarsShown (true, false);
     vista.setScrollBarThickness (8);
@@ -833,6 +890,9 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
     estat.addChangeListener (this);
     startTimerHz (10);
 }
+
+void PanellHarmonia::menuInstrument (juce::Component& boto) { contingut->obreMenuInstrument (boto); }
+void PanellHarmonia::menuSo (juce::Component& boto) { contingut->obreMenuSo (boto); }
 
 PanellHarmonia::~PanellHarmonia()
 {

@@ -8,6 +8,9 @@
 #include "Kits.h"
 #include "FinestraProgres.h"
 #include <set>
+#include <map>
+#include <mutex>
+#include <unordered_map>
 #include <thread>
 #include "Tema.h"
 #include "Text.h"
@@ -54,6 +57,7 @@ namespace samples
         if (c == "Hi-hat") return juce::Colour (0xff9fb4ff);
         if (c == "Percussió") return juce::Colour (0xff8fd0c4);
         if (c == "Baix") return juce::Colour (0xff6fa8ff);
+        if (c == "Guitarra") return juce::Colour (0xffff9a4d);   // 0.31
         if (c == "Veu") return juce::Colour (0xff59d0d6);
         if (c == "Sintetitzador") return juce::Colour (0xff7fd67a);
         if (c == "FX") return juce::Colour (0xffff8fc4);
@@ -98,7 +102,24 @@ public:
             addAndMakeVisible (*b);
             btTipus.push_back (std::move (b));
         }
+        // 0.31: només els favorits (es combina amb els tipus: «Bombo + Favorits»…)
+        btFavorits.setMidaText (11.0f);
+        btFavorits.setLlum (juce::Colour (0xfff5c542));
+        btFavorits.setClickingTogglesState (true);
+        btFavorits.setTooltip ("Només els favorits. Es combina amb els tipus: Bombo + Favorits, Guitarres + Sintes + Favorits… (marca'ls amb l'estrella de cada sample)"_ca);
+        btFavorits.setToggleState (ajustos.getBoolValue ("biblioteca.favorits", false), juce::dontSendNotification);
+        btFavorits.onClick = [this] { ajustos.setValue ("biblioteca.favorits", btFavorits.getToggleState()); refesLlista(); };
+        addAndMakeVisible (btFavorits);
         btOrdre.onClick = [this] { menuOrdre(); };
+        // 0.29: veure-ho per carpetes
+        addAndMakeVisible (btCarpetes);
+        btCarpetes.setClickingTogglesState (true);
+        btCarpetes.setLlum (tema::accent);
+        btCarpetes.setMidaText (11.0f);
+        btCarpetes.setTooltip ("Mostra els samples agrupats per les carpetes on són (clic a una carpeta per entrar-hi)"_ca);
+        btCarpetes.setToggleState (ajustos.getBoolValue ("biblioteca.perCarpetes", false), juce::dontSendNotification);
+        carpetaActual = ajustos.getValue ("biblioteca.carpetaActual").toStdString();
+        btCarpetes.onClick = [this] { ajustos.setValue ("biblioteca.perCarpetes", btCarpetes.getToggleState()); refesLlista(); };
         btOrdre.setTooltip ("Ordre de la llista"_ca);
         btAfegeix.onClick = [this] { demanaFitxers(); };
         btAfegeix.setTooltip ("Afegeix fitxers a la biblioteca (es copien a la carpeta). També els pots arrossegar aquí des de l'explorador"_ca);
@@ -133,30 +154,32 @@ public:
         en segon pla (0.28.1): els samples van sortint a la llista i es pot continuar treballant. */
     void recarrega()
     {
-        const auto dir = carpeta();
-        index = mibase::biblioteca::llegeix (dir.getFullPathName().toStdString());
-        const auto nous = mibase::biblioteca::sincronitza (dir.getFullPathName().toStdString(), index);
-        mibase::biblioteca::desa (dir.getFullPathName().toStdString(), index);
-        refesLlista();
-        std::vector<Tasca> ts;
-        for (auto& rel : nous)
-            ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (rel.c_str())), {}, rel, {}, false, false });
-        for (auto& x : index.samples)   // 0.27: els que encara no saben si són one-shot o loop
-            if (x.forma.empty()) ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (x.fitxer.c_str())), {}, x.fitxer, {}, false, true });
-        if (! ts.empty()) encua (std::move (ts));
+        llegida = true;
+        if (feina != nullptr) { calRellegir = true; return; }   // quan acabi el que fa
+        llanca (true, {});
     }
 
-    /** Afegeix fitxers (es copien a la carpeta de la biblioteca), en segon pla. */
-    void afegeix (const juce::Array<juce::File>& fitxers)
+    /** 0.29: un fitxer que ja és dins la carpeta de la biblioteca (l'acabem d'escriure): només cal analitzar-lo. */
+    void nouFitxer (const juce::File& f)
     {
-        if (! llegida) { llegida = true; recarrega(); }
+        if (! llegida) { recarrega(); return; }   // ja el trobarà
+        auto rel = f.getRelativePathFrom (carpeta()).replaceCharacter ('\\', '/').toStdString();
+        encua ({ { f, {}, rel, {}, false, false } });
+    }
+
+    /** Afegeix fitxers (es copien a la carpeta de la biblioteca), en segon pla. Cada fitxer porta el camí que tindrà a
+        dins (0.29: una carpeta afegida hi va amb les seves subcarpetes). */
+    void afegeix (const std::vector<std::pair<juce::File, juce::String>>& fitxers)
+    {
+        if (! llegida) recarrega();
         const auto dir = carpeta();
         std::vector<Tasca> ts;
-        for (auto& f : fitxers)
+        for (auto& [f, relDesti] : fitxers)
         {
             if (! mibase::biblioteca::esAudio (f.getFullPathName().toStdString()) || f.isAChildOf (dir)) continue;
             // un nom lliure (tenint en compte els que ja s'han reservat en aquesta tanda)
-            const auto base = juce::File::createLegalFileName (f.getFileNameWithoutExtension()).toStdString();
+            const auto subc = relDesti.containsChar ('/') ? relDesti.upToLastOccurrenceOf ("/", true, false) : juce::String();
+            const auto base = (subc + juce::File::createLegalFileName (f.getFileNameWithoutExtension())).toStdString();
             std::string rel = base + ".wav";
             for (int k = 2; dir.getChildFile (juce::String::fromUTF8 (rel.c_str())).exists() || reservats.count (rel) > 0; ++k)
                 rel = base + " " + std::to_string (k) + ".wav";
@@ -164,6 +187,20 @@ public:
             ts.push_back ({ f, dir.getChildFile (juce::String::fromUTF8 (rel.c_str())), rel, f.getFileNameWithoutExtension().toStdString(), true, false });
         }
         if (! ts.empty()) encua (std::move (ts));
+    }
+    void afegeix (const juce::Array<juce::File>& fitxers)
+    {
+        bool carpetes = false;
+        for (auto& f : fitxers) carpetes = carpetes || f.isDirectory();
+        if (! carpetes) { afegeix (ambCarpetes (fitxers)); return; }
+        // una carpeta pot tenir milers de fitxers: es busquen en segon pla
+        if (onInfo) onInfo ("Buscant els àudios de la carpeta…"_ca);
+        juce::Component::SafePointer<PanellBiblioteca> jo (this);
+        std::thread ([jo, fitxers]
+        {
+            auto v = std::make_shared<std::vector<std::pair<juce::File, juce::String>>> (ambCarpetes (fitxers));
+            juce::MessageManager::callAsync ([jo, v] { if (jo != nullptr) jo->afegeix (*v); });
+        }).detach();
     }
 
     ~PanellBiblioteca() override { if (feina != nullptr) feina->atura = true; }
@@ -183,19 +220,27 @@ public:
         f2.removeFromLeft (4);
         btLoop.setBounds (f2);
         r.removeFromTop (4);
-        for (size_t i = 0; i < btTipus.size(); i += 3)
+        std::vector<Boto*> graella;
+        for (auto& b : btTipus) graella.push_back (b.get());
+        graella.push_back (&btFavorits);   // 0.31
+        for (size_t i = 0; i < graella.size(); i += 3)
         {
             auto fila = r.removeFromTop (26);
             const int w = (fila.getWidth() - 8) / 3;
-            for (size_t k = i; k < std::min (btTipus.size(), i + 3); ++k)
+            for (size_t k = i; k < std::min (graella.size(), i + 3); ++k)
             {
-                btTipus[k]->setBounds (fila.removeFromLeft (w));
+                graella[k]->setBounds (fila.removeFromLeft (w));
                 fila.removeFromLeft (4);
             }
             r.removeFromTop (3);
         }
         r.removeFromTop (3);
-        btOrdre.setBounds (r.removeFromTop (26));
+        {
+            auto f3 = r.removeFromTop (26);
+            btCarpetes.setBounds (f3.removeFromRight (juce::jmin (110, f3.getWidth() / 2)));
+            f3.removeFromRight (4);
+            btOrdre.setBounds (f3);
+        }
         if (barra != nullptr)   // 0.28.1: el progrés de l'anàlisi, a dalt de la llista
         {
             r.removeFromTop (6);
@@ -208,7 +253,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         g.fillAll (tema::superficie);
-        if (vista.empty())
+        if (files.empty())
         {
             g.setColour (sobreFitxers ? tema::accent : tema::suau);
             g.setFont (dibuix::lletra (12.5f));
@@ -239,15 +284,47 @@ public:
 
 private:
     // ---- ListBoxModel ----
-    int getNumRows() override { return (int) vista.size(); }
+    int getNumRows() override { return (int) files.size(); }
+
+    const mibase::biblioteca::Sample* sampleDeFila (int fila) const
+    {
+        if (fila < 0 || fila >= (int) files.size() || files[(size_t) fila].sample < 0) return nullptr;
+        return &index.samples[(size_t) files[(size_t) fila].sample];
+    }
 
     void paintListBoxItem (int fila, juce::Graphics& g, int w, int h, bool triada) override
     {
-        if (fila < 0 || fila >= (int) vista.size()) return;
-        const auto& s = index.samples[(size_t) vista[(size_t) fila]];
+        if (fila < 0 || fila >= (int) files.size()) return;
+        const auto& fl = files[(size_t) fila];
         auto r = juce::Rectangle<int> (0, 0, w, h).reduced (2, 1);
         g.setColour (triada ? tema::superficie2 : (fila % 2 == 0 ? tema::fons.withAlpha (0.35f) : juce::Colours::transparentBlack));
         g.fillRoundedRectangle (r.toFloat(), 3.0f);
+        if (fl.sample < 0)   // 0.29: una carpeta (o la de dalt)
+        {
+            r.removeFromLeft (6);
+            dibuix::pintaIcona (g, fl.amunt ? dibuix::Icona::Desfes : dibuix::Icona::Carpeta, r.removeFromLeft (20).toFloat().withSizeKeepingCentre (18.0f, 18.0f),
+                                fl.amunt ? tema::suau : tema::accent);
+            r.removeFromLeft (8);
+            if (fl.amunt)
+            {
+                g.setColour (tema::suau);
+                g.setFont (dibuix::lletra (12.0f));
+                g.drawText ("Amunt  ·  "_ca + juce::String::fromUTF8 (carpetaActual.c_str()).replace ("/", juce::String::fromUTF8 (" › ")),
+                            r.withTrimmedRight (4), juce::Justification::centredLeft, true);
+                return;
+            }
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.5f, true));
+            auto dalt = r.removeFromTop (h / 2);
+            g.drawText (juce::String::fromUTF8 (fl.carpeta.c_str()), dalt.withTrimmedRight (4), juce::Justification::bottomLeft, true);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.5f));
+            g.drawText (fl.n == 1 ? "1 sample"_ca : juce::String (fl.n) + " samples", r.withTrimmedRight (4), juce::Justification::topLeft, true);
+            return;
+        }
+        const auto& s = index.samples[(size_t) fl.sample];
+        // 0.31: l'estrella de favorit, a la dreta (clic: marca o desmarca)
+        pintaEstrella (g, r.removeFromRight (amplaEstrella).toFloat().withSizeKeepingCentre (16.0f, 16.0f), s.favorit);
         const auto col = samples::colorCategoria (s.categoria);
         g.setColour (col);
         g.fillRoundedRectangle (r.removeFromLeft (4).toFloat().reduced (0.0f, 3.0f), 2.0f);
@@ -261,6 +338,13 @@ private:
         info += juce::String::fromUTF8 ("  ·  ") + juce::String (s.durada, s.durada < 10.0 ? 2 : 1) + " s";
         if (! s.tonalitat.empty()) info += juce::String::fromUTF8 ("  ·  ") + juce::String::fromUTF8 (s.tonalitat.c_str());
         if (s.bpm > 0.0) info += juce::String::fromUTF8 ("  ·  ") + juce::String (s.bpm, 0) + " BPM";
+        // la carpeta on és (si no és la que ja es mira)
+        if (const auto b = s.fitxer.find_last_of ('/'); b != std::string::npos)
+        {
+            const auto dirS = s.fitxer.substr (0, b);
+            if (! btCarpetes.getToggleState() || dirS != carpetaActual)
+                info += juce::String::fromUTF8 ("  ·  ") + juce::String::fromUTF8 (dirS.c_str());
+        }
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (10.5f));
         g.drawText (info, r.withTrimmedRight (4), juce::Justification::topLeft, true);
@@ -268,24 +352,86 @@ private:
 
     void listBoxItemClicked (int fila, const juce::MouseEvent& e) override
     {
-        if (fila < 0 || fila >= (int) vista.size()) return;
-        const int i = vista[(size_t) fila];
-        if (e.mods.isPopupMenu()) { menuSample (i); return; }
-        if (onEscolta) onEscolta (fitxer (index.samples[(size_t) i]));
+        if (fila < 0 || fila >= (int) files.size()) return;
+        const auto fl = files[(size_t) fila];
+        if (fl.amunt)
+        {
+            const auto b = carpetaActual.find_last_of ('/');
+            entraA (b == std::string::npos ? std::string() : carpetaActual.substr (0, b));
+            return;
+        }
+        if (fl.sample < 0) { entraA (carpetaActual.empty() ? fl.carpeta : carpetaActual + "/" + fl.carpeta); return; }
+        if (e.mods.isPopupMenu()) { menuSample (fl.sample); return; }
+        if (e.x >= llista.getVisibleRowWidth() - amplaEstrella - 2) { commutaFavorit (fl.sample); return; }   // 0.31
+        if (onEscolta) onEscolta (fitxer (index.samples[(size_t) fl.sample]));
     }
+    static constexpr int amplaEstrella = 26;
+
+    static void pintaEstrella (juce::Graphics& g, juce::Rectangle<float> r, bool plena)
+    {
+        juce::Path p;
+        p.addStar (r.getCentre(), 5, r.getWidth() * 0.22f, r.getWidth() * 0.5f, 0.0f);
+        const auto groc = juce::Colour (0xfff5c542);
+        if (plena) { g.setColour (groc); g.fillPath (p); }
+        else { g.setColour (tema::suau.withAlpha (0.55f)); g.strokePath (p, juce::PathStrokeType (1.2f)); }
+    }
+
+public:
+    /** 0.42: un fitxer que no s'ha pogut obrir deixa de sortir a la llista (el fitxer no es toca). */
+    void marcaNoObre (const juce::File& f)
+    {
+        for (auto& s : index.samples)
+            if (! s.noObre && fitxer (s) == f)
+            {
+                s.noObre = true;
+                if (onInfo) onInfo ("No s'ha pogut obrir «"_ca + juce::String::fromUTF8 (s.nom.c_str()) + "»: ja no surt a la llista"_ca);
+                desa();
+                refesLlista();
+                return;
+            }
+    }
+
+private:
+    /** 0.42: torna a mirar, pel so, els samples d'un segon o més que el nom no diu què són (one-shot o loop). */
+    void tornaAMirarFormes()
+    {
+        std::vector<Tasca> ts;
+        const auto dir = carpeta();
+        for (auto& s : index.samples)
+            if (! s.noObre && s.durada >= 1.0 && mibase::biblioteca::formaPerNom (s.fitxer).empty())
+            {
+                s.forma.clear();
+                ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (s.fitxer.c_str())), {}, s.fitxer, {}, false, true });
+            }
+        if (onInfo) onInfo (ts.empty() ? "No hi ha res per tornar a mirar"_ca : "Torno a mirar "_ca + juce::String ((int) ts.size()) + " samples (one-shot o loop)…"_ca);
+        llanca (false, std::move (ts));
+    }
+
+    /** 0.31: marca o desmarca un sample com a favorit (es desa a l'índex). */
+    void commutaFavorit (int i)
+    {
+        if (i < 0 || i >= (int) index.samples.size()) return;
+        auto& s = index.samples[(size_t) i];
+        s.favorit = ! s.favorit;
+        if (onInfo) onInfo ((s.favorit ? "Favorit: "_ca : "Ja no és favorit: "_ca) + juce::String::fromUTF8 (s.nom.c_str()));
+        desa();
+        if (btFavorits.getToggleState()) refesLlista();
+        else llista.repaint();
+    }
+
     void listBoxItemDoubleClicked (int fila, const juce::MouseEvent&) override
     {
-        if (fila >= 0 && fila < (int) vista.size() && onObreAlSampler) onObreAlSampler (fitxer (index.samples[(size_t) vista[(size_t) fila]]));
+        if (auto* s = sampleDeFila (fila); s != nullptr && onObreAlSampler) onObreAlSampler (fitxer (*s));
     }
-    juce::var getDragSourceDescription (const juce::SparseSet<int>& files) override
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& sel) override
     {
-        if (files.isEmpty()) return {};
-        const int fila = files[0];
-        if (fila < 0 || fila >= (int) vista.size()) return {};
-        return juce::String (samples::prefixArrossega) + fitxer (index.samples[(size_t) vista[(size_t) fila]]).getFullPathName();
+        if (sel.isEmpty()) return {};
+        if (auto* s = sampleDeFila (sel[0])) return juce::String (samples::prefixArrossega) + fitxer (*s).getFullPathName();
+        return {};
     }
-    juce::String getTooltipForRow (int) override
+    juce::String getTooltipForRow (int fila) override
     {
+        if (sampleDeFila (fila) == nullptr) return "Clic: entra a la carpeta"_ca;
         return "Clic: escolta · Doble clic: al samplejador · Arrossega'l a la línia de temps, al samplejador, a «+ Pista nova» o a una fila del Drumpad · Botó dret: opcions"_ca;
     }
 
@@ -338,10 +484,23 @@ private:
         if (s.forma == mibase::biblioteca::loop && s.bpm <= 0.0) s.bpm = bpm;
     }
 
-    void desa() { mibase::biblioteca::desa (carpeta().getFullPathName().toStdString(), index); }
+    /** 0.29: es desa en un fil a part (amb desenes de milers de samples trigaria); si n'hi ha un de més nou, el vell no s'escriu. */
+    void desa()
+    {
+        auto copia = std::make_shared<mibase::biblioteca::Index> (index);
+        const auto dir = carpeta().getFullPathName().toStdString();
+        const int num = ++desadesDemanades();
+        std::thread ([copia, dir, num]
+        {
+            const std::lock_guard<std::mutex> l (mutexDesa());
+            if (num == desadesDemanades()) mibase::biblioteca::desa (dir, *copia);
+        }).detach();
+    }
+    static std::mutex& mutexDesa() { static std::mutex m; return m; }
+    static std::atomic<int>& desadesDemanades() { static std::atomic<int> n { 0 }; return n; }
 
     //==========================================================================
-    // 0.28.1: anàlisi (i còpia) en segon pla
+    // 0.28.1 / 0.29: lectura, anàlisi i còpia en segon pla
     struct Tasca
     {
         juce::File origen, desti;   // desti: on es copia (si copia)
@@ -349,63 +508,105 @@ private:
         bool copia = false;         // afegir de fora (es copia/converteix)
         bool nomesForma = false;    // ja hi és: només falta saber si és one-shot o loop
     };
+    struct Resultat { Tasca t; mibase::biblioteca::Sample s; juce::String err; };
     struct Feina { std::atomic<bool> atura { false }; };
     std::shared_ptr<Feina> feina;
     std::vector<Tasca> cua;
+    bool calRellegir = false;
     std::set<std::string> reservats;
     std::unique_ptr<FinestraProgres> barra;
     juce::StringArray errors;
     int fetsTanda = 0, totalTanda = 0, afegitsTanda = 0;
+    juce::uint32 darrerRefes = 0, darrerDesa = 0;
 
     void encua (std::vector<Tasca> ts)
     {
+        if (feina == nullptr) { llanca (false, std::move (ts)); return; }
+        totalTanda += (int) ts.size();
         cua.insert (cua.end(), ts.begin(), ts.end());
-        if (feina == nullptr) llanca();
-        else { totalTanda += (int) ts.size(); actualitzaBarra ({}); }
+        actualitzaBarra ({});
     }
 
-    void llanca()
+    /** rellegeix: llegeix l'índex i la carpeta (en segon pla) i n'analitza els nous; si no, només les tasques. */
+    void llanca (bool rellegeix, std::vector<Tasca> ts)
     {
-        if (cua.empty()) return;
-        auto ts = std::move (cua);
-        cua.clear();
+        if (! rellegeix && ts.empty()) return;
         feina = std::make_shared<Feina>();
         fetsTanda = 0; afegitsTanda = 0;
         totalTanda = (int) ts.size();
         errors.clear();
+        darrerDesa = juce::Time::getMillisecondCounter();
         if (barra == nullptr)
         {
-            barra = std::make_unique<FinestraProgres> ("Biblioteca: analitzant"_ca, false, nullptr, false);
+            barra = std::make_unique<FinestraProgres> ("Biblioteca"_ca, false, nullptr, false);
             addAndMakeVisible (*barra);
             resized();
         }
-        actualitzaBarra ({});
+        if (rellegeix) barra->posa ("Llegint la carpeta de la biblioteca…"_ca, 0.0);
+        else actualitzaBarra ({});
         juce::Component::SafePointer<PanellBiblioteca> jo (this);
         auto fe = feina;
-        std::thread ([jo, fe, ts]
+        const auto dir = carpeta();
+        std::thread ([jo, fe, ts = std::move (ts), rellegeix, dir]() mutable
         {
+            namespace bb = mibase::biblioteca;
+            if (rellegeix)
+            {
+                auto idx = std::make_shared<bb::Index> (bb::llegeix (dir.getFullPathName().toStdString()));
+                const auto nous = bb::sincronitza (dir.getFullPathName().toStdString(), *idx);
+                if (fe->atura) return;
+                {
+                    const std::lock_guard<std::mutex> l (mutexDesa());
+                    bb::desa (dir.getFullPathName().toStdString(), *idx);
+                }
+                for (auto& rel : nous)
+                    ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (rel.c_str())), {}, rel, {}, false, false });
+                for (auto& x : idx->samples)   // 0.27: els que encara no saben si són one-shot o loop
+                    if (x.forma.empty()) ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (x.fitxer.c_str())), {}, x.fitxer, {}, false, true });
+                const int n = (int) ts.size();
+                juce::MessageManager::callAsync ([jo, fe, idx, n] { if (jo != nullptr && jo->feina == fe) jo->indexLlegit (std::move (*idx), n); });
+            }
             juce::AudioFormatManager fm;
             fm.registerBasicFormats();
+            auto lot = std::make_shared<std::vector<Resultat>>();
+            auto darrer = juce::Time::getMillisecondCounter();
+            auto envia = [&]
+            {
+                if (lot->empty()) return;
+                juce::MessageManager::callAsync ([jo, fe, lot] { if (jo != nullptr && jo->feina == fe) jo->resultats (*lot); });
+                lot = std::make_shared<std::vector<Resultat>>();
+                darrer = juce::Time::getMillisecondCounter();
+            };
             for (auto& t : ts)
             {
                 if (fe->atura) return;
-                juce::String err;
-                mibase::biblioteca::Sample s;
-                if (t.copia) err = samples::copiaComWav (fm, t.origen, t.desti);
-                if (err.isEmpty())
+                Resultat r { t, {}, {} };
+                if (t.copia) r.err = samples::copiaComWav (fm, t.origen, t.desti);
+                if (r.err.isEmpty())
                 {
                     const auto f = t.copia ? t.desti : t.origen;
-                    if (t.nomesForma) { s.fitxer = t.rel; posaForma (fm, s, f); }
+                    if (t.nomesForma) { r.s.fitxer = t.rel; posaForma (fm, r.s, f); }
                     else
                     {
-                        s = metadades (fm, f, t.rel);
-                        if (! t.nom.empty()) s.nom = t.nom;
+                        r.s = metadades (fm, f, t.rel);
+                        if (! t.nom.empty()) r.s.nom = t.nom;
                     }
                 }
-                juce::MessageManager::callAsync ([jo, fe, t, s, err] { if (jo != nullptr && jo->feina == fe) jo->resultat (t, s, err); });
+                lot->push_back (std::move (r));
+                // en lots: amb milers de fitxers, un missatge per fitxer col·lapsaria la finestra
+                if (lot->size() >= 500 || juce::Time::getMillisecondCounter() - darrer >= 300) envia();
             }
+            envia();
             juce::MessageManager::callAsync ([jo, fe] { if (jo != nullptr && jo->feina == fe) jo->acabat(); });
         }).detach();
+    }
+
+    void indexLlegit (mibase::biblioteca::Index&& idx, int n)
+    {
+        index = std::move (idx);
+        totalTanda += n;
+        refesLlista();
+        actualitzaBarra ({});
     }
 
     void actualitzaBarra (const juce::String& fitxer)
@@ -416,23 +617,35 @@ private:
                      totalTanda > 0 ? (double) fetsTanda / (double) totalTanda : 0.0);
     }
 
-    void resultat (const Tasca& t, const mibase::biblioteca::Sample& s, const juce::String& err)
+    void resultats (const std::vector<Resultat>& lot)
     {
-        ++fetsTanda;
-        reservats.erase (t.rel);
-        if (err.isNotEmpty()) errors.add (t.origen.getFileName() + ": " + err);
-        else if (t.nomesForma)
+        std::unordered_map<std::string, size_t> pos;   // per als que només esperaven la forma
+        for (auto& r : lot)
         {
-            if (auto* x = index.busca (t.rel)) { x->forma = s.forma; if (x->bpm <= 0.0) x->bpm = s.bpm; }
+            ++fetsTanda;
+            reservats.erase (r.t.rel);
+            if (r.err.isNotEmpty()) { if (errors.size() < 30) errors.add (r.t.origen.getFileName() + ": " + r.err); }
+            else if (r.t.nomesForma)
+            {
+                if (pos.empty()) for (size_t i = 0; i < index.samples.size(); ++i) pos[index.samples[i].fitxer] = i;
+                if (auto it = pos.find (r.t.rel); it != pos.end())
+                {
+                    auto& x = index.samples[it->second];
+                    x.forma = r.s.forma;
+                    if (x.bpm <= 0.0) x.bpm = r.s.bpm;
+                }
+            }
+            else
+            {
+                index.samples.push_back (r.s);
+                ++afegitsTanda;
+            }
         }
-        else if (index.busca (t.rel) == nullptr)
-        {
-            index.samples.push_back (s);
-            ++afegitsTanda;
-        }
-        if (fetsTanda % 10 == 0) desa();
-        refesLlista();   // van sortint a la llista
-        actualitzaBarra (t.origen.getFileName());
+        const auto ara = juce::Time::getMillisecondCounter();
+        if (ara - darrerDesa > 30000) { darrerDesa = ara; desa(); }
+        // la llista, com a molt un cop per segon (amb molts samples, refer-la costa)
+        if (ara - darrerRefes > 1000 || index.samples.size() < 2000) { darrerRefes = ara; refesLlista(); }
+        if (! lot.empty()) actualitzaBarra (lot.back().t.origen.getFileName());
     }
 
     void acabat()
@@ -440,7 +653,8 @@ private:
         feina = nullptr;
         desa();
         refesLlista();
-        if (! cua.empty()) { llanca(); return; }
+        if (calRellegir) { calRellegir = false; auto ts = std::move (cua); cua.clear(); llanca (true, std::move (ts)); return; }
+        if (! cua.empty()) { auto ts = std::move (cua); cua.clear(); llanca (false, std::move (ts)); return; }
         barra = nullptr;
         resized();
         if (onInfo && afegitsTanda > 0)
@@ -450,24 +664,19 @@ private:
         errors.clear();
     }
 
-    /** 0.28: les carpetes es converteixen en els àudios que tenen a dins (també a les subcarpetes). */
-    static juce::Array<juce::File> ambCarpetes (const juce::Array<juce::File>& v)
+    /** 0.28: les carpetes es converteixen en els àudios que tenen a dins (també a les subcarpetes). 0.29: cada un amb el camí
+        que tindrà a la biblioteca (la carpeta afegida i les seves subcarpetes). */
+    static std::vector<std::pair<juce::File, juce::String>> ambCarpetes (const juce::Array<juce::File>& v)
     {
-        juce::Array<juce::File> r;
+        std::vector<std::pair<juce::File, juce::String>> r;
         for (auto& f : v)
         {
-            if (! f.isDirectory()) { r.add (f); continue; }
-            for (auto& x : f.findChildFiles (juce::File::findFiles, true, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg"))
-                r.add (x);
+            if (! f.isDirectory()) { r.push_back ({ f, f.getFileName() }); continue; }
+            const auto pare = f.getParentDirectory();
+            for (juce::RangedDirectoryIterator it (f, true, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg", juce::File::findFiles); it != juce::RangedDirectoryIterator(); ++it)
+                r.push_back ({ it->getFile(), it->getFile().getRelativePathFrom (pare).replaceCharacter ('\\', '/') });
         }
         return r;
-    }
-
-    /** 0.28: la llista, al dia i pintada ara mateix (mentre s'analitza). */
-    void mostraAra()
-    {
-        refesLlista();
-        if (auto* p = getPeer()) p->performAnyPendingRepaintsNow();
     }
 
     void refesLlista()
@@ -477,10 +686,48 @@ private:
             if (btTipus[i]->getToggleState()) cats.push_back (mibase::biblioteca::categories()[i]);
         if (btOneShot.getToggleState()) formes.push_back (mibase::biblioteca::oneShot);
         if (btLoop.getToggleState()) formes.push_back (mibase::biblioteca::loop);
-        vista = mibase::biblioteca::filtra (index, cerca.getText().toStdString(), cats, formes, ordre, descendent);
+        const auto vista = mibase::biblioteca::filtra (index, cerca.getText().toStdString(), cats, formes, ordre, descendent, btFavorits.getToggleState());
+        files.clear();
+        if (! btCarpetes.getToggleState())
+            for (int i : vista) files.push_back ({ i });
+        else
+        {
+            // 0.29: per carpetes: la de dalt (si no som a l'arrel), les subcarpetes i els samples d'aquesta carpeta.
+            // Cercant, també surten els de les subcarpetes.
+            const auto prefix = carpetaActual.empty() ? std::string() : carpetaActual + "/";
+            const bool cercant = cerca.getText().trim().isNotEmpty();
+            std::map<std::string, int> subs;
+            std::vector<Fila> mostres;
+            for (int i : vista)
+            {
+                const auto& rel = index.samples[(size_t) i].fitxer;
+                if (rel.compare (0, prefix.size(), prefix) != 0) continue;
+                const auto barra2 = rel.find ('/', prefix.size());
+                if (barra2 != std::string::npos) ++subs[rel.substr (prefix.size(), barra2 - prefix.size())];
+                if (barra2 == std::string::npos || cercant) mostres.push_back ({ i });
+            }
+            if (! carpetaActual.empty()) files.push_back ({ -1, {}, 0, true });
+            std::vector<std::pair<std::string, int>> v (subs.begin(), subs.end());
+            std::sort (v.begin(), v.end(), [] (const auto& a, const auto& b)
+            {
+                return juce::String::fromUTF8 (a.first.c_str()).compareNatural (juce::String::fromUTF8 (b.first.c_str())) < 0;
+            });
+            for (auto& [nom, n] : v) files.push_back ({ -1, nom, n, false });
+            files.insert (files.end(), mostres.begin(), mostres.end());
+        }
         llista.updateContent();
         llista.repaint();
         repaint();
+    }
+
+    /** 0.29: entra en una carpeta (o, buida, torna a l'arrel). */
+    void entraA (const std::string& c)
+    {
+        carpetaActual = c;
+        ajustos.setValue ("biblioteca.carpetaActual", juce::String::fromUTF8 (c.c_str()));
+        llista.deselectAllRows();
+        refesLlista();
+        llista.scrollToEnsureRowIsOnscreen (0);
     }
 
     void actualitzaBotons()
@@ -496,9 +743,12 @@ private:
         for (int i = 0; i < 4; ++i) m.addItem (i + 1, juce::String::fromUTF8 (noms[i]), true, (int) ordre == i);
         m.addSeparator();
         m.addItem (10, "De més a menys"_ca, true, descendent);
+        m.addSeparator();
+        m.addItem (20, "Torna a mirar quins són loops (pot trigar)"_ca);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btOrdre), [this] (int r)
         {
             if (r <= 0) return;
+            if (r == 20) { tornaAMirarFormes(); return; }
             if (r == 10) descendent = ! descendent;
             else ordre = (mibase::biblioteca::Ordre) (r - 1);
             ajustos.setValue ("biblioteca.ordre", (int) ordre);
@@ -550,6 +800,7 @@ private:
         const auto& s = index.samples[(size_t) i];
         int k = 100;
         for (auto& c : mibase::biblioteca::categories()) cat.addItem (k++, juce::String::fromUTF8 (c.c_str()), true, c == s.categoria);
+        m.addItem (6, s.favorit ? "Treu dels favorits"_ca : "Marca com a favorit"_ca);
         m.addItem (1, "Reanomena…"_ca);
         m.addSubMenu ("Tipus de so"_ca, cat);
         juce::PopupMenu fm;
@@ -575,6 +826,7 @@ private:
                                          [this, fitxerS] (const juce::String& t) { if (auto* y = index.busca (fitxerS)) y->etiquetes = mibase::biblioteca::etiquetesDeText (t.toStdString()); });
             else if (r == 3) demanaText ("BPM del sample"_ca, "0 = no se sap."_ca, x->bpm > 0.0 ? juce::String (x->bpm, 1) : juce::String ("0"),
                                          [this, fitxerS] (const juce::String& t) { if (auto* y = index.busca (fitxerS)) y->bpm = juce::jlimit (0.0, 300.0, t.getDoubleValue()); });
+            else if (r == 6) { if (auto* y = index.busca (fitxerS)) commutaFavorit ((int) (y - index.samples.data())); }
             else if (r == 4) fitxer (*x).revealToUser();
             else if (r == 5)
             {
@@ -604,7 +856,15 @@ private:
 
     juce::PropertiesFile& ajustos;
     mibase::biblioteca::Index index;
-    std::vector<int> vista;
+    struct Fila
+    {
+        int sample = -1;            // índex a index.samples (-1: una carpeta o «amunt»)
+        std::string carpeta;        // el nom de la subcarpeta
+        int n = 0;                  // quants samples hi ha (amb el filtre)
+        bool amunt = false;         // la fila de tornar a la carpeta de dalt
+    };
+    std::vector<Fila> files;
+    std::string carpetaActual;      // 0.29: la carpeta que es mira (relativa; buida = l'arrel)
 
     mibase::biblioteca::Ordre ordre = mibase::biblioteca::Ordre::Nom;
     bool descendent = false, llegida = false, sobreFitxers = false;
@@ -613,6 +873,8 @@ private:
     Boto btLoop { "LOOP", std::nullopt, Boto::Estil::Tecla };
     std::vector<std::unique_ptr<Boto>> btTipus;
     Boto btOrdre { "Ordre: Nom", std::nullopt, Boto::Estil::Secundari };
+    Boto btCarpetes { "CARPETES", std::nullopt, Boto::Estil::Tecla };
+    Boto btFavorits { "Favorits"_ca, std::nullopt, Boto::Estil::Tecla };
     Boto btAfegeix { "Afegeix…"_ca, std::nullopt, Boto::Estil::Secundari };
     Boto btMes { {}, dibuix::Icona::Carpeta, Boto::Estil::Subtil };
     juce::ListBox llista { "Biblioteca" };
