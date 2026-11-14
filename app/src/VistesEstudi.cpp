@@ -1,4 +1,6 @@
 #include "VistesEstudi.h"
+#include "BancGM.h"
+#include "FinestraAcords.h"
 #include "TempoPart.h"
 
 #include <mibase/Midi.h>
@@ -19,8 +21,10 @@ namespace
 
     bool sona (const Projecte& p, const Pista& t)
     {
-        const bool hiHaSolo = std::any_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& x) { return x.solo; });
-        return ! t.mut && (! hiHaSolo || t.solo);
+        // 0.33: amb busos, una pista en solo manté oberts els seus busos i retorns (i al revés).
+        const auto e = ed::estatSolo (p);
+        const auto i = (size_t) (&t - p.pistes.data());
+        return i < e.size() ? e[i] == 2 : ! t.mut;
     }
 
     void pintaCapcal (juce::Graphics& g, float x, float alt, int transport = 0)
@@ -44,7 +48,7 @@ namespace
 
     juce::String textCanals (const Pista& t)
     {
-        if (t.tipus == "bateria") return "Bateria";
+        if (mibase::esKit (t)) return "Bateria";
         if (t.tipus == "midi") return "MIDI";
         return t.canals == 2 ? juce::String::fromUTF8 ("estèreo") : juce::String ("mono");
     }
@@ -56,9 +60,9 @@ namespace
     }
 
     /** «MIDI · Piano» o «mono · E1». */
-    juce::String textPistaCurt (const Pista& t)
+    [[maybe_unused]] juce::String textPistaCurt (const Pista& t)
     {
-        if (t.tipus == "bateria") return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
+        if (mibase::esKit (t)) return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
         if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "intern:piano" : t.instrument)).c_str());
         return textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t);
     }
@@ -353,7 +357,7 @@ void Regla::mouseDrag (const juce::MouseEvent& e)
             const double v = vora (t);
             double* de = llocVora.part < 0 ? &p.bucle.de : &p.parts[(size_t) llocVora.part].de;
             double* a = llocVora.part < 0 ? &p.bucle.a : &p.parts[(size_t) llocVora.part].a;
-            const double minim = p.snap == Snap::Lliure ? 0.05 : p.snap == Snap::Temps ? 1.0 / juce::jmax (1, p.compasNum) : 1.0;
+            const double minim = p.snap == Snap::Lliure ? 0.05 : p.snap == Snap::Temps ? ((double) juce::jmax (30LL, p.graella) / (double) mibase::ticksPerNegra) / juce::jmax (1, p.compasNum) : 1.0;
             if (llocVora.vora < 0) *de = juce::jlimit (0.0, *a - minim, v);
             else *a = juce::jmax (*de + minim, v);
             estat.info = llocVora.part < 0 ? "Bucle: "_ca + textRang (*de, *a)
@@ -607,9 +611,9 @@ VistaPistes::Lloc VistaPistes::llocA (juce::Point<int> p) const
                 const float yg = yGuany (c, r);
                 auto prova = [&] (juce::Rectangle<float> z, Maneta m) { if (z.expanded (4.0f).contains (pf)) { l.clip = ci; l.maneta = m; return true; } return false; };
 
-                if (c.midi)
+                if (c.midi || c.esAcord())
                 {
-                    // Clips MIDI: només retallar (ni fades ni volum: la dinàmica és la velocitat de les notes).
+                    // Clips MIDI (i acords, 0.36): només retallar (ni fades ni volum: la dinàmica és la velocitat de les notes).
                     if (prova ({ r.getX(), r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, Maneta::RetallInici)) return l;
                     if (prova ({ r.getRight() - mida * 1.4f, r.getBottom() - mida * 2, mida * 1.4f, mida * 2 }, Maneta::RetallFi)) return l;
                 }
@@ -664,9 +668,24 @@ void VistaPistes::pintaGraella (juce::Graphics& g)
         const auto tr = ed::tramA (p, sc + 1e-6);
         g.setColour (juce::Colours::white.withAlpha (0.15f));
         g.fillRect (juce::Rectangle<float> (estat.x (sc), 0.0f, 1.0f, h));
-        if (tr.segonsPerTemps() * estat.pxPerSegon < 9.0) continue;
+        // 0.42: la subdivisió triada (1/8, 1/16, tresets…) si amb aquest zoom hi cap; si no, els temps; si no, només compassos
+        const double spt = tr.segonsPerTemps(), pasG = spt * (double) juce::jmax (30LL, p.graella) / (double) mibase::ticksPerNegra;
+        const double llarg = spt * tr.num;
+        if (pasG * estat.pxPerSegon >= 9.0 && pasG < llarg - 1.0e-9)
+        {
+            const int n = (int) std::ceil (llarg / pasG - 1.0e-6);
+            for (int k = 1; k < n; ++k)
+            {
+                const double off = k * pasG, temps = off / spt;
+                const bool esTemps = std::abs (temps - std::round (temps)) < 1.0e-6;
+                g.setColour (juce::Colours::white.withAlpha (esTemps ? 0.075f : 0.04f));
+                g.fillRect (juce::Rectangle<float> (estat.x (sc + off), 0.0f, 1.0f, h));
+            }
+            continue;
+        }
+        if (spt * estat.pxPerSegon < 9.0) continue;
         g.setColour (juce::Colours::white.withAlpha (0.075f));
-        for (int k = 1; k < tr.num; ++k) g.fillRect (juce::Rectangle<float> (estat.x (sc + k * tr.segonsPerTemps()), 0.0f, 1.0f, h));
+        for (int k = 1; k < tr.num; ++k) g.fillRect (juce::Rectangle<float> (estat.x (sc + k * spt), 0.0f, 1.0f, h));
     }
 }
 
@@ -775,10 +794,40 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
 
 void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const Clip& c)
 {
+    // 0.31.1: hi ha un clip d'àudio per sota (abans a la llista) en aquest moment?
+    auto teSota = [&] (double t)
+    {
+        const auto& cl = estat.projecte.pistes[(size_t) pista].clips;
+        for (int k = 0; k < indexClip && k < (int) cl.size(); ++k)
+            if (! cl[(size_t) k].midi && ! cl[(size_t) k].mut && cl[(size_t) k].iniciVisible() <= t && cl[(size_t) k].fiVisible() > t) return true;
+        return false;
+    };
     const auto& p = estat.projecte;
     const auto& t = p.pistes[(size_t) pista];
     auto r = rectClip (pista, c);
     if (r.getRight() < -40.0f || r.getX() > (float) getWidth() + 40.0f) return;
+    if (c.esAcord())
+    {
+        // 0.36: un bloc de la pista d'Acords: l'etiqueta amb el nom i una barra fins on dura (com la Chord Track de Cubase)
+        const bool triatA = estat.clipTriat (pista, indexClip);
+        const auto col = c.mut ? tema::suau : juce::Colour (0xffa98bff);
+        auto barra = r.withTrimmedTop (r.getHeight() * 0.62f).withTrimmedBottom (r.getHeight() * 0.2f);
+        g.setColour (col.withAlpha (triatA ? 0.55f : 0.30f));
+        g.fillRoundedRectangle (barra.withTrimmedRight (3.0f), 2.0f);
+        g.setColour (col.withAlpha (0.8f));
+        g.fillRect (r.getX(), r.getY() + 4.0f, 2.0f, r.getHeight() - 8.0f);
+        g.setFont (dibuix::lletra (juce::jlimit (12.0f, 20.0f, r.getHeight() * 0.36f), true));
+        const auto net = mibase::harmonia::nomPad (mibase::harmonia::llegeixAcord (c.acord));   // sense la «^n» de la inversió
+        const auto nom = juce::String::fromUTF8 ((net.empty() ? c.acord : net).c_str());
+        const float w = juce::jmin (r.getWidth() - 6.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), nom) + 14.0f);
+        auto etiqueta = juce::Rectangle<float> (r.getX() + 4.0f, r.getY() + 6.0f, juce::jmax (8.0f, w), r.getHeight() * 0.5f - 4.0f);
+        g.setColour (triatA ? col : col.withAlpha (0.85f));
+        g.fillRoundedRectangle (etiqueta, 4.0f);
+        if (triatA) { g.setColour (tema::text); g.drawRoundedRectangle (etiqueta, 4.0f, 1.5f); }
+        g.setColour (juce::Colours::black);
+        g.drawText (nom, etiqueta.reduced (5.0f, 0.0f), juce::Justification::centredLeft, true);
+        return;
+    }
 
     const bool triat = estat.clipTriat (pista, indexClip);
     const bool manetes = triat && estat.triats.size() == 1 && estat.eina == Eina::Fletxa;
@@ -843,6 +892,11 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             g.fillPath (zona);
             g.setColour (tema::text);
             g.drawLine (r.getX(), r.getBottom(), xf, r.getY(), 1.5f);
+            if (teSota (c.iniciVisible()))   // 0.31.1: el de sota fa el fade contrari (crossfade)
+            {
+                g.setColour (tema::text.withAlpha (0.55f));
+                g.drawLine (r.getX(), r.getY(), xf, r.getBottom(), 1.2f);
+            }
         }
         if (c.fadeOut > 0.0 && ! c.midi)
         {
@@ -853,6 +907,11 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
             g.fillPath (zona);
             g.setColour (tema::text);
             g.drawLine (xf, r.getY(), r.getRight(), r.getBottom(), 1.5f);
+            if (teSota (c.fiVisible() - 1e-6))
+            {
+                g.setColour (tema::text.withAlpha (0.55f));
+                g.drawLine (xf, r.getBottom(), r.getRight(), r.getY(), 1.2f);
+            }
         }
 
         if ((c.guanyDb < -0.05 || manetes) && ! c.midi)
@@ -877,7 +936,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         const float xn = juce::jmax (r.getX(), 0.0f) + 8.0f;
         if (xn < r.getRight() - 24.0f)
         {
-            juce::String nom = c.midi && t.tipus == "bateria" ? "Bateria · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " cop" : " cops")
+            juce::String nom = c.midi && mibase::esKit (t) ? "Bateria · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " cop" : " cops")
                              : c.midi ? "MIDI · "_ca + juce::String ((int) c.notes.size()) + (c.notes.size() == 1 ? " nota" : " notes")
                              : (s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida"));
             if (c.midi && estat.pianoRoll && estat.editorDe ({ pista, indexClip }) >= 0) nom += "  (Piano Roll)";
@@ -992,6 +1051,33 @@ void VistaPistes::paint (juce::Graphics& g)
         g.setColour (estat.pistaEsTriada (i) ? tema::triat : (i % 2 == 0 ? tema::fons : juce::Colour (0xff19191e)));
         if (estat.filaCarpeta (i)) g.setColour (juce::Colour (0xff1d1d23));
         g.fillRect (0, y, getWidth(), estat.altPista);
+        const auto& t = estat.projecte.pistes[(size_t) i];
+        if (mibase::esAcords (t))
+        {
+            g.setColour (juce::Colour (0xffa98bff).withAlpha (0.05f));   // 0.36: la pista d'Acords
+            g.fillRect (0, y, getWidth(), estat.altPista);
+            g.setColour (juce::Colour (0xffa98bff).withAlpha (0.5f));
+            g.fillRect (0, y + estat.altPista - 2, getWidth(), 2);
+        }
+        if (mibase::esBus (t))
+        {
+            // 0.34: fila d'un grup o retorn: tenyida i ratllada (no hi van clips)
+            const auto col = EstatEstudi::colorPista (t);
+            g.setColour (col.withAlpha (0.07f));
+            g.fillRect (0, y, getWidth(), estat.altPista);
+            g.setColour (col.withAlpha (0.05f));
+            for (int x = -estat.altPista; x < getWidth(); x += 14)
+                g.drawLine ((float) x, (float) (y + estat.altPista), (float) (x + estat.altPista), (float) y, 4.0f);
+            g.setColour (col.withAlpha (0.45f));
+            g.setFont (dibuix::lletra (11.0f, true));
+            g.drawText (dibuix::majuscules (t.tipus == "fx" ? "Retorn d'efectes"_ca : "Grup"_ca) + "  ·  " + dibuix::utf8 (t.nom),
+                        juce::Rectangle<int> (12, y, getWidth() - 24, estat.altPista), juce::Justification::centredLeft, false);
+            if (i == 0 || ! mibase::esBus (estat.projecte.pistes[(size_t) (i - 1)]))
+            {
+                g.setColour (tema::accent.withAlpha (0.7f));
+                g.fillRect (0, y, getWidth(), 2);   // ratlla entre les pistes i els busos
+            }
+        }
         g.setColour (tema::linia.withAlpha (0.6f));
         g.fillRect (0, y + estat.altPista - 1, getWidth(), 1);
     }
@@ -1004,6 +1090,16 @@ void VistaPistes::paint (juce::Graphics& g)
     }
 
     pintaGraella (g);
+    if (dibuixaAcord && pistaAcord >= 0 && pistaAcord < estat.numPistes() && std::abs (acordT1 - acordT0) > 1.0e-6)
+    {
+        // 0.42: la finestra de l'acord que s'està dibuixant
+        const float xa = estat.x (juce::jmin (acordT0, acordT1)), xb = estat.x (juce::jmax (acordT0, acordT1));
+        const auto r = juce::Rectangle<float> (xa, (float) estat.yPista (pistaAcord) + 3.0f, xb - xa, (float) estat.altDe (pistaAcord) - 6.0f);
+        g.setColour (juce::Colour (0xffb18cff).withAlpha (0.45f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (juce::Colour (0xffb18cff));
+        g.drawRoundedRectangle (r, 4.0f, 1.2f);
+    }
     pintaBucleSobre (g, estat, h);
 
     for (int i = 0; i < estat.numPistes(); ++i)
@@ -1033,6 +1129,16 @@ void VistaPistes::paint (juce::Graphics& g)
                 g.setColour (juce::Colours::white.withAlpha (0.6f));
                 g.fillRect (r.getX(), r.getY(), 1.0f, r.getHeight());
                 g.fillRect (r.getRight() - 1.0f, r.getY(), 1.0f, r.getHeight());
+                // 0.34: els fades del clip de sota també es veuen (abans el de dalt els tapava)
+                const auto& sota = t.clips[(size_t) a];
+                if (! sota.midi)
+                {
+                    g.setColour (juce::Colour (0xffffd27a).withAlpha (0.9f));
+                    if (sota.fadeOut > 0.0)
+                        g.drawLine (estat.x (sota.fiVisible() - sota.fadeOut), r.getY(), estat.x (sota.fiVisible()), r.getBottom(), 1.6f);
+                    if (sota.fadeIn > 0.0)
+                        g.drawLine (estat.x (sota.iniciVisible()), r.getBottom(), estat.x (sota.iniciVisible() + sota.fadeIn), r.getY(), 1.6f);
+                }
             }
     }
 
@@ -1154,6 +1260,11 @@ void VistaPistes::mouseMove (const juce::MouseEvent& e)
         setMouseCursor (l.pistaNova ? juce::MouseCursor::PointingHandCursor : cursor (estat.eina));
         return;
     }
+    if (e.mods.isShiftDown() && ! e.mods.isCommandDown() && l.pista >= 0)
+    {
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);   // 0.32: amb Maj només se selecciona
+        return;
+    }
 
     switch (l.maneta)
     {
@@ -1168,6 +1279,126 @@ void VistaPistes::mouseMove (const juce::MouseEvent& e)
     }
 }
 
+void VistaPistes::menuAcords (int pista, int clip, double t)
+{
+    // 0.36: els acords de la tonalitat (tríades i setenes), escriure'n un, o esborrar-lo
+    namespace hm = mibase::harmonia;
+    const auto ton = hm::tonalitatEfectiva (estat.projecte);
+    const auto triades = hm::acordsDeTonalitat (ton, false), setenes = hm::acordsDeTonalitat (ton, true);
+    juce::PopupMenu m, m7;
+    m.addSectionHeader ("Acords de "_ca + juce::String::fromUTF8 (hm::nomTonalitat (ton).c_str()));
+    for (int k = 0; k < (int) triades.size(); ++k) m.addItem (1 + k, juce::String::fromUTF8 (triades[(size_t) k].nom.c_str()));
+    for (int k = 0; k < (int) setenes.size(); ++k) m7.addItem (20 + k, juce::String::fromUTF8 (setenes[(size_t) k].nom.c_str()));
+    m.addSubMenu ("Amb setena"_ca, m7);
+    m.addSeparator();
+    m.addItem (40, "Escriu un acord…"_ca);
+    if (clip >= 0) { m.addSeparator(); m.addItem (41, "Esborra'l"_ca); }
+    juce::Component::SafePointer<VistaPistes> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista, clip, t, triades, setenes] (int r)
+    {
+        if (jo == nullptr || r <= 0) return;
+        auto aplica = [jo, pista, clip, t] (const std::string& nom)
+        {
+            if (jo == nullptr || pista >= jo->estat.numPistes()) return;
+            jo->comencaCanvi();
+            jo->restaura();
+            auto& p = jo->estat.projecte;
+            if (clip >= 0 && clip < (int) p.pistes[(size_t) pista].clips.size())
+            {
+                if (mibase::harmonia::llegeixAcord (nom).buit()) return;
+                p.pistes[(size_t) pista].clips[(size_t) clip].acord = nom;
+            }
+            else
+            {
+                const auto tros = ed::trosAcordNou (p, t);   // 0.37: des del temps on cliques
+                ed::posaAcord (p, tros.first, tros.second, nom);
+            }
+            jo->canviFet = true;
+            jo->acabaCanvi ("Acord: "_ca + juce::String::fromUTF8 (mibase::harmonia::nomPad (mibase::harmonia::llegeixAcord (nom)).c_str()));
+        };
+        if (r >= 1 && r < 20) aplica (triades[(size_t) (r - 1)].nom);
+        else if (r >= 20 && r < 40) aplica (setenes[(size_t) (r - 20)].nom);
+        else if (r == 41)
+        {
+            jo->comencaCanvi();
+            jo->restaura();
+            auto& cl = jo->estat.projecte.pistes[(size_t) pista].clips;
+            if (clip < (int) cl.size()) cl.erase (cl.begin() + clip);
+            jo->estat.capTriat();
+            jo->canviFet = true;
+            jo->acabaCanvi ("Acord esborrat"_ca);
+        }
+        else if (r == 40)
+        {
+            jo->dialegAcord = std::make_unique<DialegText> ("Acord"_ca, "Escriu l'acord (Am, G7, C/E, Fmaj7, Dsus4…):"_ca, "D'acord"_ca,
+                [] (const juce::String& x) { return mibase::harmonia::llegeixAcord (x.trim().toStdString()).buit() ? "No l'entenc: prova «Am», «G7» o «C/E»."_ca : juce::String(); },
+                [aplica] (const juce::String& x) { aplica (x.trim().toStdString()); });
+            DialegText::mostra (*jo, jo->dialegAcord);
+        }
+    });
+}
+
+void VistaPistes::obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on, double fi)
+{
+    // 0.37: el llapis (o doble clic) a la pista d'Acords: mini Chord Pad + constructor d'acords
+    const auto& cl = estat.projecte.pistes[(size_t) pista].clips;
+    const std::string inicial = clip >= 0 && clip < (int) cl.size() ? cl[(size_t) clip].acord : ed::acordA (estat.projecte, t);
+    juce::Component::SafePointer<VistaPistes> jo (this);
+    auto f = std::make_unique<FinestraAcords> (estat, pista, inicial,
+        [jo, pista, clip, t, fi] (const std::string& nom)
+        {
+            if (jo == nullptr || pista >= jo->estat.numPistes()) return;
+            jo->comencaCanvi();
+            jo->restaura();
+            auto& p = jo->estat.projecte;
+            auto& clips = p.pistes[(size_t) pista].clips;
+            if (clip >= 0 && clip < (int) clips.size()) clips[(size_t) clip].acord = nom;
+            else if (fi > t + 0.02) ed::posaAcord (p, t, fi, nom);   // 0.42: el tros que s'ha dibuixat
+            else
+            {
+                const auto tros = ed::trosAcordNou (p, t);
+                ed::posaAcord (p, tros.first, tros.second, nom);
+            }
+            jo->canviFet = true;
+            jo->acabaCanvi ("Acord: "_ca + juce::String::fromUTF8 (mibase::harmonia::nomPad (mibase::harmonia::llegeixAcord (nom)).c_str()));
+        },
+        [jo] (const std::vector<int>& notes) { if (jo != nullptr && jo->onEscoltaNotes) jo->onEscoltaNotes (notes); });
+    juce::CallOutBox::launchAsynchronously (std::move (f), localAreaToGlobal (juce::Rectangle<int> (on.x - 4, on.y - 4, 8, 8)), nullptr);
+}
+
+void VistaPistes::deixaAcord (juce::Point<int> on)
+{
+    // 0.36: un acord arrossegat del Chord Pad (o de la llista de la tonalitat): a la pista d'Acords, al compàs on es deixa
+    filaDeixar = -2;
+    const auto nom = estat.segell.nom.trim().toStdString();
+    const long long durada = estat.segell.durada;
+    estat.segell = {};
+    const int fila = estat.pistaA (on.y);
+    if (fila < 0 || fila >= estat.numPistes() || ! mibase::esAcords (estat.projecte.pistes[(size_t) fila]))
+    {
+        estat.info = "Els acords es deixen a la pista d'Acords (o al Piano Roll)"_ca;
+        estat.avisa();
+        repaint();
+        return;
+    }
+    comencaCanvi();
+    restaura();
+    auto& p = estat.projecte;
+    const double t = juce::jmax (0.0, estat.t ((float) on.x));
+    const auto tros = ed::trosAcordNou (p, t);   // 0.37: comença al temps on es deixa i dura el que diu el Chord Pad
+    const double a = tros.first;
+    const double llarg = durada > 0 ? midi::segons (p, midi::ticks (p, a) + (double) durada) - a : tros.second - a;
+    if (ed::posaAcord (p, a, a + juce::jmax (0.05, llarg), nom) < 0)
+    {
+        estat.info = "No entenc l'acord «"_ca + juce::String::fromUTF8 (nom.c_str()) + "»"_ca;
+        estat.avisa();
+        repaint();
+        return;
+    }
+    canviFet = true;
+    acabaCanvi ("Acord a la pista d'Acords: "_ca + juce::String::fromUTF8 (nom.c_str()));
+}
+
 void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const juce::String&, int)> tria)
 {
     juce::PopupMenu m;
@@ -1175,13 +1406,19 @@ void VistaPistes::menuPistaNova (juce::Component& on, std::function<void (const 
     m.addItem (1, "Àudio mono"_ca);
     m.addItem (2, "Àudio estèreo"_ca);
     m.addSeparator();
-    m.addItem (10, "Instrument MIDI (sinte intern o VST3)"_ca);
-    m.addItem (11, "Bateria (Drumpad)"_ca);
-    m.addItem (14, "Samplejador"_ca);
-    m.addItem (12, "Acords  · més endavant"_ca, false);
-    m.addItem (13, "Bus d'efectes  · més endavant"_ca, false);
+    // 0.39: tot són pistes d'instrument; només canvia amb quin instrument comencen (després es pot canviar).
+    m.addItem (10, "Pista d'instrument (sinte, General MIDI, VST3…)"_ca);
+    m.addItem (11, "Pista d'instrument amb kit de bateria"_ca);
+    m.addItem (14, "Pista d'instrument amb samplejador"_ca);
+    m.addSeparator();
+    m.addItem (12, "Pista d'acords (la guia de la cançó)"_ca);   // 0.36 (només n'hi ha una: si ja hi és, la tria)
+    m.addItem (15, "Grup"_ca);
+    m.addItem (13, "Retorn d'efectes (FX)"_ca);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&on).withMousePosition(), [tria] (int r)
     {
+        if (r == 12) tria ("acords", 0);
+        else if (r == 15) tria ("bus", 2);
+        else if (r == 13) tria ("fx", 2);
         if (r == 1) tria ("audio", 1);
         else if (r == 2) tria ("audio", 2);
         else if (r == 10) tria ("midi", 2);
@@ -1279,6 +1516,7 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
     }
     grabKeyboardFocus();
     inici = e.getPosition();
+    rang0 = estat.rang;   // 0.29: per si el clic és per arrossegar el tros triat al samplejador
     lloc0 = llocA (inici);
     t0 = estat.t ((float) e.x);
     mode = Mode::Res;
@@ -1286,6 +1524,37 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
     if (lloc0.pistaNova)
     {
         menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
+        return;
+    }
+
+    // 0.36: la pista d'Acords: botó dret o llapis = menú d'acords; la resta d'eines (fletxa, tisores, goma) com sempre
+    if (lloc0.pista >= 0 && lloc0.pista < estat.numPistes() && mibase::esAcords (estat.projecte.pistes[(size_t) lloc0.pista])
+        && (e.mods.isPopupMenu() || estat.eina == Eina::Llapis))
+    {
+        if (lloc0.clip >= 0 && ! estat.clipTriat (lloc0.pista, lloc0.clip)) estat.triaClip (lloc0.pista, lloc0.clip);
+        estat.pistaTriada = lloc0.pista;
+        mode = Mode::Res;
+        estat.avisa();
+        if (e.mods.isPopupMenu()) menuAcords (lloc0.pista, lloc0.clip, juce::jmax (0.0, estat.t ((float) e.x)));
+        else if (lloc0.clip >= 0) obreFinestraAcords (lloc0.pista, lloc0.clip, juce::jmax (0.0, estat.t ((float) e.x)), e.getPosition());   // 0.37
+        else
+        {
+            // 0.42: en un lloc buit, primer es dibuixa la finestra (arrossegant) i en deixar anar es demana l'acord
+            dibuixaAcord = true;
+            pistaAcord = lloc0.pista;
+            acordT0 = acordT1 = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), estat.projecte.snap));
+        }
+        return;
+    }
+
+    // 0.34: la fila d'un grup o retorn: només es tria (no s'hi fan clips, talls ni requadres)
+    if (lloc0.pista >= 0 && lloc0.pista < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) lloc0.pista]))
+    {
+        estat.capTriat();
+        estat.pistesTriades.clear();
+        estat.pistaTriada = lloc0.pista;
+        mode = Mode::Res;
+        estat.avisa();
         return;
     }
 
@@ -1384,6 +1653,19 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
 
     auto& t = estat.projecte.pistes[(size_t) lloc0.pista];
     estat.rang.actiu = false;
+
+    // 0.32: amb Maj, el ratolí només selecciona (requadre o tros): mai mou, retalla ni toca els fades, encara que el clip
+    // ja estigui triat. Un clic sense arrossegar fa com abans (tria els clips de la pista fins a aquest).
+    nomesSeleccio = e.mods.isShiftDown() && ! e.mods.isCommandDown();
+    if (nomesSeleccio)
+    {
+        estat.pistaTriada = lloc0.pista;
+        triatsOriginals = estat.triats;
+        mode = Mode::Requadre;
+        puntRequadre = inici;
+        estat.avisa();
+        return;
+    }
 
     if (lloc0.maneta != Maneta::Cap)
     {
@@ -1494,8 +1776,64 @@ void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
 void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu()) return;
+    if (dibuixaAcord)
+    {
+        acordT1 = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), estat.projecte.snap));
+        repaint();
+        return;
+    }
     auto& p = estat.projecte;
     const double t = estat.t ((float) e.x);
+
+    // 0.29: un clip d'àudio arrossegat fora de les pistes es pot deixar al samplejador
+    const auto clipFora = [&]
+    {
+        if (! (mode == Mode::Decidint || mode == Mode::MouTemps || mode == Mode::MouPista || (mode == Mode::Requadre && lloc0.clip >= 0 && ! nomesSeleccio))) return false;
+        if (! arrossegaFora || ! arrossegaFora (e.getScreenPosition())) return false;
+        // movent, el projecte bo és la còpia d'abans de moure; fent un requadre, no s'ha mogut res
+        const auto& pr = mode == Mode::Requadre ? estat.projecte : copiaInici;
+        return lloc0.pista >= 0 && lloc0.pista < (int) pr.pistes.size() && lloc0.clip >= 0
+               && lloc0.clip < (int) pr.pistes[(size_t) lloc0.pista].clips.size() && ! mibase::esMidi (pr.pistes[(size_t) lloc0.pista]);
+    };
+    if (clipFora())
+        if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor (this))
+        {
+            if (mode == Mode::Requadre)
+            {
+                // començat a sobre d'un clip: el tros que ja estava triat (si el toca) o el clip sencer
+                const bool toca = rang0.actiu && lloc0.pista >= rang0.pistaDe && lloc0.pista <= rang0.pistaFins && t0 >= rang0.t0 && t0 <= rang0.t1;
+                estat.rang = rang0;
+                if (! toca) estat.rang.actiu = false;
+                estat.triats.clear();
+                estat.triats.push_back ({ lloc0.pista, lloc0.clip });
+            }
+            else
+            {
+                restaura();
+                estat.triats = triatsOriginals;
+            }
+            canviFet = false;
+            triatsOriginals.clear();
+            mode = Mode::Res;
+            const int pi = lloc0.pista, ci = lloc0.clip;
+            const auto& t2 = estat.projecte.pistes[(size_t) pi];
+            const auto* s = ed::presa (estat.projecte, t2.clips[(size_t) ci].presa);
+            const auto nom = s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Clip");
+            juce::Image im (juce::Image::ARGB, 160, 28, true);
+            {
+                juce::Graphics g (im);
+                g.setColour (EstatEstudi::colorPista (t2).withAlpha (0.85f));
+                g.fillRoundedRectangle (0.0f, 0.0f, 160.0f, 28.0f, 6.0f);
+                g.setColour (juce::Colours::black);
+                g.setFont (dibuix::lletra (13.0f, true));
+                g.drawText (nom, 6, 0, 148, 28, juce::Justification::centred, true);
+            }
+            estat.info = "Deixa «"_ca + nom + "» a sobre del samplejador"_ca;
+            estat.avisa();
+            repaint();
+            c->startDragging ("mibase-clip:" + juce::String (pi) + ":" + juce::String (ci), this, juce::ScaledImage (im), true);
+            return;
+        }
 
     switch (mode)
     {
@@ -1645,6 +1983,16 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 
 void VistaPistes::mouseUp (const juce::MouseEvent& e)
 {
+    if (dibuixaAcord)
+    {
+        // 0.42: finestra dibuixada (o un clic sol: fins al final del compàs, com abans); ara, quin acord hi va
+        dibuixaAcord = false;
+        const double a = juce::jmin (acordT0, acordT1), b = juce::jmax (acordT0, acordT1);
+        repaint();
+        if (pistaAcord >= 0 && pistaAcord < estat.numPistes())
+            obreFinestraAcords (pistaAcord, -1, b - a > 0.02 ? a : juce::jmax (0.0, estat.t ((float) e.x)), e.getPosition(), b - a > 0.02 ? b : -1.0);
+        return;
+    }
     if (e.mods.isPopupMenu()) { mode = Mode::Res; return; }
 
     switch (mode)
@@ -1657,6 +2005,28 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             break;
 
         case Mode::Requadre:
+            if (nomesSeleccio && e.getDistanceFromDragStart() < 4 && lloc0.pista >= 0 && lloc0.clip >= 0 && lloc0.pista < estat.numPistes())
+            {
+                // Maj + clic sense arrossegar: tots els de la pista entre l'últim triat i aquest (com abans)
+                const auto& t = estat.projecte.pistes[(size_t) lloc0.pista];
+                if (lloc0.clip < (int) t.clips.size())
+                {
+                    if (! estat.triats.empty() && estat.triats.back().pista == lloc0.pista && estat.triats.back().clip < (int) t.clips.size())
+                    {
+                        const double a = t.clips[(size_t) estat.triats.back().clip].iniciVisible();
+                        const double b = t.clips[(size_t) lloc0.clip].iniciVisible();
+                        for (int k = 0; k < (int) t.clips.size(); ++k)
+                        {
+                            const double x = t.clips[(size_t) k].iniciVisible();
+                            if (x >= juce::jmin (a, b) - 1e-9 && x <= juce::jmax (a, b) + 1e-9 && ! estat.clipTriat (lloc0.pista, k))
+                                estat.triats.push_back ({ lloc0.pista, k });
+                        }
+                    }
+                    else if (! estat.clipTriat (lloc0.pista, lloc0.clip))
+                        estat.triats.push_back ({ lloc0.pista, lloc0.clip });
+                }
+            }
+            nomesSeleccio = false;
             if (estat.triats.size() == 1) estat.pistaTriada = estat.triats[0].pista;
             if (! estat.rang.actiu && estat.triats.empty()) estat.info.clear();
             estat.avisa();
@@ -1739,6 +2109,27 @@ void VistaPistes::mouseDoubleClick (const juce::MouseEvent& e)
         if (onObreVeu) onObreVeu (l.pista, l.clip);
         return;
     }
+    // 0.36: doble clic a la pista d'Acords: posar o canviar un acord
+    if (l.pista >= 0 && l.pista < estat.numPistes() && mibase::esAcords (estat.projecte.pistes[(size_t) l.pista]))
+    {
+        mode = Mode::Res;
+        obreFinestraAcords (l.pista, l.clip, juce::jmax (0.0, estat.t ((float) e.x)), e.getPosition());   // 0.37
+        return;
+    }
+    // 0.31: doble clic amb la fletxa en un lloc buit d'una pista: una finestra (clip) d'un compàs
+    if (l.pista >= 0 && l.clip < 0 && l.pista < estat.numPistes() && estat.eina == Eina::Fletxa && ! estat.filaCarpeta (l.pista)
+        && ! mibase::esBus (estat.projecte.pistes[(size_t) l.pista]))
+    {
+        comencaCanvi();
+        restaura();
+        const double a = juce::jmax (0.0, tEina (estat.t ((float) e.x)));
+        const int nou = ed::creaFinestra (estat.projecte, l.pista, a, a + ed::segonsPerCompasA (estat.projecte, a));
+        estat.pistaTriada = l.pista;
+        estat.triaClip (l.pista, nou);
+        acabaCanvi ("Finestra nova d'un compàs"_ca);
+        mode = Mode::Res;
+        return;
+    }
     if (l.pista < 0 && ! l.pistaNova && e.y > estat.yPista (estat.numPistes()))
         menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
 }
@@ -1754,7 +2145,8 @@ bool VistaPistes::isInterestedInFileDrag (const juce::StringArray& files)
 void VistaPistes::filesDropped (const juce::StringArray& files, int x, int y)
 {
     filaDeixar = -2;
-    const int fila = estat.pistaA (y);
+    int fila = estat.pistaA (y);
+    if (fila >= 0 && fila < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) fila])) fila = -1;   // 0.34: a un bus no: pista nova
     if (onImporta) onImporta (files, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, tEina (estat.t ((float) x)));
     repaint();
 }
@@ -1839,6 +2231,64 @@ void Capcaleres::paint (juce::Graphics& g)
             continue;
         }
 
+        if (mibase::esAcords (t))
+        {
+            // 0.36: la pista d'Acords
+            const auto col = juce::Colour (0xffa98bff);
+            g.setColour (col.withAlpha (0.08f));
+            g.fillRect (r);
+            if (estat.pistaEsTriada (i)) { g.setColour (tema::triat.withAlpha (0.8f)); g.fillRect (r); }
+            g.setColour (col);
+            g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
+            auto text = r.withTrimmedLeft (14).withTrimmedRight (10).withTrimmedTop (6);
+            g.setFont (dibuix::lletra (14.0f, true));
+            g.drawText ("ACORDS", text.removeFromTop (20), juce::Justification::centredLeft);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.5f));
+            g.drawFittedText ("Arrossega-hi acords del Chord Pad o fes-hi doble clic"_ca, text.withTrimmedBottom (6), juce::Justification::topLeft, 2, 0.8f);
+            g.setColour (col.withAlpha (0.6f));
+            g.fillRect (0, r.getBottom() - 2, getWidth(), 2);
+            continue;
+        }
+        if (mibase::esBus (t))
+        {
+            // 0.34: grups i retorns, a baix de tot: nom, M, S i on van (no graven ni tenen clips)
+            const auto col = EstatEstudi::colorPista (t);
+            g.setColour (col.withAlpha (0.10f));
+            g.fillRect (r);
+            if (estat.pistaEsTriada (i)) { g.setColour (tema::triat.withAlpha (0.8f)); g.fillRect (r); }
+            g.setColour (sona (p, t) ? col : tema::suau);
+            g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
+            auto text = r.withTrimmedLeft (14).withTrimmedRight (22).withTrimmedTop (7);
+            auto fila = text.removeFromTop (20);
+            g.setColour (col);
+            g.setFont (dibuix::lletra (10.0f, true));
+            const auto etiqueta = t.tipus == "fx" ? juce::String ("RETORN") : juce::String ("GRUP");
+            g.drawText (etiqueta, fila.removeFromLeft (54), juce::Justification::centredLeft);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (14.0f, true));
+            g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
+            dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", t.mut, vintage::ledBlau);
+            dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
+            const int d = ed::pistaPerId (p, t.sortida);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f));
+            g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida")),
+                              juce::Rectangle<int> (rectTecla (i, 1).getRight() + 10, rectTecla (i, 1).getY(), getWidth() - rectTecla (i, 1).getRight() - 32, 24),
+                              juce::Justification::centredLeft, 1, 0.8f);
+            dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
+                                    estat.nivell (i, 0), estat.nivell (i, 1));
+            g.setColour (tema::linia.withAlpha (0.6f));
+            g.fillRect (0, r.getBottom() - 1, getWidth(), 1);
+            if (i == 0 || ! mibase::esBus (p.pistes[(size_t) (i - 1)]))
+            {
+                // la ratlla que separa les pistes dels busos
+                g.setColour (tema::accent.withAlpha (0.7f));
+                g.fillRect (0, r.getY(), getWidth(), 2);
+            }
+            continue;
+        }
+
         if (estat.pistaEsTriada (i))
         {
             g.setColour (tema::triat);
@@ -1866,15 +2316,53 @@ void Capcaleres::paint (juce::Graphics& g)
             // 0.20: botonet per obrir l'instrument (o els kits, a la bateria).
             const auto rb = rectObreInstrument (i).toFloat();
             vintage::tecla (g, rb, false, false, EstatEstudi::colorPista (t));
-            dibuix::pintaIcona (g, t.tipus == "bateria" ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
+            dibuix::pintaIcona (g, mibase::esKit (t) ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
             zonaCanals.removeFromLeft (rb.toNearestInt().getWidth() + 6);
+        }
+        if (const auto rs = rectSegueix (i); ! rs.isEmpty())
+        {
+            // 0.41: interruptor «segueix la pista d'Acords» (lila quan està encès)
+            dibuixEstudi::teclaPetita (g, rs, "Ac", t.segueixAcords, juce::Colour (0xffb18cff));
+            zonaCanals.removeFromLeft (rs.getWidth() + 6);
         }
         if (zonaCanals.getWidth() > 30)
         {
-            g.setColour (t.grava ? vintage::ledVermell.withAlpha (0.85f) : tema::suau);
-            g.setFont (dibuix::lletra (11.0f));
-            g.drawFittedText (textPistaCurt (t), zonaCanals,
-                              juce::Justification::centredLeft, 1, 0.8f);
+            // 0.35: entrada i sortida a la vista, com el E/S de Pro Tools (clic: les tries)
+            auto caixa = [&] (juce::Rectangle<int> z, const juce::String& etiqueta, bool cap, juce::Colour col)
+            {
+                if (z.isEmpty()) return;
+                g.setColour (juce::Colours::black.withAlpha (0.45f));
+                g.fillRoundedRectangle (z.toFloat(), 3.0f);
+                g.setColour (tema::linia);
+                g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 3.0f, 1.0f);
+                juce::Path f;
+                const float fx = (float) z.getX() + 4.0f, fy = (float) z.getCentreY();
+                if (cap) f.addTriangle (fx + 5.0f, fy - 3.5f, fx + 5.0f, fy + 3.5f, fx, fy);
+                else f.addTriangle (fx, fy - 3.5f, fx, fy + 3.5f, fx + 5.0f, fy);
+                g.setColour (col);
+                g.fillPath (f);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (10.5f));
+                g.drawFittedText (etiqueta, z.withTrimmedLeft (12).withTrimmedRight (2), juce::Justification::centredLeft, 1, 0.75f);
+            };
+            const int d = ed::pistaPerId (p, t.sortida);
+            if (const auto z = rectES (i); ! z.isEmpty())   // 0.36: sempre un sol botó E/S
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.45f));
+                g.fillRoundedRectangle (z.toFloat(), 3.0f);
+                g.setColour (d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::linia);
+                g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 3.0f, 1.0f);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (10.5f, true));
+                g.drawText ("E/S", z, juce::Justification::centred);
+            }
+            else
+            {
+                if (t.tipus == "audio")
+                    caixa (rectEntradaCap (i), EstatEstudi::textEntrada (t), true, t.grava ? vintage::ledVermell : tema::textMig);
+                caixa (rectSortidaCap (i), d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida"), false,
+                       d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::textMig);
+            }
         }
 
         // Vúmetre de la pista (si té el botó de gravar encès, també el que entra).
@@ -1910,25 +2398,16 @@ void Capcaleres::menu (int pista)
     for (int c = 0; c < ed::colorsPista; ++c)
         colors.addColouredItem (20 + c, EstatEstudi::nomColor (c), EstatEstudi::colorPista (c), true, t.color == c);
 
-    juce::PopupMenu entrades;
-    const auto& noms = estat.nomsEntrades;
-    for (int e = 0; e + (t.canals == 2 ? 1 : 0) < noms.size(); ++e)
-    {
-        const bool activa = noms[e].isNotEmpty() && (t.canals == 1 || noms[e + 1].isNotEmpty());
-        const auto text = t.canals == 2 ? juce::String (e + 1) + "-" + juce::String (e + 2) + "  (" + noms[e] + " + " + noms[e + 1] + ")"
-                                        : juce::String (e + 1) + "  (" + noms[e] + ")";
-        entrades.addItem (40 + e, activa ? text : juce::String (e + 1) + "  (apagada a les Preferències)"_ca, activa, t.entrada == e);
-    }
-    if (noms.isEmpty())
-        entrades.addItem (39, "La targeta no té entrades (o està aturada)", false);
+    juce::PopupMenu entrades = EstatEstudi::menuEntrades (estat.nomsEntrades, t, 1000);   // 0.34: mono i estèreo junts
 
     juce::PopupMenu sons;
     if (t.tipus == "midi")
     {
         const int actual = juce::jmax (0, midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument));
         for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
-            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && ! mibase::esSampler (t));
+            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument) >= 0);
         sons.addSeparator();
+        sons.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (200, mibase::gm::programa (t.instrument)), true, juce::Image(), mibase::gm::programa (t.instrument) >= 0);   // 0.31
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
@@ -1938,19 +2417,26 @@ void Capcaleres::menu (int pista)
     m.addItem (1, "Canvia el nom…"_ca);
     m.addSubMenu ("Color", colors);
     if (t.tipus == "midi")
-        m.addSubMenu ("Instrument (sinte intern)", sons);
-    else if (t.tipus == "bateria") {}
+        m.addSubMenu ("Instrument"_ca, sons);
+    else if (mibase::esKit (t) || mibase::esBus (t) || mibase::esAcords (t)) {}
     else
     {
         m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
-        m.addSubMenu ("Entrada per gravar", entrades);
+        m.addSubMenu ("Entrada per gravar"_ca, entrades);
     }
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
+    m.addSeparator();
+    m.addItem (9, "Afegeix una pista…"_ca);   // 0.42: sense haver d'anar al final de la taula
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista] (int r)
     {
         if (r == 0 || pista >= estat.numPistes()) return;
         if (r == 1) { if (onCanviaNom) onCanviaNom (pista); return; }
+        if (r == 9)
+        {
+            VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
+            return;
+        }
         comencaCanvi();
         restaura();
         auto& tt = estat.projecte.pistes[(size_t) pista];
@@ -1967,15 +2453,73 @@ void Capcaleres::menu (int pista)
             tt.instrument = mibase::instrumentSampler;
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: samplejador"_ca;
         }
-        else if (r >= 60)
+        else if (r >= 200 && r < 328)
+        {
+            tt.instrument = mibase::gm::instrument (r - 200);
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (r - 200));
+            juce::MessageManager::callAsync ([this] { bancgm::assegura (this, {}); });
+        }
+        else if (r >= 60 && r < 200)
         {
             tt.instrument = std::string ("intern:") + midi::sonsInterns()[(size_t) (r - 60)].id;
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: so "_ca + juce::String::fromUTF8 (midi::sonsInterns()[(size_t) (r - 60)].nom);
         }
-        else if (r >= 40) tt.entrada = r - 40;
-        else if (r >= 20) { tt.color = r - 20; tt.rgb = 0; }
+        else if (EstatEstudi::aplicaEntrada (tt, r, 1000)) evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: entrada "_ca + EstatEstudi::textEntrada (tt);
+        else if (r >= 20 && r < 40) { tt.color = r - 20; tt.rgb = 0; }
         acabaCanvi (evolucio);
     });
+}
+
+juce::Rectangle<int> Capcaleres::zonaES (int fila) const
+{
+    const auto r = rectTecla (fila, 2);
+    juce::Rectangle<int> z (r.getRight() + 8, r.getY() + 2, getWidth() - r.getRight() - 30, r.getHeight() - 4);
+    // igual que quan es pinta: el botó de l'instrument només hi és si hi cap
+    if (fila < estat.numPistes() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && z.getWidth() > 50)
+        z.removeFromLeft (rectObreInstrument (fila).getWidth() + 6);
+    if (const auto s = rectSegueix (fila); ! s.isEmpty()) z.removeFromLeft (s.getWidth() + 6);   // 0.41
+    return z;
+}
+
+juce::Rectangle<int> Capcaleres::rectES (int fila) const
+{
+    // 0.37: el botó E/S, el mateix rectangle per pintar-lo i per clicar-lo (si no hi cap, no hi és)
+    auto z = zonaES (fila);
+    if (z.getWidth() <= 30) return {};
+    return z.removeFromLeft (juce::jmin (z.getWidth(), 46));
+}
+
+bool Capcaleres::esEstreta (int fila) const
+{
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    return zonaES (fila).getWidth() < (t.tipus == "audio" ? 104 : 52);
+}
+
+juce::Rectangle<int> Capcaleres::rectEntradaCap (int fila) const
+{
+    // 0.35: la meitat esquerra de la zona E/S (només a les pistes d'àudio)
+    if (fila >= estat.numPistes() || estat.projecte.pistes[(size_t) fila].tipus != "audio") return {};
+    auto z = zonaES (fila);
+    return z.removeFromLeft ((z.getWidth() - 4) / 2);
+}
+
+juce::Rectangle<int> Capcaleres::rectSortidaCap (int fila) const
+{
+    auto z = zonaES (fila);
+    if (fila < estat.numPistes() && estat.projecte.pistes[(size_t) fila].tipus == "audio") z.removeFromLeft ((z.getWidth() - 4) / 2 + 4);
+    return z;
+}
+
+juce::Rectangle<int> Capcaleres::rectSegueix (int fila) const
+{
+    // 0.41: «segueix la pista d'Acords», a les pistes d'instrument, després del botó de l'instrument (si hi cap)
+    if (fila < 0 || fila >= estat.numPistes()) return {};
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (! mibase::esMidi (t) || mibase::esAcords (t) || mibase::esKit (t)) return {};
+    const auto r = rectObreInstrument (fila);
+    const juce::Rectangle<int> z (r.getRight() + 6, r.getY(), 26, r.getHeight());
+    return z.getRight() <= getWidth() - 24 ? z : juce::Rectangle<int>();
 }
 
 juce::Rectangle<int> Capcaleres::rectObreInstrument (int fila) const
@@ -2067,7 +2611,96 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    if (mibase::esAcords (estat.projecte.pistes[(size_t) fila]))   // 0.36: la pista d'Acords no té tecles ni E/S: només es tria
+    {
+        estat.pistaTriada = fila;
+        estat.avisa();
+        return;
+    }
+
+    // 0.35: entrada i sortida (les dues caixes, o el botó E/S si la capçalera és estreta)
+    if (! e.mods.isPopupMenu() && rectSegueix (fila).contains (e.getPosition()))
+    {
+        // 0.41: els patrons d'aquesta pista llegeixen (o no) la pista d'Acords
+        comencaCanvi();
+        restaura();
+        auto& ts = estat.projecte.pistes[(size_t) fila];
+        ts.segueixAcords = ! ts.segueixAcords;
+        acabaCanvi ("«"_ca + dibuix::utf8 (ts.nom) + (ts.segueixAcords ? "» segueix la pista d'Acords"_ca : "» ja no segueix la pista d'Acords"_ca));
+        return;
+    }
+    if (! mibase::esBus (estat.projecte.pistes[(size_t) fila]))
+    {
+        const auto pos = e.getPosition();
+        const bool estreta = true;   // 0.36: sempre el botó E/S
+        const auto zE = rectES (fila);   // 0.37: només on hi ha el botó pintat
+        const bool clicEntrada = ! estreta && rectEntradaCap (fila).contains (pos);
+        const bool clicSortida = ! estreta && rectSortidaCap (fila).contains (pos);
+        const bool clicES = estreta && zE.contains (pos);
+        if (clicEntrada || clicSortida || clicES)
+        {
+            estat.avisa();
+            const auto& p = estat.projecte;
+            const auto& t = p.pistes[(size_t) fila];
+            juce::PopupMenu m;
+            if ((clicEntrada || clicES) && t.tipus == "audio")
+            {
+                // 0.36: IN ▸ (entrades disponibles)
+                if (clicES)
+                {
+                    // 0.37: IN i OUT són dues seccions iguals
+                    m.addSectionHeader ("IN");
+                    m.addSubMenu (EstatEstudi::textEntrada (t), EstatEstudi::menuEntrades (estat.nomsEntrades, t, 1000));
+                }
+                else m = EstatEstudi::menuEntrades (estat.nomsEntrades, t, 1000);
+            }
+            const auto llistaTeclats = clicES && mibase::esMidi (t) && teclats ? teclats() : juce::Array<juce::MidiDeviceInfo>();
+            if (clicES && mibase::esMidi (t))
+            {
+                // 0.40: a les pistes d'instrument, IN és el teclat MIDI que la toca
+                m.addSectionHeader ("IN");
+                juce::PopupMenu sub;
+                sub.addItem (5000, "Qualsevol (el que toca la pista triada)", true, t.entradaMidi.empty());
+                for (int k = 0; k < llistaTeclats.size(); ++k)
+                    sub.addItem (5001 + k, llistaTeclats[k].name, true, t.entradaMidi == llistaTeclats[k].identifier.toStdString());
+                if (llistaTeclats.isEmpty()) sub.addItem (-1, "No hi ha cap teclat MIDI connectat", false);
+                m.addSubMenu ("Teclat: "_ca + (t.entradaMidi.empty() ? "qualsevol"_ca : dibuix::utf8 (t.entradaMidiNom)), sub);
+            }
+            if (clicSortida || clicES)
+                EstatEstudi::afegeixMenuSortida (m, p, t);   // OUT: MASTER L+R, FX ▸, Grups ▸
+            juce::Component::SafePointer<Capcaleres> jo (this);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, fila, llistaTeclats] (int r)
+            {
+                if (jo == nullptr || r <= 0 || fila >= jo->estat.numPistes()) return;
+                jo->comencaCanvi();
+                jo->restaura();
+                auto& tt = jo->estat.projecte.pistes[(size_t) fila];
+                juce::String text;
+                if (r >= 5000 && r <= 5000 + llistaTeclats.size())
+                {
+                    if (r == 5000) { tt.entradaMidi.clear(); tt.entradaMidiNom.clear(); text = "la toca qualsevol teclat"_ca; }
+                    else
+                    {
+                        const auto d = llistaTeclats[r - 5001];
+                        tt.entradaMidi = d.identifier.toStdString(); tt.entradaMidiNom = d.name.toStdString();
+                        text = "la toca el teclat «"_ca + d.name + "»"_ca;
+                    }
+                }
+                else if (EstatEstudi::aplicaEntrada (tt, r, 1000)) text = "entrada "_ca + EstatEstudi::textEntrada (tt);
+                else
+                {
+                    const auto bus = r >= 100 && r - 100 < jo->estat.numPistes() ? jo->estat.projecte.pistes[(size_t) (r - 100)].id : std::string();
+                    ed::posaSortida (jo->estat.projecte, fila, bus);
+                    text = "sortida canviada"_ca;
+                }
+                jo->acabaCanvi ("Pista «"_ca + dibuix::utf8 (jo->estat.projecte.pistes[(size_t) fila].nom) + "»: "_ca + text);
+            });
+            return;
+        }
+    }
+
     const auto b = teclaA (fila, e.getPosition());
+    if (b == Tecla::Grava && mibase::esBus (estat.projecte.pistes[(size_t) fila])) { estat.avisa(); return; }   // els busos no graven
     if (b != Tecla::Cap)
     {
         comencaCanvi();
@@ -2149,6 +2782,7 @@ void Capcaleres::mouseDoubleClick (const juce::MouseEvent& e)
 //==============================================================================
 ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
 {
+    addChildComponent (seguidors);   // 0.37
     addChildComponent (opcions);
     for (auto* b : { &btTreball, &btMescles, &btEstructura })
     {
@@ -2164,7 +2798,9 @@ ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
 
 void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    const bool ambOpcions = ! estat.foraTreball() && ! ambEditor();
+    const bool ambOpcions = ! estat.foraTreball() && ! ambEditor() && ! ambAcords();
+    seguidors.setVisible (ambAcords());   // 0.37
+    if (seguidors.isVisible()) seguidors.refresca();
     const int alt = ambOpcions ? opcions.alcada() : 0;
     opcions.setVisible (ambOpcions && alt > 0);
     if (opcions.isVisible()) opcions.actualitza();
@@ -2190,6 +2826,7 @@ void ColumnaEsquerra::resized()
     btEstructura.setBounds (r.removeFromTop (44));
     r.removeFromTop (16);
     if (panellEditor != nullptr) panellEditor->setBounds (r.withTrimmedLeft (-2).withTrimmedRight (-4).withTrimmedBottom (-6));
+    seguidors.setBounds (r);   // 0.37
     zonaNom = r.removeFromTop (44);
     opcions.setBounds (r.removeFromTop (altOpcions));
     if (altOpcions > 0) r.removeFromTop (8);
@@ -2207,7 +2844,7 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     // A la taula de mescles, cada pista ja té la seva tira: aquí només hi ha les pestanyes.
     // Amb un editor obert, hi ha el seu panell (el d'harmonia) en lloc del fader.
-    if (estat.foraTreball() || ambEditor()) return;
+    if (estat.foraTreball() || ambEditor() || ambAcords()) return;
 
     auto* t = estat.pista (estat.pistaTriada);
     auto cap = zonaNom.withTrimmedLeft (2);
@@ -2362,12 +2999,12 @@ void ColumnaEsquerra::mouseUp (const juce::MouseEvent&)
 
 void ColumnaEsquerra::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (estat.masterTriat() && ! estat.foraTreball() && ! ambEditor() && zonaFader.contains (e.getPosition()))
+    if (estat.masterTriat() && ! estat.foraTreball() && ! ambEditor() && ! ambAcords() && zonaFader.contains (e.getPosition()))
     {
         comencaCanvi(); restaura(); estat.projecte.masterDb = 0.0; acabaCanvi();
         return;
     }
-    if (estat.pista (estat.pistaTriada) == nullptr || estat.foraTreball() || ambEditor()) return;
+    if (estat.pista (estat.pistaTriada) == nullptr || estat.foraTreball() || ambEditor() || ambAcords()) return;
     const bool pan = zonaPan.contains (e.getPosition());
     if (! pan && ! zonaFader.contains (e.getPosition())) return;
     comencaCanvi();
@@ -2395,7 +3032,11 @@ TaulaMescles::Geo TaulaMescles::geo (juce::Rectangle<int> r, bool master) const
         g.etEnvia = { x, y, w, 12 };
         y += 14;
         for (int k = 0; k < numEnvia; ++k) { g.envia[(size_t) k] = { x, y, w, 18 }; y += 21; }
-        y += 4;
+        y += 2;
+        g.entrada = { x, y, w, 18 };   // 0.34: d'on grava (pistes d'àudio), com a Pro Tools: entrada a sobre, sortida a sota
+        y += 21;
+        g.sortida = { x, y, w, 18 };   // 0.33: on va el so de la pista
+        y += 24;
         g.pan = { x, y, w, 46 };
         y += 50;
         const int ample = 26, sep = 3;
@@ -2404,7 +3045,7 @@ TaulaMescles::Geo TaulaMescles::geo (juce::Rectangle<int> r, bool master) const
         y += 30;
     }
     else
-        y = 44 + 14 + numInserts * 21 + 4 + 14 + numEnvia * 21 + 4 + 50 + 30;   // alineat amb les altres tires
+        y = 44 + 14 + numInserts * 21 + 4 + 14 + numEnvia * 21 + 2 + 21 + 24 + 50 + 30;   // alineat amb les altres tires
     const int alt = juce::jlimit (90, 280, getHeight() - y - 30 - 26);
     g.fader = { r.getX() + 4, y, r.getWidth() - 8, alt };
     g.lcd = { x + 2, g.fader.getBottom() + 4, w - 4, 26 };
@@ -2421,6 +3062,12 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
     const auto ge = geo (r, master);
 
     vintage::panell (g, r.reduced (2, 0).toFloat(), 6.0f);
+    if (! master && mibase::esBus (*t))
+    {
+        // 0.33: els busos, tenyits del seu color perquè es distingeixin de les pistes.
+        g.setColour (color.withAlpha (0.07f));
+        g.fillRoundedRectangle (r.reduced (2, 0).toFloat(), 6.0f);
+    }
     if (! master && i == estat.pistaTriada)
     {
         g.setColour (tema::accent.withAlpha (0.6f));
@@ -2474,7 +3121,74 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
     if (! master)
     {
         etiqueta (ge.etEnvia, "ENVIAMENTS");
-        for (auto& z : ge.envia) ranura (z);
+        for (int k = 0; k < numEnvia; ++k)
+        {
+            const auto z = ge.envia[(size_t) k];
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (z.toFloat(), 3.0f);
+            if (k >= (int) t->enviaments.size())
+            {
+                g.setColour (k == (int) t->enviaments.size() ? tema::suau : tema::linia2);
+                g.setFont (dibuix::lletra (10.5f));
+                g.drawText (k == (int) t->enviaments.size() ? juce::String ("+") : juce::String::fromUTF8 ("—"), z, juce::Justification::centred);
+                continue;
+            }
+            // Llumeta (color = mode; apagada si no envia), nom del bus i nivell.
+            const auto& e = t->enviaments[(size_t) k];
+            const int d = ed::pistaPerId (p, e.desti);
+            const bool encesa = e.actiu && ! e.mut;
+            const auto led = e.mode == 0 ? vintage::ledGroc : (e.mode == 2 ? vintage::ledBlau : vintage::ledVerd);
+            g.setColour (encesa ? led : tema::linia2);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ (float) z.getX() + 8.0f, (float) z.getCentreY() }));
+            g.setColour (encesa ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (10.0f));
+            g.drawText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("?"), z.withTrimmedLeft (15).withTrimmedRight (27),
+                        juce::Justification::centredLeft, true);
+            g.setColour (encesa ? tema::textMig : tema::suau);
+            g.setFont (dibuix::mono (9.5f));
+            g.drawText (e.nivellDb <= -59.9 ? juce::String ("-oo") : juce::String (e.nivellDb, 1), z.withTrimmedRight (3), juce::Justification::centredRight);
+        }
+        {
+            // 0.34: d'on ve el so (només les pistes d'àudio graven d'una entrada de la targeta)
+            const auto z = ge.entrada;
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (z.toFloat(), 3.0f);
+            const bool audio = t->tipus == "audio";
+            juce::Path fletxa;
+            const float fx = (float) z.getX() + 5.0f, fy = (float) z.getCentreY();
+            fletxa.addTriangle (fx + 6.0f, fy - 4.0f, fx + 6.0f, fy + 4.0f, fx, fy);   // cap a dins
+            g.setColour (audio ? (t->grava ? vintage::ledVermell : tema::textMig) : tema::suau.withAlpha (0.4f));
+            g.fillPath (fletxa);
+            juce::String text;
+            if (audio)
+            {
+                const auto& noms = estat.nomsEntrades;
+                text = EstatEstudi::textEntrada (*t);
+                if (t->entrada < noms.size() && noms[t->entrada].isNotEmpty())
+                    text += "  " + noms[t->entrada] + (t->canals == 2 && t->entrada + 1 < noms.size() ? " / " + noms[t->entrada + 1] : juce::String());
+            }
+            else text = mibase::esBus (*t) ? juce::String() : juce::String ("MIDI");
+            g.setColour (audio ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (10.0f));
+            g.drawText (text, z.withTrimmedLeft (15).withTrimmedRight (3), juce::Justification::centredLeft, true);
+        }
+        {
+            // On va el so: fletxa i nom del bus (o «Sortida»).
+            const auto z = ge.sortida;
+            const int d = ed::pistaPerId (p, t->sortida);
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (z.toFloat(), 3.0f);
+            const auto c = d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::suau;
+            juce::Path fletxa;
+            const float fx = (float) z.getX() + 5.0f, fy = (float) z.getCentreY();
+            fletxa.addTriangle (fx, fy - 4.0f, fx, fy + 4.0f, fx + 6.0f, fy);
+            g.setColour (c);
+            g.fillPath (fletxa);
+            g.setColour (d >= 0 ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (10.0f));
+            g.drawText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida"), z.withTrimmedLeft (15).withTrimmedRight (3),
+                        juce::Justification::centredLeft, true);
+        }
 
         const bool actiu = sona (p, *t);
         auto pomR = ge.pan.withWidth (44).withX (ge.pan.getX());
@@ -2489,13 +3203,20 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
 
         dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", t->mut, vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
-        dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
+        if (! mibase::esBus (*t)) dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
 
         dibuixEstudi::faderVertical (g, ge.fader.toFloat(), t->faderDb, color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
         vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
-        g.drawText (juce::String (i + 1) + "  " + (t->tipus == "bateria" ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
+        if (mibase::esBus (*t))
+        {
+            g.setColour (color);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawText (t->tipus == "fx" ? "RETORN FX" : "GRUP", ge.numero, juce::Justification::centred);
+        }
+        else
+            g.drawText (juce::String (i + 1) + "  " + (mibase::esKit (*t) ? juce::String ("BAT") : t->tipus == "midi" ? juce::String ("MIDI") : EstatEstudi::textEntrada (*t)), ge.numero, juce::Justification::centred);
     }
     else
     {
@@ -2523,12 +3244,202 @@ void TaulaMescles::paint (juce::Graphics& g)
 
     juce::Graphics::ScopedSaveState guarda (g);
     g.reduceClipRegion (0, 0, rectMaster().getX() - 6, getHeight());
-    for (int i = 0; i < estat.numPistes(); ++i)
+    const auto ordre = ordreTires();
+    for (int lloc = 0; lloc < (int) ordre.size(); ++lloc)
     {
-        auto r = rectTira (i);
+        auto r = rectLloc (lloc);
         if (r.getRight() < 0 || r.getX() > getWidth()) continue;
-        pintaTira (g, r, i);
+        pintaTira (g, r, ordre[(size_t) lloc]);
     }
+    pintaNou (g);
+}
+
+void TaulaMescles::pintaNou (juce::Graphics& g)
+{
+    // 0.33: dos botons per fer busos, després de l'última tira.
+    const auto r = rectNou();
+    const char* textos[] = { "+ Grup", "+ Retorn" };
+    for (int k = 0; k < 2; ++k)
+    {
+        const auto z = juce::Rectangle<int> (r.getX() + 6, 14 + k * 30, r.getWidth() - 12, 24);
+        const auto c = k == 0 ? EstatEstudi::colorGrup : EstatEstudi::colorRetorn;
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRoundedRectangle (z.toFloat(), 4.0f);
+        g.setColour (c.withAlpha (0.8f));
+        g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 4.0f, 1.0f);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (11.0f, true));
+        g.drawText (textos[k], z, juce::Justification::centred);
+    }
+}
+
+std::vector<int> TaulaMescles::ordreTires() const
+{
+    std::vector<int> v;
+    const auto& ps = estat.projecte.pistes;
+    for (const char* tipus : { "", "bus", "fx" })
+        for (int i = 0; i < (int) ps.size(); ++i)
+            if (*tipus == 0 ? ! mibase::esBus (ps[(size_t) i]) && ! mibase::esAcords (ps[(size_t) i]) : ps[(size_t) i].tipus == tipus) v.push_back (i);   // 0.36: sense la pista d'Acords
+    return v;
+}
+
+juce::Rectangle<int> TaulaMescles::rectTira (int i) const
+{
+    const auto ordre = ordreTires();
+    for (int lloc = 0; lloc < (int) ordre.size(); ++lloc)
+        if (ordre[(size_t) lloc] == i) return rectLloc (lloc);
+    return {};
+}
+
+void TaulaMescles::canvia (const juce::String& evolucio, const std::function<void (mibase::Projecte&)>& f)
+{
+    comencaCanvi();
+    restaura();
+    f (estat.projecte);
+    acabaCanvi (evolucio);
+}
+
+void TaulaMescles::menuSortida (int pista)
+{
+    const auto& p = estat.projecte;
+    const auto& t = p.pistes[(size_t) pista];
+    juce::PopupMenu m;
+    EstatEstudi::afegeixMenuSortida (m, p, t);   // 0.36: MASTER L+R, FX ▸, Grups ▸
+    m.addSeparator();
+    m.addItem (2, "Bus de grup nou…"_ca);
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista] (int r)
+    {
+        if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
+        if (r == 2) { if (jo->onBusNou) jo->onBusNou (false, pista, true); return; }
+        const auto nom = dibuix::utf8 (jo->estat.projecte.pistes[(size_t) pista].nom);
+        const auto desti = r >= 100 && r - 100 < jo->estat.numPistes() ? jo->estat.projecte.pistes[(size_t) (r - 100)] : mibase::Pista();
+        jo->canvia ("«"_ca + nom + "» ara va a "_ca + (desti.id.empty() ? juce::String ("la sortida") : "«"_ca + dibuix::utf8 (desti.nom) + "»"_ca),
+                    [&] (mibase::Projecte& q) { ed::posaSortida (q, pista, desti.id); });
+    });
+}
+
+void TaulaMescles::menuEntrada (int pista)
+{
+    const auto& t = estat.projecte.pistes[(size_t) pista];
+    if (t.tipus != "audio") return;
+    auto m = EstatEstudi::menuEntrades (estat.nomsEntrades, t, 1000);
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista] (int r)
+    {
+        if (jo == nullptr || r <= 0 || pista >= jo->estat.numPistes()) return;
+        const auto nom = dibuix::utf8 (jo->estat.projecte.pistes[(size_t) pista].nom);
+        jo->canvia ("«"_ca + nom + "»: entrada canviada"_ca, [&] (mibase::Projecte& q) { EstatEstudi::aplicaEntrada (q.pistes[(size_t) pista], r, 1000); });
+    });
+}
+
+void TaulaMescles::menuEnviament (int pista, int k, bool nou)
+{
+    const auto& p = estat.projecte;
+    const auto& t = p.pistes[(size_t) pista];
+    juce::PopupMenu m, destins;
+    auto& on = nou ? m : destins;
+    if (nou) m.addSectionHeader ("Envia una còpia a"_ca);
+    bool algun = false;
+    for (const char* tipus : { "fx" })   // 0.34: només als retorns d'efectes (als grups s'hi va amb la sortida, no amb enviaments)
+    {
+        bool primer = true;
+        for (int i : ordreTires())
+            if (p.pistes[(size_t) i].tipus == tipus && ed::potConnectar (p, t.id, p.pistes[(size_t) i].id))
+            {
+                if (primer && algun) on.addSeparator();
+                primer = false;
+                on.addItem (100 + i, dibuix::utf8 (p.pistes[(size_t) i].nom), true, ! nou && t.enviaments[(size_t) k].desti == p.pistes[(size_t) i].id);
+                algun = true;
+            }
+    }
+    if (nou)
+    {
+        if (algun) m.addSeparator();
+        m.addItem (5, "Retorn FX nou…"_ca);
+    }
+    if (! nou)
+    {
+        const auto& e = t.enviaments[(size_t) k];
+        m.addItem (1, "Encès"_ca, true, e.actiu);
+        m.addItem (2, "Silenciat", true, e.mut);
+        m.addSeparator();
+        m.addItem (10, "Pre-fader (no segueix el fader)", true, e.mode == 0);
+        m.addItem (11, "Post-fader (segueix el fader)", true, e.mode == 1);
+        m.addItem (12, "Post-pan (segueix el fader i el panorama)", true, e.mode == 2);
+        m.addSeparator();
+        m.addSubMenu ("Canvia la destinació"_ca, destins);
+        m.addItem (3, "Ves al bus");
+        m.addSeparator();
+        m.addItem (4, "Treu l'enviament");
+    }
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista, k, nou] (int r)
+    {
+        if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
+        auto& est = jo->estat;
+        const auto& tt = est.projecte.pistes[(size_t) pista];
+        if (! nou && k >= (int) tt.enviaments.size()) return;
+        const auto nom = dibuix::utf8 (tt.nom);
+        if (r == 5) { if (jo->onBusNou) jo->onBusNou (true, pista, false); return; }
+        if (r == 3)
+        {
+            const int d = ed::pistaPerId (est.projecte, tt.enviaments[(size_t) k].desti);
+            if (d < 0) return;
+            est.capTriat();
+            est.pistaTriada = d;
+            jo->mostraTira (d);
+            est.avisa();
+            return;
+        }
+        if (r >= 100 && r - 100 < est.numPistes())
+        {
+            const auto desti = est.projecte.pistes[(size_t) (r - 100)];
+            jo->canvia ("«"_ca + nom + "» envia a «"_ca + dibuix::utf8 (desti.nom) + "»"_ca, [&] (mibase::Projecte& q)
+            {
+                if (nou) ed::afegeixEnviament (q, pista, desti.id);
+                else ed::destiEnviament (q, pista, k, desti.id);
+            });
+            return;
+        }
+        if (nou) return;
+        jo->canvia (r == 4 ? "«"_ca + nom + "»: enviament tret"_ca : juce::String(), [&] (mibase::Projecte& q)
+        {
+            auto& e = q.pistes[(size_t) pista].enviaments[(size_t) k];
+            if (r == 1) e.actiu = ! e.actiu;
+            else if (r == 2) e.mut = ! e.mut;
+            else if (r >= 10 && r <= 12) e.mode = r - 10;
+            else if (r == 4) ed::treuEnviament (q, pista, k);
+        });
+    });
+}
+
+void TaulaMescles::menuBus (int pista)
+{
+    juce::PopupMenu m;
+    m.addItem (1, "Canvia el nom…"_ca);
+    m.addSeparator();
+    m.addItem (2, "Esborra el bus");
+    juce::Component::SafePointer<TaulaMescles> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista] (int r)
+    {
+        if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
+        if (r == 1) { if (jo->onCanviaNom) jo->onCanviaNom (pista); return; }
+        const auto nom = dibuix::utf8 (jo->estat.projecte.pistes[(size_t) pista].nom);
+        jo->estat.capTriat();
+        jo->estat.pistaTriada = -1;
+        jo->canvia ("Bus esborrat: «"_ca + nom + "» (el que hi anava torna a la sortida)"_ca, [&] (mibase::Projecte& q) { ed::esborraPista (q, pista); });
+    });
+}
+
+void TaulaMescles::mostraTira (int i)
+{
+    const auto r = rectTira (i);
+    const int visible = rectMaster().getX() - 6;
+    if (r.getX() < 0) despl += r.getX();
+    else if (r.getRight() > visible) despl += r.getRight() - visible;
+    despl = juce::jmax (0, despl);
+    repaint();
 }
 
 bool TaulaMescles::troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla) const
@@ -2539,20 +3450,45 @@ bool TaulaMescles::troba (juce::Point<int> p, int& quina, Zona& zona, int& tecla
     if (rectMaster().contains (p)) { quina = -1; r = rectMaster(); }
     else
     {
-        quina = tiraA (p.x);
-        if (quina < 0 || quina >= estat.numPistes() || p.x >= rectMaster().getX() - 6) return false;
-        r = rectTira (quina);
+        if (p.x >= rectMaster().getX() - 6) return false;
+        if (rectNou().contains (p))
+        {
+            // 0.33: els botons de bus nou.
+            for (int k = 0; k < 2; ++k)
+                if (juce::Rectangle<int> (rectNou().getX() + 6, 14 + k * 30, rectNou().getWidth() - 12, 24).contains (p))
+                {
+                    quina = -1; zona = Zona::BusNou; tecla = k;
+                    return true;
+                }
+            return false;
+        }
+        const auto ordre = ordreTires();
+        const int lloc = (p.x + despl) / ampleTira;
+        if (p.x + despl < 0 || lloc >= (int) ordre.size()) return false;
+        quina = ordre[(size_t) lloc];
+        r = rectLloc (lloc);
     }
     const auto ge = geo (r, quina < 0);
     if (quina >= 0)
         for (int k = 0; k < 3; ++k)
-            if (ge.tecles[(size_t) k].contains (p)) { zona = Zona::Tecla; tecla = k; return true; }
+            if (ge.tecles[(size_t) k].contains (p))
+            {
+                if (k == 2 && mibase::esBus (estat.projecte.pistes[(size_t) quina])) return true;   // un bus no grava
+                zona = Zona::Tecla; tecla = k;
+                return true;
+            }
     if (quina >= 0 && ge.pan.contains (p)) zona = Zona::Pan;
     else if (ge.fader.contains (p)) zona = Zona::Fader;
     else
     {
         for (int k = 0; k < numInserts; ++k) if (ge.inserts[(size_t) k].contains (p)) { zona = Zona::Insert; tecla = k; }
-        if (quina >= 0) for (auto& z : ge.envia) if (z.contains (p)) zona = Zona::Ranura;
+        if (quina >= 0)
+        {
+            for (int k = 0; k < numEnvia; ++k) if (ge.envia[(size_t) k].contains (p)) { zona = Zona::Envia; tecla = k; }
+            if (ge.sortida.contains (p)) zona = Zona::Sortida;
+            if (ge.entrada.contains (p)) zona = Zona::Entrada;
+            if (ge.nom.contains (p)) zona = Zona::Nom;
+        }
     }
     return true;
 }
@@ -2597,10 +3533,47 @@ void TaulaMescles::mouseDown (const juce::MouseEvent& e)
         estat.avisa();
         return;
     }
-    if (z == Zona::Ranura)
+    if (z == Zona::BusNou)
     {
-        estat.info = "Els enviaments a busos arriben més endavant."_ca;
+        if (onBusNou) onBusNou (k == 1, -1, false);
+        return;
+    }
+    if (z == Zona::Sortida)
+    {
         estat.avisa();
+        menuSortida (i);
+        return;
+    }
+    if (z == Zona::Entrada)
+    {
+        estat.avisa();
+        menuEntrada (i);
+        return;
+    }
+    if (z == Zona::Nom)
+    {
+        estat.avisa();
+        if (e.mods.isPopupMenu() && mibase::esBus (estat.projecte.pistes[(size_t) i])) menuBus (i);
+        return;
+    }
+    if (z == Zona::Envia)
+    {
+        const auto& v = estat.projecte.pistes[(size_t) i].enviaments;
+        estat.info = "Enviament: arrossega amunt i avall = nivell (Maj: més fi; doble clic: 0 dB) · llumeta = encén/apaga · botó dret = mode, destinació, treure"_ca;
+        estat.avisa();
+        if (k >= (int) v.size()) { menuEnviament (i, (int) v.size(), true); return; }
+        if (e.mods.isPopupMenu()) { menuEnviament (i, k, false); return; }
+        const auto zona = geo (rectTira (i), false).envia[(size_t) k];
+        if (e.x < zona.getX() + 15)
+        {
+            canvia ({}, [&] (mibase::Projecte& q) { auto& x = q.pistes[(size_t) i].enviaments[(size_t) k]; x.actiu = ! x.actiu; });
+            return;
+        }
+        arrossega = z;
+        enviaK = k;
+        valor0 = EstatEstudi::posFader (v[(size_t) k].nivellDb);
+        ultimaY = e.position.y;
+        comencaCanvi();
         return;
     }
     if (z == Zona::Pan || z == Zona::Fader)
@@ -2627,6 +3600,17 @@ void TaulaMescles::mouseDrag (const juce::MouseEvent& e)
         valor0 = juce::jlimit (-1.0f, 1.0f, valor0 - dy / (fi ? 1500.0f : 150.0f));
         t.pan = std::abs (valor0) < 0.005f ? 0.0 : (double) valor0;
         estat.info = "Panorama de «"_ca + dibuix::utf8 (t.nom) + "»: "_ca + EstatEstudi::textPan (t.pan);
+    }
+    else if (arrossega == Zona::Envia && tira >= 0)
+    {
+        auto& t = estat.projecte.pistes[(size_t) tira];
+        if (enviaK < 0 || enviaK >= (int) t.enviaments.size()) return;
+        valor0 = juce::jlimit (0.0f, 1.0f, valor0 - dy / (fi ? 1500.0f : 150.0f));
+        auto& x = t.enviaments[(size_t) enviaK];
+        x.nivellDb = EstatEstudi::dbFader (valor0);
+        const int d = ed::pistaPerId (estat.projecte, x.desti);
+        estat.info = "Enviament de «"_ca + dibuix::utf8 (t.nom) + "» a «"_ca + (d >= 0 ? dibuix::utf8 (estat.projecte.pistes[(size_t) d].nom) : juce::String ("?"))
+                     + "»: "_ca + EstatEstudi::textDb (x.nivellDb);
     }
     else if (arrossega == Zona::Fader)
     {
@@ -2659,7 +3643,14 @@ void TaulaMescles::mouseDoubleClick (const juce::MouseEvent& e)
 {
     int i = -1, k = -1;
     Zona z;
-    if (! troba (e.getPosition(), i, z, k) || (z != Zona::Pan && z != Zona::Fader)) return;
+    if (! troba (e.getPosition(), i, z, k)) return;
+    if (z == Zona::Nom && i >= 0) { if (onCanviaNom) onCanviaNom (i); return; }
+    if (z == Zona::Envia && i >= 0 && k < (int) estat.projecte.pistes[(size_t) i].enviaments.size())
+    {
+        canvia ({}, [&] (mibase::Projecte& q) { q.pistes[(size_t) i].enviaments[(size_t) k].nivellDb = 0.0; });
+        return;
+    }
+    if (z != Zona::Pan && z != Zona::Fader) return;
     comencaCanvi();
     restaura();
     if (i < 0) estat.projecte.masterDb = 0.0;
@@ -2671,7 +3662,7 @@ void TaulaMescles::mouseDoubleClick (const juce::MouseEvent& e)
 void TaulaMescles::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
 {
     const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
-    const int maxim = juce::jmax (0, estat.numPistes() * ampleTira - (rectMaster().getX() - 6));
+    const int maxim = juce::jmax (0, estat.numPistes() * ampleTira + ampleNou - (rectMaster().getX() - 6));
     despl = juce::jlimit (0, maxim, despl - juce::roundToInt (d * 200.0f));
     repaint();
 }

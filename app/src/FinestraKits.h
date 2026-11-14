@@ -5,10 +5,11 @@
 #include "Kits.h"
 #include "ServeiAudio.h"
 #include "EscGlobal.h"
+#include "DialegText.h"
 
 /** 0.20: la finestra dels kits de bateria. A l'esquerra els kits; a la dreta els sons del kit triat (clic: sona; clic al tipus:
     es canvia, per si la classificació s'ha equivocat). A baix: importar una carpeta, baixar els kits de Riffs, obrir la
-    carpeta dels kits, posar el kit a la pista de bateria triada i esborrar-lo. */
+    carpeta dels kits, desar el kit de la pista (0.31), posar el kit a la pista de bateria triada i esborrar-lo. */
 class FinestraKits : public juce::DocumentWindow
 {
 public:
@@ -20,7 +21,7 @@ public:
         setUsingNativeTitleBar (true);
         setContentOwned (new Contingut (e, s), true);
         setResizable (true, false);
-        centreWithSize (760, 520);
+        centreWithSize (880, 520);
         setVisible (true);
     }
     void closeButtonPressed() override { juce::MessageManager::callAsync ([t = tancar] { t(); }); }
@@ -44,7 +45,7 @@ private:
                 l->setOutlineThickness (1);
                 addAndMakeVisible (*l);
             }
-            for (auto* b : { &btImporta, &btBaixa, &btCarpeta, &btFesServir, &btEsborra })
+            for (auto* b : { &btImporta, &btBaixa, &btCarpeta, &btDesa, &btFesServir, &btEsborra })
             {
                 b->setMidaText (12.0f);
                 addAndMakeVisible (*b);
@@ -52,9 +53,10 @@ private:
             btImporta.onClick = [this] { importa(); };
             btBaixa.onClick = [this] { baixa(); };
             btCarpeta.onClick = [] { kits::carpeta().revealToUser(); };
+            btDesa.onClick = [this] { desaActual(); };
             btFesServir.onClick = [this] { fesServir(); };
             btEsborra.onClick = [this] { esborra(); };
-            setSize (760, 520);
+            setSize (880, 520);
             recarrega();
         }
 
@@ -77,8 +79,8 @@ private:
             llistaKits.setBounds (r.removeFromLeft (juce::jmax (180, r.getWidth() / 3)));
             r.removeFromLeft (10);
             llistaSons.setBounds (r);
-            const int n = 5, w = (botons.getWidth() - (n - 1) * 6) / n;
-            for (auto* b : { &btImporta, &btBaixa, &btCarpeta, &btFesServir, &btEsborra }) { b->setBounds (botons.removeFromLeft (w)); botons.removeFromLeft (6); }
+            const int n = 6, w = (botons.getWidth() - (n - 1) * 6) / n;
+            for (auto* b : { &btImporta, &btBaixa, &btCarpeta, &btDesa, &btFesServir, &btEsborra }) { b->setBounds (botons.removeFromLeft (w)); botons.removeFromLeft (6); }
         }
 
     private:
@@ -135,7 +137,7 @@ private:
         std::string kitPista()
         {
             auto* t = estat.pista (estat.pistaTriada);
-            return t != nullptr && t->tipus == "bateria" ? t->kit : std::string();
+            return t != nullptr && mibase::esKit (*t) ? t->kit : std::string();
         }
 
         void recarrega (const juce::String& triar = {})
@@ -155,10 +157,40 @@ private:
         void actualitzaBotons()
         {
             auto* t = estat.pista (estat.pistaTriada);
-            const bool pistaBat = t != nullptr && t->tipus == "bateria";
+            const bool pistaBat = t != nullptr && mibase::esKit (*t);
             btFesServir.setEnabled (pistaBat && kitTriat() != nullptr);
             btFesServir.setButtonText (pistaBat ? "Posa'l a «"_ca + juce::String::fromUTF8 (t->nom.c_str()) + "»" : "Tria una pista de bateria"_ca);
             btEsborra.setEnabled (kitTriat() != nullptr && kitTriat()->nom != mibase::bateria::kitIntern);
+            btDesa.setEnabled (pistaBat && ! t->files.empty());
+        }
+
+        /** 0.31: desa els sons i els ajustos de la pista de bateria triada com un kit nou (demana el nom). */
+        void desaActual()
+        {
+            auto* t = estat.pista (estat.pistaTriada);
+            if (t == nullptr || ! mibase::esKit (*t)) return;
+            const auto inicial = t->kit.empty() || t->kit == mibase::bateria::kitIntern ? juce::String::fromUTF8 (t->nom.c_str())
+                                                                                         : juce::String::fromUTF8 (t->kit.c_str()) + " (meu)"_ca;
+            dialeg = std::make_unique<DialegText> ("Desa el kit actual"_ca,
+                "Es desaran els sons de «"_ca + juce::String::fromUTF8 (t->nom.c_str()) + "» amb les seves notes, volums, panorama i afinació. Nom del kit:"_ca,
+                "Desa"_ca,
+                [] (const juce::String& s) { return juce::File::createLegalFileName (s.trim()).isEmpty() ? "Escriu un nom."_ca : juce::String(); },
+                [this, idPista = t->id] (const juce::String& nom)
+                {
+                    mibase::Pista* p = nullptr;
+                    for (auto& q : estat.projecte.pistes) if (q.id == idPista) p = &q;
+                    if (p == nullptr) return;
+                    juce::String error;
+                    const auto desat = kits::desaDePista (*p, nom, error);
+                    if (desat.isEmpty()) { missatge = error; repaint(); return; }
+                    // la pista passa a fer servir el kit nou (els mateixos sons, ara copiats a la carpeta del kit)
+                    estat.desfes.abans (estat.projecte);
+                    kits::posaKit (*p, desat.toStdString());
+                    estat.canviat ("Kit desat: "_ca + desat);
+                    missatge = "Kit desat: «"_ca + desat + "»."_ca + (error.isNotEmpty() ? " " + error : juce::String());
+                    recarrega (desat);
+                }, inicial);
+            DialegText::mostra (*this, dialeg);
         }
 
         void escolta (int fila)
@@ -250,7 +282,7 @@ private:
         {
             auto* k = kitTriat();
             auto* t = estat.pista (estat.pistaTriada);
-            if (k == nullptr || t == nullptr || t->tipus != "bateria") return;
+            if (k == nullptr || t == nullptr || ! mibase::esKit (*t)) return;
             estat.desfes.abans (estat.projecte);
             kits::posaKit (*t, k->nom);
             estat.canviat ("Kit de bateria: "_ca + juce::String::fromUTF8 (k->nom.c_str()));
@@ -284,9 +316,11 @@ private:
         Boto btImporta { "Importa una carpeta…"_ca, dibuix::Icona::Importa, Boto::Estil::Primari };
         Boto btBaixa { "Baixa els de Riffs"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btCarpeta { "Obre la carpeta"_ca, dibuix::Icona::Carpeta, Boto::Estil::Secundari };
+        Boto btDesa { "Desa el kit actual"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btFesServir { "Posa'l a la pista"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btEsborra { "Esborra el kit"_ca, std::nullopt, Boto::Estil::Secundari };
         std::unique_ptr<juce::FileChooser> selector;
+        std::unique_ptr<DialegText> dialeg;
         std::unique_ptr<juce::URL::DownloadTask> descarrega;
         juce::File fitxerBaixat;
         juce::String missatge { "Importa una carpeta amb sons: cada carpeta es converteix en un kit i els sons es classifiquen sols."_ca };

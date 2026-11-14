@@ -7,6 +7,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <regex>
+#include <unordered_set>
 
 namespace mibase::biblioteca
 {
@@ -26,7 +27,7 @@ namespace mibase::biblioteca
 
     const std::vector<std::string>& categories()
     {
-        static const std::vector<std::string> c { "Bombo", "Caixa", "Hi-hat", "Percussió", "Baix", "Veu", "Sintetitzador", "FX", "Ambient", "Altres" };
+        static const std::vector<std::string> c { "Bombo", "Caixa", "Hi-hat", "Percussió", "Baix", "Guitarra", "Veu", "Sintetitzador", "FX", "Ambient", "Altres" };
         return c;
     }
 
@@ -73,6 +74,7 @@ namespace mibase::biblioteca
         const auto n = pla (fs::path (nomFitxer).stem().string());
         if (conte (n, { "bass", "baix", "bajo", "808", "sub" })) return "Baix";
         if (conte (n, { "vocal", "vox", "voice", "veu", "voz", "chant", "choir", "cor", "gol", "crit" })) return "Veu";
+        if (conte (n, { "guitar", "gtr", "guitarra", "strum", "rasgueig", "riff" })) return "Guitarra";   // 0.31
         if (conte (n, { "synth", "sinte", "lead", "pad", "pluck", "arp", "chord", "acord", "keys", "piano", "organ" })) return "Sintetitzador";
         if (conte (n, { "fx", "sfx", "riser", "sweep", "impact", "whoosh", "noise", "soroll", "glitch", "drop" })) return "FX";
         if (conte (n, { "ambient", "amb", "atmo", "drone", "texture", "field", "pluja", "rain", "wind", "vent" })) return "Ambient";
@@ -119,12 +121,22 @@ namespace mibase::biblioteca
         if (rms.size() < 10) return oneShot;
         const double pic = *std::max_element (rms.begin(), rms.end());
         if (pic < 1e-6) return oneShot;
-        const double cua = (rms[rms.size() - 1] + rms[rms.size() - 2] + rms[rms.size() - 3]) / 3.0;
-        if (cua / pic < 0.05) return oneShot;                // s'apaga al final
-        int cops = 0;                                        // atacs: puja de cop i és prou fort
-        for (size_t i = 2; i < rms.size(); ++i)
-            if (rms[i] > 0.25 * pic && rms[i] > 2.0 * rms[i - 2]) { ++cops; i += 4; }
-        if (cops < 3) return oneShot;                        // una nota llarga tallada (un pad), no un loop
+const double cua = (rms[rms.size() - 1] + rms[rms.size() - 2] + rms[rms.size() - 3]) / 3.0;
+        const bool sApaga = cua / pic < 0.05;                // acaba en silenci
+        // Atacs (puja de cop i és prou fort) i on cau l'últim. 0.42: un loop de bateria pot acabar en silenci, i un
+        // one-shot llarg (un plat, una nota) només té un atac al començament: el que compta és si hi ha cops repartits.
+        int cops = rms[0] > 0.15 * pic || rms[1] > 0.15 * pic ? 1 : 0;   // el cop del començament també compta
+        size_t ultim = 0;
+        for (size_t i = cops > 0 ? 6 : 2; i < rms.size(); ++i)
+            if (rms[i] > 0.15 * pic && rms[i] > 1.8 * rms[i - 2]) { ++cops; ultim = i; i += 4; }
+        const double onUltim = (double) ultim / (double) rms.size();
+        double e1 = 0.0, e2 = 0.0;                           // energia de la primera i de la segona meitat
+        for (size_t i = 0; i < rms.size(); ++i) (i < rms.size() / 2 ? e1 : e2) += rms[i] * rms[i];
+        const bool sostingut = e2 > 0.35 * e1;
+        const bool esLoop = (cops >= 4 && onUltim > 0.5)                      // cops repartits fins a la segona meitat
+                         || (cops >= 3 && ! sApaga)                           // (com abans) diversos cops i tallat per repetir-se
+                         || (cops >= 2 && onUltim > 0.4 && sostingut && ! sApaga && dur >= 2.0);   // frase llarga que no decau
+        if (! esLoop) return oneShot;
         double millor = 0.0;
         for (int temps : { 2, 4, 8, 16, 32, 64 })
         {
@@ -163,6 +175,8 @@ namespace mibase::biblioteca
                 s.tonalitat = e.value ("tonalitat", std::string());
                 s.forma = e.value ("forma", std::string());
                 s.data = e.value ("data", 0LL);
+                s.favorit = e.value ("favorit", false);
+                s.noObre = e.value ("noObre", false);
                 idx.samples.push_back (std::move (s));
             }
         }
@@ -176,8 +190,12 @@ namespace mibase::biblioteca
         j["versio"] = 1;
         auto arr = json::array();
         for (auto& s : idx.samples)
+        {
             arr.push_back ({ { "fitxer", s.fitxer }, { "nom", s.nom }, { "categoria", s.categoria }, { "etiquetes", s.etiquetes },
                              { "durada", s.durada }, { "bpm", s.bpm }, { "tonalitat", s.tonalitat }, { "forma", s.forma }, { "data", s.data } });
+            if (s.favorit) arr.back()["favorit"] = true;
+            if (s.noObre) arr.back()["noObre"] = true;
+        }
         j["samples"] = arr;
         std::error_code ec;
         fs::create_directories (carpeta, ec);
@@ -196,9 +214,13 @@ namespace mibase::biblioteca
     {
         std::vector<std::string> nous;
         std::error_code ec;
+        // 0.29: amb un conjunt (abans es buscava un per un: amb desenes de milers de fitxers es penjava)
+        std::unordered_set<std::string> coneguts;
         idx.samples.erase (std::remove_if (idx.samples.begin(), idx.samples.end(),
                                            [&] (const Sample& s) { return ! fs::exists (carpeta / disc::cami (s.fitxer), ec); }),
                            idx.samples.end());
+        coneguts.reserve (idx.samples.size() * 2);
+        for (auto& s : idx.samples) coneguts.insert (s.fitxer);
         if (! fs::is_directory (carpeta, ec)) return nous;
         for (auto it = fs::recursive_directory_iterator (carpeta, fs::directory_options::skip_permission_denied, ec);
              it != fs::recursive_directory_iterator(); it.increment (ec))
@@ -207,7 +229,7 @@ namespace mibase::biblioteca
             if (! it->is_regular_file (ec) || ! esAudio (it->path())) continue;
             auto rel = disc::text (fs::relative (it->path(), carpeta, ec));
             std::replace (rel.begin(), rel.end(), '\\', '/');
-            if (idx.busca (rel) == nullptr) nous.push_back (rel);
+            if (coneguts.count (rel) == 0) nous.push_back (rel);
         }
         std::sort (nous.begin(), nous.end());
         return nous;
@@ -222,13 +244,15 @@ namespace mibase::biblioteca
     }
 
     std::vector<int> filtra (const Index& idx, const std::string& text, const std::vector<std::string>& cats,
-                             const std::vector<std::string>& formes, Ordre ordre, bool descendent)
+                             const std::vector<std::string>& formes, Ordre ordre, bool descendent, bool nomesFavorits)
     {
         const auto t = pla (text);
         std::vector<int> r;
         for (int i = 0; i < (int) idx.samples.size(); ++i)
         {
             const auto& s = idx.samples[(size_t) i];
+            if (s.noObre) continue;   // 0.42: els que no s'han pogut obrir no surten
+            if (nomesFavorits && ! s.favorit) continue;
             if (! cats.empty() && std::find (cats.begin(), cats.end(), s.categoria) == cats.end()) continue;
             if (! formes.empty() && std::find (formes.begin(), formes.end(), s.forma) == formes.end()) continue;
             if (! t.empty())
@@ -249,15 +273,22 @@ namespace mibase::biblioteca
             r.push_back (i);
         }
         auto clau = [&] (int i) { return &idx.samples[(size_t) i]; };
+        // 0.29: el nom «pla» es calcula un cop per sample (abans, a cada comparació: molt lent amb milers de samples)
+        std::vector<std::string> noms;
+        if (ordre == Ordre::Nom || ordre == Ordre::Categoria)
+        {
+            noms.resize (idx.samples.size());
+            for (int i : r) noms[(size_t) i] = pla (idx.samples[(size_t) i].nom);
+        }
         std::stable_sort (r.begin(), r.end(), [&] (int a, int b)
         {
             const auto *x = clau (a), *y = clau (b);
             bool menor = false, igual = false;
             switch (ordre)
             {
-                case Ordre::Nom:       menor = pla (x->nom) < pla (y->nom); igual = pla (x->nom) == pla (y->nom); break;
-                case Ordre::Categoria: menor = x->categoria < y->categoria || (x->categoria == y->categoria && pla (x->nom) < pla (y->nom));
-                                       igual = x->categoria == y->categoria && pla (x->nom) == pla (y->nom); break;
+                case Ordre::Nom:       menor = noms[(size_t) a] < noms[(size_t) b]; igual = noms[(size_t) a] == noms[(size_t) b]; break;
+                case Ordre::Categoria: menor = x->categoria < y->categoria || (x->categoria == y->categoria && noms[(size_t) a] < noms[(size_t) b]);
+                                       igual = x->categoria == y->categoria && noms[(size_t) a] == noms[(size_t) b]; break;
                 case Ordre::Durada:    menor = x->durada < y->durada; igual = x->durada == y->durada; break;
                 case Ordre::Data:      menor = x->data < y->data; igual = x->data == y->data; break;
             }
