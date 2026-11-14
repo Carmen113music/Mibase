@@ -47,6 +47,9 @@ namespace mibase::bateria
         std::string nom;
         std::string carpeta;    // camí sencer (UTF-8)
         std::vector<SoKit> sons;
+        /** 0.31: files desades amb el kit («Desa el kit actual»): l'ordre, les notes i els ajustos de cada fila.
+            El camp «so» és el fitxer dins la carpeta del kit. Si n'hi ha, posar el kit a una pista posa exactament aquestes files. */
+        std::vector<FilaBateria> files;
     };
     /** El kit d'una carpeta (llegeix «kit.json»; si no n'hi ha, el fa amb els WAV que hi hagi, classificats pel nom). */
     std::optional<Kit> llegeixKit (const std::string& carpeta);
