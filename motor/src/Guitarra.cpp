@@ -303,6 +303,8 @@ namespace mibase::guitarra
             static const char* const C1 = "Cançons: pop i acústic";
             static const char* const C2 = "Cançons: rock i indie";
             static const char* const C3 = "Cançons: llatines i clàssics";
+            static const char* const F2 = "Fingerpicking: arpegis";       // 0.45
+            static const char* const K1 = "Folk modern";
             const Def defs[] = {
                 // ---- els de la 0.29 (no es canvien: els projectes ja els fan servir) ----
                 { "un",         B, "Un sol rasgueig",            "",    0,   "D", 0, 0 },
@@ -474,6 +476,107 @@ namespace mibase::guitarra
                 { "c48", C3, "Smooth (Santana)",                        "4/4", 480, "D . X U D X U D", 2, 0 },
                 { "c49", C3, "I'm Yours (Jason Mraz)",                  "4/4", 480, ". D S u . D S u", 0, 0 },
                 { "c50", C3, "Dust in the Wind (Kansas)",               "4/4", 240, "[p] [i] [m] [p] [a] [i] [m] [i]", 0, 0 },
+                // ---- 0.45: 50 arpegis de fingerpicking i 50 ritmes de folk modern ----
+                { "f01", F2, "Arpegi ascendent", "4/4", 480, "[p] [i] [m] [a] [p] [i] [m] [a]", 0, 0 },
+                { "f02", F2, "Arpegi descendent", "4/4", 480, "[p] [a] [m] [i] [p] [a] [m] [i]", 0, 0 },
+                { "f03", F2, "Anar i tornar", "4/4", 480, "[p] [i] [m] [a] [m] [i] [m] [i]", 0, 0 },
+                { "f04", F2, "PIMA amb baix alternat", "4/4", 480, "[p] [i] [m] [a] [p2] [i] [m] [a]", 0, 0 },
+                { "f05", F2, "Baix i pessic", "4/4", 480, "[p] [pl] [p2] [pl] [p] [pl] [p2] [pl]", 0, 0 },
+                { "f06", F2, "Balada arpegiada", "4/4", 480, "[p] . [i] [m] [a] . [m] [i]", 0, 0 },
+                { "f07", F2, "Baix, dit, pessic", "4/4", 480, "[p] [i] [pl] [i] [p2] [i] [pl] [i]", 0, 0 },
+                { "f08", F2, "Travis bàsic", "4/4", 480, "[p] [i] [p2] [m] [p] [i] [p2] [m]", 0, 0 },
+                { "f09", F2, "Travis amb pessic", "4/4", 480, "[pc] . [p2] [i] [p] [m] [p2] [i]", 0, 0 },
+                { "f10", F2, "Travis sincopat", "4/4", 480, "[p] . [p2] [i] . [m] [p2] [i]", 0, 0 },
+                { "f11", F2, "Rodó de tres", "4/4", 480, "[p] [i] [m] [p] [i] [m] [p] [i]", 0, 0 },
+                { "f12", F2, "Rodó de tres invers", "4/4", 480, "[p] [m] [i] [p] [m] [i] [p] [m]", 0, 0 },
+                { "f13", F2, "De fora cap a dins", "4/4", 480, "[p] [a] [i] [m] [p] [a] [i] [m]", 0, 0 },
+                { "f14", F2, "De dins cap a fora", "4/4", 480, "[p] [m] [a] [i] [p] [m] [a] [i]", 0, 0 },
+                { "f15", F2, "Baix caminant", "4/4", 480, "[p] [i] [p2] [i] [p] [m] [p2] [m]", 0, 0 },
+                { "f16", F2, "Pessic i arpegi", "4/4", 480, "[pc] [i] [m] [a] [pc] [i] [m] [a]", 0, 0 },
+                { "f17", F2, "Cançó de bressol", "4/4", 480, "[p] . [m] . [i] . [m] .", 0, 0 },
+                { "f18", F2, "Folk als dits", "4/4", 480, "[p] [m] [p2] [i] [p] [m] [p2] [a]", 0, 0 },
+                { "f19", F2, "Arpegi obert", "4/4", 480, "[p] . [i] . [m] [a] [m] [i]", 0, 0 },
+                { "f20", F2, "Urpa suau", "4/4", 480, "[p] [pl] . [p2] [pl] . [p] [pl]", 0, 0 },
+                { "f21", F2, "PIMA en semicorxeres", "4/4", 240, "[p] [i] [m] [a] [p] [i] [m] [a] [p] [i] [m] [a] [p] [i] [m] [a]", 0, 0 },
+                { "f22", F2, "Ones", "4/4", 240, "[p] [i] [m] [a] [m] [i] [p] [i] [m] [a] [m] [i] [p] [i] [m] [i]", 0, 0 },
+                { "f23", F2, "Travis ràpid", "4/4", 240, "[p] [i] [p2] [m] [p] [i] [p2] [m] [p] [i] [p2] [a] [p] [i] [p2] [m]", 0, 0 },
+                { "f24", F2, "Travis amb melodia", "4/4", 240, "[pc] . [p2] [i] [p] [m] [p2] . [p] [a] [p2] [i] [p] [m] [p2] [i]", 0, 0 },
+                { "f25", F2, "Cascada", "4/4", 240, "[p] [a] [m] [i] [a] [m] [i] [m] [p] [a] [m] [i] [a] [m] [i] [m]", 0, 0 },
+                { "f26", F2, "Rodons 3-3-3-3-4", "4/4", 240, "[p] [i] [m] [p] [i] [m] [p] [i] [m] [p] [i] [m] [p] [i] [m] [a]", 0, 0 },
+                { "f27", F2, "Baix quiet", "4/4", 240, "[p] [i] [m] [i] [a] [i] [m] [i] [p] [i] [m] [i] [a] [i] [m] [i]", 0, 0 },
+                { "f28", F2, "Arpegi amb respir", "4/4", 240, "[p] [i] [m] [a] . [m] [i] . [p2] [i] [m] [a] . [m] [i] .", 0, 0 },
+                { "f29", F2, "Roll de banjo", "4/4", 240, "[p] [i] [m] [p] [i] [m] [p] [m] [p] [i] [m] [p] [i] [m] [p] [m]", 0, 0 },
+                { "f30", F2, "Polze i tres dits", "4/4", 240, "[p] [m] [i] [p] [a] [m] [i] [m] [p] [m] [i] [p] [a] [m] [i] [m]", 0, 0 },
+                { "f31", F2, "Trèmolo clàssic", "4/4", 240, "[p] [a] [m] [i] [p] [a] [m] [i] [p2] [a] [m] [i] [p] [a] [m] [i]", 0, 0 },
+                { "f32", F2, "Pessics a temps", "4/4", 240, "[pc] [i] [m] [i] [pc] [i] [m] [i] [pc] [i] [a] [i] [pc] [i] [m] [i]", 0, 0 },
+                { "f33", F2, "Arpegi llarg", "4/4", 240, "[p] . [i] . [m] . [a] . [m] . [i] . [m] . [i] .", 0, 0 },
+                { "f34", F2, "Sincopat modern", "4/4", 240, "[p] . [i] [m] . [a] . [m] [p2] . [i] [m] . [a] [m] [i]", 0, 0 },
+                { "f35", F2, "Baix doble", "4/4", 240, "[p] [p2] [i] [m] [p] [p2] [a] [m] [p] [p2] [i] [m] [p] [p2] [a] [m]", 0, 0 },
+                { "f36", F2, "Vals arpegiat", "3/4", 480, "[p] [i] [m] [a] [m] [i]", 0, 0 },
+                { "f37", F2, "Vals amb pessic", "3/4", 480, "[p] [pl] [pl] [p2] [pl] [pl]", 0, 0 },
+                { "f38", F2, "Vals obert", "3/4", 480, "[p] . [i] [m] [a] [m]", 0, 0 },
+                { "f39", F2, "Vals descendent", "3/4", 480, "[p] [a] [m] [i] [m] [a]", 0, 0 },
+                { "f40", F2, "Vals de bressol", "3/4", 480, "[p] [i] [m] [p2] [i] [m]", 0, 0 },
+                { "f41", F2, "Vals ràpid", "3/4", 240, "[p] [i] [m] [a] [m] [i] [p2] [i] [m] [a] [m] [i]", 0, 0 },
+                { "f42", F2, "6/8 clàssic", "6/8", 480, "[p]> [i] [m] [a]> [m] [i]", 0, 0 },
+                { "f43", F2, "6/8 balada", "6/8", 480, "[p]> . [i] [m]> [a] [m]", 0, 0 },
+                { "f44", F2, "6/8 amb baix alternat", "6/8", 480, "[p]> [m] [i] [p2]> [m] [i]", 0, 0 },
+                { "f45", F2, "6/8 amb pessic", "6/8", 480, "[pc]> [i] [m] [p2] [i] [m]", 0, 0 },
+                { "f46", F2, "6/8 de taverna", "6/8", 480, "[p]> [i] [a] [p2]> [m] [a]", 0, 0 },
+                { "f47", F2, "12/8 arpegiat", "12/8", 480, "[p] [i] [m] [a] [m] [i] [p2] [i] [m] [a] [m] [i]", 0, 0 },
+                { "f48", F2, "12/8 lent", "12/8", 480, "[p]> . [i] [m] . [a] [p2]> . [i] [m] . [a]", 0, 0 },
+                { "f49", F2, "Bossa als dits", "4/4", 480, "[p] [pl] . [pl] [p2] . [pl] .", 0, 0 },
+                { "f50", F2, "Amb tapping", "4/4", 480, "[p] [i] [tap] [m] [p2] [i] [tap] [a]", 0, 0 },
+                { "k01", K1, "Galop folk", "4/4", 240, "D> . D U D> . D U D> . D U D> . D U", 0, 0 },
+                { "k02", K1, "Galop amb bombo", "4/4", 240, "D(b)> . D U D(b)> . D U D(b)> . D U D(b)> . D U", 0, 0 },
+                { "k03", K1, "Tren", "4/4", 240, "D> u d u D> u d u D> u d u D> u d u", 0, 0 },
+                { "k04", K1, "Stomp", "4/4", 240, "D(b)> . U(t) . D> . U(t) . D(b)> . U(t) . D> . U(t) .", 0, 0 },
+                { "k05", K1, "Cavalcada", "4/4", 240, "D> . D D U . D U D> . D D U . D U", 0, 0 },
+                { "k06", K1, "Empenta", "4/4", 240, "D> . . U D> U D U D> . . U D> U D U", 0, 0 },
+                { "k07", K1, "Bombo a negres", "4/4", 240, "D(b)> U(t) u U(t) D(b)> U(t) u U(t) D(b)> U(t) u U(t) D(b)> U(t) u U(t)", 0, 0 },
+                { "k08", K1, "Contratemps folk", "4/4", 240, "D(b) . U> . D(b) . U> . D(b) . U> . D(b) . U> .", 0, 0 },
+                { "k09", K1, "Sincopat 3-3-2", "4/4", 240, "D> . U D> . U D> . D> . U D> . U D> .", 0, 0 },
+                { "k10", K1, "3-3-2 ple", "4/4", 240, "D> u d D> u d D> u D> u d D> u d D> u", 0, 0 },
+                { "k11", K1, "Palm i obre", "4/4", 240, "PD PD PD PD PD PD D> U PD PD PD PD D> U D> U", 0, 0 },
+                { "k12", K1, "Palm motor", "4/4", 240, "PD> PD PD PD PD> PD PD PD PD> PD PD PD PD> PD PD PD", 0, 0 },
+                { "k13", K1, "Palm amb accents 3-3-2", "4/4", 240, "PD> PD PD PD> PD PD PD> PD PD> PD PD PD> PD PD PD> PD", 0, 0 },
+                { "k14", K1, "Explosió", "4/4", 240, "PD PD PD PD PD PD PD PD D> U D U D> U D U", 0, 30 },
+                { "k15", K1, "Crescendo de tornada", "4/4", 240, "d u d u d u d u D U D U D> U D> U", 0, 40 },
+                { "k16", K1, "Roll rasguejat", "4/4", 240, "D(b)> U(t) U(t) D(b) U(t) U(t) D(b)> U(t) D(b)> U(t) U(t) D(b) U(t) U(t) D(b)> U(t)", 0, 0 },
+                { "k17", K1, "Bum-txac", "4/4", 240, "D(b)> . D(t) . D(b) . D(t) . D(b)> . D(t) . D(b) . D(t) .", 0, 0 },
+                { "k18", K1, "Bum-txaca", "4/4", 240, "D(b)> . D(t) U(t) D(b)> . D(t) U(t) D(b)> . D(t) U(t) D(b)> . D(t) U(t)", 0, 0 },
+                { "k19", K1, "Bum-txaca sincopat", "4/4", 240, "D(b)> . D(t) U(t) . U(t) D(t) U(t) D(b)> . D(t) U(t) . U(t) D(t) U(t)", 0, 0 },
+                { "k20", K1, "Mandolina", "4/4", 240, "D(t)> U(t) D(t) U(t) D(t)> U(t) D(t) U(t) D(t)> U(t) D(t) U(t) D(t)> U(t) D(t) U(t)", 0, 0 },
+                { "k21", K1, "Pols de peu", "4/4", 240, "D(b)> . . . D> . U . D(b)> . . . D> U D U", 0, 0 },
+                { "k22", K1, "Himne", "4/4", 240, "D> . . . D . D U . U D . D> . D U", 0, 0 },
+                { "k23", K1, "Aturada", "4/4", 240, "D> . D U D> . D U D>! _ _ _ D>! _ _ _", 0, 0 },
+                { "k24", K1, "Cops secs", "4/4", 240, "D>! _ D>! _ D> U D U D>! _ D>! _ D> U D U", 0, 0 },
+                { "k25", K1, "Galop invers", "4/4", 240, "D> U . U D> U . U D> U . U D> U . U", 0, 0 },
+                { "k26", K1, "Doble temps", "4/4", 240, "D> d U d D> d U d D> d U d D> d U d", 0, 0 },
+                { "k27", K1, "Correguda final", "4/4", 240, "D> U D U D> U D U D> U D> U D> U D> U", 0, 30 },
+                { "k28", K1, "Baix i agudes", "4/4", 240, "D(b)> . d(t) u(t) D . d(t) u(t) D(b)> . d(t) u(t) D . d(t) u(t)", 0, 0 },
+                { "k29", K1, "Entrada suau", "4/4", 240, "d . d u . u d u d . d u . u d u", 0, 0 },
+                { "k30", K1, "Percussiu folk", "4/4", 240, "D> . X U . U X U D> . X U D> U X U", 0, 0 },
+                { "k31", K1, "Folk de foguera", "4/4", 480, "D> . D U D> . D U", 0, 0 },
+                { "k32", K1, "Quatre a terra", "4/4", 480, "D(b)> U(t) D(b)> U(t) D(b)> U(t) D(b)> U(t)", 0, 0 },
+                { "k33", K1, "Marxa", "4/4", 480, "D> D D> U D> D D> U", 0, 0 },
+                { "k34", K1, "Cançó de carretera", "4/4", 480, "D> . D U . U D> U", 0, 0 },
+                { "k35", K1, "Respir llarg", "4/4", 480, "D> . . . D . D U", 0, 0 },
+                { "k36", K1, "Balada folk", "4/4", 480, "D(b)> . D . D(b) U D U", 0, 0 },
+                { "k37", K1, "Palm tranquil", "4/4", 480, "PD> PD D> U PD> PD D> U", 0, 0 },
+                { "k38", K1, "Peu i palmes", "4/4", 480, "D(b)> . X> . D(b)> D(b) X> .", 0, 0 },
+                { "k39", K1, "Sincopat de tornada", "4/4", 480, "D> . . U . U D> .", 0, 0 },
+                { "k40", K1, "Final de frase", "4/4", 480, "D> . D . D> U D>! _", 0, 0 },
+                { "k41", K1, "6/8 mariner", "6/8", 480, "D> . U D> . U", 0, 0 },
+                { "k42", K1, "6/8 amb bombo", "6/8", 480, "D(b)> U(t) U(t) D(b)> U(t) U(t)", 0, 0 },
+                { "k43", K1, "6/8 ple", "6/8", 480, "D> D U D> D U", 0, 0 },
+                { "k44", K1, "6/8 amb palm", "6/8", 480, "PD> PD PD PD> PD PD", 0, 0 },
+                { "k45", K1, "6/8 galop", "6/8", 240, "D> . U D U . D> . U D U .", 0, 0 },
+                { "k46", K1, "6/8 de taverna", "6/8", 240, "D> u d D u d D> u d D u d", 0, 0 },
+                { "k47", K1, "Vals folk", "3/4", 480, "D(b)> . D(t) U(t) D(t) U(t)", 0, 0 },
+                { "k48", K1, "Vals de peu", "3/4", 480, "D(b)> . D> . D> U", 0, 0 },
+                { "k49", K1, "12/8 folk", "12/8", 480, "D> . U D . U D> . U D . U", 0, 0 },
+                { "k50", K1, "12/8 himne", "12/8", 480, "D(b)> . U(t) D . U(t) D(b)> . U(t) D> U(t) U(t)", 0, 0 },
             };
             std::vector<Patro> v;
             for (auto& d : defs)
@@ -585,7 +688,47 @@ namespace mibase::guitarra
         return r;
     }
 
-std::vector<Patro> variacions (const Patro& p)
+    std::vector<LlocMastil> alMastil (std::vector<int> tons)
+    {
+        // Afinació normal: Mi La Re Sol Si Mi. Es busca la posició més baixa on totes les notes caben en quatre
+        // trasts (o a l'aire), cada una en una corda diferent i de greu a aguda.
+        static constexpr int aire[6] = { 40, 45, 50, 55, 59, 64 };
+        static constexpr int maxTrast = 19;
+        for (auto& t : tons)
+        {
+            while (t < aire[0]) t += 12;
+            while (t > aire[5] + maxTrast) t -= 12;
+        }
+        std::sort (tons.begin(), tons.end());
+        tons.erase (std::unique (tons.begin(), tons.end()), tons.end());
+        std::vector<LlocMastil> r;
+        if (tons.empty()) return r;
+        if (tons.size() <= 6)
+            for (int base = 0; base <= maxTrast - 3; ++base)
+            {
+                r.clear();
+                int corda = 0;
+                for (int to : tons)
+                {
+                    bool posada = false;
+                    for (; corda < 6 && ! posada; ++corda)
+                    {
+                        const int trast = to - aire[corda];
+                        if (trast == 0 || (trast >= std::max (1, base) && trast <= base + 3)) { r.push_back ({ corda, trast, to }); posada = true; }
+                    }
+                    if (! posada) break;
+                }
+                if (r.size() == tons.size()) return r;
+            }
+        // No hi caben juntes: cada nota, al trast més baix on es pugui tocar.
+        r.clear();
+        for (int to : tons)
+            for (int corda = 5; corda >= 0; --corda)
+                if (to >= aire[corda]) { r.push_back ({ corda, to - aire[corda], to }); break; }
+        return r;
+    }
+
+    std::vector<Patro> variacions (const Patro& p)
     {
         std::vector<Patro> r;
         const int n = (int) p.passos.size();

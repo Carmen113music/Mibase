@@ -107,6 +107,11 @@ namespace mibase::guitarra
         surten diferents de l'original. */
     std::vector<Patro> variacions (const Patro& p);
 
+    // ---- 0.45: el màstil de la guitarra virtual ----
+    struct LlocMastil { int corda = 0; int trast = 0; int to = 0; };   // corda 0 = la sisena (la greu); trast 0 = a l'aire
+    /** On es tocarien aquestes notes (les que sonen alhora) en una guitarra amb l'afinació normal. */
+    std::vector<LlocMastil> alMastil (std::vector<int> tons);
+
     // ---- 0.41: blocs de patró que llegeixen els acords ----
     struct Tram { long long ini = 0, fi = 0; std::string acord; };
     /** Els acords que valen per a un clip, en ticks del clip i per ordre: els de la pista d'Acords si la pista

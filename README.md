@@ -211,7 +211,8 @@ Un instrument de pista que sona amb els teus SoundFonts de guitarra.
   - **Volum** (−24 a +6 dB) · **To** (com el pom de la guitarra: a l'esquerra, menys aguts) · **Atac** (més fort o més suau)
   - **Sustain** (quant queda sonant en deixar la nota) · **Octava** (−2 a +2) · **Afinació** (±50 centèsimes)
   - Doble clic a un pom: el valor de sempre. Els valors es desen amb la pista.
-- Cada fitxer es carrega el primer cop que una pista el fa servir. Encara no hi ha el màstil amb les notes.
+- **El màstil** (a baix de la finestra, 0.45): mostra on es tocarien les notes de la pista que sonen on és el capçal, amb l'afinació normal (corda aguda a dalt, com una tablatura). Segueix la cançó mentre sona i té en compte el pom d'octava. No mostra el que toques en directe amb el teclat.
+- Cada fitxer es carrega el primer cop que una pista el fa servir.
 
 ### Graella de la taula de treball, tempo i altres (0.42)
 - **Compàs / Graella / Lliure**: amb **Graella**, els clips s'enganxen a la subdivisió que tries al botó del costat (1/1 … 1/32 i tresets). Les ratlles de la subdivisió es dibuixen quan el zoom les deixa veure; si no, es veuen els temps o només els compassos.
@@ -269,6 +270,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.45.0** — **Guitarra virtual: el màstil** amb les notes que sonen on és el capçal. **100 patrons nous** per a l'eina de patrons de guitarra: el grup «Fingerpicking: arpegis» (50: PIMA, Travis, rodons, valsos, 6/8, 12/8…) i el grup «Folk modern» (50: galops, bum-txac, palm mute que s'obre, 3-3-2, aturades, 6/8, valsos…). En total, 266 rasgueigs.
 - **0.44.0** — **Guitarra virtual, la finestra**: s'obre amb el botó de l'instrument i mostra la imatge de la guitarra (de `Documents\Mibase\Guitarres`), els selectors de guitarra i de so, i sis controls que es desen amb la pista: volum, to, atac, sustain, octava i afinació.
 - **0.43.0** — **Guitarres en SoundFont** (primera part: el so): les pistes d'instrument poden triar un so de qualsevol `.sf2` de `Documents\Mibase\SoundFonts\Guitarres` (menú «Guitarres (SoundFonts)», amb tots els sons de cada fitxer); la llista es llegeix sense carregar el fitxer i el banc només es carrega quan una pista el fa sonar.
 - **0.42.0** — **Tempo**: canviar el tempo de la cançó o d'una part deixa els clips d'instrument i els acords exactament als mateixos compassos (abans els acords no es movien i, amb parts de tempo propi, els clips quedaven desplaçats). **Graella**: «Temps» passa a dir-se «Graella», amb un botó per triar la subdivisió (fins a 1/32 i tresets) i les seves ratlles a la taula de treball segons el zoom. **Pista d'Acords**: amb el llapis, primer es dibuixa la finestra i després es tria l'acord. **Botó dret a una pista**: «Afegeix una pista…». **Biblioteca**: els sons que no es poden obrir ja no surten; es distingeixen millor els loops dels one-shots (un loop pot acabar en silenci) i es pot tornar a analitzar.

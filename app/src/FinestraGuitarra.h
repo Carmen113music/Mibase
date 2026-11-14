@@ -6,13 +6,16 @@
 #include "Pom.h"
 #include "Guitarres.h"
 #include "Plugins.h"
+#include <mibase/Guitarra.h>
+#include <mibase/Midi.h>
 
-class PanellGuitarra : public juce::Component, private juce::ChangeListener
+class PanellGuitarra : public juce::Component, private juce::ChangeListener, private juce::Timer
 {
 public:
     PanellGuitarra (EstatEstudi& e, std::string idPista) : estat (e), id (std::move (idPista))
     {
-        setSize (700, 560);
+        setSize (700, 560 + altMastil + 10);
+        startTimerHz (25);   // 0.45: el màstil segueix les notes que sonen
         for (auto* b : { &btGuitarra, &btSo }) { addAndMakeVisible (b); b->setMidaText (13.5f); }
         btGuitarra.onClick = [this] { menuGuitarra(); };
         btSo.onClick = [this] { menuSo(); };
@@ -39,11 +42,12 @@ public:
         estat.addChangeListener (this);
         actualitza();
     }
-    ~PanellGuitarra() override { estat.removeChangeListener (this); }
+    ~PanellGuitarra() override { stopTimer(); estat.removeChangeListener (this); }
 
     void resized() override
     {
         auto r = getLocalBounds().reduced (14);
+        r.removeFromBottom (altMastil + 10);
         r.removeFromLeft (zonaImatge().getWidth() + 14);
         r.removeFromTop (54);                                   // el títol
         btGuitarra.setBounds (r.removeFromTop (34));
@@ -73,6 +77,7 @@ public:
             g.drawImage (img, z.reduced (10).toFloat(), juce::RectanglePlacement::centred);
         else
             pintaSilueta (g, z.reduced (26).toFloat(), es && (fitxer.containsIgnoreCase ("acoustic") || fitxer.containsIgnoreCase ("acust")));
+        pintaMastil (g);
         auto r = getLocalBounds().reduced (14);
         r.removeFromLeft (z.getWidth() + 14);
         g.setColour (tema::text);
@@ -96,7 +101,85 @@ public:
     }
 
 private:
-    juce::Rectangle<int> zonaImatge() const { return { 14, 14, 228, getHeight() - 28 }; }
+    static constexpr int altMastil = 150, numTrasts = 15;
+    juce::Rectangle<int> zonaImatge() const { return { 14, 14, 228, getHeight() - 28 - altMastil - 10 }; }
+    juce::Rectangle<int> zonaMastil() const { return { 14, getHeight() - 14 - altMastil, getWidth() - 28, altMastil }; }
+
+    /** Les notes de la pista que sonen on és el capçal (amb l'octava de la guitarra aplicada). */
+    std::vector<int> notesAra()
+    {
+        std::vector<int> v;
+        const auto* t = pista();
+        if (t == nullptr) return v;
+        const auto& p = estat.projecte;
+        for (auto& c : t->clips)
+        {
+            if (! c.midi || c.mut || estat.capcal < c.iniciVisible() || estat.capcal >= c.fiVisible()) continue;
+            const double tick = mibase::midi::ticks (p, estat.capcal) - mibase::midi::ticks (p, c.pos);
+            for (auto& n : c.notes)
+                if ((double) n.ini <= tick && tick < (double) (n.ini + n.dur)) v.push_back (n.to + 12 * t->guitarra.octava);
+        }
+        std::sort (v.begin(), v.end());
+        v.erase (std::unique (v.begin(), v.end()), v.end());
+        return v;
+    }
+    void timerCallback() override
+    {
+        auto ara = notesAra();
+        if (ara != notesMastil) { notesMastil = std::move (ara); repaint (zonaMastil()); }
+    }
+
+    void pintaMastil (juce::Graphics& g)
+    {
+        // Un màstil vist com una tablatura: la corda aguda a dalt, la celleta a l'esquerra.
+        const auto z = zonaMastil();
+        vintage::panell (g, z.toFloat(), 8.0f);
+        const auto m = z.reduced (34, 18).withTrimmedLeft (10).toFloat();
+        g.setColour (juce::Colour (0xff3a2a1e));
+        g.fillRoundedRectangle (m, 3.0f);
+        // Posició de cada trast (com en una guitarra: cada cop més junts)
+        auto xTrast = [&] (int n) { return m.getX() + m.getWidth() * (float) ((1.0 - std::pow (2.0, -n / 12.0)) / (1.0 - std::pow (2.0, -numTrasts / 12.0))); };
+        auto yCorda = [&] (int corda) { return m.getY() + m.getHeight() * ((5 - corda) + 0.5f) / 6.0f; };
+        for (int marca : { 3, 5, 7, 9, 12, 15 })
+        {
+            const float x = (xTrast (marca - 1) + xTrast (marca)) * 0.5f;
+            g.setColour (juce::Colours::white.withAlpha (0.16f));
+            if (marca == 12) { g.fillEllipse (x - 4.0f, yCorda (4) - 4.0f + m.getHeight() / 12.0f, 8.0f, 8.0f); g.fillEllipse (x - 4.0f, yCorda (1) - 4.0f - m.getHeight() / 12.0f, 8.0f, 8.0f); }
+            else g.fillEllipse (x - 4.0f, m.getCentreY() - 4.0f, 8.0f, 8.0f);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::mono (9.5f));
+            g.drawText (juce::String (marca), juce::Rectangle<float> (x - 12.0f, m.getBottom() + 2.0f, 24.0f, 12.0f), juce::Justification::centred);
+        }
+        for (int n = 0; n <= numTrasts; ++n)
+        {
+            g.setColour (n == 0 ? juce::Colour (0xffe8e2d0) : juce::Colour (0xff9a9a9a).withAlpha (0.8f));
+            g.fillRect (juce::Rectangle<float> (xTrast (n) - (n == 0 ? 2.0f : 0.8f), m.getY(), n == 0 ? 4.0f : 1.6f, m.getHeight()));
+        }
+        static const char* const noms[6] = { "E", "A", "D", "G", "B", "e" };
+        for (int c = 0; c < 6; ++c)
+        {
+            g.setColour (juce::Colour (0xffc9c2ad).withAlpha (0.9f));
+            g.fillRect (juce::Rectangle<float> (m.getX(), yCorda (c) - (c < 3 ? 1.1f : 0.6f), m.getWidth(), c < 3 ? 2.2f : 1.2f));
+            g.setColour (tema::suau);
+            g.setFont (dibuix::mono (10.5f));
+            g.drawText (noms[c], juce::Rectangle<float> ((float) z.getX() + 4.0f, yCorda (c) - 7.0f, 16.0f, 14.0f), juce::Justification::centred);
+        }
+        // Les notes que sonen
+        for (auto& l : mibase::guitarra::alMastil (notesMastil))
+        {
+            if (l.trast > numTrasts) continue;
+            const float x = l.trast == 0 ? m.getX() - 14.0f : (xTrast (l.trast - 1) + xTrast (l.trast)) * 0.5f;
+            const auto c = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ x, yCorda (l.corda) });
+            g.setColour (tema::accent);
+            g.fillEllipse (c);
+            g.setColour (juce::Colours::black);
+            g.setFont (dibuix::lletra (9.5f, true));
+            auto nom = juce::String::fromUTF8 (mibase::midi::nomNota (l.to).c_str());
+            while (nom.isNotEmpty() && (juce::CharacterFunctions::isDigit (nom.getLastCharacter()) || nom.getLastCharacter() == '-')) nom = nom.dropLastCharacters (1);
+            g.drawText (nom, c, juce::Justification::centred, false);
+        }
+    }
+    std::vector<int> notesMastil;
     mibase::Pista* pista()
     {
         for (auto& t : estat.projecte.pistes) if (t.id == id) return &t;
