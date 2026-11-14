@@ -287,6 +287,7 @@ namespace mibase::disc
         {
             const auto snap = j.value ("snap", std::string ("compas"));
             p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
+            p.graella = std::clamp (j.value ("graella", 960LL), 30LL, 3840LL);
         }
 
         if (j.contains ("preses") && j["preses"].is_array())
@@ -632,6 +633,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         j["creat"] = p.creat;
         j["modificat"] = p.modificat;
         j["snap"] = p.snap == Snap::Temps ? "temps" : p.snap == Snap::Lliure ? "lliure" : "compas";
+        if (p.graella != 960) j["graella"] = p.graella;
         j["clic"] = p.clic;
         j["clicVolum"] = p.clicVolum;
         j["clicSo"] = p.clicSo;

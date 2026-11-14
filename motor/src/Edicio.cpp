@@ -104,7 +104,7 @@ namespace mibase::edicio
             return t;
         if (snap == Snap::Compas) return segonsDeCompas (p, std::round (compasDeSegons (p, t)));
         const auto tr = tramA (p, t);
-        const double pas = tr.segonsPerTemps();
+        const double pas = tr.segonsPerTemps() * (double) std::max (30LL, p.graella) / (double) ticksPerNegra;   // 0.42: la subdivisió triada
         return tr.segons + std::round ((t - tr.segons) / pas) * pas;
     }
 

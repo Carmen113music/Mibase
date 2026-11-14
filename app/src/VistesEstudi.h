@@ -127,7 +127,10 @@ public:
     /** 0.36: menú d'acords de la pista d'Acords: clip -1 = posar-ne un de nou (al compàs de «t»); si no, canviar-lo. */
     void menuAcords (int pista, int clip, double t);
     void deixaAcord (juce::Point<int> on);
-    void obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on);   // 0.37
+    void obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on, double fi = -1.0);   // 0.37 (0.42: «fi» = tros dibuixat)
+    bool dibuixaAcord = false;            // 0.42: s'està dibuixant la finestra d'un acord nou amb el llapis
+    int pistaAcord = -1;
+    double acordT0 = 0.0, acordT1 = 0.0;
     std::function<void (const std::vector<int>&)> onEscoltaNotes;                    // 0.37: fer sonar un acord (per escoltar-lo)
 
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;

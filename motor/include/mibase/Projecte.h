@@ -345,6 +345,7 @@ namespace mibase
         std::string estructuraActiva;        // id; buit = lineal
         Bucle bucle;
         Snap snap = Snap::Compas;
+        long long graella = 960;   // 0.42: subdivisió de la taula de treball per al mode «Graella» (ticks; 960 = negra)
         bool clic = true;
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana

@@ -21,6 +21,7 @@ namespace mibase::biblioteca
         std::string forma;                     // 0.27: «One-shot» o «Loop» (buit: encara no se sap)
         long long data = 0;                    // quan es va afegir (ms des de 1970)
         bool favorit = false;                  // 0.31: marcat com a favorit
+        bool noObre = false;                   // 0.42: el fitxer no s'ha pogut llegir: no surt a la llista
     };
 
     struct Index

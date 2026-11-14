@@ -1,3 +1,4 @@
+#include <functional>
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
 
@@ -403,19 +404,33 @@ namespace mibase::midi
         return r;
     }
 
+    void ambMusicaFixa (Projecte& p, const std::function<void (Projecte&)>& canvi)
+    {
+        // On és cada clip en temps musical (ticks, amb el mapa de tempo d'abans)…
+        struct Lloc { double pos, ini, fi; };
+        std::vector<Lloc> llocs;
+        auto esMou = [] (const Pista& t, const Clip& c) { return c.midi || c.esAcord() || esAcords (t); };
+        for (auto& t : p.pistes)
+            for (auto& c : t.clips)
+                if (esMou (t, c)) llocs.push_back ({ ticks (p, c.pos), ticks (p, c.pos + c.inici), ticks (p, c.pos + c.fi) });
+        canvi (p);
+        // …i on li toca ser amb el mapa nou.
+        size_t k = 0;
+        for (auto& t : p.pistes)
+            for (auto& c : t.clips)
+                if (esMou (t, c) && k < llocs.size())
+                {
+                    const auto x = llocs[k++];
+                    c.pos = segons (p, x.pos);
+                    c.inici = segons (p, x.ini) - c.pos;
+                    c.fi = segons (p, x.fi) - c.pos;
+                }
+    }
+
     void canviaTempo (Projecte& p, double nou)
     {
         nou = std::clamp (nou, 20.0, 400.0);
-        const double f = std::max (20.0, p.tempo) / nou;
-        for (auto& t : p.pistes)
-            for (auto& c : t.clips)
-                if (c.midi)
-                {
-                    c.pos *= f;
-                    c.inici *= f;
-                    c.fi *= f;
-                }
-        p.tempo = nou;
+        ambMusicaFixa (p, [nou] (Projecte& q) { q.tempo = nou; });
     }
 
     bool compatible (const Pista& t, const Clip& c)

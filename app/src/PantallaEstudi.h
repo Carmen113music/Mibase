@@ -174,7 +174,9 @@ private:
     Boto btClic { {}, dibuix::Icona::Metronom, Boto::Estil::Tecla };
     Boto btClicMenu { {}, dibuix::Icona::FletxaAvall, Boto::Estil::Secundari };
     Boto btTempo { "120 bpm · 4/4"_ca, std::nullopt, Boto::Estil::Secundari };
-    Segmentat snap { { "Compàs"_ca, "Temps", "Lliure" } };
+    Segmentat snap { { "Compàs"_ca, "Graella", "Lliure" } };
+    Boto btGraella { "1/4", std::nullopt, Boto::Estil::Secundari };   // 0.42: subdivisió de la taula de treball
+    void menuGraella();
     Boto btRequadre { {}, dibuix::Icona::Requadre, Boto::Estil::Tecla };
     Boto btInsereix { {}, dibuix::Icona::Insereix, Boto::Estil::Tecla };
     BotoColor btColor;

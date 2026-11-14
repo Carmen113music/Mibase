@@ -228,6 +228,9 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     snap.setTriat ((int) estat.projecte.snap);
     snap.onCanvi = [this] (int i) { estat.projecte.snap = (Snap) i; estat.avisa(); calDesar = true; startTimer (700); };
+    addAndMakeVisible (btGraella);
+    btGraella.setTooltip ("Subdivisió de la graella de la taula de treball (per moure i retallar clips amb «Graella»)"_ca);
+    btGraella.onClick = [this] { menuGraella(); };
     btDesfes.setTooltip ("Desfés (Ctrl+Z)"_ca);
     btDesfes.onClick = [this] { desfes (false); };
     btRefes.setTooltip ("Refés (Ctrl+Y)"_ca);
@@ -340,7 +343,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
             sampleEscoltat = juce::File();
             return;
         }
-        if (auto mo = kits::llegeix (fs, 30.0))
+        auto mo = kits::llegeix (fs, 30.0);
+        if (mo == nullptr || mo->L.empty()) { biblioteca.marcaNoObre (fs); return; }   // 0.42: no es pot obrir: fora de la llista
         {
             sampleEscoltat = fs;
             sampleEscoltatFins = ara + (juce::uint32) (1000.0 * (double) mo->L.size() / juce::jmax (1.0, mo->fs));
@@ -636,6 +640,11 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
     for (int i = 0; i < eines.size(); ++i)
         eines[i]->setToggleState ((int) estat.eina == i, juce::dontSendNotification);
     if (snap.getTriat() != (int) p.snap) snap.setTriat ((int) p.snap);
+    {
+        juce::String nom = "1/4";
+        for (auto& v : midi::valorsGraella()) if (v.ticks == p.graella) nom = juce::String::fromUTF8 (v.nom);
+        if (btGraella.getButtonText() != nom) btGraella.setButtonText (nom);
+    }
 
     if (mescles.isVisible() != estat.vistaMescles || taulaEstructura.isVisible() != estat.vistaEstructura)
         colocaSeccions();
@@ -818,6 +827,8 @@ void PantallaEstudi::resized()
     btTempo.setBounds (b.removeFromLeft (btTempo.ampladaIdeal() + 10));
     b.removeFromLeft (16);
     snap.setBounds (b.removeFromLeft (snap.ampladaIdeal() + 10));
+    b.removeFromLeft (4);
+    btGraella.setBounds (b.removeFromLeft (58));
     b.removeFromLeft (4);
     btRequadre.setBounds (b.removeFromLeft (40));
     b.removeFromLeft (3);
@@ -1444,6 +1455,26 @@ void PantallaEstudi::canviaNom (int pista)
             estat.canviat ("Pista «"_ca + actual + "» ara es diu «"_ca + t.trim() + "»"_ca);
         }, actual);
     DialegText::mostra (*this, dialeg);
+}
+
+void PantallaEstudi::menuGraella()
+{
+    juce::PopupMenu m;
+    m.addSectionHeader ("Graella de la taula de treball");
+    const auto& vals = midi::valorsGraella();
+    for (int i = 0; i < (int) vals.size(); ++i)
+        if (vals[(size_t) i].ticks > 0) m.addItem (100 + i, juce::String::fromUTF8 (vals[(size_t) i].nom), true, vals[(size_t) i].ticks == estat.projecte.graella);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btGraella), [this] (int r)
+    {
+        const auto& v = midi::valorsGraella();
+        if (r < 100 || r - 100 >= (int) v.size()) return;
+        estat.projecte.graella = v[(size_t) (r - 100)].ticks;
+        estat.projecte.snap = Snap::Temps;   // triar una subdivisió engega el mode «Graella»
+        estat.info = "Graella: "_ca + juce::String::fromUTF8 (v[(size_t) (r - 100)].nom);
+        estat.avisa();
+        calDesar = true;
+        startTimer (700);
+    });
 }
 
 void PantallaEstudi::canviaTempo()

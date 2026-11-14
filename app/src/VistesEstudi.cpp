@@ -357,7 +357,7 @@ void Regla::mouseDrag (const juce::MouseEvent& e)
             const double v = vora (t);
             double* de = llocVora.part < 0 ? &p.bucle.de : &p.parts[(size_t) llocVora.part].de;
             double* a = llocVora.part < 0 ? &p.bucle.a : &p.parts[(size_t) llocVora.part].a;
-            const double minim = p.snap == Snap::Lliure ? 0.05 : p.snap == Snap::Temps ? 1.0 / juce::jmax (1, p.compasNum) : 1.0;
+            const double minim = p.snap == Snap::Lliure ? 0.05 : p.snap == Snap::Temps ? ((double) juce::jmax (30LL, p.graella) / (double) mibase::ticksPerNegra) / juce::jmax (1, p.compasNum) : 1.0;
             if (llocVora.vora < 0) *de = juce::jlimit (0.0, *a - minim, v);
             else *a = juce::jmax (*de + minim, v);
             estat.info = llocVora.part < 0 ? "Bucle: "_ca + textRang (*de, *a)
@@ -668,9 +668,24 @@ void VistaPistes::pintaGraella (juce::Graphics& g)
         const auto tr = ed::tramA (p, sc + 1e-6);
         g.setColour (juce::Colours::white.withAlpha (0.15f));
         g.fillRect (juce::Rectangle<float> (estat.x (sc), 0.0f, 1.0f, h));
-        if (tr.segonsPerTemps() * estat.pxPerSegon < 9.0) continue;
+        // 0.42: la subdivisió triada (1/8, 1/16, tresets…) si amb aquest zoom hi cap; si no, els temps; si no, només compassos
+        const double spt = tr.segonsPerTemps(), pasG = spt * (double) juce::jmax (30LL, p.graella) / (double) mibase::ticksPerNegra;
+        const double llarg = spt * tr.num;
+        if (pasG * estat.pxPerSegon >= 9.0 && pasG < llarg - 1.0e-9)
+        {
+            const int n = (int) std::ceil (llarg / pasG - 1.0e-6);
+            for (int k = 1; k < n; ++k)
+            {
+                const double off = k * pasG, temps = off / spt;
+                const bool esTemps = std::abs (temps - std::round (temps)) < 1.0e-6;
+                g.setColour (juce::Colours::white.withAlpha (esTemps ? 0.075f : 0.04f));
+                g.fillRect (juce::Rectangle<float> (estat.x (sc + off), 0.0f, 1.0f, h));
+            }
+            continue;
+        }
+        if (spt * estat.pxPerSegon < 9.0) continue;
         g.setColour (juce::Colours::white.withAlpha (0.075f));
-        for (int k = 1; k < tr.num; ++k) g.fillRect (juce::Rectangle<float> (estat.x (sc + k * tr.segonsPerTemps()), 0.0f, 1.0f, h));
+        for (int k = 1; k < tr.num; ++k) g.fillRect (juce::Rectangle<float> (estat.x (sc + k * spt), 0.0f, 1.0f, h));
     }
 }
 
@@ -1075,6 +1090,16 @@ void VistaPistes::paint (juce::Graphics& g)
     }
 
     pintaGraella (g);
+    if (dibuixaAcord && pistaAcord >= 0 && pistaAcord < estat.numPistes() && std::abs (acordT1 - acordT0) > 1.0e-6)
+    {
+        // 0.42: la finestra de l'acord que s'està dibuixant
+        const float xa = estat.x (juce::jmin (acordT0, acordT1)), xb = estat.x (juce::jmax (acordT0, acordT1));
+        const auto r = juce::Rectangle<float> (xa, (float) estat.yPista (pistaAcord) + 3.0f, xb - xa, (float) estat.altDe (pistaAcord) - 6.0f);
+        g.setColour (juce::Colour (0xffb18cff).withAlpha (0.45f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (juce::Colour (0xffb18cff));
+        g.drawRoundedRectangle (r, 4.0f, 1.2f);
+    }
     pintaBucleSobre (g, estat, h);
 
     for (int i = 0; i < estat.numPistes(); ++i)
@@ -1313,14 +1338,14 @@ void VistaPistes::menuAcords (int pista, int clip, double t)
     });
 }
 
-void VistaPistes::obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on)
+void VistaPistes::obreFinestraAcords (int pista, int clip, double t, juce::Point<int> on, double fi)
 {
     // 0.37: el llapis (o doble clic) a la pista d'Acords: mini Chord Pad + constructor d'acords
     const auto& cl = estat.projecte.pistes[(size_t) pista].clips;
     const std::string inicial = clip >= 0 && clip < (int) cl.size() ? cl[(size_t) clip].acord : ed::acordA (estat.projecte, t);
     juce::Component::SafePointer<VistaPistes> jo (this);
     auto f = std::make_unique<FinestraAcords> (estat, pista, inicial,
-        [jo, pista, clip, t] (const std::string& nom)
+        [jo, pista, clip, t, fi] (const std::string& nom)
         {
             if (jo == nullptr || pista >= jo->estat.numPistes()) return;
             jo->comencaCanvi();
@@ -1328,6 +1353,7 @@ void VistaPistes::obreFinestraAcords (int pista, int clip, double t, juce::Point
             auto& p = jo->estat.projecte;
             auto& clips = p.pistes[(size_t) pista].clips;
             if (clip >= 0 && clip < (int) clips.size()) clips[(size_t) clip].acord = nom;
+            else if (fi > t + 0.02) ed::posaAcord (p, t, fi, nom);   // 0.42: el tros que s'ha dibuixat
             else
             {
                 const auto tros = ed::trosAcordNou (p, t);
@@ -1510,7 +1536,14 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
         mode = Mode::Res;
         estat.avisa();
         if (e.mods.isPopupMenu()) menuAcords (lloc0.pista, lloc0.clip, juce::jmax (0.0, estat.t ((float) e.x)));
-        else obreFinestraAcords (lloc0.pista, lloc0.clip, juce::jmax (0.0, estat.t ((float) e.x)), e.getPosition());   // 0.37
+        else if (lloc0.clip >= 0) obreFinestraAcords (lloc0.pista, lloc0.clip, juce::jmax (0.0, estat.t ((float) e.x)), e.getPosition());   // 0.37
+        else
+        {
+            // 0.42: en un lloc buit, primer es dibuixa la finestra (arrossegant) i en deixar anar es demana l'acord
+            dibuixaAcord = true;
+            pistaAcord = lloc0.pista;
+            acordT0 = acordT1 = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), estat.projecte.snap));
+        }
         return;
     }
 
@@ -1743,6 +1776,12 @@ void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
 void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu()) return;
+    if (dibuixaAcord)
+    {
+        acordT1 = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), estat.projecte.snap));
+        repaint();
+        return;
+    }
     auto& p = estat.projecte;
     const double t = estat.t ((float) e.x);
 
@@ -1944,6 +1983,16 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 
 void VistaPistes::mouseUp (const juce::MouseEvent& e)
 {
+    if (dibuixaAcord)
+    {
+        // 0.42: finestra dibuixada (o un clic sol: fins al final del compàs, com abans); ara, quin acord hi va
+        dibuixaAcord = false;
+        const double a = juce::jmin (acordT0, acordT1), b = juce::jmax (acordT0, acordT1);
+        repaint();
+        if (pistaAcord >= 0 && pistaAcord < estat.numPistes())
+            obreFinestraAcords (pistaAcord, -1, b - a > 0.02 ? a : juce::jmax (0.0, estat.t ((float) e.x)), e.getPosition(), b - a > 0.02 ? b : -1.0);
+        return;
+    }
     if (e.mods.isPopupMenu()) { mode = Mode::Res; return; }
 
     switch (mode)
@@ -2377,10 +2426,17 @@ void Capcaleres::menu (int pista)
     }
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
+    m.addSeparator();
+    m.addItem (9, "Afegeix una pista…"_ca);   // 0.42: sense haver d'anar al final de la taula
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista] (int r)
     {
         if (r == 0 || pista >= estat.numPistes()) return;
         if (r == 1) { if (onCanviaNom) onCanviaNom (pista); return; }
+        if (r == 9)
+        {
+            VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
+            return;
+        }
         comencaCanvi();
         restaura();
         auto& tt = estat.projecte.pistes[(size_t) pista];

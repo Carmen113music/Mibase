@@ -376,6 +376,37 @@ private:
         else { g.setColour (tema::suau.withAlpha (0.55f)); g.strokePath (p, juce::PathStrokeType (1.2f)); }
     }
 
+public:
+    /** 0.42: un fitxer que no s'ha pogut obrir deixa de sortir a la llista (el fitxer no es toca). */
+    void marcaNoObre (const juce::File& f)
+    {
+        for (auto& s : index.samples)
+            if (! s.noObre && fitxer (s) == f)
+            {
+                s.noObre = true;
+                if (onInfo) onInfo ("No s'ha pogut obrir «"_ca + juce::String::fromUTF8 (s.nom.c_str()) + "»: ja no surt a la llista"_ca);
+                desa();
+                refesLlista();
+                return;
+            }
+    }
+
+private:
+    /** 0.42: torna a mirar, pel so, els samples d'un segon o més que el nom no diu què són (one-shot o loop). */
+    void tornaAMirarFormes()
+    {
+        std::vector<Tasca> ts;
+        const auto dir = carpeta();
+        for (auto& s : index.samples)
+            if (! s.noObre && s.durada >= 1.0 && mibase::biblioteca::formaPerNom (s.fitxer).empty())
+            {
+                s.forma.clear();
+                ts.push_back ({ dir.getChildFile (juce::String::fromUTF8 (s.fitxer.c_str())), {}, s.fitxer, {}, false, true });
+            }
+        if (onInfo) onInfo (ts.empty() ? "No hi ha res per tornar a mirar"_ca : "Torno a mirar "_ca + juce::String ((int) ts.size()) + " samples (one-shot o loop)…"_ca);
+        llanca (false, std::move (ts));
+    }
+
     /** 0.31: marca o desmarca un sample com a favorit (es desa a l'índex). */
     void commutaFavorit (int i)
     {
@@ -712,9 +743,12 @@ private:
         for (int i = 0; i < 4; ++i) m.addItem (i + 1, juce::String::fromUTF8 (noms[i]), true, (int) ordre == i);
         m.addSeparator();
         m.addItem (10, "De més a menys"_ca, true, descendent);
+        m.addSeparator();
+        m.addItem (20, "Torna a mirar quins són loops (pot trigar)"_ca);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btOrdre), [this] (int r)
         {
             if (r <= 0) return;
+            if (r == 20) { tornaAMirarFormes(); return; }
             if (r == 10) descendent = ! descendent;
             else ordre = (mibase::biblioteca::Ordre) (r - 1);
             ajustos.setValue ("biblioteca.ordre", (int) ordre);
