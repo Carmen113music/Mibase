@@ -76,6 +76,33 @@ namespace mibase
 
     /** Un tros d'una presa col·locat a la línia de temps (una «finestra»). No toca mai el fitxer.
         Sense presa (presa buida) és una finestra buida, feta amb el llapis. */
+    /** 0.41: un acord posat a mà dins d'un clip (amb els pads), per a les pistes que no segueixen la pista d'Acords. */
+    struct AcordClip
+    {
+        long long ini = 0, dur = 0;   // ticks des de l'inici del clip
+        std::string acord;            // «Am7», «G/B»
+        bool operator== (const AcordClip&) const = default;
+    };
+
+    /** 0.41: bloc de patró dins d'un clip MIDI: el ritme (rasgueig) d'aquell tros. L'acord no és seu: surt de la
+        pista d'Acords (si la pista la segueix) o dels acords del clip. Les notes són normals i es reescriuen soles
+        quan canvia l'acord o el patró, tret que el bloc estigui «fix» (retocat a mà). Porta el rasgueig sencer en
+        text: no depèn de la llista de patrons de l'ordinador. */
+    struct BlocPatro
+    {
+        long long ini = 0, dur = 0;   // ticks des de l'inici del clip
+        std::string patro, nom;       // id i nom del rasgueig (per ensenyar-lo)
+        std::string passos;           // el rasgueig (sintaxi de guitarra::llegeixPassos); buit = l'acord sencer
+        long long pasTicks = 480;
+        double msCorda = 0.0;
+        int crescendo = 0;
+        double variacio = 0.0;
+        unsigned llavor = 1;
+        int vel = 88;
+        bool fix = false;             // retocat a mà: no es reescriu fins que es desbloqueja
+        bool operator== (const BlocPatro&) const = default;
+    };
+
     struct Clip
     {
         std::string presa;
@@ -91,8 +118,14 @@ namespace mibase
         /** És un clip MIDI: les notes són a «notes» (ticks des de «pos») i «inici»/«fi» és la finestra que sona.
             Com l'àudio, no destructiu: el que queda fora de la finestra no sona però no s'esborra. */
         bool midi = false;
+        /** 0.36: bloc de la pista d'Acords: el nom de l'acord («Am7», «G/B»). Buit = no és un bloc d'acord.
+            No sona: és la guia de la cançó. Ocupa de iniciVisible() a fiVisible(). */
+        std::string acord;
+        bool esAcord() const noexcept { return ! acord.empty(); }
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
+        std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
+        std::vector<AcordClip> acords;  // 0.41: acords posats a mà (si la pista no segueix la pista d'Acords)
 
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }
@@ -107,6 +140,18 @@ namespace mibase
         std::string nom;         // per mostrar-lo encara que no s'hagi pogut obrir
         bool actiu = true;       // apagat: el so hi passa de llarg
         std::string estat;       // ajustos del plugin (base64)
+    };
+
+    /** 0.44: els controls de la «Guitarra virtual» (instrument «sf2:…») d'una pista. */
+    struct ParamsGuitarra
+    {
+        double volumDb = 0.0;    // -24 … +6
+        double to = 1.0;         // 0 (fosc) … 1 (obert): com el pom de to de la guitarra
+        double atac = 0.0;       // -1 (suau) … +1 (fort): desplaça la força amb què es toca
+        double sustain = 0.5;    // 0 (s'apaga de seguida en deixar la nota) … 1 (queda sonant)
+        int octava = 0;          // -2 … +2
+        double afina = 0.0;      // cents, -50 … +50
+        bool operator== (const ParamsGuitarra&) const = default;
     };
 
     /** 0.26: el samplejador d'una pista (instrument «sampler»). Temps en segons dins el fitxer original. */
@@ -156,11 +201,22 @@ namespace mibase
         bool operator== (const FilaBateria&) const = default;
     };
 
+    /** 0.33: un enviament d'una pista o d'un bus cap a un altre bus (una còpia del so; no toca el senyal original). */
+    struct Enviament
+    {
+        std::string id;          // «v1», «v2»…
+        std::string desti;       // id del bus on va
+        double nivellDb = 0.0;   // de -60 (silenci) a +6
+        double pan = 0.0;        // de -1 a +1
+        bool actiu = true, mut = false;
+        int mode = 1;            // 0 pre-fader, 1 post-fader (abans del panorama), 2 post-pan
+    };
+
     struct Pista
     {
         std::string id;          // «t1», «t2»…
         std::string nom;
-        std::string tipus = "audio";   // audio, midi, bateria (0.20; és MIDI amb el sampler de bateria). Més endavant: bus
+        std::string tipus = "audio";   // audio, midi (instrument), bus, fx, acords. 0.39: «bateria» ja no és un tipus: és una pista midi amb l'instrument «intern:bateria» (el kit)
         /** Pistes MIDI: qui fa el so. «intern:<so>» (sinte intern de Mibase, per exemple «intern:piano»);
             més endavant «vst3:<identificador>». */
         std::string instrument;
@@ -189,10 +245,23 @@ namespace mibase
         std::string kit;                           // bateria: nom del kit d'on surten els sons
         bool padsPerOrdre = false;                 // bateria: els pads del teclat (notes 36…) toquen les files per ordre
         ParamsSampler sampler;                     // 0.26: instrument «sampler»
+        ParamsGuitarra guitarra;                   // 0.44: controls de la guitarra virtual
+        // ---- 0.33 ----
+        std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
+        std::vector<Enviament> enviaments;
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */
     inline bool esMidi (const Pista& t) noexcept { return t.tipus == "midi" || t.tipus == "bateria"; }
+    /** 0.39: l'instrument «kit de bateria» (el sampler de bateria amb les files de la pista). */
+    inline constexpr const char* instrumentKit = "intern:bateria";
+    /** 0.39: la pista sona amb un kit de bateria. (Els projectes antics amb tipus «bateria» es converteixen en llegir-los.) */
+    inline bool esKit (const Pista& t) noexcept { return t.tipus == "bateria" || (t.tipus == "midi" && t.instrument == instrumentKit); }
+    /** 0.33: és un bus (de grup, «bus», o retorn d'efectes, «fx»): no té clips, suma el que li arriba. */
+    inline bool esBus (const Pista& t) noexcept { return t.tipus == "bus" || t.tipus == "fx"; }
+    /** 0.36: la pista d'Acords (n'hi ha com a molt una, a dalt de tot). */
+    inline bool esAcords (const Pista& t) noexcept { return t.tipus == "acords"; }
     /** 0.26: és una pista d'instrument amb el samplejador. */
     inline bool esSampler (const Pista& t) noexcept { return t.tipus == "midi" && t.instrument == instrumentSampler; }
 
@@ -289,6 +358,7 @@ namespace mibase
         std::string estructuraActiva;        // id; buit = lineal
         Bucle bucle;
         Snap snap = Snap::Compas;
+        long long graella = 960;   // 0.42: subdivisió de la taula de treball per al mode «Graella» (ticks; 960 = negra)
         bool clic = true;
         double clicVolum = 1.0;  // 0 a 1,5
         int clicSo = 0;          // 0 digital, 1 fusta, 2 analògic, 3 campana

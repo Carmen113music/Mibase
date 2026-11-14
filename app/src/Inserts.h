@@ -50,6 +50,15 @@ namespace inserts
                 (ara ? "Efecte encès: "_ca : "Efecte apagat: "_ca) + titol ((*v)[(size_t) k]));
     }
 
+    /** 0.31: treu l'insert k (els de sota pugen). */
+    inline void treu (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k)
+    {
+        auto* v = llista (estat, pista);
+        if (v == nullptr || k < 0 || k >= (int) v->size()) return;
+        const auto nom = titol ((*v)[(size_t) k]);
+        canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k < (int) l.size()) l.erase (l.begin() + k); }, "Treu efecte: "_ca + nom);
+    }
+
     /** Tria un plugin d'efecte per posar-lo a l'insert k (si k és el primer buit, se n'afegeix un). */
     inline void tria (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k, juce::Component* on)
     {
@@ -61,6 +70,12 @@ namespace inserts
         const bool nou = k >= (int) v->size();
         juce::PopupMenu m;
         m.addSectionHeader (nou ? "Efecte nou"_ca : "Canvia " + titol ((*v)[(size_t) k]) + " per…"_ca);
+        if (! nou)
+        {
+            // 0.31: treure'l sense posar-ne cap altre
+            m.addItem (2, "Treu-lo (sense posar-n'hi cap altre)"_ca);
+            m.addSeparator();
+        }
         // 0.22: el Vocal Editor (intern), només a les pistes d'àudio i un per pista.
         if (auto* t = estat.pista (pista); t != nullptr && ! mibase::esMidi (*t))
         {
@@ -77,6 +92,7 @@ namespace inserts
         }
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [&estat, plugins, pista, k, nou, tipus] (int r)
         {
+            if (r == 2) { treu (estat, plugins, pista, k); return; }
             if (r == 1)
             {
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
@@ -122,14 +138,14 @@ namespace inserts
         m.addItem (4, "Mou avall"_ca, k + 1 < (int) v->size());
         m.addSeparator();
         m.addItem (5, "Treu-lo"_ca);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [&estat, plugins, pista, k, x, on] (int r)
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [&estat, plugins, pista, k, on] (int r)
         {
             if (r == 1) obre (estat, plugins, pista, k);
             else if (r == 2) commuta (estat, plugins, pista, k);
             else if (r == 6) tria (estat, plugins, pista, k, on);
             else if (r == 3) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k > 0 && k < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k - 1]); }, {});
             else if (r == 4) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k + 1 < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k + 1]); }, {});
-            else if (r == 5) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k < (int) l.size()) l.erase (l.begin() + k); }, "Treu efecte: "_ca + titol (x));
+            else if (r == 5) treu (estat, plugins, pista, k);
         });
     }
 
@@ -192,7 +208,7 @@ namespace inserts
         else obre (estat, plugins, pista, k);
     }
 
-    inline juce::String ajuda() { return "Llumeta: encén o apaga · nom: obre el plugin · fletxes: canvia'l · botó dret: mou o treu"_ca; }
+    inline juce::String ajuda() { return "Llumeta: encén o apaga · nom: obre el plugin · fletxes: canvia'l o treu-lo · arrossega'l fora: el treus · botó dret: mou o treu"_ca; }
 }
 
 /** Una fila d'insert com a component (columna esquerra). */
@@ -207,14 +223,44 @@ public:
         auto* v = inserts::llista (estat, pista ? pista() : -1);
         const mibase::Insert* x = (v != nullptr && index < (int) v->size()) ? &(*v)[(size_t) index] : nullptr;
         inserts::pinta (g, getLocalBounds(), x, v != nullptr && index == (int) v->size(), false);
+        if (fora && x != nullptr)
+        {
+            // 0.31: s'està arrossegant fora: si es deixa anar, es treu
+            g.setColour (juce::Colour (0xffe0524a).withAlpha (0.35f));
+            g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (11.0f, true));
+            g.drawText ("Deixa'l anar per treure'l"_ca, getLocalBounds(), juce::Justification::centred);
+        }
         setTooltip (x != nullptr ? inserts::ajuda() : "Clica per posar-hi un efecte VST3"_ca);
+    }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        auto* v = inserts::llista (estat, pista ? pista() : -1);
+        if (v == nullptr || index >= (int) v->size() || e.mods.isPopupMenu()) return;
+        const bool ara = ! getLocalBounds().expanded (4).contains (e.getPosition()) && e.getDistanceFromDragStart() > 12;
+        if (ara != fora)
+        {
+            fora = ara;
+            setMouseCursor (fora ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::PointingHandCursor);
+            repaint();
+        }
     }
     void mouseUp (const juce::MouseEvent& e) override
     {
+        if (fora)
+        {
+            fora = false;
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            repaint();
+            inserts::treu (estat, plugins, pista ? pista() : -1, index);
+            return;
+        }
         if (! getLocalBounds().contains (e.getPosition())) return;
         inserts::clic (estat, plugins, pista ? pista() : -1, index, getLocalBounds(), e.getPosition(), e.mods.isPopupMenu(), this);
     }
 private:
+    bool fora = false;
     EstatEstudi& estat;
     int index;
 };
