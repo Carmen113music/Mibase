@@ -1,5 +1,6 @@
 #include "mibase/Guitarra.h"
 #include "mibase/Midi.h"
+#include "mibase/Piano.h"
 #include "mibase/Edicio.h"
 #include <nlohmann/json.hpp>
 #include <map>
@@ -604,10 +605,26 @@ namespace mibase::guitarra
     namespace { std::map<std::string, Patro>& cauVariacions() { static std::map<std::string, Patro> m; return m; } }
     void posaPropis (std::vector<Patro> v) { elsPropis() = std::move (v); cauVariacions().clear(); }
 
+    static Patro dePiano (const piano::Patro& q)
+    {
+        Patro p;
+        p.id = q.id; p.nom = q.nom; p.grup = q.grup; p.compas = q.compas; p.pasTicks = q.pasDreta;
+        p.dibuix = piano::dibuix (q);
+        p.piano = true;
+        return p;
+    }
+
+    const std::vector<Patro>& patronsPiano()
+    {
+        static const std::vector<Patro> v = [] { std::vector<Patro> r; for (auto& q : piano::patrons()) r.push_back (dePiano (q)); return r; }();
+        return v;
+    }
+
     const Patro* patro (const std::string& id)
     {
         for (auto& p : patrons()) if (p.id == id) return &p;
         for (auto& p : elsPropis()) if (p.id == id) return &p;
+        for (auto& p : patronsPiano()) if (p.id == id) return &p;
         // 0.41: una variació («folk~ple») es fa a partir del seu patró
         if (const auto on = id.rfind ('~'); on != std::string::npos)
         {
@@ -731,6 +748,11 @@ namespace mibase::guitarra
     std::vector<Patro> variacions (const Patro& p)
     {
         std::vector<Patro> r;
+        if (p.piano)
+        {
+            if (const auto* q = piano::patro (p.id)) for (auto& x : piano::variacions (*q)) r.push_back (dePiano (x));
+            return r;
+        }
         const int n = (int) p.passos.size();
         if (n < 2) return r;
         auto esCop = [] (const Pas& s) { return s.cop == Cop::Avall || s.cop == Cop::Amunt; };
@@ -784,6 +806,7 @@ namespace mibase::guitarra
 
     BlocPatro blocDe (const Patro* p, long long ini, long long dur, double variacio, unsigned llavor, int vel)
     {
+        if (p != nullptr && p->piano) return piano::blocDe (piano::patro (p->id), ini, dur, variacio, llavor, vel);
         BlocPatro b;
         b.ini = ini; b.dur = dur; b.variacio = variacio; b.llavor = llavor; b.vel = vel;
         if (p != nullptr)
@@ -832,6 +855,26 @@ namespace mibase::guitarra
     {
         std::vector<Nota> r;
         const long long bi = b.ini, bf = b.ini + b.dur;
+        if (b.tipus == "piano")
+        {
+            // 0.47: patró de piano. Com amb la guitarra, es toca tot el bloc amb cada acord i se'n queda el seu tros.
+            const auto pp = piano::patroDeBloc (b);
+            piano::Opcions o;
+            o.vel = b.vel; o.tempo = tempo; o.variacio = b.variacio; o.llavor = b.llavor;
+            for (const auto& a : acords)
+            {
+                const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
+                if (y - x < 10) continue;
+                for (auto n : piano::toca (harmonia::llegeixAcord (a.acord), pp, b.dur, o))
+                {
+                    n.ini += bi;
+                    if (n.ini < x || n.ini >= y) continue;
+                    n.dur = std::min (n.dur, y - n.ini);
+                    if (n.dur > 0) r.push_back (n);
+                }
+            }
+            return r;
+        }
         const auto p = patroDeBloc (b);
         for (const auto& a : acords)
         {
@@ -857,6 +900,31 @@ namespace mibase::guitarra
         return r;
     }
 
+    std::vector<EventMidi> pedalBloc (const BlocPatro& b, const std::vector<Tram>& acords)
+    {
+        // Pedal «re-ped»: es deixa anar just al canvi i es torna a trepitjar una mica després (30 ticks), a cada acord
+        // i un o dos cops per compàs segons el patró. Al final de cada tros, es deixa anar.
+        std::vector<EventMidi> r;
+        if (b.tipus != "piano" || b.pedal <= 0) return r;
+        const long long bi = b.ini, bf = b.ini + b.dur;
+        const long long compas = std::max (480LL, piano::ticksCompas (b.compas.empty() ? std::string ("4/4") : b.compas));
+        const long long cada = b.pedal >= 2 ? std::max (480LL, compas / 2) : compas;
+        for (const auto& a : acords)
+        {
+            const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
+            if (y - x < 120 || harmonia::llegeixAcord (a.acord).buit()) continue;
+            std::vector<long long> canvis { x };
+            for (long long t = bi + cada; t < y - 60; t += cada) if (t > x + 60) canvis.push_back (t);
+            for (long long t : canvis)
+            {
+                if (t != x) r.push_back ({ t, 0xB0, 64, 0, 0 });
+                r.push_back ({ t + 30, 0xB0, 64, 127, 0 });
+            }
+            r.push_back ({ y - 20, 0xB0, 64, 0, 0 });
+        }
+        return r;
+    }
+
     bool escriuBloc (Clip& c, int quin, const std::vector<Tram>& acords, double tempo)
     {
         if (quin < 0 || quin >= (int) c.blocs.size()) return false;
@@ -869,8 +937,15 @@ namespace mibase::guitarra
             if (n.ini < b.ini && n.ini + n.dur > b.ini) n.dur = b.ini - n.ini;   // el que venia sonant s'apaga aquí
         afegeix (nou, notesBloc (b, acords, tempo), 0);
         { std::vector<int> cap; midi::ordena (nou.notes, cap); }
-        if (nou.notes == c.notes) return false;
+        // 0.47: el pedal (CC64) del bloc també és seu: es treu el que hi havia al seu tros i s'hi posa el del patró.
+        auto esPedal = [&] (const EventMidi& e) { return e.tipus == 0xB0 && e.num == 64 && e.tick >= b.ini && e.tick < b.ini + b.dur; };
+        auto events = c.events;
+        std::erase_if (events, esPedal);
+        for (auto& e : pedalBloc (b, acords)) events.push_back (e);
+        std::stable_sort (events.begin(), events.end(), [] (const EventMidi& x, const EventMidi& y) { return x.tick < y.tick; });
+        if (nou.notes == c.notes && events == c.events) return false;
         c.notes = std::move (nou.notes);
+        c.events = std::move (events);
         return true;
     }
 

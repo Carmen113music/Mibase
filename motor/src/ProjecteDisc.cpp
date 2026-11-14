@@ -487,6 +487,12 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                 x.llavor = b.value ("llavor", 1u);
                                 x.vel = std::clamp (b.value ("vel", 88), 1, 127);
                                 x.fix = b.value ("fix", false);
+                                x.tipus = b.value ("tipus", std::string());   // 0.47
+                                x.passosEsq = b.value ("passosEsq", std::string());
+                                x.pasTicksEsq = b.value ("pasTicksEsq", 480LL);
+                                x.gate = std::clamp (b.value ("gate", 0.9), 0.1, 1.0);
+                                x.pedal = std::clamp (b.value ("pedal", 1), 0, 2);
+                                x.compas = b.value ("compasPatro", std::string());
                                 if (x.dur <= 0) continue;
                                 c.blocs.push_back (x);
                                 // 0.40 desava l'acord dins del bloc: ara va a la llista d'acords del clip.
@@ -718,10 +724,18 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                 {
                     json bl = json::array();
                     for (auto& b : c.blocs)
+                    {
                         bl.push_back ({ { "ini", b.ini }, { "dur", b.dur }, { "patro", b.patro }, { "nom", b.nom },
                                         { "passos", b.passos }, { "pasTicks", b.pasTicks }, { "msCorda", b.msCorda },
                                         { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel },
                                         { "fix", b.fix } });
+                        if (! b.tipus.empty())   // 0.47: patrons de piano
+                        {
+                            auto& u = bl.back();
+                            u["tipus"] = b.tipus; u["passosEsq"] = b.passosEsq; u["pasTicksEsq"] = b.pasTicksEsq;
+                            u["gate"] = b.gate; u["pedal"] = b.pedal; u["compasPatro"] = b.compas;
+                        }
+                    }
                     k["blocs"] = bl;
                 }
                 if (c.acordsPropis) k["acordsPropis"] = true;   // 0.46

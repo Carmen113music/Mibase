@@ -440,6 +440,9 @@ private:
     CaixaNumero octavaPads { "Octava", 1, 7, 4 };
     Segmentat voicingPads { { "Tancat", "Obert", "Guitarra" } };
     Boto btRasgueig { "Rasgueig", std::nullopt, Boto::Estil::Secundari };   // 0.29: només amb «Guitarra»
+    std::string rasgueigAltre = "pa01";   // 0.47: el patró triat a l'altra eina (guitarra / piano), per tornar-hi
+    std::string acordProva = "C";         // 0.47: l'últim pad tocat (per escoltar els patrons de piano)
+    bool modePiano() const { return modeGuitarra() && estat.editors[(size_t) index].piano; }
     std::string rasgueigPads = "folk";                                      // id del patró; buit = acord sencer, sense ritme
     double variacioRasgueig = 0.5;                                          // 0.32: 0 cap, 0.25 poca, 0.5 normal, 1 molta
     mutable unsigned llavorRasgueig = 1;                                    // 0.32: nova a cada pad arrossegat

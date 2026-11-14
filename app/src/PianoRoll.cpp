@@ -1,6 +1,7 @@
 #include "PianoRoll.h"
 #include "EditorRasgueig.h"
 #include "Guitarres.h"
+#include <mibase/Piano.h>
 #include <mibase/Bateria.h>
 
 #include <mibase/PresetsPads.h>
@@ -1160,7 +1161,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
             else if (i - 1 < (int) vars.size()) id = vars[(size_t) (i - 1)].id;
             else return;
         }
-        triaRasgueig (id, true);
+        triaRasgueig (id, e.getNumberOfClicks() >= 2);   // 0.47: un clic el tria; el doble clic el fa sonar
         patroArrossegat = id;
         arrossegaPatro = false;
         mode = Mode::Patro;
@@ -1200,6 +1201,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
         notesPadPremut = notesDelPad (i);
         if (notesPadPremut.empty()) { obreEditorPad (i); return; }   // pad buit: es tria l'acord
         padPremut = i;
+        if (const auto pa = padsActuals(); i < (int) pa.size()) acordProva = pa[(size_t) i];
         mode = Mode::Pad;
         if (const auto rs = modeGuitarra() ? rasgueigDe (notesPadPremut) : std::vector<Nota>(); ! rs.empty()) escoltaRasgueig (rs);   // 0.40: s'escolta amb el rasgueig
         else sonaNotes (notesPadPremut, true);
@@ -2512,8 +2514,14 @@ std::vector<const guitarra::Patro*> PianoRoll::patronsLlista() const
 {
     // Els rasgueigs del mateix grup que el triat (o els bàsics).
     const auto* triat = guitarra::patro (rasgueigPads);
-    const std::string grup = triat != nullptr ? triat->grup : guitarra::patrons().front().grup;
     std::vector<const guitarra::Patro*> v;
+    if (modePiano())   // 0.47
+    {
+        const std::string gp = triat != nullptr && triat->piano ? triat->grup : guitarra::patronsPiano().front().grup;
+        for (auto& p : guitarra::patronsPiano()) if (p.grup == gp) v.push_back (&p);
+        return v;
+    }
+    const std::string grup = triat != nullptr ? triat->grup : guitarra::patrons().front().grup;
     for (auto& p : guitarra::propis()) if (p.grup == grup) v.push_back (&p);
     for (auto& p : guitarra::patrons()) if (p.grup == grup) v.push_back (&p);
     return v;
@@ -2656,7 +2664,7 @@ void PianoRoll::pintaPatrons (juce::Graphics& g)
         {
             g.setColour (juce::Colours::black.withAlpha (0.7f));
             g.setFont (dibuix::lletra (10.5f));
-            g.drawText (juce::String::fromUTF8 (guitarra::dibuixPassos (guitarra::llegeixPassos (b.passos)).c_str()), r.withTrimmedLeft (wn).reduced (2.0f, 0.0f),
+            g.drawText (juce::String::fromUTF8 (b.tipus == "piano" ? b.passos.c_str() : guitarra::dibuixPassos (guitarra::llegeixPassos (b.passos)).c_str()), r.withTrimmedLeft (wn).reduced (2.0f, 0.0f),
                         juce::Justification::centredLeft, true);
         }
     }
@@ -2928,15 +2936,13 @@ void PianoRoll::canviaModePads (bool pads)
 void PianoRoll::actualitzaPestanyes()
 {
     const bool bt = bateria();
-    pestanyes.posa (bt ? 2 : modeGuitarra() ? 3 : modePads() ? 1 : 0, { true, true, true, true, false });   // 0.40: patrons de guitarra   // 0.39: qualsevol eina a qualsevol pista d'instrument
+    pestanyes.posa (bt ? 2 : modePiano() ? 4 : modeGuitarra() ? 3 : modePads() ? 1 : 0, { true, true, true, true, true });   // 0.47: patrons de piano   // 0.40: patrons de guitarra   // 0.39: qualsevol eina a qualsevol pista d'instrument
 }
 
 void PianoRoll::triaPestanya (int i)
 {
     if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); }
     const bool bt = bateria();
-    if (i >= 4) info = "Els patrons de piano arribaran en una versió propera"_ca;
-    else
     {
         // 0.39: l'eina es tria; no depèn del tipus de pista.
         auto& e = estat.editors[(size_t) index];
@@ -2953,11 +2959,19 @@ void PianoRoll::triaPestanya (int i)
             info = pista() != nullptr && ! mibase::esKit (*pista()) ? "Drumpad: cada fila és una nota. Sona amb l'instrument de la pista"_ca : juce::String();
         }
         else if (i != 2) { if (bt) altNota = 14; e.drum = false; info.clear(); }
-        e.patro = i == 3;   // 0.40
+        e.patro = i == 3 || i == 4;   // 0.40
+        e.piano = i == 4;             // 0.47
         if (i == 3) info = "Patrons de guitarra: tria un rasgueig a la dreta i arrossega un acord a la línia de sota"_ca;
+        if (i == 4) info = "Patrons de piano: tria'n un a la dreta (doble clic per escoltar-lo) i arrossega'l a la línia de sota"_ca;
+        if (i == 3 || i == 4)
+        {
+            // cada eina recorda el seu patró triat
+            const auto* pr = guitarra::patro (rasgueigPads);
+            if ((pr != nullptr && pr->piano) != (i == 4)) std::swap (rasgueigPads, rasgueigAltre);
+        }
         triadesNotes.clear();
         desplY = 0;
-        canviaModePads (i == 1 || i == 3);
+        canviaModePads (i == 1 || i == 3 || i == 4);
         encaixaVista (false);
     }
     repaint();
@@ -2992,7 +3006,7 @@ void PianoRoll::actualitzaControlsPads()
     {
         // 0.40: a l'eina de patrons, el rasgueig triat, el seu editor i «Acords de la cançó»; ni voicing ni octava.
         const bool gm = modeGuitarra() && clip() != nullptr;
-        btRasgueig.setVisible (gm); btEditaRasgueig.setVisible (gm); btSegueix.setVisible (gm);
+        btRasgueig.setVisible (gm); btEditaRasgueig.setVisible (gm && ! modePiano()); btSegueix.setVisible (gm);
         btSegueix.setToggleState (gm && segueixAcords(), juce::dontSendNotification);
         if (gm) selDuradaPads.setVisible (! segueixAcords());
         if (gm) { voicingPads.setVisible (false); btLlapisPads.setVisible (false); }
@@ -3053,6 +3067,16 @@ std::vector<Nota> PianoRoll::rasgueigDe (const std::vector<int>& cordes) const
     if (! padsGuitarra() || cordes.empty()) return {};
     const auto* p = guitarra::patro (rasgueigPads);
     if (p == nullptr) return {};
+    if (p->piano)   // 0.47: el patró de piano amb l'últim acord tocat (o Do)
+    {
+        const auto* q = piano::patro (p->id);
+        auto ac = harmonia::llegeixAcord (acordProva);
+        if (ac.buit()) ac = harmonia::llegeixAcord ("C");
+        if (q == nullptr) return {};
+        piano::Opcions po;
+        po.vel = 0; po.tempo = edicio::tramA (estat.projecte, estat.capcal).tempo; po.variacio = variacioRasgueig; po.llavor = llavorRasgueig;
+        return piano::toca (ac, *q, juce::jmax (piano::ticksCompas (q->compas), duradaPads()), po);
+    }
     guitarra::Opcions o;
     o.vel = juce::jmax (30, velNova.getValor() - 12);   // els accents pugen fins a +32: que «Vel 100» no saturi
     o.tempo = edicio::tramA (estat.projecte, estat.capcal).tempo;
@@ -3069,6 +3093,7 @@ void PianoRoll::menuRasgueig()
     m.addSeparator();
     std::vector<guitarra::Patro> v = guitarra::propis();   // 0.40: primer els de l'usuari
     v.insert (v.end(), guitarra::patrons().begin(), guitarra::patrons().end());
+    if (modePiano()) v = guitarra::patronsPiano();   // 0.47
     std::vector<std::string> ids;
     for (auto& p : v) ids.push_back (p.id);
     std::vector<std::string> grups;

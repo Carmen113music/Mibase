@@ -62,7 +62,10 @@ namespace mibase::guitarra
         std::string compas = "4/4";     // 0.32: per al nom del menú
         double msCorda = 0.0;           // 0.32: retard entre cordes propi del patró (0 = el de les opcions)
         int crescendo = 0;              // 0.32: la força puja aquests punts al llarg del patró
+        bool piano = false;             // 0.47: és un patró de piano (mibase::piano); aquí només hi ha el nom i el dibuix
     };
+    /** 0.47: els patrons de piano, vistos com a patrons de la llista (nom, grup, dibuix). */
+    const std::vector<Patro>& patronsPiano();
     /** Una casella per paraula, separades per espais:
         «D» avall, «U» amunt («d» / «u»: fluix), «.» deixa sonar, «_» silenci, «X» / «x» nota morta (avall / amunt).
         Davant: «P» palm mute («PD», «PU»), «X» nota morta («XD», «XU»), «S» slap («S» o «SD»).
@@ -125,6 +128,8 @@ namespace mibase::guitarra
     /** Torna a escriure les notes d'un bloc (treu les que comencen dins seu i talla les que hi entren sonant).
         Torna si ha canviat alguna cosa. */
     bool escriuBloc (Clip& c, int quin, const std::vector<Tram>& acords, double tempo);
+    /** 0.47: el pedal (CC64) d'un bloc de piano amb aquests acords (ticks del clip). Buit si no és de piano. */
+    std::vector<EventMidi> pedalBloc (const BlocPatro& b, const std::vector<Tram>& acords);
     /** Posa un bloc: els que trepitja s'escurcen o desapareixen, i les notes d'aquell tros s'esborren (les noves
         les escriu actualitza). Torna'n l'índex. */
     int posaBloc (Clip& c, BlocPatro b);

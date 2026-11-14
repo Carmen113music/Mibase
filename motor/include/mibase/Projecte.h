@@ -100,6 +100,13 @@ namespace mibase
         unsigned llavor = 1;
         int vel = 88;
         bool fix = false;             // retocat a mà: no es reescriu fins que es desbloqueja
+        // ---- 0.47: patrons de piano («tipus» = "piano"; buit = rasgueig de guitarra). «passos» és la mà dreta. ----
+        std::string tipus;
+        std::string passosEsq;        // la mà esquerra
+        long long pasTicksEsq = 480;
+        double gate = 0.9;
+        int pedal = 1;                // 0 sense · 1 un cop per compàs · 2 dos cops
+        std::string compas;
         bool operator== (const BlocPatro&) const = default;
     };
 

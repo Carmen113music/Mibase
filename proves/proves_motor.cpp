@@ -16,6 +16,7 @@
 #include "mibase/SinteIntern.h"
 #include "mibase/Harmonia.h"
 #include "mibase/Guitarra.h"
+#include "mibase/Piano.h"
 #include "mibase/GeneralMidi.h"
 #include "mibase/PresetsPads.h"
 #include "mibase/TeclatAcords.h"
@@ -152,6 +153,7 @@ namespace
 #include "proves_042.inc"
 #include "proves_043.inc"
 #include "proves_045.inc"
+#include "proves_047.inc"
 
 int main()
 {
@@ -2285,6 +2287,7 @@ int main()
     proves042();
     proves043();
     proves045();
+    proves047();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

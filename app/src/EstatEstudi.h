@@ -96,6 +96,7 @@ public:
         std::string idPista;        // per seguir la pista si canvia de lloc (s'esborra o es mou una altra)
         bool bloquejat = false;
         bool pads = false;          // eina Chord Pad
+        bool piano = false;         // 0.47: l'eina de patrons és la de piano (amb «patro»)
         bool patro = false;         // 0.40: eina de patrons de guitarra (els pads i, al costat, els rasgueigs)
         bool drum = false;          // 0.39: eina Drumpad (en obrir un clip: sí, si la pista sona amb un kit de bateria)
         std::vector<std::string> fantasmes;   // 0.10: pistes (id) de les quals es veuen les notes fantasma (per defecte, cap)
@@ -196,6 +197,7 @@ public:
             // 0.40: un clip fet amb patrons de guitarra s'obre amb la seva eina
             editors[(size_t) i].drum = false;
             editors[(size_t) i].pads = editors[(size_t) i].patro = true;
+            editors[(size_t) i].piano = t->clips[(size_t) r.clip].blocs.front().tipus == "piano";   // 0.47
         }
     }
 
