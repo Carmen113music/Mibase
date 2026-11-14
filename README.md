@@ -192,7 +192,7 @@ Tot es fa a la **taula de mescles**. Cada pista té **una sortida** (on va tot e
 
 ### Patrons de guitarra (0.40, refet a la 0.41)
 És la quarta pestanya de sota de l'editor. Escriu acords rasguejats com a notes normals, que sonen amb l'instrument de la pista. **El patró posa el ritme; l'acord ve d'un altre lloc**:
-- **Segueix acords** (interruptor a la barra de l'eina i botó **Ac** a la pista, al costat de M / S / gravar / instrument): **encès**, els patrons toquen els acords de la **pista d'Acords**; **apagat**, els que hi posis tu arrossegant un pad a la línia de sota la regla.
+- **Segueix acords**: el botó **Ac** de la pista (al costat de M / S / gravar / instrument) és per a **tota la pista**: encès, els patrons toquen els acords de la **pista d'Acords**. L'interruptor de la barra de l'eina és per a **aquest clip**: apagat, el clip va pel seu compte amb els acords que hi posis arrossegant un pad, i a la taula de treball queda **ratllat** per saber que la pista d'Acords no l'afecta (0.46).
 - **Línia de sota la regla**: els acords que valen (liles si venen de la pista d'Acords). Apagat «Segueix acords»: arrossega-hi un pad per posar un acord (de la durada triada); botó dret per treure'l.
 - **Línia «Patrons», a baix de tot**: arrossega-hi un rasgueig de la llista (o una variació) i ocupa **tot el compàs** on el deixes. Es pot posar encara que no hi hagi cap acord: queda en silenci fins que n'hi hagi.
 - **Les notes s'escriuen soles**: quan canvies, mous o esborres un acord (a la pista d'Acords o al clip), o encens i apagues «Segueix acords», les notes dels patrons es tornen a escriure. Si l'acord canvia a mig compàs, el rasgueig no torna a començar: segueix el ritme i canvia de notes.
@@ -270,6 +270,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.46.0** — Arreglos: el **botó dret** sobre un clip de la taula de treball torna a la fletxa (ja no obre cap menú); un **clip de patrons es pot desmarcar** de «Segueix acords» amb l'interruptor de l'eina i queda ratllat; l'**escolta dels rasgueigs** de la llista sona amb un sol clic (les apagades de l'escolta anterior tallaven la nova); les **tecles del transport** (espai, R, L, Inici, Retorn) funcionen encara que hi hagi al davant la guitarra virtual, el sinte, els kits o un plugin.
 - **0.45.0** — **Guitarra virtual: el màstil** amb les notes que sonen on és el capçal. **100 patrons nous** per a l'eina de patrons de guitarra: el grup «Fingerpicking: arpegis» (50: PIMA, Travis, rodons, valsos, 6/8, 12/8…) i el grup «Folk modern» (50: galops, bum-txac, palm mute que s'obre, 3-3-2, aturades, 6/8, valsos…). En total, 266 rasgueigs.
 - **0.44.0** — **Guitarra virtual, la finestra**: s'obre amb el botó de l'instrument i mostra la imatge de la guitarra (de `Documents\Mibase\Guitarres`), els selectors de guitarra i de so, i sis controls que es desen amb la pista: volum, to, atac, sustain, octava i afinació.
 - **0.43.0** — **Guitarres en SoundFont** (primera part: el so): les pistes d'instrument poden triar un so de qualsevol `.sf2` de `Documents\Mibase\SoundFonts\Guitarres` (menú «Guitarres (SoundFonts)», amb tots els sons de cada fitxer); la llista es llegeix sense carregar el fitxer i el banc només es carrega quan una pista el fa sonar.

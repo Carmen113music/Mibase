@@ -1111,6 +1111,20 @@ void VistaPistes::paint (juce::Graphics& g)
         // En ordre: el de més amunt de la llista és el que sona i es dibuixa a sobre.
         for (int k = 0; k < (int) t.clips.size(); ++k) pintaClip (g, i, k, t.clips[(size_t) k]);
 
+        // 0.46: un clip de patrons que no segueix la pista d'Acords (tot i que la pista sí): ratllat fi, de l'altra banda.
+        if (t.segueixAcords)
+            for (const auto& c : t.clips)
+            {
+                if (! c.midi || ! c.acordsPropis || c.blocs.empty()) continue;
+                auto r = juce::Rectangle<float> (estat.x (c.iniciVisible()), (float) estat.yPista (i) + 5.0f, estat.x (c.fiVisible()) - estat.x (c.iniciVisible()), (float) estat.altDe (i) - 10.0f);
+                if (r.getRight() < 0.0f || r.getX() > w) continue;
+                juce::Graphics::ScopedSaveState guarda (g);
+                g.reduceClipRegion (r.toNearestInt());
+                g.setColour (juce::Colours::black.withAlpha (0.38f));
+                for (float x = r.getX() - r.getHeight(); x < r.getRight() + r.getHeight(); x += 9.0f)
+                    g.drawLine (x, r.getY(), x + r.getHeight(), r.getBottom(), 1.6f);
+            }
+
         // On dos clips es trepitgen: ratllat.
         for (int a = 0; a < (int) t.clips.size(); ++a)
             for (int b = a + 1; b < (int) t.clips.size(); ++b)
@@ -1530,7 +1544,7 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
 
     // 0.36: la pista d'Acords: botó dret o llapis = menú d'acords; la resta d'eines (fletxa, tisores, goma) com sempre
     if (lloc0.pista >= 0 && lloc0.pista < estat.numPistes() && mibase::esAcords (estat.projecte.pistes[(size_t) lloc0.pista])
-        && (e.mods.isPopupMenu() || estat.eina == Eina::Llapis))
+        && ! e.mods.isPopupMenu() && estat.eina == Eina::Llapis)   // 0.46: el botó dret ja no obre el menú d'acords
     {
         if (lloc0.clip >= 0 && ! estat.clipTriat (lloc0.pista, lloc0.clip)) estat.triaClip (lloc0.pista, lloc0.clip);
         estat.pistaTriada = lloc0.pista;
@@ -1561,22 +1575,10 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
 
     if (e.mods.isPopupMenu())
     {
-        if (lloc0.clip >= 0)
-        {
-            if (! estat.clipTriat (lloc0.pista, lloc0.clip))
-            {
-                estat.triaClip (lloc0.pista, lloc0.clip);
-                estat.avisa();
-            }
-            menuClip (lloc0.pista, lloc0.clip, t0);
-        }
-        else
-        {
-            // Botó dret en un lloc buit: torna a la fletxa.
-            estat.eina = Eina::Fletxa;
-            estat.info = "Fletxa";
-            estat.avisa();
-        }
+        // 0.46: el botó dret torna sempre a la fletxa, també a sobre d'un clip (abans hi obria un menú).
+        estat.eina = Eina::Fletxa;
+        estat.info = "Fletxa";
+        estat.avisa();
         return;
     }
 

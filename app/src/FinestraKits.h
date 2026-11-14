@@ -13,7 +13,7 @@
 class FinestraKits : public juce::DocumentWindow
 {
 public:
-    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }   // 0.27
+    bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }   // 0.27
     FinestraKits (EstatEstudi& e, ServeiAudio& s, std::function<void()> enTancar)
         : juce::DocumentWindow ("Kits de bateria"_ca, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           tancar (std::move (enTancar))

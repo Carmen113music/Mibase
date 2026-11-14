@@ -130,7 +130,7 @@ namespace
             setVisible (true);
         }
         void closeButtonPressed() override { juce::MessageManager::callAsync ([t = tancar] { t(); }); }
-        bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
 
     private:
         std::function<void()> tancar;

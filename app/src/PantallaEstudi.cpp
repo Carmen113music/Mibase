@@ -332,6 +332,15 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pestDreta.setTriat (dretaBiblioteca ? 1 : 0);
     pestDreta.onCanvi = [this] (int i) { dretaBiblioteca = i == 1; ajustos.setValue ("estudi.dretaBiblioteca", dretaBiblioteca); colocaSeccions(); };
     escGlobal() = [this] { tancaTot(); };
+    // 0.46: amb una finestra a part al davant (guitarra virtual, sinte, plugin…), les tecles del transport també van
+    teclaGlobal() = [this] (const juce::KeyPress& k)
+    {
+        if (k.getModifiers().isAnyModifierKeyDown()) return false;
+        const int c = k.getKeyCode();
+        const bool transport = c == juce::KeyPress::spaceKey || c == 'R' || c == 'r' || c == 'L' || c == 'l'
+                            || c == juce::KeyPress::homeKey || c == juce::KeyPress::returnKey;
+        return transport && keyPressed (k);
+    };
     biblioteca.onInfo = [this] (const juce::String& t) { estat.info = t; estat.avisa(); };
     biblioteca.onEscolta = [this] (const juce::File& fs)
     {
@@ -503,6 +512,7 @@ PantallaEstudi::~PantallaEstudi()
 {
     inserts::obreVeu() = nullptr;
     escGlobal() = nullptr;
+    teclaGlobal() = nullptr;
     informePlugins() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);

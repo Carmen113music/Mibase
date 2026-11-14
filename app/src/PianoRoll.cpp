@@ -1,5 +1,6 @@
 #include "PianoRoll.h"
 #include "EditorRasgueig.h"
+#include "Guitarres.h"
 #include <mibase/Bateria.h>
 
 #include <mibase/PresetsPads.h>
@@ -137,7 +138,7 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     btEditaRasgueig.onClick = [this] { obreEditorRasgueig(); };
     addChildComponent (btSegueix);
     btSegueix.setLlum (juce::Colour (0xffb18cff));
-    btSegueix.setTooltip ("Encès: els patrons toquen els acords de la pista d'Acords. Apagat: els que hi posis tu amb els pads."_ca);
+    btSegueix.setTooltip ("Encès: aquest clip toca els acords de la pista d'Acords. Apagat: els que hi posis tu amb els pads (el clip queda ratllat a la taula de treball). Per a tota la pista, el botó Ac."_ca);
     btSegueix.onClick = [this] { commutaSegueix(); };
     // 0.41: un retoc a mà de les notes d'un bloc el deixa bloquejat (ja no es reescriu sol)
     onAbansDeTancar = [this] (const mibase::Projecte& abans)
@@ -2494,8 +2495,10 @@ std::string PianoRoll::patroBase() const
 
 bool PianoRoll::segueixAcords() const
 {
+    // El que val per al clip de l'editor: la pista segueix la pista d'Acords i aquest clip no se n'ha desmarcat (0.46).
     const auto* t = const_cast<PianoRoll*> (this)->pista();
-    return t != nullptr && t->segueixAcords;
+    const auto* c = clip();
+    return t != nullptr && t->segueixAcords && (c == nullptr || ! c->acordsPropis);
 }
 
 int PianoRoll::velRasgueig() const { return juce::jmax (30, velNova.getValor() - 12); }   // els accents pugen fins a +32
@@ -2805,14 +2808,22 @@ void PianoRoll::menuAcord (int quin)
 
 void PianoRoll::commutaSegueix()
 {
+    // 0.46: el botó de l'eina és per a AQUEST clip (el de la pista sencera és «Ac», a la capçalera). Si la pista no
+    // segueix la pista d'Acords, l'encén; si la segueix, treu o torna a posar aquest clip.
     auto* t = pista();
-    if (t == nullptr) return;
+    auto* c = clip();
+    if (t == nullptr || c == nullptr) return;
     estat.desfes.abans (estat.projecte);
-    t->segueixAcords = ! t->segueixAcords;
-    const bool ara2 = t->segueixAcords;
-    const auto nom = juce::String::fromUTF8 (t->nom.c_str());
+    juce::String text;
+    if (! t->segueixAcords) { t->segueixAcords = true; c->acordsPropis = false; text = "«"_ca + juce::String::fromUTF8 (t->nom.c_str()) + "» segueix la pista d'Acords"_ca; }
+    else
+    {
+        c->acordsPropis = ! c->acordsPropis;
+        text = c->acordsPropis ? "Aquest clip ja no segueix la pista d'Acords (els acords, amb els pads)"_ca : "Aquest clip torna a seguir la pista d'Acords"_ca;
+    }
     triadesNotes.clear();
-    estat.canviat ("«"_ca + nom + (ara2 ? "» segueix la pista d'Acords"_ca : "» ja no segueix la pista d'Acords"_ca));
+    info = text;
+    estat.canviat (text);
     actualitzaControlsPads();
     resized();
     repaint();
@@ -2832,16 +2843,33 @@ void PianoRoll::escoltaRasgueig (const std::vector<Nota>& notes)
     // Sona per la pista de l'editor, nota per nota al seu moment (per escoltar-lo abans de posar-lo).
     if (! onDirecte || pistaEditor() < 0 || notes.empty()) return;
     const unsigned id = ++escolta;
-    const double msTick = 60000.0 / (juce::jmax (20.0, edicio::tramA (estat.projecte, estat.capcal).tempo) * (double) ticksPerNegra);
     const int pista = pistaEditor();
+    // 0.46: abans, les apagades pendents de l'escolta anterior tallaven les notes de la nova (clicant rasgueigs
+    // un rere l'altre gairebé no se sentia res). Ara s'apaga de cop el que sonava, i cada apagada només val per
+    // a la seva encesa (número de sèrie per nota).
+    for (int to = 0; to < 128; ++to)
+        if (serieEscolta[(size_t) to] != 0) { onDirecte (pista, 0x80, (std::uint8_t) to, 0); serieEscolta[(size_t) to] = 0; }
+    const double msTick = 60000.0 / (juce::jmax (20.0, edicio::tramA (estat.projecte, estat.capcal).tempo) * (double) ticksPerNegra);
     juce::Component::SafePointer<PianoRoll> jo (this);
     for (const auto& n : notes)
     {
         const int t0 = juce::roundToInt ((double) n.ini * msTick), t1 = juce::jmax (t0 + 12, juce::roundToInt ((double) (n.ini + n.dur) * msTick) - 6);
         const auto to = (std::uint8_t) juce::jlimit (0, 127, n.to), vel = (std::uint8_t) juce::jlimit (1, 127, n.vel);
-        auto encen = [jo, id, pista, to, vel] { if (jo != nullptr && jo->escolta == id && jo->onDirecte) jo->onDirecte (pista, 0x90, to, vel); };
+        const unsigned serie = ++comptaEscolta;
+        auto encen = [jo, id, pista, to, vel, serie]
+        {
+            if (jo == nullptr || jo->escolta != id || ! jo->onDirecte) return;
+            if (jo->serieEscolta[to] != 0) jo->onDirecte (pista, 0x80, to, 0);   // la mateixa nota, tornada a tocar
+            jo->serieEscolta[to] = serie;
+            jo->onDirecte (pista, 0x90, to, vel);
+        };
         if (t0 <= 0) encen(); else juce::Timer::callAfterDelay (t0, encen);
-        juce::Timer::callAfterDelay (t1, [jo, pista, to] { if (jo != nullptr && jo->onDirecte) jo->onDirecte (pista, 0x80, to, 0); });   // l'apagada, sempre
+        juce::Timer::callAfterDelay (t1, [jo, pista, to, serie]
+        {
+            if (jo == nullptr || ! jo->onDirecte || jo->serieEscolta[to] != serie) return;   // ja l'ha apagat (o tornat a encendre) algú altre
+            jo->serieEscolta[to] = 0;
+            jo->onDirecte (pista, 0x80, to, 0);
+        });
     }
 }
 
@@ -2945,7 +2973,8 @@ void PianoRoll::actualitzaControlsPads()
         if (const auto* t = const_cast<PianoRoll*> (this)->pista(); v && t != nullptr)
         {
             const bool smp = mibase::esSampler (*t), kit = mibase::esKit (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
-            btInstrPads.setButtonText (kit ? "Kit de bateria"_ca : smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
+            btInstrPads.setButtonText (guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false)   // 0.46: la guitarra virtual
+                                       : kit ? "Kit de bateria"_ca : smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
                                        : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte intern"_ca);
             btSoPads.setButtonText (kit ? "Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()) : smp ? (t->sampler.nom.empty() ? "Sample: cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str()))
                                     : vst ? "So: el del plugin"_ca

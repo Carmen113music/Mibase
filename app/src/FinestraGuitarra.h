@@ -293,7 +293,7 @@ private:
 class FinestraGuitarra : public juce::DocumentWindow
 {
 public:
-    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }
+    bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
     FinestraGuitarra (EstatEstudi& e, const std::string& id, const juce::String& titol, std::function<void()> enTancar)
         : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           tancar (std::move (enTancar))

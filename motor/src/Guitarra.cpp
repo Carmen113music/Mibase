@@ -805,7 +805,7 @@ namespace mibase::guitarra
     std::vector<Tram> acordsDe (const Projecte& p, const Pista& t, const Clip& c)
     {
         std::vector<Tram> r;
-        if (t.segueixAcords)
+        if (t.segueixAcords && ! c.acordsPropis)   // 0.46: un clip pot anar pel seu compte
         {
             const double t0 = midi::ticks (p, c.pos);
             for (const auto& ta : p.pistes)

@@ -317,6 +317,8 @@ private:
     int desplLlista = 0, blocTriat = -1, acordTriat = -1;
     std::string patroArrossegat;      // id del rasgueig que s'està arrossegant cap a un compàs
     bool arrossegaPatro = false;
+    std::array<unsigned, 128> serieEscolta {};   // 0.46: quina encesa de l'escolta té cada nota (0 = apagada)
+    unsigned comptaEscolta = 0;
     unsigned escolta = 0;
     std::vector<int> notesAcordPad (const mibase::harmonia::AcordPad& a) const;   // amb l'octava i el voicing triats (o la posició de guitarra)
     std::vector<mibase::Nota> rasgueigDe (const std::vector<int>& cordes) const;  // buit si no hi ha rasgueig triat

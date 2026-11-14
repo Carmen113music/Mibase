@@ -492,6 +492,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                 // 0.40 desava l'acord dins del bloc: ara va a la llista d'acords del clip.
                                 if (const std::string ac = b.value ("acord", std::string()); ! ac.empty()) c.acords.push_back ({ x.ini, x.dur, ac });
                             }
+                        c.acordsPropis = k.value ("acordsPropis", false);   // 0.46
                         if (k.contains ("acordsClip") && k["acordsClip"].is_array())   // 0.41
                             for (auto& b : k["acordsClip"])
                                 if (b.is_object() && b.value ("dur", 0LL) > 0 && ! b.value ("acord", std::string()).empty())
@@ -723,6 +724,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                         { "fix", b.fix } });
                     k["blocs"] = bl;
                 }
+                if (c.acordsPropis) k["acordsPropis"] = true;   // 0.46
                 if (! c.acords.empty())   // 0.41
                 {
                     json al = json::array();

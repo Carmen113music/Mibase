@@ -128,6 +128,18 @@ prova ("patrons: els blocs llegeixen els acords del clip (posats a mà)", []
             q.pistes[(size_t) G].segueixAcords = true;
             guitarra::actualitza (q);
 
+            // 0.46: un clip es pot desmarcar: encara que la pista segueixi la pista d'Acords, fa servir els seus acords.
+            cl.acordsPropis = true;
+            guitarra::actualitza (q);
+            comprova (cl.notes.empty(), "un clip desmarcat no llegeix la pista d'Acords");
+            guitarra::posaAcord (cl, { 0, 3840, "E" });
+            guitarra::actualitza (q);
+            comprova (sona (0, 3840, 40) && ! sona (3840, 7680, 50), "i toca els acords que se li posen a mà");
+            cl.acordsPropis = false;
+            cl.acords.clear();
+            guitarra::actualitza (q);
+            comprova (sona (0, 3840, 45) && sona (3840, 7680, 50), "tornat a marcar, torna a seguir la pista d'Acords");
+
             const auto vars = guitarra::variacions (*guitarra::patro ("folk"));
             comprova (vars.size() >= 2, "el folk té variacions (" + std::to_string (vars.size()) + ")");
             bool diferents = true;
@@ -140,10 +152,11 @@ prova ("patrons: els blocs llegeixen els acords del clip (posats a mà)", []
             std::filesystem::remove_all (dir);
             std::filesystem::create_directories (dir);
             q.pistes[(size_t) G].clips[0].acords.push_back ({ 0, 960, "E7" });
+            q.pistes[(size_t) G].clips[0].acordsPropis = true;
             comprova (disc::desa (dir / "p.mibase", q, "2026-11-14T09:00:00", "x", false).correcte, "desat");
             auto l = disc::llegeix (dir / "p.mibase");
             comprova (l && l->pistes[(size_t) G].clips[0].blocs == cl.blocs && l->pistes[(size_t) G].clips[0].notes == cl.notes
-                      && l->pistes[(size_t) G].clips[0].acords == cl.acords && l->pistes[(size_t) G].segueixAcords, "blocs (amb el cadenat), acords del clip i notes es recuperen");
+                      && l->pistes[(size_t) G].clips[0].acords == cl.acords && l->pistes[(size_t) G].segueixAcords && l->pistes[(size_t) G].clips[0].acordsPropis, "blocs (amb el cadenat), acords del clip i notes es recuperen");
             // Un projecte de la 0.40 (l'acord dins del bloc) s'obre amb l'acord a la llista del clip.
             {
                 std::ifstream f (dir / "p.mibase");
