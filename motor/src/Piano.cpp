@@ -1,4 +1,5 @@
 #include "mibase/Piano.h"
+#include <optional>
 #include "mibase/Midi.h"
 #include <algorithm>
 #include <cmath>
@@ -249,10 +250,65 @@ namespace mibase::piano
             auto& c = cau();
             if (auto it = c.find (id); it != c.end()) return &it->second;
             if (const auto* base = patro (id.substr (0, on)))
+            {
                 for (auto& v : variacions (*base)) c[v.id] = v;
+                for (int k = 1; k < numPartsCanco; ++k) { auto v = variacioPart (*base, (PartCanco) k); c[v.id] = v; }
+            }
             if (auto it = c.find (id); it != c.end()) return &it->second;
         }
         return nullptr;
+    }
+
+    Patro variacioPart (const Patro& p, PartCanco v)
+    {
+        if (v == PartCanco::Original) return p;
+        const long long compas = std::max (1LL, ticksCompas (p.compas));
+        const long long temps = p.compas.size() > 2 && p.compas.substr (p.compas.size() - 2) == "/8" ? 1440 : 960;
+        auto junta = [] (const std::vector<std::string>& w) { std::string s; for (auto& x : w) s += (s.empty() ? "" : " ") + x; return s; };
+        auto de = [&] (const char* sufix) -> std::optional<Patro>
+        {
+            for (auto& x : variacions (p)) if (x.id == p.id + "~" + sufix) return x;
+            return std::nullopt;
+        };
+        Patro q = p;
+        switch (v)
+        {
+            case PartCanco::Estrofa:
+            {
+                // suau, i el baix només al principi i a mig compàs (deixant sonar)
+                auto e = paraules (q.esquerra);
+                for (size_t k = 0; k < e.size(); ++k)
+                {
+                    const long long t = ((long long) k * q.pasEsquerra) % compas;
+                    if (! (t == 0 || (compas >= 2 * temps && t == (compas / (2 * temps)) * temps))) e[k] = ".";
+                }
+                q.esquerra = junta (e);
+                q.suau = true; q.vel = std::max (40, q.vel - 12);
+                break;
+            }
+            case PartCanco::PreTornada:
+            {
+                // el baix a cada temps (empeny cap a la tornada), una mica més fort
+                auto e = paraules (q.esquerra);
+                for (size_t k = 0; k < e.size(); ++k)
+                    if (((long long) k * q.pasEsquerra) % temps == 0 && e[k] == ".") e[k] = "R";
+                q.esquerra = junta (e);
+                q.vel = std::min (118, q.vel + 6);
+                break;
+            }
+            case PartCanco::Tornada:
+                if (const auto x = de ("ple")) q = *x;
+                else { q.esquerraPlena = true; q.vel = std::min (118, q.vel + 12); }
+                break;
+            case PartCanco::Pont:
+                if (const auto x = de ("espaiat")) q = *x;
+                else { q.suau = true; q.gate = 1.0; q.vel = std::max (40, q.vel - 14); }
+                break;
+            case PartCanco::Original: break;
+        }
+        q.id = p.id + "~" + sufixPart (v);
+        q.nom = p.nom + " \xc2\xb7 " + nomPart (v);
+        return q;
     }
 
     std::string dibuix (const Patro& p)

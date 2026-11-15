@@ -8,6 +8,32 @@
 #include <cstdint>
 #include <cmath>
 
+namespace mibase
+{
+    const char* nomPart (PartCanco v)
+    {
+        static const char* const n[] = { "Original", "Estrofa", "Pre-tornada", "Tornada", "Pont" };
+        return n[std::clamp ((int) v, 0, numPartsCanco - 1)];
+    }
+    const char* sufixPart (PartCanco v)
+    {
+        static const char* const n[] = { "", "estrofa", "pretornada", "tornada", "pont" };
+        return n[std::clamp ((int) v, 0, numPartsCanco - 1)];
+    }
+    const char* ajudaPart (PartCanco v, bool piano)
+    {
+        switch (v)
+        {
+            case PartCanco::Original:   return "Tal com és el patró";
+            case PartCanco::Estrofa:    return piano ? "Més suau, i el baix només al principi i a mig compàs" : "Més buida i suau: fora els cops amunt, el que no cau a temps més fluix";
+            case PartCanco::PreTornada: return piano ? "El baix a cada temps, una mica més fort: empeny cap a la tornada" : "Corxeres avall que empenyen, amb els temps marcats i la força que puja";
+            case PartCanco::Tornada:    return piano ? "Plena: acords a tots els temps i el baix en octaves" : "Plena i oberta: els forats s'omplen i el 2 i el 4 van marcats";
+            case PartCanco::Pont:       return piano ? "De balada: al principi i a mig compàs, deixant sonar" : "Un cop a cada mig compàs, deixant sonar";
+        }
+        return "";
+    }
+}
+
 namespace mibase::guitarra
 {
     namespace
@@ -777,7 +803,10 @@ namespace mibase::guitarra
             auto& cau = cauVariacions();
             if (auto it = cau.find (id); it != cau.end()) return &it->second;
             if (const auto* base = patro (id.substr (0, on)))
+            {
                 for (auto& v : variacions (*base)) cau[v.id] = v;
+                for (int k = 1; k < numPartsCanco; ++k) { auto v = variacioPart (*base, (PartCanco) k); cau[v.id] = v; }   // 0.51
+            }
             if (auto it = cau.find (id); it != cau.end()) return &it->second;
         }
         return nullptr;
@@ -954,6 +983,82 @@ namespace mibase::guitarra
             afegeix ("mutes", v);
         }
         return r;
+    }
+
+    Patro variacioPart (const Patro& p, PartCanco v)
+    {
+        if (v == PartCanco::Original) return p;
+        if (p.piano)
+        {
+            const auto* q = piano::patro (p.id);
+            return q != nullptr ? dePiano (piano::variacioPart (*q, v)) : p;
+        }
+        Patro q = p;
+        q.id = p.id + "~" + sufixPart (v);
+        q.nom = p.nom + " \xc2\xb7 " + nomPart (v);
+        const int n = (int) p.passos.size();
+        if (n == 0 || p.pasTicks <= 0) return q;
+        const long long pas = p.pasTicks;
+        bool dits = false;
+        for (auto& x : p.passos) if (x.dit != Dit::Cap) dits = true;
+        auto cop = [] (Cop c, bool accent) { Pas x; x.cop = c; x.accent = accent; return x; };
+        auto esCop = [] (const Pas& x) { return x.cop == Cop::Avall || x.cop == Cop::Amunt || x.cop == Cop::MutAvall || x.cop == Cop::MutAmunt; };
+        auto& v2 = q.passos;
+        switch (v)
+        {
+            case PartCanco::Estrofa:
+                // més buit i suau: fora els amunt sense accent; el que no cau a temps, fluix; sense crescendo
+                for (int i = 0; i < n; ++i)
+                {
+                    auto& x = v2[(size_t) i];
+                    const long long t = (long long) i * pas;
+                    if (! dits && x.cop == Cop::Amunt && ! x.accent && i > 0) { x = Pas(); continue; }
+                    if (i > 0 && t % 960 != 0) { x.suau = true; x.accent = false; }
+                }
+                q.crescendo = 0;
+                break;
+            case PartCanco::PreTornada:
+                // corxeres avall que empenyen, amb els temps marcats, i la força puja al llarg del patró
+                if (! dits)
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const long long t = (long long) i * pas;
+                        v2[(size_t) i] = t % 480 == 0 ? cop (Cop::Avall, t % 960 == 0) : Pas();
+                    }
+                q.crescendo = std::max (q.crescendo, 22);
+                break;
+            case PartCanco::Tornada:
+                // ple: els forats s'omplen (avall a les corxeres, amunt a les semicorxeres de pas), sense apagats,
+                // i el 2 i el 4 amb accent
+                for (int i = 0; i < n; ++i)
+                {
+                    auto& x = v2[(size_t) i];
+                    const long long t = (long long) i * pas;
+                    if (! dits)
+                    {
+                        if (x.cop == Cop::Res || x.cop == Cop::Silenci) x = cop (t % 480 == 0 ? Cop::Avall : Cop::Amunt, false);
+                        x.tec = Tecnica::Obert; x.suau = false; x.curt = false;
+                        if (x.cop == Cop::MutAvall) x.cop = Cop::Avall;
+                        if (x.cop == Cop::MutAmunt) x.cop = Cop::Amunt;
+                    }
+                    if (t % 1920 == 960) x.accent = true;
+                }
+                break;
+            case PartCanco::Pont:
+                // un cop a cada mig compàs (amb accent el primer), i deixa sonar; als arpegis, només el que cau a temps
+                for (int i = 0; i < n; ++i)
+                {
+                    const long long t = (long long) i * pas;
+                    if (dits) { if (t % 960 != 0) v2[(size_t) i] = Pas(); continue; }
+                    v2[(size_t) i] = t % 1920 == 0 ? cop (Cop::Avall, t % 3840 == 0) : Pas();
+                }
+                q.crescendo = 0;
+                break;
+            case PartCanco::Original: break;
+        }
+        if (std::none_of (v2.begin(), v2.end(), esCop) && ! dits) v2[0] = cop (Cop::Avall, true);
+        q.dibuix = dibuixPassos (v2);
+        return q;
     }
 
     BlocPatro blocDe (const Patro* p, long long ini, long long dur, double variacio, unsigned llavor, int vel)

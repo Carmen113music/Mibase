@@ -285,7 +285,7 @@ private:
     bool modeGuitarra() const;
     static constexpr int altBlocs = 22, altPatrons = 30, altFilaLlista = 22;
     int ampleColumna() const { return juce::jlimit (190, 280, getWidth() / 5); }
-    int ampleLlista() const { return 2 * ampleColumna(); }     // llista + variacions
+    int ampleLlista() const { return 0; }     // 0.51: la llista i les variacions són a la finestra de patrons
     juce::Rectangle<int> zonaLlista() const;       // a la dreta dels pads
     juce::Rectangle<int> zonaFilesLlista() const;
     juce::Rectangle<int> zonaVariacions() const;   // a la dreta de la llista
@@ -311,6 +311,11 @@ private:
     void escoltaRasgueig (const std::vector<mibase::Nota>& notes);
     void aturaEscolta();   // 0.49.1
     void obreEditorRasgueig();
+    // ---- 0.51: finestra de patrons de guitarra i piano ----
+    void obreFinestraPatrons();
+    std::vector<mibase::guitarra::Tram> acordsProva (long long durada) const;
+    mibase::BlocPatro blocFinestra (const std::string& id, unsigned mans, long long ini, long long dur, unsigned llavor) const;
+    juce::String posaPatroFinestra (const std::string& id, unsigned mans, int on);
     std::vector<int> cordesDeProva() const;
     int velRasgueig() const;
     Boto btEditaRasgueig { "Editor", dibuix::Icona::Llapis, Boto::Estil::Secundari };

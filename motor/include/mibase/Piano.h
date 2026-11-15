@@ -3,6 +3,7 @@
 // Com els rasgueigs de guitarra: un patró és només el ritme i la manera de tocar; l'acord ve de fora.
 #include "mibase/Harmonia.h"
 #include "mibase/Projecte.h"
+#include "mibase/PartCanco.h"
 #include <string>
 #include <vector>
 
@@ -30,6 +31,10 @@ namespace mibase::piano
     /** Per id; també les variacions («pa01~8va», «~ple», «~suau»). */
     const Patro* patro (const std::string& id);
     std::vector<Patro> variacions (const Patro& p);
+    /** 0.51: la variació per a una part de la cançó (id «<id>~estrofa»…). Estrofa: suau i amb el baix espaiat ·
+        Pre-tornada: el baix a cada temps, una mica més fort · Tornada: plena (acords a tots els temps, baix en octaves) ·
+        Pont: de balada, al principi i a mig compàs, deixant sonar. */
+    Patro variacioPart (const Patro& p, PartCanco v);
     /** Un dibuix curt del patró per a les llistes: «D: C · C · C · C ·   E: R+8 · · ·». */
     std::string dibuix (const Patro& p);
     long long ticksCompas (const std::string& compas);

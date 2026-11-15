@@ -2,6 +2,7 @@
 // 0.29: guitarra — posicions d'acords al mànec i rasgueigs escrits com a notes MIDI normals.
 // No és cap instrument: genera notes que després sonen amb el so que tingui la pista (sinte, samplejador o VST3).
 #include "Harmonia.h"
+#include "PartCanco.h"
 #include "Projecte.h"
 #include <array>
 #include <string>
@@ -127,6 +128,10 @@ namespace mibase::guitarra
 /** 0.41: tres variacions d'un rasgueig, fetes pas a pas (més ple, més buit, amb notes mortes). Només les que
         surten diferents de l'original. */
     std::vector<Patro> variacions (const Patro& p);
+    /** 0.51: la variació per a una part de la cançó (id «<id>~estrofa»…; l'original torna el mateix patró).
+        Estrofa: més buit i suau · Pre-tornada: corxeres avall que empenyen i pugen · Tornada: ple, amb els temps 2 i 4
+        marcats · Pont: un cop a cada mig compàs, deixant sonar. Als patrons de piano, la de piano::variacioPart. */
+    Patro variacioPart (const Patro& p, PartCanco v);
 
     // ---- 0.45: el màstil de la guitarra virtual ----
     struct LlocMastil { int corda = 0; int trast = 0; int to = 0; };   // corda 0 = la sisena (la greu); trast 0 = a l'aire
