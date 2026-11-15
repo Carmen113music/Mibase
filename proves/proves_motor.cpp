@@ -21,6 +21,7 @@
 #include "mibase/PresetsPads.h"
 #include "mibase/TeclatAcords.h"
 #include "mibase/Bateria.h"
+#include "mibase/PatronsBateria.h"
 
 #include <algorithm>
 #include <set>
@@ -156,6 +157,7 @@ namespace
 #include "proves_047.inc"
 #include "proves_048.inc"
 #include "proves_049.inc"
+#include "proves_050.inc"
 
 int main()
 {
@@ -2292,6 +2294,7 @@ int main()
     proves047();
     proves048();
     proves049();
+    proves050();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

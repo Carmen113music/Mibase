@@ -4,6 +4,7 @@
 #include "PianoRoll.h"
 #include "Pom.h"
 #include "DialegText.h"
+#include "FinestraPatronsBateria.h"
 #include <mibase/Bateria.h>
 
 /** 0.20: el panell de la columna esquerra quan l'editor actiu és un Drumpad (pista de bateria).
@@ -24,7 +25,7 @@ public:
         btDesaKit.onClick = [this] { desaKit(); };
         for (auto* c : std::initializer_list<juce::Component*> { &btKit, &btSo, &volum, &pan, &afina, &decai, &talla, &nota, &btFilaNova, &btTreuFila,
                                                                   &msTemps, &pctVel, &btPrimer, &btHumanitza, &swingPct, &swingPas, &btSwing,
-                                                                  &copsRedoble, &btRedoble, &btFlam, &btRitme, &compassosRitme, &cadaFill, &estilFill,
+                                                                  &copsRedoble, &btRedoble, &btFlam, &btRitme, &cadaFill, &estilFill,
                                                                   &btLlarg, &btFill, &btPadsOrdre })
             cont.addAndMakeVisible (c);
         for (auto* b : { &btKit, &btSo, &btFilaNova, &btTreuFila, &btHumanitza, &btSwing, &btRedoble, &btFlam, &btRitme, &btFill, &btPrimer, &btLlarg, &btPadsOrdre })
@@ -101,8 +102,8 @@ public:
             ordre ([] (mibase::Clip& k, std::vector<int>& sel, long long, long long, long long) { mibase::bateria::flam (k, sel, mibase::ticksPerNegra / 24, 0.5); },
                    "Flam"_ca);
         };
-        btRitme.onClick = [this] { menuRitmes(); };
-        compassosRitme.setTriat (0);
+        btRitme.setTooltip ("La biblioteca de patrons (150 ritmes de 4 compassos): s'escolten amb doble clic, tenen variacions per a estrofa, pre-tornada, tornada i pont, i pots posar-ne només les capes que vulguis (bombo, caixa, hihat, plats, toms)"_ca);
+        btRitme.onClick = [this] { obrePatrons(); };
         cadaFill.setTriat (1);
         estilFill.setTriat (2);
         btLlarg.setClickingTogglesState (true);
@@ -187,8 +188,7 @@ public:
         }
         y += 6;
         titol (yRitmes);
-        compassosRitme.setBounds (fila (26));
-        btRitme.setBounds (fila (28));
+        btRitme.setBounds (fila (30));
         {
             auto r = fila (26);
             cadaFill.setBounds (r);
@@ -232,7 +232,7 @@ private:
         titol (yKit, "BATERIA · KIT"_ca);
         titol (yFila, "FILA: "_ca + nomFila.toUpperCase());
         titol (yEines, "EINES (ELS COPS TRIATS O TOT EL CLIP)"_ca);
-        titol (yRitmes, "RITMES DE PARTIDA I FILLS"_ca);
+        titol (yRitmes, "PATRONS I FILLS"_ca);
         titol (yPads, "PADS DEL TECLAT"_ca);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.0f));
@@ -375,40 +375,58 @@ private:
         });
     }
 
-    void menuRitmes()
+    /** 0.50: la finestra dels patrons de bateria, a sobre de l'estudi (com els altres editors de patrons). */
+    void obrePatrons()
     {
-        juce::PopupMenu m;
-        std::map<std::string, juce::PopupMenu> grups;
-        const auto& rs = mibase::bateria::ritmes();
-        for (int i = 0; i < (int) rs.size(); ++i)
+        auto* pr = editor ? editor() : nullptr;
+        if (pista() == nullptr || pr == nullptr || ! pr->teClip()) { avis ("Obre un clip de bateria (doble clic al clip)"_ca); return; }
+        auto f = std::make_unique<FinestraPatronsBateria>();
+        juce::Component::SafePointer<PanellBateria> jo (this);
+        f->ticksCompas = mibase::midi::ticksPerCompas (estat.projecte);
+        f->msPerTick = 60000.0 / (juce::jmax (20.0, mibase::edicio::tramA (estat.projecte, estat.capcal).tempo) * (double) mibase::ticksPerNegra);
+        f->files = [jo] { auto* t = jo != nullptr ? jo->pista() : nullptr; return t != nullptr ? t->files : std::vector<mibase::FilaBateria>(); };
+        f->onEscolta = [jo] (const std::vector<mibase::Nota>& notes) { if (auto* e = jo != nullptr && jo->editor ? jo->editor() : nullptr) e->escoltaNotes (notes); };
+        f->onAtura = [jo] { if (auto* e = jo != nullptr && jo->editor ? jo->editor() : nullptr) e->paraEscolta(); };
+        f->onPosa = [jo] (const mibase::bateria::PatroBat& p, mibase::bateria::Variacio v, unsigned capes, int on) -> juce::String
         {
-            const auto& r = rs[(size_t) i];
-            const bool encaixa = r.num == estat.projecte.compasNum && r.den == estat.projecte.compasDen;
-            grups[r.grup].addItem (i + 1, juce::String::fromUTF8 (r.nom) + (encaixa ? juce::String() : "  (" + juce::String (r.num) + "/" + juce::String (r.den) + ")"));
-        }
-        for (auto& [g, sub] : grups) m.addSubMenu (juce::String::fromUTF8 (g.c_str()), sub);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btRitme), [this] (int r)
+            return jo != nullptr ? jo->posaPatro (p, v, capes, on) : juce::String();
+        };
+        juce::CallOutBox::launchAsynchronously (std::move (f), cont.localAreaToGlobal (btRitme.getBounds()), nullptr);
+    }
+
+    /** Posa el patró al clip de l'editor: a tot el clip (on = 0) o 4 / 8 compassos des del compàs del capçal. */
+    juce::String posaPatro (const mibase::bateria::PatroBat& p, mibase::bateria::Variacio v, unsigned capes, int on)
+    {
+        namespace bt = mibase::bateria;
+        auto* t = pista();
+        auto* pr = editor ? editor() : nullptr;
+        if (t == nullptr || pr == nullptr || ! pr->teClip()) return "Obre un clip de bateria (doble clic al clip)"_ca;
+        const auto files = t->files;
+        const auto tpc = mibase::midi::ticksPerCompas (estat.projecte);
+        const long long capcal = (long long) std::llround (mibase::midi::ticks (estat.projecte, estat.capcal));
+        int posades = 0;
+        long long compassos = 0;
+        juce::String nomCapes;
+        for (int k = 0; k < bt::numCapes; ++k)
+            if ((capes & (1u << k)) != 0) nomCapes += (nomCapes.isEmpty() ? "" : ", ") + juce::String::fromUTF8 (bt::nomCapa (k)).toLowerCase();
+        const juce::String que = juce::String::fromUTF8 (p.nom) + " (" + juce::String::fromUTF8 (bt::nomVariacio (v)).toLowerCase() + ")";
+        ordre ([&] (mibase::Clip& k, std::vector<int>& sel, long long d, long long a, long long b)
         {
-            if (r <= 0) return;
-            auto* t = pista();
-            if (t == nullptr) return;
-            const auto& ritme = mibase::bateria::ritmes()[(size_t) r - 1];
-            const auto files = t->files;
-            const auto tpc = mibase::midi::ticksPerCompas (estat.projecte);
-            const int triat = compassosRitme.getTriat();
-            ordre ([&] (mibase::Clip& k, std::vector<int>& sel, long long, long long a, long long b)
+            long long ini = a, fi = b;
+            if (on != 0)
             {
-                // Omple la finestra del clip (o 1, 2 o 4 compassos des del seu començament). Treu el que hi havia en aquell tros.
-                const int total = (int) juce::jmax (1LL, (b - a + tpc - 1) / tpc);
-                const int n = triat == 0 ? total : juce::jmin (total, triat == 1 ? 1 : triat == 2 ? 2 : 4);
-                const long long fi = a + n * tpc;
-                k.notes.erase (std::remove_if (k.notes.begin(), k.notes.end(), [&] (const mibase::Nota& x) { return x.ini >= a && x.ini < fi; }), k.notes.end());
-                for (auto& x : mibase::bateria::notesDeRitme (ritme, n, tpc, files, a)) k.notes.push_back (x);
-                sel.clear();
-                std::vector<int> cap;
-                mibase::midi::ordena (k.notes, cap);
-            }, "Ritme: "_ca + juce::String::fromUTF8 (ritme.nom));
-        });
+                // el compàs (de la cançó) on hi ha el capçal, si cau dins del clip
+                const long long c = (long long) std::floor ((double) capcal / (double) tpc) * tpc - d;
+                if (c >= a && c < b) ini = c;
+                else if (c + tpc > a && c < b) ini = a;
+                fi = juce::jmin (b, ini + (on == 1 ? 4 : 8) * tpc);
+            }
+            posades = bt::posaPatro (k, p, v, capes, files, tpc, ini, fi);
+            compassos = (fi - ini + tpc - 1) / tpc;
+            sel.clear();
+        }, "Patró de bateria: "_ca + que + " · " + nomCapes);
+        if (posades == 0) return "No s'ha posat res: la pista no té cap fila per a aquestes capes"_ca;
+        return "Posat: "_ca + que + " · " + nomCapes + " · " + juce::String (compassos) + (compassos == 1 ? " compàs"_ca : " compassos") + ". El que hi havia de les altres capes no s'ha tocat."_ca;
     }
 
     EstatEstudi& estat;
@@ -471,8 +489,7 @@ private:
     Segmentat copsRedoble { { "2", "3", "4" } };
     Boto btRedoble { "Redoble", std::nullopt, Boto::Estil::Secundari };
     Boto btFlam { "Flam", std::nullopt, Boto::Estil::Secundari };
-    Segmentat compassosRitme { { "Tot el clip", "1", "2", "4" } };
-    Boto btRitme { "Posa un ritme…"_ca, std::nullopt, Boto::Estil::Primari };
+    Boto btRitme { "Patrons de bateria…"_ca, std::nullopt, Boto::Estil::Primari };   // 0.50: obre la biblioteca de patrons
     Segmentat cadaFill { { "Cada 2", "Cada 4", "Cada 8" } };
     Segmentat estilFill { { "Caixa", "Toms", "Mixt" } };
     Boto btLlarg { "Mig compàs"_ca, std::nullopt, Boto::Estil::Tecla };

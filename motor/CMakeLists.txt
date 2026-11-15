@@ -15,6 +15,7 @@ add_library(mibase_motor STATIC
     src/Piano.cpp
     src/PresetsPads.cpp
     src/Bateria.cpp
+    src/PatronsBateria.cpp
     src/Veu.cpp
     src/Sampler.cpp
     src/Biblioteca.cpp

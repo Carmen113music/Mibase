@@ -351,6 +351,9 @@ public:
     void ordreBateria (const std::function<void (mibase::Clip&, std::vector<int>& triats, long long despl, long long iniT, long long fiT)>& f,
                        const juce::String& nom);
     long long pasGraella() const { return pas(); }
+    /** 0.50: escolta unes notes per la pista de l'editor, cadascuna al seu moment (patrons de bateria), i talla l'escolta. */
+    void escoltaNotes (const std::vector<mibase::Nota>& notes) { escoltaRasgueig (notes); }
+    void paraEscolta() { aturaEscolta(); }
     int numTriades() const { return (int) triadesNotes.size(); }
     /** Posa uns acords als pads de la pista (per ordre, des de la C) i obre el Chord Pad (0.12). */
     void posaPads (const std::vector<std::string>& acords, const std::string& nom);
