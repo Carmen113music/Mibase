@@ -244,6 +244,8 @@ namespace mibase::guitarra
                 else if (w[k] == '!') p.curt = true;
                 else if (w.compare (k, 3, "(b)") == 0) { p.abast = Abast::Baix; k += 2; }
                 else if (w.compare (k, 3, "(t)") == 0) { p.abast = Abast::Aguts; k += 2; }
+                else if ((w[k] == '5' || w[k] == '6' || w[k] == '7') && (p.cop == Cop::Avall || p.cop == Cop::Amunt) && p.tec != Tecnica::Slap)
+                    p.lliure = w[k] - '0';   // 0.49
             }
             r.push_back (p);
         }
@@ -277,6 +279,7 @@ namespace mibase::guitarra
                     if (s.tec == Tecnica::Palm) d += "p";
                     if (s.tec == Tecnica::Slap) d += "s";
                     else d += fl;
+                    if (s.lliure >= 5 && s.lliure <= 7 && s.tec != Tecnica::Slap) d += (char) ('0' + s.lliure);   // 0.49
                     if (s.abast == Abast::Baix) d += "b";
                     if (s.abast == Abast::Aguts) d += "t";
                 }
@@ -286,12 +289,78 @@ namespace mibase::guitarra
         }
     }
 
+    // ---- 0.49: powerchords i octaves ----
+    std::string textForma (Forma f)
+    {
+        switch (f)
+        {
+            case Forma::Power:         return "power";
+            case Forma::OctavesGreus:  return "oct";
+            case Forma::OctavesAgudes: return "oct+";
+            case Forma::Oberts:        break;
+        }
+        return {};
+    }
+    Forma llegeixForma (const std::string& t)
+    {
+        if (t == "power") return Forma::Power;
+        if (t == "oct") return Forma::OctavesGreus;
+        if (t == "oct+") return Forma::OctavesAgudes;
+        return Forma::Oberts;
+    }
+    const char* nomForma (Forma f)
+    {
+        switch (f)
+        {
+            case Forma::Power:         return "Powerchords";
+            case Forma::OctavesGreus:  return "Octaves greus";
+            case Forma::OctavesAgudes: return "Octaves agudes";
+            case Forma::Oberts:        break;
+        }
+        return "Oberts";
+    }
+    Posicio posicio (const harmonia::AcordPad& a, Forma f)
+    {
+        if (f == Forma::Oberts) return posicio (a);
+        if (a.buit()) return {};
+        Posicio p;
+        const int arrel = ((a.arrel % 12) + 12) % 12;
+        if (f == Forma::OctavesAgudes)
+        {
+            // La fonamental entre Mi3 i Re#4: a la 4a corda (trasts 2–9) i l'octava a la 2a; de Do4 en amunt, a la 3a
+            // corda (trasts 5–8) i l'octava a la 1a. De la 4a a la 2a i de la 3a a la 1a, l'octava és 3 trasts més amunt.
+            const int to = 52 + ((arrel - 4 + 12) % 12);
+            const int corda = to <= 59 ? 2 : 3;
+            const int t = to - afinacio[(size_t) corda];
+            p.trast[(size_t) corda] = t;
+            p.trast[(size_t) corda + 2] = t + 3;
+            return p;
+        }
+        // Fonamental greu: de Mi a Sol# a la 6a corda (trasts 0–4); de La a Re# a la 5a (trasts 0–6).
+        const int t6 = (arrel - 4 + 12) % 12;
+        const int corda = t6 <= 4 ? 0 : 1;
+        const int t = corda == 0 ? t6 : (arrel - 9 + 12) % 12;
+        p.trast[(size_t) corda] = t;
+        if (f == Forma::Power) p.trast[(size_t) corda + 1] = t + 2;   // la quinta
+        p.trast[(size_t) corda + 2] = t + 2;                           // l'octava
+        return p;
+    }
+    std::vector<int> notes (const harmonia::AcordPad& a, Forma f)
+    {
+        if (f == Forma::Oberts) return notes (a);
+        return posicio (a, f).notes();
+    }
+
     const std::vector<Patro>& patrons()
     {
         static const std::vector<Patro> llista = []
         {
             struct Def { const char* id; const char* grup; const char* nom; const char* compas; long long pas; const char* passos; double ms; int cresc; };
             static const char* const B = "Bàsics";
+            static const char* const R1 = "Rock elèctric: powerchords";
+            static const char* const R2 = "Rock elèctric: galops, metall i ternaris";
+            static const char* const R3 = "Rock elèctric: octaves";
+            static const char* const R4 = "Rock elèctric: boogie i dit lliure (6a i 7a)";
             static const char* const G1 = "Pop, rock i indie";
             static const char* const G2 = "Funk, percussiu i apagats";
             static const char* const G3 = "Ternaris (3/4, 6/8, 12/8)";
@@ -578,6 +647,79 @@ namespace mibase::guitarra
                 { "k48", K1, "Vals de peu", "3/4", 480, "D(b)> . D> . D> U", 0, 0 },
                 { "k49", K1, "12/8 folk", "12/8", 480, "D> . U D . U D> . U D . U", 0, 0 },
                 { "k50", K1, "12/8 himne", "12/8", 480, "D(b)> . U(t) D . U(t) D(b)> . U(t) D> U(t) U(t)", 0, 0 },
+                // ---- 0.49: rock elèctric (powerchords i octaves) ----
+                { "r01", R1, "Punk tot avall",              "4/4", 480, "D D D D D D D D", 0, 0 },
+                { "r02", R1, "Punk amb accents",            "4/4", 480, "D> D D> D D> D D> D", 0, 0 },
+                { "r03", R1, "Chug apagat",                 "4/4", 480, "PD PD PD PD PD PD PD PD", 0, 0 },
+                { "r04", R1, "Chug amb accent a l'1",       "4/4", 480, "D> PD PD PD PD PD PD PD", 0, 0 },
+                { "r05", R1, "Chug amb accents a l'1 i al 3", "4/4", 480, "D> PD PD PD D> PD PD PD", 0, 0 },
+                { "r06", R1, "Chug 3+3+2",                  "4/4", 480, "D> PD PD D> PD PD D> PD", 0, 0 },
+                { "r07", R1, "Chug a contratemps",          "4/4", 480, "PD D> PD D> PD D> PD D>", 0, 0 },
+                { "r08", R1, "Rock clàssic obert i apagat", "4/4", 480, "D> PD D PD D> PD D PD", 0, 0 },
+                { "r09", R1, "Hard rock amb aturades",      "4/4", 480, "D> . _ D> . _ D> D", 0, 0 },
+                { "r10", R1, "Acord llarg (balada rock)",   "4/4", 480, "D> . . . . . . .", 0, 0 },
+                { "r11", R1, "Dos cops per compàs",         "4/4", 480, "D> . . . D> . . .", 0, 0 },
+                { "r12", R1, "Avançat (empeny el 3)",       "4/4", 480, "D> . . D> . . D .", 0, 0 },
+                { "r13", R1, "Rock sec de dos cops",        "4/4", 480, "D> . D _ D> . D _", 0, 0 },
+                { "r14", R1, "Para i arrenca",              "4/4", 480, "D> _ D> _ D D D> _", 0, 0 },
+                { "r15", R1, "Fonamental apagada i acord",  "4/4", 480, "PD(b) PD(b) D> PD(b) PD(b) PD(b) D> PD(b)", 0, 0 },
+                { "r16", R1, "Pedal de fonamental",         "4/4", 480, "D> PD(b) PD(b) PD(b) D> PD(b) PD(b) PD(b)", 0, 0 },
+                { "r17", R1, "Punk-pop amb amunt",          "4/4", 480, "D> D D U D> D D U", 0, 0 },
+                { "r18", R1, "Garatge amb rascades",        "4/4", 480, "D> X D X D> X D U", 0, 0 },
+                { "r19", R1, "Grunge brut",                 "4/4", 480, "D> . D X . X D X", 0, 0 },
+                { "r20", R1, "Rock amb rascades 3+3+2",     "4/4", 480, "D> X X D> X X D> X", 0, 0 },
+                { "r21", R1, "Stoner lent",                 "4/4", 480, "D> . . PD PD . D> .", 0, 0 },
+                { "r22", R1, "Ska-punk a contratemps",      "4/4", 480, "_ D! _ D! _ D! _ D!", 0, 0 },
+                { "r23", R1, "Apagat amb empenta final",    "4/4", 480, "PD PD PD PD PD PD D> D>", 0, 0 },
+                { "r24", R1, "Rock'n'roll de corxeres",     "4/4", 480, "D> D PD D D> D PD D", 0, 0 },
+                { "r25", R1, "Estrofa que creix",           "4/4", 480, "PD PD PD PD PD PD PD PD", 0, 30 },
+                { "r26", R2, "Galop",                       "4/4", 240, "D> . PD PD D> . PD PD D> . PD PD D> . PD PD", 0, 0 },
+                { "r27", R2, "Galop invers",                "4/4", 240, "PD PD D> . PD PD D> . PD PD D> . PD PD D> .", 0, 0 },
+                { "r28", R2, "Galop tot apagat",            "4/4", 240, "PD> . PD PD PD> . PD PD PD> . PD PD PD> . PD PD", 0, 0 },
+                { "r29", R2, "Metall de semicorxeres",      "4/4", 240, "PD> PD PD PD PD> PD PD PD PD> PD PD PD PD> PD PD PD", 0, 0 },
+                { "r30", R2, "Thrash alternat",             "4/4", 240, "PD> PU PD PU PD> PU PD PU PD> PU PD PU PD> PU PD PU", 0, 0 },
+                { "r31", R2, "Metall 3+3+2",                "4/4", 240, "D> PD PD D> PD PD D> PD D> PD PD D> PD PD D> PD", 0, 0 },
+                { "r32", R2, "Hard rock sincopat",          "4/4", 240, "D> . . D> . . D> . . . D> . D> . . .", 0, 0 },
+                { "r33", R2, "Funk-rock amb rascades",      "4/4", 240, "D> . X X D> . X U . U X X D> . X X", 0, 0 },
+                { "r34", R2, "Riff amb aturades",           "4/4", 240, "D> . D D _ . D> . D D _ . D> . D> .", 0, 0 },
+                { "r35", R2, "Punk ràpid avall i amunt",    "4/4", 240, "D> U D U D> U D U D> U D U D> U D U", 0, 0 },
+                { "r36", R2, "Apagat amb cops secs",        "4/4", 240, "PD PD D>! . PD PD D>! . PD PD D>! . PD D>! . D>!", 0, 0 },
+                { "r37", R2, "Alt-rock obert i apagat",     "4/4", 240, "D> . . . PD PD PD PD D> . . . PD PD D> D>", 0, 0 },
+                { "r38", R2, "Nu-metal amb silencis",       "4/4", 240, "D> D> _ . PD PD D> _ . . D> D> _ . PD PD", 0, 0 },
+                { "r39", R2, "Pedal de fonamental ràpid",   "4/4", 240, "D> PD(b) PD(b) PD(b) D> PD(b) PD(b) PD(b) D> PD(b) PD(b) PD(b) D> PD(b) D> PD(b)", 0, 0 },
+                { "r40", R2, "Galop amb acord llarg",       "4/4", 240, "D> . . . . . PD PD D> . PD PD D> . PD PD", 0, 0 },
+                { "r41", R2, "Rock en 6/8",                 "6/8", 480, "D> PD PD D> PD PD", 0, 0 },
+                { "r42", R2, "Balada rock en 6/8",          "6/8", 480, "D> . . D . U", 0, 0 },
+                { "r43", R2, "Rock en 3/4",                 "3/4", 480, "D> . PD PD PD PD", 0, 0 },
+                { "r44", R2, "Blues-rock 12/8",             "12/8",480, "D> . PD D> . PD D> . PD D> PD PD", 0, 0 },
+                { "b01", R4, "Boogie clàssic (5a i 6a)",    "4/4", 480, "D5 D5 D6 D6 D5 D5 D6 D6", 0, 0 },
+                { "b02", R4, "Rock'n'roll 5a, 6a, 7a, 6a",  "4/4", 480, "D5 D5 D6 D6 D7 D7 D6 D6", 0, 0 },
+                { "b03", R4, "Boogie apagat",               "4/4", 480, "PD5 PD5 PD6 PD6 PD5 PD5 PD6 PD6", 0, 0 },
+                { "b04", R4, "Boogie amb accents",          "4/4", 480, "D5> D5 D6> D5 D5> D5 D6> D5", 0, 0 },
+                { "b05", R4, "Boogie ràpid 5a i 6a",        "4/4", 480, "D5 D6 D5 D6 D5 D6 D5 D6", 0, 0 },
+                { "b06", R4, "Boogie amb la 7a al 3",       "4/4", 480, "D5> D5 D6 D5 D7> D5 D6 D5", 0, 0 },
+                { "b07", R4, "Shuffle de blues (12/8)",     "12/8",480, "D5 . D5 D6 . D6 D5 . D5 D6 . D6", 0, 0 },
+                { "b08", R4, "Shuffle 5a, 6a, 7a, 6a (12/8)", "12/8",480, "D5 . D5 D6 . D6 D7 . D7 D6 . D6", 0, 0 },
+                { "b09", R4, "Boogie de semicorxeres",      "4/4", 240, "D5> D5 D6 D5 D5> D5 D6 D5 D5> D5 D7 D5 D5> D5 D6 D5", 0, 0 },
+                { "b10", R4, "Blues-rock que baixa",        "4/4", 480, "D> . D7 . D6 . D5 .", 0, 0 },
+                { "b11", R4, "Boogie amb rascades",         "4/4", 480, "D5 X D6 X D5 X D6 X", 0, 0 },
+                { "b12", R4, "Boogie apagat amb remat",     "4/4", 480, "PD5 PD5 PD6 PD6 PD5 PD5 D7> D6>", 0, 0 },
+                { "b13", R4, "Powerchord i 6a de pas",      "4/4", 480, "D> . . D6 D> . . D6", 0, 0 },
+                { "b14", R4, "Hard rock amb la 7a",         "4/4", 240, "D> . PD5 PD5 D7> . PD5 PD5 D6> . PD5 PD5 D> . PD5 PD5", 0, 0 },
+                { "o01", R3, "Octaves en corxeres",         "4/4", 480, "D D D D D D D D", 0, 0 },
+                { "o02", R3, "Octaves 3+3+2",               "4/4", 480, "D> D D D> D D D> D", 0, 0 },
+                { "o03", R3, "Indie avall i amunt",         "4/4", 240, "D> U D U D> U D U D> U D U D> U D U", 0, 0 },
+                { "o04", R3, "Disco-punk",                  "4/4", 240, "D> . D U D> . D U D> . D U D> . D U", 0, 0 },
+                { "o05", R3, "Octaves amb rascades",        "4/4", 240, "D> X D X D> X D U D> X D X D> X D U", 0, 0 },
+                { "o06", R3, "Funk-rock d'octaves",         "4/4", 240, "D> . X U . U X U D> . X U . U X X", 0, 0 },
+                { "o07", R3, "Rascada i octava",            "4/4", 480, "X D> X D> X D> X D>", 0, 0 },
+                { "o08", R3, "Motor post-punk",             "4/4", 240, "D> D D D D> D D D D> D D D D> D D D", 0, 0 },
+                { "o09", R3, "Octaves llargues",            "4/4", 480, "D> . . . D> . . .", 0, 0 },
+                { "o10", R3, "Indie sincopat",              "4/4", 480, "D> . D . . D> . D", 0, 0 },
+                { "o11", R3, "Trèmolo que creix",           "4/4", 240, "D U D U D U D U D U D U D U D U", 0, 28 },
+                { "o12", R3, "Octaves curtes",              "4/4", 480, "D! . D! . D! D! D! .", 0, 0 },
+                { "o13", R3, "Octaves en 6/8",              "6/8", 480, "D> D U D> D U", 0, 0 },
+                { "o14", R3, "Salts amb silenci",           "4/4", 240, "D> . _ . D> U _ . D> . _ . D> U D U", 0, 0 },
             };
             std::vector<Patro> v;
             for (auto& d : defs)
@@ -592,6 +734,9 @@ namespace mibase::guitarra
                 p.msCorda = d.ms;
                 p.crescendo = d.cresc;
                 p.dibuix = dibuixa (p.passos);
+                const bool nou = p.id.size() == 3 && p.id[1] >= '0' && p.id[1] <= '9' && p.id[2] >= '0' && p.id[2] <= '9';   // 0.49
+                if (nou && (p.id[0] == 'r' || p.id[0] == 'b')) p.forma = Forma::Power;
+                if (nou && p.id[0] == 'o') p.forma = Forma::OctavesAgudes;
                 v.push_back (std::move (p));
             }
             return v;
@@ -660,6 +805,7 @@ namespace mibase::guitarra
                 if (s.tec == Tecnica::Palm) r += 'P';
                 r += s.cop == Cop::Avall ? (s.suau ? 'd' : 'D') : (s.suau ? 'u' : 'U');
             }
+            if (s.lliure >= 5 && s.lliure <= 7 && (s.cop == Cop::Avall || s.cop == Cop::Amunt) && s.tec != Tecnica::Slap) r += (char) ('0' + s.lliure);
             if (s.accent) r += '>';
             if (s.curt) r += '!';
             if (s.abast == Abast::Baix) r += "(b)";
@@ -668,7 +814,7 @@ namespace mibase::guitarra
         return r;
     }
 
-    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos)
+    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos, Forma forma)
     {
         Patro p;
         p.id = "propi:" + nom;
@@ -678,6 +824,7 @@ namespace mibase::guitarra
         p.pasTicks = pasTicks;
         p.passos = passos;
         p.dibuix = dibuixPassos (passos);
+        p.forma = forma;
         return p;
     }
 
@@ -685,7 +832,10 @@ namespace mibase::guitarra
     {
         nlohmann::ordered_json j = nlohmann::ordered_json::array();
         for (auto& p : v)
+        {
             j.push_back ({ { "nom", p.nom }, { "compas", p.compas }, { "pasTicks", p.pasTicks }, { "passos", textPassos (p.passos) } });
+            if (p.forma != Forma::Oberts) j.back()["forma"] = textForma (p.forma);   // 0.49
+        }
         return nlohmann::ordered_json ({ { "rasgueigs", j } }).dump (2);
     }
 
@@ -700,7 +850,8 @@ namespace mibase::guitarra
             const std::string nom = e.value ("nom", std::string());
             const auto passos = llegeixPassos (e.value ("passos", std::string()));
             if (nom.empty() || passos.empty()) continue;
-            r.push_back (fesPropi (nom, e.value ("compas", std::string ("4/4")), std::clamp (e.value ("pasTicks", 480LL), 60LL, 1920LL), passos));
+            r.push_back (fesPropi (nom, e.value ("compas", std::string ("4/4")), std::clamp (e.value ("pasTicks", 480LL), 60LL, 1920LL), passos,
+                                  llegeixForma (e.value ("forma", std::string()))));
         }
         return r;
     }
@@ -813,6 +964,7 @@ namespace mibase::guitarra
         {
             b.patro = p->id; b.nom = p->nom; b.passos = textPassos (p->passos); b.pasTicks = p->pasTicks;
             b.msCorda = p->msCorda; b.crescendo = p->crescendo;
+            b.forma = textForma (p->forma);
         }
         return b;
     }
@@ -822,6 +974,7 @@ namespace mibase::guitarra
         Patro p;
         p.id = b.patro; p.nom = b.nom; p.pasTicks = b.pasTicks; p.passos = llegeixPassos (b.passos);
         p.msCorda = b.msCorda; p.crescendo = b.crescendo;
+        p.forma = llegeixForma (b.forma);
         return p;
     }
 
@@ -902,7 +1055,7 @@ namespace mibase::guitarra
         {
             const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
             if (y - x < 10) continue;
-            const auto cordes = notes (harmonia::llegeixAcord (a.acord));
+            const auto cordes = notes (harmonia::llegeixAcord (a.acord), p.forma);   // 0.49: oberts, powerchords o octaves
             if (cordes.empty()) continue;
             if (p.passos.empty())
             {
@@ -1120,7 +1273,10 @@ namespace mibase::guitarra
         const double ticksPerMs = std::max (20.0, o.tempo) / 60.0 * (double) ticksPerNegra / 1000.0;
         const long long pas = p.pasTicks > 0 ? p.pasTicks : durada;
         const long long llargPatro = (long long) p.passos.size();
-        const double ms = p.msCorda > 0.0 ? p.msCorda : o.msPerCorda;
+        // 0.49: amb dues o tres cordes (powerchords, octaves) el cop és gairebé un sol atac, i el palm mute no perd força
+        // (amb distorsió el «chug» es toca fort: el que el fa apagat és que dura poc).
+        const bool poques = n <= 3;
+        const double ms = poques ? std::min (3.0, p.msCorda > 0.0 ? p.msCorda : o.msPerCorda) : p.msCorda > 0.0 ? p.msCorda : o.msPerCorda;
         // El rasgueig sencer no ha d'ocupar més de mig pas (a tempos molt ràpids s'estreny).
         const long long deltaMax = std::max (1LL, pas / (2 * (long long) std::max (1, n)));
         const long long deltaBase = std::max (1LL, std::min ((long long) std::llround (ms * ticksPerMs), deltaMax));
@@ -1234,6 +1390,14 @@ namespace mibase::guitarra
             else if (palm && avall) { de = 0; fins = std::min (n, 4); }      // el palm mute agafa les greus
             else if (! avall) { de = std::max (0, n - 4 + saltaAgudes); fins = n; }   // amunt: la pua només arriba a les agudes
             de = std::min (de + saltaGreus, fins - 1);
+            // 0.49: dit lliure (riffs de rock'n'roll): fonamental i una nota més a la corda del costat.
+            const bool lliure = ps.lliure >= 5 && ps.lliure <= 7 && ! mut && ! slap && n >= 2 && cordes[1] - cordes[0] == 7;
+            if (lliure)
+            {
+                for (int s = 2; s < n; ++s) apaga (s, t);
+                if (ps.abast != Abast::Baix) { de = 0; fins = 2; }
+            }
+            const int toLliure = lliure ? cordes[0] + (ps.lliure == 5 ? 7 : ps.lliure == 6 ? 9 : 10) : 0;
 
             long long llarg = 0;
             if (mut) llarg = durMut;
@@ -1252,11 +1416,11 @@ namespace mibase::guitarra
                 else if (slap) vel = o.vel + 14 + acc - j;
                 else
                 {
-                    vel = o.vel + acc + fluix + (palm ? -14 : 0);
+                    vel = o.vel + acc + fluix + (palm ? (poques ? -4 : -14) : 0);
                     vel += avall ? (j == 0 ? 10 : -2 * j) : (j == 0 ? -2 : -8 - 3 * j);
                 }
                 vel += velExtra + petita (k, s);
-                posa (s, cordes[(size_t) s], ini, vel, llarg);
+                posa (s, lliure && s == 1 ? toLliure : cordes[(size_t) s], ini, vel, llarg);
             }
             if (ps.curt && ! mut && ! slap && ! palm) { /* ja duren poc: les cordes no queden sonant */ }
         }

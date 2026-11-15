@@ -137,6 +137,9 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     addChildComponent (btEditaRasgueig);
     btEditaRasgueig.setTooltip ("Editor de rasgueigs: canvia'l pas a pas i desa'l com a teu"_ca);
     btEditaRasgueig.onClick = [this] { obreEditorRasgueig(); };
+    addChildComponent (btForma);   // 0.49
+    btForma.setTooltip ("Com es toquen els acords: oberts (rasgueig de sempre), powerchords (fonamental, quinta i octava, per tocar amb distorsió) o octaves. Si hi ha un patró triat a la línia de dalt, també li canvia"_ca);
+    btForma.onClick = [this] { menuForma(); };
     addChildComponent (btSegueix);
     btSegueix.setLlum (juce::Colour (0xffb18cff));
     btSegueix.setTooltip ("Encès: aquest clip toca els acords de la pista d'Acords. Apagat: els que hi posis tu amb els pads (el clip queda ratllat a la taula de treball). Per a tota la pista, el botó Ac."_ca);
@@ -723,13 +726,21 @@ void PianoRoll::resized()
             // 0.40: preset, instrument i so; durada del bloc i «Acords de la cançó». (Un pad s'edita amb el botó dret.)
             // 0.41: «Segueix acords»; la durada només fa falta per posar acords a mà
             const bool seg = segueixAcords();
-            const int fix = (seg ? 0 : selDuradaPads.ampladaIdeal() + 6) + 150 + 3 * 6;
+            // 0.49: el botó «Acords: …» va a la barra si hi cap; si no, a la capçalera de les variacions (sempre es veu).
+            const int fixSense = (seg ? 0 : selDuradaPads.ampladaIdeal() + 6) + 150 + 3 * 6;
+            const bool frm = ambForma() && f.getWidth() >= fixSense + 156 + 3 * 90;
+            const int fix = fixSense + (frm ? 156 : 0);
             const int w3 = juce::jmax (56, (f.getWidth() - fix) / 3);
             btPresetPads.setBounds (f.removeFromLeft (w3)); f.removeFromLeft (6);
             btInstrPads.setBounds (f.removeFromLeft (w3)); f.removeFromLeft (6);
             btSoPads.setBounds (f.removeFromLeft (w3)); f.removeFromLeft (6);
             if (! seg) { selDuradaPads.setBounds (f.removeFromLeft (selDuradaPads.ampladaIdeal())); f.removeFromLeft (6); }
             btSegueix.setBounds (f.removeFromLeft (150));
+            if (frm) { f.removeFromLeft (6); btForma.setBounds (f.removeFromLeft (150)); }
+            else if (ambForma()) btForma.setBounds (zonaVariacions().removeFromTop (28).withTrimmedLeft (84));
+            formaABarra = frm;
+            btForma.setButtonText (frm ? "Acords: "_ca + juce::String::fromUTF8 (guitarra::nomForma (formaGuitarra)).toLowerCase()
+                                       : juce::String::fromUTF8 (guitarra::nomForma (formaGuitarra)));
             auto h = zonaLlista().removeFromTop (28);
             btEditaRasgueig.setBounds (h.removeFromRight (92)); h.removeFromRight (6);
             btRasgueig.setBounds (h);
@@ -2527,7 +2538,8 @@ int PianoRoll::velRasgueig() const { return juce::jmax (30, velNova.getValor() -
 
 std::vector<int> PianoRoll::cordesDeProva() const
 {
-    return notesPadPremut.empty() ? guitarra::notes (harmonia::llegeixAcord ("C")) : notesPadPremut;
+    if (! notesPadPremut.empty()) return notesPadPremut;
+    return guitarra::notes (harmonia::llegeixAcord (ambForma() && formaGuitarra != guitarra::Forma::Oberts ? "A" : "C"), ambForma() ? formaGuitarra : guitarra::Forma::Oberts);
 }
 
 std::vector<const guitarra::Patro*> PianoRoll::patronsLlista() const
@@ -2771,7 +2783,8 @@ void PianoRoll::posaPatroA (int x)
     const auto* p = guitarra::patro (patroArrossegat);
     if (! compasA (x, ini, dur)) return;
     const auto llavor = (unsigned) juce::Random::getSystemRandom().nextInt (0x7fffffff) + 1u;
-    const auto b = guitarra::blocDe (p, ini, dur, variacioRasgueig, llavor, velRasgueig());
+    auto b = guitarra::blocDe (p, ini, dur, variacioRasgueig, llavor, velRasgueig());
+    if (b.tipus.empty()) b.forma = guitarra::textForma (formaGuitarra);   // 0.49: amb la forma triada
     canviaBlocs ([&] (Clip& k) { blocTriat = guitarra::posaBloc (k, b); },
                  "Patró «"_ca + (p != nullptr ? juce::String::fromUTF8 (p->nom.c_str()) : "acord sencer"_ca) + "» a "_ca + posicioTick (estat.projecte, posTicks() + (double) ini));
 }
@@ -2798,6 +2811,14 @@ void PianoRoll::menuBloc (int quin)
     m.addItem (1, "Toca'l d'una altra manera (petites diferències)"_ca, ! b.fix);
     m.addItem (2, "Posa-hi el rasgueig triat: "_ca + (pr != nullptr ? juce::String::fromUTF8 (pr->nom.c_str()) : "acord sencer"_ca));
     m.addSeparator();
+    if (b.tipus.empty())   // 0.49: la forma dels acords d'aquest patró
+    {
+        juce::PopupMenu fm;
+        const auto ara = guitarra::llegeixForma (b.forma);
+        for (int k = 0; k < guitarra::numFormes; ++k)
+            fm.addItem (10 + k, juce::String::fromUTF8 (guitarra::nomForma ((guitarra::Forma) k)), ! b.fix, ara == (guitarra::Forma) k);
+        m.addSubMenu ("Acords: "_ca + juce::String::fromUTF8 (guitarra::nomForma (ara)).toLowerCase(), fm);
+    }
     m.addItem (3, b.fix ? "Desbloqueja'l (torna a seguir els acords; es perden els retocs)"_ca : "Bloqueja'l (les notes ja no es reescriuen)"_ca);
     m.addSeparator();
     m.addItem (4, "Treu el patró i les seves notes"_ca);
@@ -2814,15 +2835,20 @@ void PianoRoll::menuBloc (int quin)
         jo->canviaBlocs ([&] (Clip& k)
         {
             auto& b = k.blocs[(size_t) quin];
-            if (r == 2) b = guitarra::blocDe (guitarra::patro (triat), b.ini, b.dur, var, llavor, vel);
+            if (r >= 10 && r < 10 + guitarra::numFormes) b.forma = guitarra::textForma ((guitarra::Forma) (r - 10));   // 0.49
+            else if (r == 2)
+            {
+                b = guitarra::blocDe (guitarra::patro (triat), b.ini, b.dur, var, llavor, vel);
+                if (b.tipus.empty()) b.forma = guitarra::textForma (jo->formaGuitarra);
+            }
             else if (r == 3)
             {
                 b.fix = ! b.fix;
                 if (! b.fix) guitarra::treuAcordsFixos (k, b.ini, b.ini + b.dur);   // 0.48: torna a seguir la pista d'Acords
             }
             else guitarra::treuBloc (k, quin, r == 4);
-        }, r == 2 ? "Patró canviat"_ca : r == 3 ? "Patró bloquejat o desbloquejat"_ca : "Patró tret"_ca);
-        jo->blocTriat = r >= 4 ? -1 : quin;
+        }, r >= 10 ? "Acords del patró: "_ca + juce::String::fromUTF8 (guitarra::nomForma ((guitarra::Forma) (r - 10))).toLowerCase() : r == 2 ? "Patró canviat"_ca : r == 3 ? "Patró bloquejat o desbloquejat"_ca : "Patró tret"_ca);
+        jo->blocTriat = r >= 4 && r < 10 ? -1 : quin;
     });
 }
 
@@ -2868,6 +2894,13 @@ void PianoRoll::commutaSegueix()
 void PianoRoll::triaRasgueig (const std::string& id, bool escoltaL)
 {
     rasgueigPads = id;
+    // 0.49: un patró de rock porta la seva forma (powerchords o octaves); els altres deixen la que hi hagi.
+    if (const auto* p = guitarra::patro (id); p != nullptr && ! p->piano && p->forma != guitarra::Forma::Oberts && ambForma())
+        if (! (p->forma == guitarra::Forma::OctavesAgudes && formaGuitarra == guitarra::Forma::OctavesGreus))   // les octaves greus també valen
+        {
+            if (formaGuitarra != p->forma) notesPadPremut.clear();
+            formaGuitarra = p->forma;
+        }
     actualitzaControlsPads();
     if (escoltaL)
         if (const auto rs = rasgueigDe (cordesDeProva()); ! rs.empty()) escoltaRasgueig (rs);
@@ -2909,9 +2942,46 @@ void PianoRoll::escoltaRasgueig (const std::vector<Nota>& notes)
     }
 }
 
+void PianoRoll::menuForma()
+{
+    juce::PopupMenu m;
+    m.addSectionHeader ("Com es toquen els acords"_ca);
+    static const char* const ajuda[] = { "el rasgueig de sempre", "fonamental, quinta i octava: per a la distorsió", "fonamental i octava, a les cordes greus", "fonamental i octava, una octava més amunt" };
+    for (int k = 0; k < guitarra::numFormes; ++k)
+        m.addItem (1 + k, juce::String::fromUTF8 (guitarra::nomForma ((guitarra::Forma) k)) + juce::String::fromUTF8 ("  (") + juce::String::fromUTF8 (ajuda[k]) + ")", true, (int) formaGuitarra == k);
+    juce::Component::SafePointer<PianoRoll> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btForma), [jo] (int r)
+    {
+        if (jo != nullptr && r >= 1 && r <= guitarra::numFormes) jo->posaForma ((guitarra::Forma) (r - 1), true);
+    });
+}
+
+void PianoRoll::posaForma (guitarra::Forma f, bool tambeBloc)
+{
+    formaGuitarra = f;
+    notesPadPremut.clear();   // l'escolta de prova, amb la forma nova
+    actualitzaControlsPads();
+    // Si hi ha un patró triat (i no està bloquejat), també li canvia la forma.
+    const auto* c = clip();
+    if (tambeBloc && c != nullptr && blocTriat >= 0 && blocTriat < (int) c->blocs.size())
+    {
+        const auto& b = c->blocs[(size_t) blocTriat];
+        if (b.tipus.empty() && ! b.fix && guitarra::llegeixForma (b.forma) != f)
+        {
+            const int quin = blocTriat;
+            canviaBlocs ([&] (Clip& k) { k.blocs[(size_t) quin].forma = guitarra::textForma (f); },
+                         "Acords del patró: "_ca + juce::String::fromUTF8 (guitarra::nomForma (f)).toLowerCase());
+            blocTriat = quin;
+        }
+    }
+    if (const auto rs = rasgueigDe (cordesDeProva()); ! rs.empty()) escoltaRasgueig (rs);
+    repaint();
+}
+
 void PianoRoll::obreEditorRasgueig()
 {
     auto ed = std::make_unique<EditorRasgueig> (guitarra::patro (rasgueigPads));
+    ed->forma = ambForma() ? formaGuitarra : guitarra::Forma::Oberts;   // 0.49: es desa amb la forma amb què s'ha fet
     juce::Component::SafePointer<PianoRoll> jo (this);
     ed->onEscolta = [jo] (const guitarra::Patro& p)
     {
@@ -3038,6 +3108,9 @@ void PianoRoll::actualitzaControlsPads()
         btSegueix.setToggleState (gm && segueixAcords(), juce::dontSendNotification);
         if (gm) selDuradaPads.setVisible (! segueixAcords());
         if (gm) { voicingPads.setVisible (false); btLlapisPads.setVisible (false); }
+        btForma.setVisible (gm && ! modePiano());   // 0.49
+        btForma.setButtonText (formaABarra ? "Acords: "_ca + juce::String::fromUTF8 (guitarra::nomForma (formaGuitarra)).toLowerCase()
+                                           : juce::String::fromUTF8 (guitarra::nomForma (formaGuitarra)));
     }
     if (const auto* t = const_cast<PianoRoll*> (this)->pista())
         btPresetPads.setButtonText (t->presetPads.empty() || t->pads.empty() ? "Acords de la tonalitat"_ca : juce::String::fromUTF8 (t->presetPads.c_str()));
@@ -3086,6 +3159,7 @@ std::vector<int> PianoRoll::notesDelPad (int i) const
 
 std::vector<int> PianoRoll::notesAcordPad (const harmonia::AcordPad& a) const
 {
+    if (ambForma()) return guitarra::notes (a, formaGuitarra);   // 0.49: oberts, powerchords o octaves
     if (padsGuitarra()) return guitarra::notes (a);   // 0.29: la posició de guitarra (sempre a la seva octava real)
     return harmonia::notesPad (a, octavaPads.getValor(), (harmonia::Voicing) voicingPads.getTriat());
 }

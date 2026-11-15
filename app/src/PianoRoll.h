@@ -314,6 +314,13 @@ private:
     int velRasgueig() const;
     Boto btEditaRasgueig { "Editor", dibuix::Icona::Llapis, Boto::Estil::Secundari };
     Boto btSegueix { "Segueix acords", std::nullopt, Boto::Estil::Tecla };
+    // 0.49: com es toquen els acords a l'eina de patrons de guitarra (oberts, powerchords, octaves greus o agudes)
+    Boto btForma { "Acords: oberts", std::nullopt, Boto::Estil::Secundari };
+    mibase::guitarra::Forma formaGuitarra = mibase::guitarra::Forma::Oberts;
+    bool formaABarra = true;
+    void menuForma();
+    void posaForma (mibase::guitarra::Forma f, bool tambeBloc);
+    bool ambForma() const { return modeGuitarra() && ! modePiano(); }
     int desplLlista = 0, blocTriat = -1, acordTriat = -1;
     std::string patroArrossegat;      // id del rasgueig que s'està arrossegant cap a un compàs
     bool arrossegaPatro = false;

@@ -25,10 +25,11 @@ class EditorRasgueig : public juce::Component
 public:
     using Pas = mibase::guitarra::Pas;
     using Cop = mibase::guitarra::Cop;
-    static constexpr int maxPassos = 32, ampleNoms = 86, ampleCasella = 24, altFila = 26, numFiles = 8;
+    static constexpr int maxPassos = 32, ampleNoms = 86, ampleCasella = 24, altFila = 26, numFiles = 9;
 
     std::function<void (const mibase::guitarra::Patro&)> onEscolta, onDesa;
     std::function<void (const std::string& id)> onEsborra;
+    mibase::guitarra::Forma forma = mibase::guitarra::Forma::Oberts;   // 0.49: la forma d'acord amb què es desa
 
     explicit EditorRasgueig (const mibase::guitarra::Patro* inicial)
     {
@@ -111,7 +112,7 @@ public:
 
     mibase::guitarra::Patro patro() const
     {
-        return mibase::guitarra::fesPropi (nom.getText().trim().toStdString(), compas, selPas.getTriat() == 1 ? 240 : 480, passos);
+        return mibase::guitarra::fesPropi (nom.getText().trim().toStdString(), compas, selPas.getTriat() == 1 ? 240 : 480, passos, forma);
     }
 
     void resized() override
@@ -129,7 +130,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         g.fillAll (tema::lateral);
-        static const char* const noms[numFiles] = { "Cop", "Accent", "Fluix", "Palm mute", "Slap", "Curt", "Cordes", "Dit" };
+        static const char* const noms[numFiles] = { "Cop", "Accent", "Fluix", "Palm mute", "Slap", "Curt", "Cordes", "Dit", "Dit lliure" };
         const auto z = graella();
         const int perTemps = selPas.getTriat() == 1 ? 4 : 2;
         for (int i = 0; i < (int) passos.size(); ++i)
@@ -160,16 +161,54 @@ public:
         }
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.0f));
-        g.drawText (avis.isNotEmpty() ? avis : juce::String::fromUTF8 ("Clica una casella per canviar-la. «Cop»: avall, amunt, nota morta, silenci o res (deixa sonar)."),
+        g.drawText (avis.isNotEmpty() ? avis : juce::String::fromUTF8 ("Clica per canviar; arrossega de costat per repetir. «Dit lliure»: fonamental + 5a, 6a o 7a."),
                     10, z.getBottom() + 8, getWidth() - 20, 18, juce::Justification::centredLeft, true);
     }
+
+    // 0.49: arrossegant de costat, les caselles de la mateixa fila queden com la primera que s'ha clicat.
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        const auto z = graella();
+        if (filaGest < 0 || pasGest < 0 || pasGest >= (int) passos.size()) return;
+        const int i = juce::jlimit (0, (int) passos.size() - 1, (e.x - z.getX()) / ampleCasella);
+        if (i == ultimGest) return;
+        using namespace mibase::guitarra;
+        const Pas model = passos[(size_t) pasGest];
+        for (int k = juce::jmin (i, ultimGest); k <= juce::jmax (i, ultimGest); ++k)
+        {
+            if (k == pasGest) continue;
+            auto& p = passos[(size_t) k];
+            if (filaGest == 0) { p = Pas(); p.cop = model.cop; }
+            else
+            {
+                if (p.cop == Cop::Res || p.cop == Cop::Silenci) { if (text (model, filaGest).isEmpty()) continue; p.cop = Cop::Avall; }
+                switch (filaGest)
+                {
+                    case 1: p.accent = model.accent; break;
+                    case 2: p.suau = model.suau; break;
+                    case 3: case 4: p.tec = model.tec; break;
+                    case 5: p.curt = model.curt; break;
+                    case 6: p.abast = model.abast; break;
+                    case 7: p.dit = model.dit; break;
+                    default: p.lliure = model.lliure; break;
+                }
+            }
+            const auto net = llegeixPassos (textPassos ({ p }));
+            if (net.size() == 1) p = net[0];
+        }
+        ultimGest = i;
+        repaint();
+    }
+    void mouseUp (const juce::MouseEvent&) override { filaGest = pasGest = -1; }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
         const auto z = graella();
+        filaGest = pasGest = -1;
         if (! z.contains (e.getPosition())) return;
         const int i = (e.x - z.getX()) / ampleCasella, f = (e.y - z.getY()) / altFila;
         if (i < 0 || i >= (int) passos.size() || f < 0 || f >= numFiles) return;
+        filaGest = f; pasGest = ultimGest = i;
         auto& p = passos[(size_t) i];
         const bool enrere = e.mods.isPopupMenu();
         using namespace mibase::guitarra;
@@ -191,7 +230,17 @@ public:
             case 4: cal(); p.tec = p.tec == Tecnica::Slap ? Tecnica::Obert : Tecnica::Slap; break;
             case 5: cal(); p.curt = ! p.curt; break;
             case 6: cal(); p.abast = (Abast) (((int) p.abast + (enrere ? 2 : 1)) % 3); break;
-            default: cal(); p.dit = (Dit) (((int) p.dit + (enrere ? 9 : 1)) % 10); break;
+            case 7: cal(); p.dit = (Dit) (((int) p.dit + (enrere ? 9 : 1)) % 10); break;
+            default:
+            {
+                cal();
+                static constexpr int ordre[] = { 0, 5, 6, 7 };
+                int k = 0;
+                for (int j = 0; j < 4; ++j) if (ordre[j] == p.lliure) k = j;
+                p.lliure = ordre[(k + (enrere ? 3 : 1)) % 4];
+                if (p.lliure != 0) { p.dit = Dit::Cap; if (p.tec == Tecnica::Slap) p.tec = Tecnica::Obert; if (p.cop == Cop::MutAvall || p.cop == Cop::MutAmunt) p.cop = Cop::Avall; }
+                break;
+            }
         }
         // El que el text d'un rasgueig no pot dir no es queda a mitges: es passa pel mateix camí que quan es desa.
         const auto net = llegeixPassos (textPassos ({ p }));
@@ -227,17 +276,19 @@ private:
             case 4: return p.tec == Tecnica::Slap && ! dit ? "S" : "";
             case 5: return p.curt && ! dit ? "!" : "";
             case 6: return dit ? "" : p.abast == Abast::Baix ? "greu" : p.abast == Abast::Aguts ? "ag." : "";
-            default:
+            case 7:
             {
                 static const char* const noms[] = { "", "p", "p2", "i", "m", "a", "pl", "p+", "tap", "r" };
                 return noms[(int) p.dit];
             }
+            default: return p.lliure == 5 ? "5a" : p.lliure == 6 ? "6a" : p.lliure == 7 ? "7a" : "";
         }
     }
 
     std::vector<Pas> passos;
     std::string idOriginal, compas = "4/4";
     int pasAnterior = 0;
+    int filaGest = -1, pasGest = -1, ultimGest = -1;   // 0.49: per pintar arrossegant
     juce::TextEditor nom;
     Segmentat selPas { { "Corxeres", "Semicorxeres" } };
     CaixaNumero numPassos { "Passos", 2, maxPassos, 8 };

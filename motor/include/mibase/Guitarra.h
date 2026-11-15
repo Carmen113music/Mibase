@@ -34,6 +34,19 @@ namespace mibase::guitarra
     /** Les notes de la posició, de greu a aguda (si no n'hi ha, les del pad amb voicing tancat). */
     std::vector<int> notes (const harmonia::AcordPad& a);
 
+    /** 0.49: com es toca l'acord a la guitarra. Oberts: la posició de sempre. Powerchords: fonamental, quinta i octava
+        a les cordes greus (sense tercera: Am i A donen el mateix A5). Octaves: fonamental i octava, greus (6a/5a corda)
+        o una octava més amunt (4a/3a corda). */
+    enum class Forma { Oberts = 0, Power = 1, OctavesGreus = 2, OctavesAgudes = 3 };
+    inline constexpr int numFormes = 4;
+    /** El text que es desa al bloc: "" (oberts), "power", "oct", "oct+". */
+    std::string textForma (Forma f);
+    Forma llegeixForma (const std::string& text);
+    /** El nom per a la interfície: «Oberts», «Powerchords», «Octaves greus», «Octaves agudes». */
+    const char* nomForma (Forma f);
+    Posicio posicio (const harmonia::AcordPad& a, Forma f);
+    std::vector<int> notes (const harmonia::AcordPad& a, Forma f);
+
     // ---- Rasgueig ----
     enum class Cop { Res, Silenci, Avall, Amunt, MutAvall, MutAmunt };
     /** 0.32: com es toca el cop (a més de la direcció). */
@@ -49,6 +62,9 @@ namespace mibase::guitarra
         Dit dit = Dit::Cap;
         bool curt = false;       // «!»: staccato (s'apaga a un terç del pas)
         bool suau = false;       // «d» / «u» en minúscula: més fluix
+        int lliure = 0;          // 0.49: «D5» «D6» «D7»: només fonamental i una nota més (quinta, sexta o setena menor,
+                                 // la que marca el dit lliure als riffs de rock'n'roll). Cal que l'acord tingui la quinta
+                                 // a la segona corda que sona (powerchords, Mi, La, Re oberts…); si no, és un cop normal.
         bool operator== (const Pas&) const = default;
     };
     /** Un ritme de rasgueig: una fila de passos iguals (corxeres o semicorxeres) que es repeteix. */
@@ -62,6 +78,7 @@ namespace mibase::guitarra
         std::string compas = "4/4";     // 0.32: per al nom del menú
         double msCorda = 0.0;           // 0.32: retard entre cordes propi del patró (0 = el de les opcions)
         int crescendo = 0;              // 0.32: la força puja aquests punts al llarg del patró
+        Forma forma = Forma::Oberts;    // 0.49: la forma d'acord que li escau (els de rock: powerchords o octaves)
         bool piano = false;             // 0.47: és un patró de piano (mibase::piano); aquí només hi ha el nom i el dibuix
     };
     /** 0.47: els patrons de piano, vistos com a patrons de la llista (nom, grup, dibuix). */
@@ -69,7 +86,7 @@ namespace mibase::guitarra
     /** Una casella per paraula, separades per espais:
         «D» avall, «U» amunt («d» / «u»: fluix), «.» deixa sonar, «_» silenci, «X» / «x» nota morta (avall / amunt).
         Davant: «P» palm mute («PD», «PU»), «X» nota morta («XD», «XU»), «S» slap («S» o «SD»).
-        Darrere: «>» accent, «!» curt, «(b)» només la corda greu, «(t)» només les agudes.
+        Darrere: «>» accent, «!» curt, «(b)» només la corda greu, «(t)» només les agudes, «5» «6» «7» dit lliure.
         Dits: «[p]» polze (la greu), «[p2]» la segona greu, «[i]» «[m]» «[a]» les tres agudes, «[pc]» polze + acord,
         «[pl]» pluck de les tres agudes alhora, «[tap]» tapping (nota aguda), «[r]» rasgueado flamenc (4 dits). */
     std::vector<Pas> llegeixPassos (const std::string& text);
@@ -101,7 +118,8 @@ namespace mibase::guitarra
     /** Els rasgueigs que ha fet l'usuari (id «propi:<nom>»). patro() també els troba. */
     const std::vector<Patro>& propis();
     void posaPropis (std::vector<Patro> v);
-    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos);
+    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos,
+                    Forma forma = Forma::Oberts);
     /** Per desar-los en un fitxer (JSON) i tornar-los a llegir. */
     std::string textPropis (const std::vector<Patro>& v);
     std::vector<Patro> llegeixPropis (const std::string& json);

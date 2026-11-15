@@ -100,6 +100,7 @@ namespace mibase
         unsigned llavor = 1;
         int vel = 88;
         bool fix = false;             // retocat a mà: no es reescriu fins que es desbloqueja
+        std::string forma;            // 0.49: forma dels acords (guitarra::textForma): "" oberts, "power", "oct", "oct+"
         // ---- 0.47: patrons de piano («tipus» = "piano"; buit = rasgueig de guitarra). «passos» és la mà dreta. ----
         std::string tipus;
         std::string passosEsq;        // la mà esquerra
