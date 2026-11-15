@@ -20,7 +20,7 @@ namespace rasgueigs
     }
 }
 
-class EditorRasgueig : public juce::Component
+class EditorRasgueig : public juce::Component, private juce::Timer
 {
 public:
     using Pas = mibase::guitarra::Pas;
@@ -29,6 +29,9 @@ public:
 
     std::function<void (const mibase::guitarra::Patro&)> onEscolta, onDesa;
     std::function<void (const std::string& id)> onEsborra;
+    std::function<void()> onAtura;      // 0.49.1: talla l'escolta
+    double msPerTick = 0.52;            // 0.49.1: per saber quant dura una volta del bucle (el posa qui obre l'editor)
+    ~EditorRasgueig() override { stopTimer(); if (onAtura) onAtura(); }
     mibase::guitarra::Forma forma = mibase::guitarra::Forma::Oberts;   // 0.49: la forma d'acord amb què es desa
 
     explicit EditorRasgueig (const mibase::guitarra::Patro* inicial)
@@ -49,7 +52,7 @@ public:
             nom.setText ("El meu rasgueig", false);
         }
         numPassos.setValor ((int) passos.size());
-        for (auto* c : std::initializer_list<juce::Component*> { &nom, &selPas, &numPassos, &btEscolta, &btDesa, &btEsborra }) addAndMakeVisible (c);
+        for (auto* c : std::initializer_list<juce::Component*> { &nom, &selPas, &numPassos, &btEscolta, &btBucle, &btAtura, &btDesa, &btEsborra }) addAndMakeVisible (c);
         nom.setFont (dibuix::lletra (14.0f));
         nom.setColour (juce::TextEditor::backgroundColourId, juce::Colours::black.withAlpha (0.4f));
         nom.setColour (juce::TextEditor::textColourId, tema::text);
@@ -78,15 +81,24 @@ public:
             pasAnterior = quin;
             numPassos.setValor ((int) passos.size());
             setSize (ampleTotal(), getHeight());
+            canviat();
             repaint();
         };
         numPassos.onCanvi = [this] (int n)
         {
             passos.resize ((size_t) juce::jlimit (2, maxPassos, n));
             setSize (ampleTotal(), getHeight());
+            canviat();
             repaint();
         };
-        btEscolta.onClick = [this] { if (onEscolta) onEscolta (patro()); };
+        // 0.49.1: minicontrol: una vegada, en bucle, o parar.
+        btEscolta.setTooltip (juce::String::fromUTF8 ("Escolta'l una vegada"));
+        btBucle.setTooltip (juce::String::fromUTF8 ("Escolta'l en bucle: el que canviïs se sent a la volta següent"));
+        btAtura.setTooltip (juce::String::fromUTF8 ("Para l'escolta"));
+        btBucle.setLlum (tema::accent);
+        btEscolta.onClick = [this] { posaBucle (false); sona(); };
+        btBucle.onClick = [this] { posaBucle (! bucle); if (! bucle && onAtura) onAtura(); };
+        btAtura.onClick = [this] { posaBucle (false); if (onAtura) onAtura(); };
         btDesa.onClick = [this]
         {
             if (nom.getText().trim().isEmpty()) { avis = juce::String::fromUTF8 ("Posa-li un nom per desar-lo."); repaint(); return; }
@@ -122,9 +134,11 @@ public:
         selPas.setBounds (f.removeFromRight (selPas.ampladaIdeal())); f.removeFromRight (8);
         nom.setBounds (f);
         auto b = juce::Rectangle<int> (10, getHeight() - 40, getWidth() - 20, 30);
-        btEscolta.setBounds (b.removeFromLeft (100)); b.removeFromLeft (8);
-        btDesa.setBounds (b.removeFromLeft (100)); b.removeFromLeft (8);
-        btEsborra.setBounds (b.removeFromLeft (100));
+        btEscolta.setBounds (b.removeFromLeft (78)); b.removeFromLeft (6);
+        btBucle.setBounds (b.removeFromLeft (78)); b.removeFromLeft (6);
+        btAtura.setBounds (b.removeFromLeft (78));
+        btEsborra.setBounds (b.removeFromRight (84)); b.removeFromRight (6);
+        btDesa.setBounds (b.removeFromRight (84));
     }
 
     void paint (juce::Graphics& g) override
@@ -199,7 +213,11 @@ public:
         ultimGest = i;
         repaint();
     }
-    void mouseUp (const juce::MouseEvent&) override { filaGest = pasGest = -1; }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (filaGest >= 0) canviat();   // 0.49.1: se sent en deixar anar (un clic o tot el que s'ha pintat arrossegant)
+        filaGest = pasGest = -1;
+    }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -293,6 +311,24 @@ private:
     Segmentat selPas { { "Corxeres", "Semicorxeres" } };
     CaixaNumero numPassos { "Passos", 2, maxPassos, 8 };
     Boto btEscolta { "Escolta", std::nullopt, Boto::Estil::Secundari };
+    Boto btBucle { "Bucle", std::nullopt, Boto::Estil::Tecla };
+    Boto btAtura { "Para", std::nullopt, Boto::Estil::Secundari };
+    bool bucle = false;
+    void sona() { if (onEscolta) onEscolta (patro()); }
+    int msVolta() const { return juce::jmax (150, juce::roundToInt ((double) passos.size() * (selPas.getTriat() == 1 ? 240.0 : 480.0) * msPerTick)); }
+    void posaBucle (bool si)
+    {
+        bucle = si;
+        btBucle.setToggleState (si, juce::dontSendNotification);
+        if (si) { sona(); startTimer (msVolta()); } else stopTimer();
+    }
+    // Cada canvi se sent: si el bucle roda, a la volta següent (sense tallar-lo); si no, de seguida i una vegada.
+    void canviat()
+    {
+        if (bucle) { if (getTimerInterval() != msVolta()) startTimer (msVolta()); }
+        else sona();
+    }
+    void timerCallback() override { sona(); }
     Boto btDesa { "Desa", std::nullopt, Boto::Estil::Primari };
     Boto btEsborra { "Esborra", std::nullopt, Boto::Estil::Secundari };
     juce::String avis;

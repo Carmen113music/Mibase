@@ -341,8 +341,9 @@ namespace mibase::guitarra
         const int corda = t6 <= 4 ? 0 : 1;
         const int t = corda == 0 ? t6 : (arrel - 9 + 12) % 12;
         p.trast[(size_t) corda] = t;
+        // 0.49.1: el powerchord és fonamental i quinta, sense l'octava (en Roger: «quasi mai ha de sonar»).
         if (f == Forma::Power) p.trast[(size_t) corda + 1] = t + 2;   // la quinta
-        p.trast[(size_t) corda + 2] = t + 2;                           // l'octava
+        else p.trast[(size_t) corda + 2] = t + 2;                      // l'octava
         return p;
     }
     std::vector<int> notes (const harmonia::AcordPad& a, Forma f)

@@ -8,12 +8,12 @@ namespace
         {
             using guitarra::Forma;
             auto n = [] (const char* ac, Forma f) { return guitarra::notes (harmonia::llegeixAcord (ac), f); };
-            comprova (n ("A", Forma::Power) == std::vector<int> { 45, 52, 57 }, "A5 = La2 Mi3 La3");
+            comprova (n ("A", Forma::Power) == std::vector<int> { 45, 52 }, "A5 = La2 Mi3 (sense octava)");
             comprova (n ("Am", Forma::Power) == n ("A", Forma::Power), "Am i A donen el mateix powerchord");
-            comprova (n ("E", Forma::Power) == std::vector<int> { 40, 47, 52 }, "E5 a l'aire");
-            comprova (n ("G", Forma::Power) == std::vector<int> { 43, 50, 55 }, "G5 a la 6a corda, trast 3");
-            comprova (guitarra::posicio (harmonia::llegeixAcord ("G"), Forma::Power).text() == "355xxx", "G5 = 355xxx");
-            comprova (guitarra::posicio (harmonia::llegeixAcord ("C"), Forma::Power).text() == "x355xx", "C5 = x355xx");
+            comprova (n ("E", Forma::Power) == std::vector<int> { 40, 47 }, "E5 a l'aire");
+            comprova (n ("G", Forma::Power) == std::vector<int> { 43, 50 }, "G5 a la 6a corda, trast 3");
+            comprova (guitarra::posicio (harmonia::llegeixAcord ("G"), Forma::Power).text() == "35xxxx", "G5 = 35xxxx");
+            comprova (guitarra::posicio (harmonia::llegeixAcord ("C"), Forma::Power).text() == "x35xxx", "C5 = x35xxx");
             comprova (guitarra::posicio (harmonia::llegeixAcord ("C"), Forma::OctavesGreus).text() == "x3x5xx", "octava greu de Do = x3x5xx");
             comprova (guitarra::posicio (harmonia::llegeixAcord ("G"), Forma::OctavesAgudes).text() == "xx5x8x", "octava aguda de Sol = xx5x8x");
             comprova (guitarra::posicio (harmonia::llegeixAcord ("C"), Forma::OctavesAgudes).text() == "xxx5x8", "octava aguda de Do = xxx5x8");
@@ -23,7 +23,7 @@ namespace
                 harmonia::AcordPad a = harmonia::llegeixAcord ("C");
                 a.arrel = arrel;
                 const auto p = guitarra::notes (a, Forma::Power), g = guitarra::notes (a, Forma::OctavesGreus), h = guitarra::notes (a, Forma::OctavesAgudes);
-                if (p.size() != 3 || p[0] % 12 != arrel || p[1] - p[0] != 7 || p[2] - p[0] != 12 || p[0] < 40 || p[0] > 51) ++dolents;
+                if (p.size() != 2 || p[0] % 12 != arrel || p[1] - p[0] != 7 || p[0] < 40 || p[0] > 51) ++dolents;
                 if (g.size() != 2 || g[0] != p[0] || g[1] - g[0] != 12) ++dolents;
                 if (h.size() != 2 || h[0] != p[0] + 12 || h[1] - h[0] != 12) ++dolents;
             }
@@ -96,10 +96,10 @@ namespace
             bool nomesPower = true, hiHaTercera = false;
             for (auto& z : cl.notes)
             {
-                if (z.ini < 3840 && z.to != 45 && z.to != 52 && z.to != 57) nomesPower = false;
+                if (z.ini < 3840 && z.to != 45 && z.to != 52) nomesPower = false;
                 if (z.ini >= 3840 && z.to % 12 == 0) hiHaTercera = true;
             }
-            comprova (! cl.notes.empty() && nomesPower, "primer compàs: només La, Mi i La");
+            comprova (! cl.notes.empty() && nomesPower, "primer compàs: només La i Mi");
             comprova (hiHaTercera, "segon compàs: La menor obert (amb el Do)");
             // canviar la forma d'un bloc
             cl.blocs[0].forma = "oct+";

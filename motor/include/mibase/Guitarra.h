@@ -34,8 +34,8 @@ namespace mibase::guitarra
     /** Les notes de la posició, de greu a aguda (si no n'hi ha, les del pad amb voicing tancat). */
     std::vector<int> notes (const harmonia::AcordPad& a);
 
-    /** 0.49: com es toca l'acord a la guitarra. Oberts: la posició de sempre. Powerchords: fonamental, quinta i octava
-        a les cordes greus (sense tercera: Am i A donen el mateix A5). Octaves: fonamental i octava, greus (6a/5a corda)
+    /** 0.49: com es toca l'acord a la guitarra. Oberts: la posició de sempre. Powerchords: fonamental i quinta
+        a les cordes greus (0.49.1: sense l'octava) (sense tercera: Am i A donen el mateix A5). Octaves: fonamental i octava, greus (6a/5a corda)
         o una octava més amunt (4a/3a corda). */
     enum class Forma { Oberts = 0, Power = 1, OctavesGreus = 2, OctavesAgudes = 3 };
     inline constexpr int numFormes = 4;

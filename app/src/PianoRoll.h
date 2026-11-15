@@ -309,6 +309,7 @@ private:
     void commutaSegueix();
     void triaRasgueig (const std::string& id, bool escolta);
     void escoltaRasgueig (const std::vector<mibase::Nota>& notes);
+    void aturaEscolta();   // 0.49.1
     void obreEditorRasgueig();
     std::vector<int> cordesDeProva() const;
     int velRasgueig() const;

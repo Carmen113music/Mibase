@@ -138,7 +138,7 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     btEditaRasgueig.setTooltip ("Editor de rasgueigs: canvia'l pas a pas i desa'l com a teu"_ca);
     btEditaRasgueig.onClick = [this] { obreEditorRasgueig(); };
     addChildComponent (btForma);   // 0.49
-    btForma.setTooltip ("Com es toquen els acords: oberts (rasgueig de sempre), powerchords (fonamental, quinta i octava, per tocar amb distorsió) o octaves. Si hi ha un patró triat a la línia de dalt, també li canvia"_ca);
+    btForma.setTooltip ("Com es toquen els acords: oberts (rasgueig de sempre), powerchords (fonamental i quinta, per tocar amb distorsió) o octaves. Si hi ha un patró triat a la línia de dalt, també li canvia"_ca);
     btForma.onClick = [this] { menuForma(); };
     addChildComponent (btSegueix);
     btSegueix.setLlum (juce::Colour (0xffb18cff));
@@ -2907,6 +2907,15 @@ void PianoRoll::triaRasgueig (const std::string& id, bool escoltaL)
     repaint();
 }
 
+void PianoRoll::aturaEscolta()
+{
+    // 0.49.1: talla l'escolta de prova (les notes pendents ja no sonaran i les que sonen s'apaguen).
+    ++escolta;
+    if (! onDirecte || pistaEditor() < 0) return;
+    for (int to = 0; to < 128; ++to)
+        if (serieEscolta[(size_t) to] != 0) { onDirecte (pistaEditor(), 0x80, (std::uint8_t) to, 0); serieEscolta[(size_t) to] = 0; }
+}
+
 void PianoRoll::escoltaRasgueig (const std::vector<Nota>& notes)
 {
     // Sona per la pista de l'editor, nota per nota al seu moment (per escoltar-lo abans de posar-lo).
@@ -2946,7 +2955,7 @@ void PianoRoll::menuForma()
 {
     juce::PopupMenu m;
     m.addSectionHeader ("Com es toquen els acords"_ca);
-    static const char* const ajuda[] = { "el rasgueig de sempre", "fonamental, quinta i octava: per a la distorsió", "fonamental i octava, a les cordes greus", "fonamental i octava, una octava més amunt" };
+    static const char* const ajuda[] = { "el rasgueig de sempre", "fonamental i quinta: per a la distorsió", "fonamental i octava, a les cordes greus", "fonamental i octava, una octava més amunt" };
     for (int k = 0; k < guitarra::numFormes; ++k)
         m.addItem (1 + k, juce::String::fromUTF8 (guitarra::nomForma ((guitarra::Forma) k)) + juce::String::fromUTF8 ("  (") + juce::String::fromUTF8 (ajuda[k]) + ")", true, (int) formaGuitarra == k);
     juce::Component::SafePointer<PianoRoll> jo (this);
@@ -2989,8 +2998,11 @@ void PianoRoll::obreEditorRasgueig()
         guitarra::Opcions o;
         o.vel = jo->velRasgueig();
         o.tempo = edicio::tramA (jo->estat.projecte, jo->estat.capcal).tempo;
-        jo->escoltaRasgueig (guitarra::rasgueja (jo->cordesDeProva(), p, juce::jmax ((long long) p.passos.size() * p.pasTicks, jo->duradaPads()), o));
+        // 0.49.1: una volta justa del patró (perquè el bucle de l'editor encaixi)
+        jo->escoltaRasgueig (guitarra::rasgueja (jo->cordesDeProva(), p, (long long) p.passos.size() * p.pasTicks, o));
     };
+    ed->onAtura = [jo] { if (jo != nullptr) jo->aturaEscolta(); };
+    ed->msPerTick = 60000.0 / (juce::jmax (20.0, edicio::tramA (estat.projecte, estat.capcal).tempo) * (double) ticksPerNegra);
     ed->onDesa = [jo] (const guitarra::Patro& p)
     {
         auto v = guitarra::propis();
