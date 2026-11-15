@@ -116,7 +116,11 @@ namespace mibase::guitarra
     std::vector<LlocMastil> alMastil (std::vector<int> tons);
 
     // ---- 0.41: blocs de patró que llegeixen els acords ----
-    struct Tram { long long ini = 0, fi = 0; std::string acord; };
+    struct Tram { long long ini = 0, fi = 0; std::string acord; bool fix = false; };   // fix (0.48): fixat a mà al clip
+    /** 0.48: fixa un acord en un tros d'un clip que segueix la pista d'Acords (mana sobre el de la pista). */
+    int posaAcordFix (Clip& c, AcordClip a);
+    /** Treu els acords fixos que toquen [ini, fi). Diu si n'ha tret cap. */
+    bool treuAcordsFixos (Clip& c, long long ini, long long fi);
     /** Els acords que valen per a un clip, en ticks del clip i per ordre: els de la pista d'Acords si la pista
         la segueix; si no, els que s'hi han posat a mà. */
     std::vector<Tram> acordsDe (const Projecte& p, const Pista& t, const Clip& c);

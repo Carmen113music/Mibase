@@ -133,6 +133,7 @@ namespace mibase
         std::vector<EventMidi> events;
         std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
         std::vector<AcordClip> acords;  // 0.41: acords posats a mà (si la pista no segueix la pista d'Acords)
+        std::vector<AcordClip> acordsFixos;   // 0.48: acords fixats a mà en un clip que segueix la pista d'Acords (manen sobre els de la pista)
         bool acordsPropis = false;      // 0.46: aquest clip no segueix la pista d'Acords encara que la pista sí (fa servir «acords»)
 
         double iniciVisible() const noexcept { return pos + inici; }

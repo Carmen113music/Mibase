@@ -39,7 +39,7 @@ prova ("0.47 piano: les mans toquen el que diu el patró", []
     auto o2 = o; o2.llavor = 8;
     comprova (piano::toca (harmonia::llegeixAcord ("Am"), p, 3840, o) == piano::toca (harmonia::llegeixAcord ("Am"), p, 3840, o), "repetible");
     comprova (! (piano::toca (harmonia::llegeixAcord ("Am"), p, 3840, o) == piano::toca (harmonia::llegeixAcord ("Am"), p, 3840, o2)), "una altra llavor, diferent");
-    comprova (piano::variacions (p).size() == 3 && piano::patro ("pa01~8va") != nullptr && guitarra::patro ("pa01~ple") != nullptr, "variacions");
+    comprova (piano::variacions (p).size() >= 3 && piano::patro ("pa01~8va") != nullptr && guitarra::patro ("pa01~ple") != nullptr, "variacions");
 });
 
 prova ("0.47 piano: un bloc de piano segueix els acords i posa el pedal", []

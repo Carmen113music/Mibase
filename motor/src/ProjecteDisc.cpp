@@ -499,6 +499,10 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                 if (const std::string ac = b.value ("acord", std::string()); ! ac.empty()) c.acords.push_back ({ x.ini, x.dur, ac });
                             }
                         c.acordsPropis = k.value ("acordsPropis", false);   // 0.46
+                        if (k.contains ("acordsFixos") && k["acordsFixos"].is_array())   // 0.48
+                            for (auto& a : k["acordsFixos"])
+                                if (a.is_object() && a.value ("dur", 0LL) > 0)
+                                    c.acordsFixos.push_back ({ a.value ("ini", 0LL), a.value ("dur", 0LL), a.value ("acord", std::string()) });
                         if (k.contains ("acordsClip") && k["acordsClip"].is_array())   // 0.41
                             for (auto& b : k["acordsClip"])
                                 if (b.is_object() && b.value ("dur", 0LL) > 0 && ! b.value ("acord", std::string()).empty())
@@ -739,6 +743,12 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                     k["blocs"] = bl;
                 }
                 if (c.acordsPropis) k["acordsPropis"] = true;   // 0.46
+                if (! c.acordsFixos.empty())   // 0.48
+                {
+                    json af = json::array();
+                    for (auto& a : c.acordsFixos) af.push_back ({ { "ini", a.ini }, { "dur", a.dur }, { "acord", a.acord } });
+                    k["acordsFixos"] = af;
+                }
                 if (! c.acords.empty())   // 0.41
                 {
                     json al = json::array();

@@ -536,8 +536,11 @@ void PianoRoll::posaSegell (juce::Point<float> p, bool mante)
         estat.segell = {};
         if (segueixAcords())
         {
-            info = "Aquesta pista segueix la pista d'Acords: posa-hi l'acord allà, o apaga «Segueix acords» per posar-los aquí"_ca;
-            estat.avisa();
+            // 0.48: amb «Segueix acords», el pad arrossegat fixa l'acord d'aquell compàs (mana sobre la pista d'Acords)
+            long long bi = 0, bd = 0;
+            if (! compasA ((int) p.x, bi, bd)) { bi = juce::jmax (0LL, ini); bd = dur; }
+            canviaBlocs ([&] (Clip& k) { guitarra::posaAcordFix (k, { bi, bd, ac }); },
+                         juce::String::fromUTF8 ("Acord ") + nom + " fixat a "_ca + posicioTick (estat.projecte, posTicks() + (double) bi) + " (botó dret per tornar al de la pista d'Acords)"_ca);
             return;
         }
         canviaBlocs ([&] (Clip& k) { acordTriat = guitarra::posaAcord (k, { juce::jmax (0LL, ini), dur, ac }); },
@@ -1172,7 +1175,24 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
         // la línia dels acords
         if (segueixAcords())
         {
-            info = "Aquests acords venen de la pista d'Acords: canvia'ls allà (o apaga «Segueix acords» per posar-los aquí)"_ca;
+            // 0.48: els fixats a mà es poden treure amb el botó dret
+            const long long tk = (long long) (tickX ((float) e.x) - posTicks());
+            const auto* c0 = clip();
+            const bool fix = c0 != nullptr && std::any_of (c0->acordsFixos.begin(), c0->acordsFixos.end(), [&] (const AcordClip& a) { return tk >= a.ini && tk < a.ini + a.dur; });
+            if (fix && e.mods.isPopupMenu())
+            {
+                juce::PopupMenu m;
+                m.addItem (1, "Treu l'acord fixat (torna al de la pista d'Acords)"_ca);
+                juce::Component::SafePointer<PianoRoll> jo (this);
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, tk] (int r)
+                {
+                    if (jo == nullptr || r != 1) return;
+                    jo->canviaBlocs ([&] (Clip& k) { guitarra::treuAcordsFixos (k, tk, tk + 1); }, "Acord fixat tret: torna a manar la pista d'Acords"_ca);
+                });
+                return;
+            }
+            info = fix ? "Acord fixat a mà: botó dret per tornar al de la pista d'Acords"_ca
+                       : "Aquests acords venen de la pista d'Acords. Arrossega un pad a un compàs per fixar-hi un altre acord"_ca;
             repaint();
             return;
         }
@@ -2614,9 +2634,13 @@ void PianoRoll::pintaBlocs (juce::Graphics& g)
     {
         const float x0 = xTick (posTicks() + (double) trams[(size_t) i].ini), x1 = xTick (posTicks() + (double) trams[(size_t) i].fi);
         if (x1 < (float) z.getX() || x0 > (float) z.getRight()) continue;
-        const auto r = juce::Rectangle<float> (x0 + 1.0f, (float) z.getY() + 2.0f, juce::jmax (4.0f, x1 - x0 - 2.0f), (float) z.getHeight() - 5.0f);
-        g.setColour (color.withAlpha (! segueix && i == acordTriat ? 0.95f : 0.6f));
+        const auto r0 = juce::Rectangle<float> (x0 + 1.0f, (float) z.getY() + 2.0f, juce::jmax (4.0f, x1 - x0 - 2.0f), (float) z.getHeight() - 5.0f);
+        auto r = r0;
+        const bool fix = trams[(size_t) i].fix;   // 0.48: fixat a mà: del color de la pista i amb cadenat
+        g.setColour ((fix ? EstatEstudi::colorPista (*pt) : color).withAlpha (fix || (! segueix && i == acordTriat) ? 0.95f : 0.6f));
         g.fillRoundedRectangle (r, 3.0f);
+        if (fix && r.getWidth() > 26.0f)
+            dibuix::pintaIcona (g, dibuix::Icona::Cadenat, r.removeFromRight (20.0f).reduced (3.0f, 3.0f), juce::Colours::black);
         g.setColour (juce::Colours::black);
         g.setFont (dibuix::lletra (11.5f, true));
         g.drawText (juce::String::fromUTF8 (trams[(size_t) i].acord.c_str()), r.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
@@ -2791,7 +2815,11 @@ void PianoRoll::menuBloc (int quin)
         {
             auto& b = k.blocs[(size_t) quin];
             if (r == 2) b = guitarra::blocDe (guitarra::patro (triat), b.ini, b.dur, var, llavor, vel);
-            else if (r == 3) b.fix = ! b.fix;
+            else if (r == 3)
+            {
+                b.fix = ! b.fix;
+                if (! b.fix) guitarra::treuAcordsFixos (k, b.ini, b.ini + b.dur);   // 0.48: torna a seguir la pista d'Acords
+            }
             else guitarra::treuBloc (k, quin, r == 4);
         }, r == 2 ? "Patró canviat"_ca : r == 3 ? "Patró bloquejat o desbloquejat"_ca : "Patró tret"_ca);
         jo->blocTriat = r >= 4 ? -1 : quin;

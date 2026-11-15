@@ -147,18 +147,97 @@ namespace mibase::piano
 
     std::vector<Patro> variacions (const Patro& p)
     {
+        // 0.48: variacions que se senten de seguida (abans eren massa semblants al patró).
         std::vector<Patro> v;
+        const long long compas = ticksCompas (p.compas);
+        const long long temps = p.compas.size() > 2 && p.compas.substr (p.compas.size() - 2) == "/8" ? 1440 : 960;
+        auto junta = [] (const std::vector<std::string>& w) { std::string s; for (auto& x : w) s += (s.empty() ? "" : " ") + x; return s; };
+        auto esNum = [] (const std::string& x) { return ! x.empty() && std::isdigit ((unsigned char) x[0]); };
         auto fes = [&] (const char* sufix, auto canvia)
         {
             Patro q = p;
             q.id = p.id + "~" + sufix;
-            q.nom = p.nom + " · " + sufix;
+            q.nom = p.nom + " \xc2\xb7 " + sufix;
             canvia (q);
+            if (q.dreta == p.dreta && q.esquerra == p.esquerra && q.octavaDreta == p.octavaDreta) return;
+            for (auto& x : v) if (x.dreta == q.dreta && x.esquerra == q.esquerra && x.pasDreta == q.pasDreta && x.octavaDreta == q.octavaDreta) return;
             v.push_back (std::move (q));
         };
-        fes ("8va", [] (Patro& q) { q.octavaDreta = 1; });                              // la mà dreta, una octava amunt
-        fes ("ple", [] (Patro& q) { q.esquerraPlena = true; q.vel = std::min (120, q.vel + 8); });   // baixos amb octava, més fort
-        fes ("suau", [] (Patro& q) { q.suau = true; q.vel = std::max (40, q.vel - 18); q.gate = std::min (1.0, q.gate + 0.05); });
+        const auto wd = paraules (p.dreta);
+        int acords = 0, arpegi = 0;
+        for (auto& x : wd) { if (esNum (x)) ++arpegi; else if (x != ".") ++acords; }
+
+        if (acords >= arpegi)
+            fes ("arpegi", [&] (Patro& q)
+            {
+                // els acords es desfan en un arpegi seguit de corxeres (o del pas del patró, si és més curt)
+                const long long pas = std::min (480LL, q.pasDreta);
+                const char* volta[] = { "1", "3", "5", "8", "5", "3" };
+                std::vector<std::string> w;
+                int k = 0;
+                for (long long t = 0; t < compas; t += pas)
+                    w.push_back (volta[k++ % 6]);   // puja i baixa: 1 3 5 8 5 3…
+                q.dreta = junta (w); q.pasDreta = pas; q.gate = std::max (q.gate, 0.95);
+            });
+        else
+            fes ("blocs", [&] (Patro& q)
+            {
+                // l'arpegi es torna acords sencers a cada temps
+                std::vector<std::string> w;
+                for (long long t = 0; t < compas; t += q.pasDreta) w.push_back (t % temps == 0 ? "C" : ".");
+                q.dreta = junta (w);
+            });
+
+        if (p.pasDreta >= 240 && p.pasDreta % 2 == 0)
+            fes ("doble", [&] (Patro& q)
+            {
+                // la mà dreta, el doble de ràpid (dues voltes per compàs)
+                auto w = wd; w.insert (w.end(), wd.begin(), wd.end());
+                q.dreta = junta (w); q.pasDreta = p.pasDreta / 2;
+            });
+
+        fes ("ple", [&] (Patro& q)
+        {
+            // gran: acords sencers a la dreta també als temps buits, i baixos en octaves
+            auto w = wd;
+            for (size_t k = 0; k < w.size(); ++k)
+            {
+                const bool aTemps = ((long long) k * q.pasDreta) % temps == 0;
+                if (w[k] == "T" || w[k] == "P" || (w[k] == "." && aTemps)) w[k] = "C";
+            }
+            auto e = paraules (q.esquerra);
+            for (size_t k = 0; k < e.size(); ++k)
+            {
+                if (e[k] == "R") e[k] = "R+8";
+                else if (e[k] == "." && ((long long) k * q.pasEsquerra) % temps == 0) e[k] = "R";
+            }
+            q.dreta = junta (w); q.esquerra = junta (e);
+            q.esquerraPlena = true; q.vel = std::min (118, q.vel + 12);
+        });
+
+        fes ("espaiat", [&] (Patro& q)
+        {
+            // de balada: només el que cau al principi i a mig compàs, i deixant sonar
+            auto buida = [&] (const std::string& fila, long long pas, bool dreta)
+            {
+                auto w = paraules (fila);
+                bool primer = true;
+                for (size_t k = 0; k < w.size(); ++k)
+                {
+                    const long long t = (long long) k * pas;
+                    const bool queda = t == 0 || (compas >= 2 * temps && t == (compas / (2 * temps)) * temps);
+                    if (! queda) { w[k] = "."; continue; }
+                    if (w[k] == ".") w[k] = dreta ? "C" : "R";
+                    else if (dreta && esNum (w[k]) && primer) w[k] = "C";
+                    primer = false;
+                }
+                return junta (w);
+            };
+            q.dreta = buida (q.dreta, q.pasDreta, true); q.esquerra = buida (q.esquerra, q.pasEsquerra, false);
+            q.gate = 1.0; q.suau = true; q.vel = std::max (40, q.vel - 14);
+        });
+
+        fes ("8va", [] (Patro& q) { q.octavaDreta = 1; });   // la mà dreta, una octava amunt
         return v;
     }
 

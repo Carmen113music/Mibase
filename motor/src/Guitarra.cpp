@@ -845,9 +845,31 @@ namespace mibase::guitarra
         }
         else
             for (const auto& a : c.acords) r.push_back ({ a.ini, a.ini + a.dur, a.acord });
-        std::stable_sort (r.begin(), r.end(), [] (const Tram& x, const Tram& y) { return x.ini < y.ini; });
-        for (size_t i = 0; i + 1 < r.size(); ++i) r[i].fi = std::min (r[i].fi, r[i + 1].ini);   // el següent talla l'anterior
-        std::erase_if (r, [] (const Tram& x) { return x.fi <= x.ini; });
+        auto endreca = [&]
+        {
+            std::stable_sort (r.begin(), r.end(), [] (const Tram& x, const Tram& y) { return x.ini < y.ini; });
+            for (size_t i = 0; i + 1 < r.size(); ++i) r[i].fi = std::min (r[i].fi, r[i + 1].ini);   // el següent talla l'anterior
+            std::erase_if (r, [] (const Tram& x) { return x.fi <= x.ini; });
+        };
+        endreca();
+        if (t.segueixAcords && ! c.acordsPropis && ! c.acordsFixos.empty())
+        {
+            // 0.48: els acords fixats a mà manen sobre els de la pista d'Acords al seu tros
+            for (const auto& f : c.acordsFixos)
+            {
+                const long long a = f.ini, b = f.ini + f.dur;
+                std::vector<Tram> nou;
+                for (const auto& x : r)
+                {
+                    if (x.fi <= a || x.ini >= b) { nou.push_back (x); continue; }
+                    if (x.ini < a) nou.push_back ({ x.ini, a, x.acord, x.fix });
+                    if (x.fi > b) nou.push_back ({ b, x.fi, x.acord, x.fix });
+                }
+                nou.push_back ({ a, b, f.acord, true });
+                r = std::move (nou);
+            }
+            endreca();
+        }
         return r;
     }
 
@@ -996,6 +1018,19 @@ namespace mibase::guitarra
         return quin;
     }
 
+    int posaAcordFix (Clip& c, AcordClip a)
+    {
+        if (a.dur <= 0 || a.acord.empty()) return -1;
+        const int quin = faLloc (c.acordsFixos, a.ini, a.ini + a.dur);
+        c.acordsFixos.insert (c.acordsFixos.begin() + quin, a);
+        return quin;
+    }
+
+    bool treuAcordsFixos (Clip& c, long long ini, long long fi)
+    {
+        return std::erase_if (c.acordsFixos, [&] (const AcordClip& a) { return a.ini < fi && a.ini + a.dur > ini; }) > 0;
+    }
+
     void treuAcord (Clip& c, int quin)
     {
         if (quin >= 0 && quin < (int) c.acords.size()) c.acords.erase (c.acords.begin() + quin);
@@ -1010,7 +1045,25 @@ namespace mibase::guitarra
             for (auto& c : t.clips)
             {
                 if (! c.midi || c.blocs.empty()) continue;
-                const auto acords = acordsDe (p, t, c);
+                auto acords = acordsDe (p, t, c);
+                // 0.48: un bloc bloquejat es queda també amb els seus acords (si després canvia la pista d'Acords,
+                // la línia dels acords ha de dir el que sona). Es fa el primer cop que es troba bloquejat.
+                if (t.segueixAcords && ! c.acordsPropis)
+                {
+                    bool fixat = false;
+                    for (const auto& b : c.blocs)
+                    {
+                        if (! b.fix) continue;
+                        const long long bi = b.ini, bf = b.ini + b.dur;
+                        if (std::any_of (c.acordsFixos.begin(), c.acordsFixos.end(), [&] (const AcordClip& a) { return a.ini < bf && a.ini + a.dur > bi; })) continue;
+                        for (const auto& a : acords)
+                        {
+                            const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
+                            if (y - x >= 10) { posaAcordFix (c, { x, y - x, a.acord }); fixat = true; }
+                        }
+                    }
+                    if (fixat) { acords = acordsDe (p, t, c); canvi = true; }
+                }
                 const double tempo = edicio::tramA (p, c.pos).tempo;
                 for (int i = 0; i < (int) c.blocs.size(); ++i)
                     if (! c.blocs[(size_t) i].fix) canvi = escriuBloc (c, i, acords, tempo) || canvi;
