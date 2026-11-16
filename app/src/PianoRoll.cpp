@@ -131,9 +131,7 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     voicingPads.setTooltip ("Com es col·loquen les notes de l'acord. Guitarra: la posició de l'acord al mànec"_ca);
     voicingPads.onCanvi = [this] (int) { actualitzaControlsPads(); resized(); repaint(); estat.avisa(); };
     btRasgueig.setTooltip ("Rasgueig: ritme que s'escriu quan arrossegues un pad al Piano Roll (dura el que diu «1 compàs / 1/2 / 1/4»)"_ca);
-    btRasgueig.onClick = [this] { menuRasgueig(); };
-    btBiblioteca.setTooltip ("Obre la biblioteca de patrons en una finestra: cercador, escoltar amb doble clic, variacions per a estrofa, pre-tornada, tornada i pont, i posar-lo al clip"_ca);
-    btBiblioteca.onClick = [this] { obreFinestraPatrons(); };   // 0.52
+    btRasgueig.onClick = [this] { if (modeGuitarra()) obreFinestraPatrons(); else menuRasgueig(); };   // 0.53: la finestra de patrons
     // 0.40: eina de patrons de guitarra
     static bool propisLlegits = false;
     if (! propisLlegits) { propisLlegits = true; rasgueigs::carrega(); }
@@ -163,7 +161,7 @@ PianoRoll::PianoRoll (EstatEstudi& e, int idx)
     btMinimPads.setToggleState (true, juce::dontSendNotification);
     btMinimPads.setTooltip ("Moviment mínim: l'acord que deixes es col·loca a prop de l'anterior"_ca);
     btMinimPads.onClick = [this] { btMinimPads.setToggleState (! btMinimPads.getToggleState(), juce::dontSendNotification); };
-    for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads, &btRasgueig, &btBiblioteca })
+    for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads, &btRasgueig })
         addChildComponent (b);
     for (auto* b : { &barraV, &barraH })
     {
@@ -744,7 +742,6 @@ void PianoRoll::resized()
             formaABarra = frm;
             auto h = zonaLlista().removeFromTop (28);
             btEditaRasgueig.setBounds (h.removeFromRight (modePiano() ? 0 : 84)); h.removeFromRight (modePiano() ? 0 : 5);
-            btBiblioteca.setBounds (h.removeFromRight (30)); h.removeFromRight (5);   // 0.52: la lupa obre la finestra de patrons
             btRasgueig.setBounds (h);
             btForma.setButtonText (frm ? "Acords: "_ca + juce::String::fromUTF8 (guitarra::nomForma (formaGuitarra)).toLowerCase()
                                        : juce::String::fromUTF8 (guitarra::nomForma (formaGuitarra)));
@@ -1162,21 +1159,21 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
         std::string id;
         if (z == Zona::Llista)
         {
+            // 0.53: les parts de la cançó
             const auto zf = zonaFilesLlista();
             if (! zf.contains (e.getPosition())) return;
-            const auto v = patronsLlista();
-            const int i = (e.y - zf.getY() + desplLlista) / altFilaLlista;
+            const auto v = partsColumna();
+            const int i = (e.y - zf.getY()) / altFilaParts();
             if (i < 0 || i >= (int) v.size()) return;
-            id = v[(size_t) i]->id;
+            id = v[(size_t) i].id;
         }
         else
         {
-            const auto* base = guitarra::patro (patroBase());
+            // 0.53: les variacions de la part triada i les pròpies
             const int i = (e.y - zonaVariacions().getY() - 34) / altFilaVariacio();
-            if (base == nullptr || i < 0) return;
-            const auto vars = variacionsColumna (*base);   // 0.52: per parts de la cançó
-            if (i < (int) vars.size()) id = vars[(size_t) i].id;
-            else return;
+            const auto vars = variacionsColumna();
+            if (i < 0 || i >= (int) vars.size()) return;
+            id = vars[(size_t) i].first.id;
         }
         triaRasgueig (id, e.getNumberOfClicks() >= 2);   // 0.47: un clic el tria; el doble clic el fa sonar
         patroArrossegat = id;
@@ -2557,42 +2554,42 @@ std::vector<const guitarra::Patro*> PianoRoll::patronsLlista() const
         return v;
     }
     const std::string grup = triat != nullptr ? triat->grup : guitarra::patrons().front().grup;
-    for (auto& p : guitarra::propis()) if (p.grup == grup) v.push_back (&p);
+    for (auto& p : guitarra::propis()) if (p.grup == grup && p.de.empty()) v.push_back (&p);
     for (auto& p : guitarra::patrons()) if (p.grup == grup) v.push_back (&p);
     return v;
 }
 
 void PianoRoll::pintaLlista (juce::Graphics& g)
 {
+    // 0.53: la columna de l'esquerra són les parts de la cançó del patró triat (Original, Estrofa, Pre-tornada, Tornada, Pont).
     if (clip() == nullptr) return;
     const auto z = zonaFilesLlista();
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillRoundedRectangle (z.toFloat(), 4.0f);
-    juce::Graphics::ScopedSaveState guarda (g);
-    g.reduceClipRegion (z);
-    const auto v = patronsLlista();
-    desplLlista = juce::jlimit (0, juce::jmax (0, (int) v.size() * altFilaLlista - z.getHeight()), desplLlista);
+    const auto v = partsColumna();
+    const bool propia = guitarra::arrelDe (rasgueigPads) != rasgueigPads.substr (0, rasgueigPads.find ('~'));   // una variació pròpia: cap part
+    const int triada = propia ? -1 : (int) guitarra::partDe (rasgueigPads);
     for (int i = 0; i < (int) v.size(); ++i)
     {
-        const auto f = juce::Rectangle<int> (z.getX(), z.getY() + i * altFilaLlista - desplLlista, z.getWidth(), altFilaLlista);
-        if (f.getBottom() < z.getY() || f.getY() > z.getBottom()) continue;
-        const bool triat = v[(size_t) i]->id == patroBase();
-        if (triat)
-        {
-            g.setColour (tema::accent.withAlpha (0.28f));
-            g.fillRect (f);
-        }
+        const int hf = altFilaParts();
+        const auto f = juce::Rectangle<int> (z.getX(), z.getY() + i * hf, z.getWidth(), hf).reduced (3, 2);
+        if (f.getBottom() > z.getBottom()) break;
+        const bool triat = i == triada;
+        g.setColour (triat ? tema::accent.withAlpha (0.45f) : tema::accent.withAlpha (0.16f));
+        g.fillRoundedRectangle (f.toFloat(), 3.0f);
         g.setColour (triat ? tema::text : tema::textMig);
         g.setFont (dibuix::lletra (11.5f, triat));
-        g.drawText (juce::String::fromUTF8 (v[(size_t) i]->nom.c_str()), f.withTrimmedLeft (8).withWidth (118), juce::Justification::centredLeft, true);
+        g.drawText (juce::String::fromUTF8 (nomPart ((PartCanco) i)), f.withTrimmedLeft (6).withWidth (74), juce::Justification::centredLeft, true);
         g.setColour (triat ? tema::text : tema::suau);
         g.setFont (dibuix::lletra (11.0f));
-        g.drawText (juce::String::fromUTF8 (v[(size_t) i]->dibuix.c_str()), f.withTrimmedLeft (130).withTrimmedRight (6), juce::Justification::centredLeft, true);
+        g.drawText (juce::String::fromUTF8 (v[(size_t) i].dibuix.c_str()), f.withTrimmedLeft (82).withTrimmedRight (4), juce::Justification::centredLeft, true);
     }
 }
 
 void PianoRoll::pintaVariacions (juce::Graphics& g)
 {
+    // 0.53: la columna de la dreta són les variacions de la part triada (més ple, més buit, apagats… o, al piano, arpegi,
+    // doble, 8va…) i les variacions pròpies del patró (desades des de l'editor).
     if (clip() == nullptr) return;
     auto z = zonaVariacions();
     g.setColour (tema::suau);
@@ -2601,23 +2598,21 @@ void PianoRoll::pintaVariacions (juce::Graphics& g)
     z.removeFromTop (6);
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillRoundedRectangle (z.toFloat(), 4.0f);
-    const auto* base = guitarra::patro (patroBase());
-    if (base == nullptr) return;
-    const auto v = variacionsColumna (*base);   // 0.52: per parts de la cançó
+    const auto v = variacionsColumna();
+    const int hf = altFilaVariacio();
     for (int i = 0; i < (int) v.size(); ++i)
     {
-        const int hf = altFilaVariacio();
         const auto f = juce::Rectangle<int> (z.getX(), z.getY() + i * hf, z.getWidth(), hf).reduced (3, 2);
         if (f.getBottom() > z.getBottom()) break;
-        const bool triat = v[(size_t) i].id == rasgueigPads;
-        g.setColour (triat ? tema::accent.withAlpha (0.45f) : tema::accent.withAlpha (0.16f));
+        const bool triat = v[(size_t) i].first.id == rasgueigPads;
+        const bool propia = v[(size_t) i].first.id.rfind ("propi:", 0) == 0;
+        g.setColour (triat ? tema::accent.withAlpha (0.45f) : propia ? tema::bateria.withAlpha (0.20f) : tema::accent.withAlpha (0.16f));
         g.fillRoundedRectangle (f.toFloat(), 3.0f);
         g.setColour (triat ? tema::text : tema::textMig);
         g.setFont (dibuix::lletra (11.0f, triat));
-        const auto nom = juce::String::fromUTF8 (nomPart ((PartCanco) i));
-        g.drawText (nom, f.withTrimmedLeft (6).withWidth (70), juce::Justification::centredLeft, true);
+        g.drawText (v[(size_t) i].second, f.withTrimmedLeft (6).withWidth (74), juce::Justification::centredLeft, true);
         g.setFont (dibuix::lletra (11.0f));
-        g.drawText (juce::String::fromUTF8 (v[(size_t) i].dibuix.c_str()), f.withTrimmedLeft (78).withTrimmedRight (4), juce::Justification::centredLeft, true);
+        g.drawText (juce::String::fromUTF8 (v[(size_t) i].first.dibuix.c_str()), f.withTrimmedLeft (82).withTrimmedRight (4), juce::Justification::centredLeft, true);
     }
 }
 
@@ -2792,11 +2787,34 @@ void PianoRoll::posaPatroA (int x)
                  "Patró «"_ca + (p != nullptr ? juce::String::fromUTF8 (p->nom.c_str()) : "acord sencer"_ca) + "» a "_ca + posicioTick (estat.projecte, posTicks() + (double) ini));
 }
 
-std::vector<guitarra::Patro> PianoRoll::variacionsColumna (const guitarra::Patro& base)
+std::vector<guitarra::Patro> PianoRoll::partsColumna() const
 {
-    // 0.52: la columna de variacions de l'editor: l'original i una per a cada part de la cançó (com a la finestra).
+    // 0.53: les parts de la cançó del patró triat (columna de l'esquerra).
     std::vector<guitarra::Patro> v;
-    for (int k = 0; k < numPartsCanco; ++k) v.push_back (guitarra::variacioPart (base, (PartCanco) k));
+    if (const auto* base = guitarra::patro (guitarra::arrelDe (rasgueigPads)))
+        for (int k = 0; k < numPartsCanco; ++k) v.push_back (guitarra::variacioPart (*base, (PartCanco) k));
+    return v;
+}
+
+std::vector<std::pair<guitarra::Patro, juce::String>> PianoRoll::variacionsColumna() const
+{
+    // 0.53: la part triada tal com és, les seves variacions i les variacions pròpies del patró (columna de la dreta).
+    std::vector<std::pair<guitarra::Patro, juce::String>> v;
+    const auto arrel = guitarra::arrelDe (rasgueigPads);
+    const bool propia = arrel != rasgueigPads.substr (0, rasgueigPads.find ('~'));
+    const auto* part = guitarra::patro (guitarra::idPart (arrel, propia ? PartCanco::Original : guitarra::partDe (rasgueigPads)));
+    if (part == nullptr) return v;
+    v.push_back ({ *part, "Tal com és"_ca });
+    static const std::pair<const char*, const char*> noms[] = { { "ple", "Més ple" }, { "buit", "Més buit" }, { "mutes", "Apagats" },
+        { "arpegi", "Arpegi" }, { "blocs", "Blocs" }, { "doble", "Doble" }, { "espaiat", "Espaiat" }, { "8va", "8va" }, { "suau", "Suau" } };
+    for (auto& x : guitarra::variacions (*part))
+    {
+        const auto suf = x.id.substr (x.id.rfind ('~') + 1);
+        juce::String nom = juce::String::fromUTF8 (suf.c_str());
+        for (auto& [a, b] : noms) if (suf == a) nom = juce::String::fromUTF8 (b);
+        v.push_back ({ x, nom });
+    }
+    for (auto* p : guitarra::variacionsPropies (arrel)) v.push_back ({ *p, juce::String::fromUTF8 (p->nom.c_str()) });
     return v;
 }
 
@@ -2874,7 +2892,7 @@ void PianoRoll::obreFinestraPatrons()
         return jo != nullptr ? jo->posaPatroFinestra (id, mans, on) : juce::String();
     };
     f->comenca();
-    juce::CallOutBox::launchAsynchronously (std::move (f), btBiblioteca.getScreenBounds(), nullptr);
+    juce::CallOutBox::launchAsynchronously (std::move (f), btRasgueig.getScreenBounds(), nullptr);
 }
 
 juce::String PianoRoll::posaPatroFinestra (const std::string& id, unsigned mans, int on)
@@ -3107,6 +3125,9 @@ void PianoRoll::posaForma (guitarra::Forma f, bool tambeBloc)
 void PianoRoll::obreEditorRasgueig()
 {
     auto ed = std::make_unique<EditorRasgueig> (guitarra::patro (rasgueigPads));
+    // 0.53: es pot desar com a variació del patró triat (o d'un altre)
+    if (const auto* a = guitarra::patro (guitarra::arrelDe (rasgueigPads)); a != nullptr && ! a->piano && a->id.rfind ("propi:", 0) != 0)
+        ed->posaArrel (a->id, a->nom);
     ed->forma = ambForma() ? formaGuitarra : guitarra::Forma::Oberts;   // 0.49: es desa amb la forma amb què s'ha fet
     juce::Component::SafePointer<PianoRoll> jo (this);
     ed->onEscolta = [jo] (const guitarra::Patro& p)
@@ -3228,13 +3249,14 @@ void PianoRoll::actualitzaControlsPads()
     const bool gt = padsGuitarra();
     btRasgueig.setVisible (false);   // 0.38.1: el ritme no és cosa del Chord Pad; tornarà a l'eina de patrons de guitarra
     if (gt) { octavaPads.setVisible (false); btMinimPads.setVisible (false); }
-    const auto* pr = guitarra::patro (rasgueigPads);
+    const auto* pr = guitarra::patro (modeGuitarra() ? guitarra::arrelDe (rasgueigPads) : rasgueigPads);   // 0.53: el nom del patró, sense la variació
     btRasgueig.setButtonText (pr != nullptr ? juce::String::fromUTF8 (pr->nom.c_str()) : "Sense ritme"_ca);
+    if (modeGuitarra()) btRasgueig.setTooltip ("Obre la biblioteca de patrons per triar-ne un (doble clic per escoltar)"_ca);
 
     {
         // 0.40: a l'eina de patrons, el rasgueig triat, el seu editor i «Acords de la cançó»; ni voicing ni octava.
         const bool gm = modeGuitarra() && clip() != nullptr;
-        btRasgueig.setVisible (gm); btBiblioteca.setVisible (gm); btEditaRasgueig.setVisible (gm && ! modePiano()); btSegueix.setVisible (gm);
+        btRasgueig.setVisible (gm); btEditaRasgueig.setVisible (gm && ! modePiano()); btSegueix.setVisible (gm);
         btSegueix.setToggleState (gm && segueixAcords(), juce::dontSendNotification);
         if (gm) selDuradaPads.setVisible (! segueixAcords());
         if (gm) { voicingPads.setVisible (false); btLlapisPads.setVisible (false); }
@@ -3324,6 +3346,7 @@ void PianoRoll::menuRasgueig()
     m.addItem (1, "Sense ritme (l'acord sencer, amb la posició de guitarra)"_ca, true, rasgueigPads.empty());
     m.addSeparator();
     std::vector<guitarra::Patro> v = guitarra::propis();   // 0.40: primer els de l'usuari
+    std::erase_if (v, [] (const guitarra::Patro& x) { return ! x.de.empty(); });   // 0.53: les variacions pròpies van a la columna
     v.insert (v.end(), guitarra::patrons().begin(), guitarra::patrons().end());
     if (modePiano()) v = guitarra::patronsPiano();   // 0.47
     std::vector<std::string> ids;

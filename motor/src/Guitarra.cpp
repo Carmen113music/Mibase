@@ -844,9 +844,11 @@ namespace mibase::guitarra
         return r;
     }
 
-    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos, Forma forma)
+    Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos, Forma forma,
+                    const std::string& de)
     {
         Patro p;
+        p.de = de;
         p.id = "propi:" + nom;
         p.nom = nom;
         p.grup = grupPropis;
@@ -858,6 +860,37 @@ namespace mibase::guitarra
         return p;
     }
 
+    std::vector<const Patro*> variacionsPropies (const std::string& arrel)
+    {
+        std::vector<const Patro*> v;
+        if (arrel.empty()) return v;
+        for (auto& p : propis()) if (p.de == arrel) v.push_back (&p);
+        return v;
+    }
+
+    std::string arrelDe (const std::string& id)
+    {
+        if (id.rfind ("propi:", 0) == 0)
+            for (auto& p : propis()) if (p.id == id) return p.de.empty() ? id : p.de;
+        const auto on = id.find ('~');
+        return on == std::string::npos ? id : id.substr (0, on);
+    }
+
+    PartCanco partDe (const std::string& id)
+    {
+        const auto on = id.find ('~');
+        if (on == std::string::npos) return PartCanco::Original;
+        const auto fi = id.find ('~', on + 1);
+        const auto seg = id.substr (on + 1, fi == std::string::npos ? std::string::npos : fi - on - 1);
+        for (int k = 1; k < numPartsCanco; ++k) if (seg == sufixPart ((PartCanco) k)) return (PartCanco) k;
+        return PartCanco::Original;
+    }
+
+    std::string idPart (const std::string& arrel, PartCanco v)
+    {
+        return v == PartCanco::Original ? arrel : arrel + "~" + sufixPart (v);
+    }
+
     std::string textPropis (const std::vector<Patro>& v)
     {
         nlohmann::ordered_json j = nlohmann::ordered_json::array();
@@ -865,6 +898,7 @@ namespace mibase::guitarra
         {
             j.push_back ({ { "nom", p.nom }, { "compas", p.compas }, { "pasTicks", p.pasTicks }, { "passos", textPassos (p.passos) } });
             if (p.forma != Forma::Oberts) j.back()["forma"] = textForma (p.forma);   // 0.49
+            if (! p.de.empty()) j.back()["de"] = p.de;                                 // 0.53
         }
         return nlohmann::ordered_json ({ { "rasgueigs", j } }).dump (2);
     }
@@ -881,7 +915,7 @@ namespace mibase::guitarra
             const auto passos = llegeixPassos (e.value ("passos", std::string()));
             if (nom.empty() || passos.empty()) continue;
             r.push_back (fesPropi (nom, e.value ("compas", std::string ("4/4")), std::clamp (e.value ("pasTicks", 480LL), 60LL, 1920LL), passos,
-                                  llegeixForma (e.value ("forma", std::string()))));
+                                  llegeixForma (e.value ("forma", std::string())), e.value ("de", std::string())));
         }
         return r;
     }

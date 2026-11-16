@@ -81,6 +81,7 @@ namespace mibase::guitarra
         int crescendo = 0;              // 0.32: la força puja aquests punts al llarg del patró
         Forma forma = Forma::Oberts;    // 0.49: la forma d'acord que li escau (els de rock: powerchords o octaves)
         bool piano = false;             // 0.47: és un patró de piano (mibase::piano); aquí només hi ha el nom i el dibuix
+        std::string de;                 // 0.53: un rasgueig propi desat com a variació d'aquest patró (id); buit = patró nou
     };
     /** 0.47: els patrons de piano, vistos com a patrons de la llista (nom, grup, dibuix). */
     const std::vector<Patro>& patronsPiano();
@@ -120,7 +121,15 @@ namespace mibase::guitarra
     const std::vector<Patro>& propis();
     void posaPropis (std::vector<Patro> v);
     Patro fesPropi (const std::string& nom, const std::string& compas, long long pasTicks, const std::vector<Pas>& passos,
-                    Forma forma = Forma::Oberts);
+                    Forma forma = Forma::Oberts, const std::string& de = {});
+    /** 0.53: els rasgueigs propis desats com a variació del patró «arrel». */
+    std::vector<const Patro*> variacionsPropies (const std::string& arrel);
+    /** 0.53: el patró d'on ve un id: «folk~tornada~ple» → «folk»; una variació pròpia → el seu patró. */
+    std::string arrelDe (const std::string& id);
+    /** 0.53: la part de la cançó d'un id («folk~tornada~ple» → Tornada); l'original si no en porta. */
+    PartCanco partDe (const std::string& id);
+    /** 0.53: l'id de la part de la cançó d'un patró («folk», Tornada → «folk~tornada»). */
+    std::string idPart (const std::string& arrel, PartCanco v);
     /** Per desar-los en un fitxer (JSON) i tornar-los a llegir. */
     std::string textPropis (const std::vector<Patro>& v);
     std::vector<Patro> llegeixPropis (const std::string& json);

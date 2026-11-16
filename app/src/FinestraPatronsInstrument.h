@@ -37,7 +37,7 @@ public:
             addAndMakeVisible (c);
         auto& m = memoria();
         // el patró que l'editor ja tenia triat (sense la variació)
-        if (! triat.empty() && mibase::guitarra::patro (triat) != nullptr) m.id = triat.substr (0, triat.rfind ('~') == std::string::npos ? triat.size() : triat.rfind ('~'));
+        if (! triat.empty() && mibase::guitarra::patro (triat) != nullptr) m.id = mibase::guitarra::arrelDe (triat);   // 0.53
         if (mibase::guitarra::patro (m.id) == nullptr || mibase::guitarra::patro (m.id)->piano != piano) m.id = totsElsPatrons().front()->id;
 
         cerca.setFont (dibuix::lletra (13.5f));
@@ -192,7 +192,7 @@ private:
     {
         std::vector<const mibase::guitarra::Patro*> v;
         if (piano) { for (auto& p : mibase::guitarra::patronsPiano()) v.push_back (&p); return v; }
-        for (auto& p : mibase::guitarra::propis()) v.push_back (&p);
+        for (auto& p : mibase::guitarra::propis()) if (p.de.empty()) v.push_back (&p);   // 0.53: les variacions pròpies, a la columna
         for (auto& p : mibase::guitarra::patrons()) v.push_back (&p);
         return v;
     }

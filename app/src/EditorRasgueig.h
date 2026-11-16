@@ -20,6 +20,65 @@ namespace rasgueigs
     }
 }
 
+/** 0.53: demana el nom en desar (a sobre de l'editor): Retorn = desa, Esc = cancel·la. */
+class PanellNomRasgueig : public juce::Component
+{
+public:
+    std::function<void (const juce::String&)> onDesa;
+    std::function<void()> onCancella;
+    PanellNomRasgueig (const juce::String& titolPanell, const juce::String& nomInicial) : titol (titolPanell)
+    {
+        for (auto* c : std::initializer_list<juce::Component*> { &text, &btDesa, &btCancella }) addAndMakeVisible (c);
+        text.setFont (dibuix::lletra (14.0f));
+        text.setColour (juce::TextEditor::backgroundColourId, juce::Colours::black.withAlpha (0.45f));
+        text.setColour (juce::TextEditor::textColourId, tema::text);
+        text.setColour (juce::TextEditor::outlineColourId, tema::linia2);
+        text.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+        text.setText (nomInicial, false);
+        text.onReturnKey = [this] { accepta(); };
+        text.onEscapeKey = [this] { if (onCancella) onCancella(); };
+        btDesa.onClick = [this] { accepta(); };
+        btCancella.onClick = [this] { if (onCancella) onCancella(); };
+    }
+    void comenca() { text.grabKeyboardFocus(); text.selectAll(); }
+    void resized() override
+    {
+        caixa = getLocalBounds().withSizeKeepingCentre (juce::jmin (420, getWidth() - 20), 134);
+        auto z = caixa.reduced (14);
+        z.removeFromTop (22);
+        text.setBounds (z.removeFromTop (30));
+        z.removeFromTop (8);
+        auto b = z.removeFromTop (30);
+        btDesa.setBounds (b.removeFromRight (90)); b.removeFromRight (6);
+        btCancella.setBounds (b.removeFromRight (100));
+        avisZona = b;
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colours::black.withAlpha (0.55f));
+        g.setColour (tema::superficie);
+        g.fillRoundedRectangle (caixa.toFloat(), 8.0f);
+        g.setColour (tema::accent);
+        g.drawRoundedRectangle (caixa.toFloat().reduced (0.5f), 8.0f, 1.0f);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (13.0f, true));
+        g.drawFittedText (titol, caixa.reduced (14, 10).removeFromTop (18), juce::Justification::centredLeft, 1, 0.8f);
+        if (avis.isNotEmpty()) { g.setColour (tema::guitarra); g.setFont (dibuix::lletra (11.5f)); g.drawFittedText (avis, avisZona, juce::Justification::centredLeft, 2, 0.8f); }
+    }
+private:
+    void accepta()
+    {
+        const auto t = text.getText().trim();
+        if (t.isEmpty()) { avis = juce::String::fromUTF8 ("Posa-li un nom."); repaint(); return; }
+        if (onDesa) onDesa (t);
+    }
+    juce::String titol, avis;
+    juce::TextEditor text;
+    Boto btDesa { "Desa", std::nullopt, Boto::Estil::Primari };
+    Boto btCancella { juce::String::fromUTF8 ("Cancel·la"), std::nullopt, Boto::Estil::Secundari };
+    juce::Rectangle<int> caixa, avisZona;
+};
+
 class EditorRasgueig : public juce::Component, private juce::Timer
 {
 public:
@@ -38,6 +97,7 @@ public:
     {
         const bool propi = inicial != nullptr && inicial->id.rfind ("propi:", 0) == 0;
         idOriginal = propi ? inicial->id : std::string();
+        variacioDe = propi ? inicial->de : std::string();   // 0.53
         if (inicial != nullptr && ! inicial->passos.empty())
         {
             passos = inicial->passos;
@@ -99,17 +159,8 @@ public:
         btEscolta.onClick = [this] { posaBucle (false); sona(); };
         btBucle.onClick = [this] { posaBucle (! bucle); if (! bucle && onAtura) onAtura(); };
         btAtura.onClick = [this] { posaBucle (false); if (onAtura) onAtura(); };
-        btDesa.onClick = [this]
-        {
-            if (nom.getText().trim().isEmpty()) { avis = juce::String::fromUTF8 ("Posa-li un nom per desar-lo."); repaint(); return; }
-            const auto p = patro();
-            if (onDesa) onDesa (p);
-            if (! idOriginal.empty() && idOriginal != p.id && onEsborra) onEsborra (idOriginal);   // li han canviat el nom
-            idOriginal = p.id;
-            btEsborra.setVisible (true);
-            avis = juce::String::fromUTF8 ("Desat a «Els meus rasgueigs».");
-            repaint();
-        };
+        btDesa.setTooltip (juce::String::fromUTF8 ("Desa'l com a patró nou o com a variació d'un patró (surt a la columna de variacions)"));
+        btDesa.onClick = [this] { menuDesa(); };   // 0.53
         btEsborra.setVisible (propi);
         btEsborra.onClick = [this]
         {
@@ -124,8 +175,85 @@ public:
 
     mibase::guitarra::Patro patro() const
     {
-        return mibase::guitarra::fesPropi (nom.getText().trim().toStdString(), compas, selPas.getTriat() == 1 ? 240 : 480, passos, forma);
+        return mibase::guitarra::fesPropi (nom.getText().trim().toStdString(), compas, selPas.getTriat() == 1 ? 240 : 480, passos, forma, variacioDe);
     }
+
+    /** 0.53: el patró triat a l'editor (per oferir «Desa com a variació de…»). */
+    void posaArrel (const std::string& id, const std::string& nomPatro) { arrel = id; nomArrel = nomPatro; }
+
+private:
+    std::string arrel, nomArrel, variacioDe;
+    std::unique_ptr<PanellNomRasgueig> panellNom;
+
+    static juce::String u8 (const std::string& s) { return juce::String::fromUTF8 (s.c_str()); }
+
+    /** 0.53: en desar, es tria si és un patró nou o una variació d'un patró (el triat, el d'abans o qualsevol altre). */
+    void menuDesa()
+    {
+        namespace gt = mibase::guitarra;
+        juce::PopupMenu m;
+        m.addItem (1, juce::String::fromUTF8 ("Desa com a patró nou (a «Els meus rasgueigs»)…"));
+        if (! arrel.empty()) m.addItem (2, juce::String::fromUTF8 ("Desa com a variació de «") + u8 (nomArrel) + juce::String::fromUTF8 ("»…"));
+        const auto* abans = variacioDe.empty() || variacioDe == arrel ? nullptr : gt::patro (variacioDe);
+        if (abans != nullptr) m.addItem (3, juce::String::fromUTF8 ("Desa com a variació de «") + u8 (abans->nom) + juce::String::fromUTF8 ("»…"));
+        // qualsevol altre patró, per grups
+        std::vector<const gt::Patro*> tots;
+        std::vector<std::string> grups;
+        for (auto& p : gt::patrons()) { tots.push_back (&p); if (std::find (grups.begin(), grups.end(), p.grup) == grups.end()) grups.push_back (p.grup); }
+        juce::PopupMenu altres;
+        for (auto& gr : grups)
+        {
+            juce::PopupMenu sub;
+            for (size_t i = 0; i < tots.size(); ++i) if (tots[i]->grup == gr) sub.addItem (1000 + (int) i, u8 (tots[i]->nom));
+            altres.addSubMenu (u8 (gr), sub);
+        }
+        m.addSubMenu (juce::String::fromUTF8 ("Desa com a variació d'un altre patró"), altres);
+        juce::Component::SafePointer<EditorRasgueig> jo (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btDesa), [jo, tots] (int r)
+        {
+            if (jo == nullptr || r <= 0) return;
+            if (r == 1) jo->demanaNom ({}, {});
+            else if (r == 2) jo->demanaNom (jo->arrel, jo->nomArrel);
+            else if (r == 3) { if (const auto* p = mibase::guitarra::patro (jo->variacioDe)) jo->demanaNom (p->id, p->nom); }
+            else if (r >= 1000 && r - 1000 < (int) tots.size()) jo->demanaNom (tots[(size_t) (r - 1000)]->id, tots[(size_t) (r - 1000)]->nom);
+        });
+    }
+
+    void demanaNom (const std::string& de, const std::string& nomDe)
+    {
+        const auto titol = de.empty() ? juce::String::fromUTF8 ("Nom del patró nou")
+                                      : juce::String::fromUTF8 ("Nom de la variació de «") + u8 (nomDe) + juce::String::fromUTF8 ("»");
+        auto suggerit = nom.getText().trim();
+        if (! de.empty() && (suggerit.isEmpty() || suggerit == u8 (nomDe) + juce::String::fromUTF8 (" (meu)"))) suggerit = u8 (nomDe) + juce::String::fromUTF8 (" (la meva)");
+        panellNom = std::make_unique<PanellNomRasgueig> (titol, suggerit);
+        juce::Component::SafePointer<EditorRasgueig> jo (this);
+        panellNom->onCancella = [jo] { if (jo != nullptr) juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->panellNom.reset(); }); };
+        panellNom->onDesa = [jo, de, nomDe] (const juce::String& t)
+        {
+            if (jo == nullptr) return;
+            jo->nom.setText (t, false);
+            jo->variacioDe = de;
+            jo->desaAra (nomDe);
+            juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->panellNom.reset(); });
+        };
+        addAndMakeVisible (*panellNom);
+        panellNom->setBounds (getLocalBounds());
+        panellNom->comenca();
+    }
+
+    void desaAra (const std::string& nomDe)
+    {
+        const auto p = patro();
+        if (onDesa) onDesa (p);
+        if (! idOriginal.empty() && idOriginal != p.id && onEsborra) onEsborra (idOriginal);   // li han canviat el nom
+        idOriginal = p.id;
+        btEsborra.setVisible (true);
+        avis = p.de.empty() ? juce::String::fromUTF8 ("Desat a «Els meus rasgueigs».")
+                            : juce::String::fromUTF8 ("Desat com a variació de «") + u8 (nomDe) + juce::String::fromUTF8 ("»: surt a la columna de variacions.");
+        repaint();
+    }
+
+public:
 
     void resized() override
     {
@@ -139,6 +267,7 @@ public:
         btAtura.setBounds (b.removeFromLeft (78));
         btEsborra.setBounds (b.removeFromRight (84)); b.removeFromRight (6);
         btDesa.setBounds (b.removeFromRight (84));
+        if (panellNom != nullptr) panellNom->setBounds (getLocalBounds());   // 0.53
     }
 
     void paint (juce::Graphics& g) override
