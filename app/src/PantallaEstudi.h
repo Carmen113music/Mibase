@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mibase/SeguimentCapcal.h>
 #include "DialegText.h"
 #include "EditorVeu.h"
 #include "EditorSampler.h"
@@ -248,6 +249,11 @@ private:
     std::unique_ptr<juce::FileChooser> selector;
     juce::int64 ultimaCopia = 0, tempsZoom = 0;
     double anclaZoom = 0.0;
+    // 0.54: seguiment suau del capçal mentre sona
+    mibase::SeguimentCapcal seguiment;
+    double darrerTicMs = 0.0;
+    int transportAbans = 0;
+    double segonsPerCentrar() const;
     juce::Point<int> posZoom;
     bool calDesar = false;
 };

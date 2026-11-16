@@ -272,6 +272,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onDemanaImportar = [this] (int pista, double on) { demanaImportar (pista, on); };
     pistes.onConsolida = [this] (int pista, int clipA, int clipB) { consolida (pista, clipA, clipB); };
     pistes.onObreMidi = [this] (int pista, int clip) { obrePianoRoll (pista, clip); };
+    pistes.onVistaMoguda = [this] { actualitzaBarres(); estat.avisa(); };   // 0.54
     pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
     inserts::obreVeu() = [this] (int pista) { obreVeuDePista (pista); };
     informePlugins() = [this] { return plugins.informe (estat.projecte); };
@@ -964,10 +965,19 @@ void PantallaEstudi::transport (int accio)
     const double visibles = pistes.getWidth() / estat.pxPerSegon;
     if (estat.capcal < estat.iniciVista || estat.capcal > estat.iniciVista + visibles * 0.9)
         estat.iniciVista = juce::jmax (0.0, estat.capcal - visibles * 0.25);
+    seguiment.reinicia();          // 0.54: no és moure la vista a mà
+    zonaEditors.reiniciaSeguiment();
+    actualitzaBarres();
     estat.avisa();
 }
 
 //==============================================================================
+double PantallaEstudi::segonsPerCentrar() const
+{
+    // 0.54: el capçal va de la vora al mig en uns 4 compassos
+    return juce::jlimit (2.0, 20.0, 4.0 * (double) mibase::midi::ticksPerCompas (estat.projecte) * mibase::midi::segonsPerTick (estat.projecte));
+}
+
 void PantallaEstudi::publicaPla()
 {
     instruments.neteja (estat.projecte);
@@ -1237,14 +1247,22 @@ void PantallaEstudi::tic()
     }
 
     // Capçal: mentre sona, el del motor (i la vista el segueix).
+    // 0.54: sense salts de pàgina: quan arriba a la vora, la vista llisca suau fins a deixar el capçal al mig
+    // (mibase::SeguimentCapcal). Si es mou la vista a mà, deixa de seguir fins al pròxim play.
     const float xAbans = estat.x (estat.capcal);
+    const double araMs = juce::Time::getMillisecondCounterHiRes();
+    const double dt = juce::jlimit (0.001, 0.25, (araMs - darrerTicMs) / 1000.0);
+    darrerTicMs = araMs;
+    if (estat.transport != 0 && transportAbans == 0) seguiment.reinicia();
+    transportAbans = estat.transport;
     if (estat.transport != 0 && ! esperantMotor)
     {
         estat.capcal = motor.getPosicio();
         const double visibles = pistes.getWidth() / estat.pxPerSegon;
-        if (estat.capcal > estat.iniciVista + visibles * 0.95 || estat.capcal < estat.iniciVista)
+        const double nou = seguiment.pas (estat.capcal, estat.iniciVista, visibles, dt, segonsPerCentrar());
+        if (nou != estat.iniciVista)
         {
-            estat.iniciVista = juce::jmax (0.0, estat.capcal - visibles * 0.05);
+            estat.iniciVista = nou;
             actualitzaBarres();
             estat.avisa();
         }

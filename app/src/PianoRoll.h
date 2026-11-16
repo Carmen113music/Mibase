@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mibase/SeguimentCapcal.h>
 #include "VistesEstudi.h"
 
 #include <mibase/Harmonia.h>
@@ -184,6 +185,9 @@ public:
     void actualitza() { changeListenerCallback (nullptr); }
     /** Cridat pel rellotge de l'estudi mentre sona: capçal i vista que el segueix. */
     void ticTransport();
+    void avisaVista() { vistaCanviada(); }
+    bool ocupat() const noexcept { return mode != Mode::Res; }                                   // 0.54: s'està editant
+    double ampleTicks() const { return pxPerTick > 0.0 ? zonaGraella().getWidth() / pxPerTick : 0.0; }   // 0.54
     /** Torna a encaixar la vista amb el clip obert (quan s'obre un clip nou). */
     void encaixaVista (bool tambeHoritzontal = true);
 
@@ -424,6 +428,7 @@ private:
     std::vector<int> triadesInici;
     Mode mode = Mode::Res;
     juce::Point<float> inici, ara;
+    double ancoraTick = 0.0; float ancoraY = 0.0f;   // 0.54: on comença el requadre (en ticks i en alçada de contingut)
     Toc toc0;
     double tick0 = 0.0;
     int to0 = 0, notaNova = -1, alt0 = 0;
@@ -493,7 +498,26 @@ public:
     int quants() const noexcept { return llista.size(); }
     void setDesenganxat (bool d);
     void repintaTots() { for (auto* p : llista) p->repaint(); }
-    void ticTransport() { for (auto* p : llista) p->ticTransport(); }
+    /** 0.54: la vista dels editors segueix el capçal lliscant (sense salts), com la taula de treball. */
+    void ticTransport()
+    {
+        const double ara = juce::Time::getMillisecondCounterHiRes();
+        const double dt = juce::jlimit (0.001, 0.25, (ara - darrerTic) / 1000.0);
+        darrerTic = ara;
+        if (estat.transport != 0 && ! sonava) seguiment.reinicia();
+        sonava = estat.transport != 0;
+        PianoRoll* primer = nullptr;
+        for (auto* p : llista) if (p->isShowing() && p->teClip()) { primer = p; break; }
+        if (sonava && primer != nullptr && ! primer->ocupat() && primer->ampleTicks() > 0.0)
+        {
+            const double t = mibase::midi::ticks (estat.projecte, estat.capcal);
+            const double T = juce::jlimit (2.0, 20.0, 4.0 * (double) mibase::midi::ticksPerCompas (estat.projecte) * mibase::midi::segonsPerTick (estat.projecte));
+            const double nou = seguiment.pas (t, estat.vistaEditors.iniciVista, primer->ampleTicks(), dt, T, -1.0e15);
+            if (nou != estat.vistaEditors.iniciVista) { estat.vistaEditors.iniciVista = nou; primer->avisaVista(); }
+        }
+        for (auto* p : llista) p->ticTransport();
+    }
+    void reiniciaSeguiment() { seguiment.reinicia(); }
     void resized() override;
     void paint (juce::Graphics& g) override { g.fillAll (tema::linia2); }
     /** Si s'ha amollat un acord fora del Piano Roll, es descarta. */
@@ -504,6 +528,9 @@ public:
     }
 
 private:
+    mibase::SeguimentCapcal seguiment;   // 0.54
+    double darrerTic = 0.0;
+    bool sonava = false;
     EstatEstudi& estat;
     std::function<void (PianoRoll&)> configura;
     juce::OwnedArray<PianoRoll> llista;

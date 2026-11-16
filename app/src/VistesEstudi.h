@@ -138,6 +138,7 @@ public:
     std::function<void (int pista, double on)> onDemanaImportar;
     /** Obre un clip MIDI al Piano Roll (doble clic, o en fer-ne un de nou amb el llapis). */
     std::function<void (int pista, int clip)> onObreMidi;
+    std::function<void()> onVistaMoguda;   // 0.54: el requadre ha desplaçat la vista (cal moure les barres)
     /** 0.22: obre el clip d'àudio (pista, clip) al Vocal Editor. */
     std::function<void (int, int)> onObreVeu;
     std::function<void (int pista, int clip, bool nomesBiblioteca)> onEnviaSampler;   // 0.28
@@ -205,6 +206,9 @@ private:
     std::vector<mibase::edicio::RefClip> triatsOriginals;
     bool nomesSeleccio = false;   // 0.32: Maj premut en clicar: el ratolí només selecciona (no mou ni retalla)
     juce::Point<int> puntCola, puntRequadre;
+    double ancoraT = 0.0; int ancoraY = 0;     // 0.54: on comença el requadre (temps i alçada de contingut)
+    void comencaRequadre();
+    void desplacaVoraRequadre (juce::Point<int> p);
 };
 
 /** Noms de les pistes, amb M (silenci), S (solo) i el botó de gravar. */

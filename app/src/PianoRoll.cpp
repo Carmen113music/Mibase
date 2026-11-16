@@ -650,14 +650,7 @@ void PianoRoll::vistaCanviada()
 void PianoRoll::ticTransport()
 {
     if (! isShowing() || clip() == nullptr) return;
-    const auto g = zonaGraella();
-    const double t = midi::ticks (estat.projecte, estat.capcal);
-    if (estat.transport != 0 && mode == Mode::Res && (t > tickX ((float) g.getRight() - 12.0f) || t < iniciVista))
-    {
-        iniciVista = t - 24.0 / pxPerTick;
-        vistaCanviada();
-    }
-    repaint();
+    repaint();   // 0.54: el seguiment del capçal el fa ZonaEditors (un sol cop per a tots els editors)
 }
 
 void PianoRoll::canviaOctava (int d)
@@ -1352,6 +1345,9 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     if (! e.mods.isCommandDown() && ! e.mods.isShiftDown()) triadesNotes.clear();
     triadesInici = triadesNotes;
     mode = Mode::Requadre;
+    ancoraTick = tickX (inici.x);            // 0.54: el requadre s'aguanta encara que la vista es desplaci
+    ancoraY = inici.y + (float) desplY;
+    beginDragAutoRepeat (30);                 // perquè es desplaci encara que el ratolí no es mogui
     repaint();
 }
 
@@ -1419,6 +1415,24 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
         case Mode::Requadre:
         {
             if (c == nullptr || e.getDistanceFromDragStart() < 3) return;
+            // 0.54: a la vora (o fora) de la graella, la vista es desplaça sola cap a aquella banda
+            {
+                const auto g = zonaGraella();
+                auto vel = [] (float fora) { return fora == 0.0f ? 0.0f : (fora > 0 ? 1.0f : -1.0f) * juce::jmin (60.0f, std::abs (fora) * 0.35f + 3.0f); };
+                const float marge = 20.0f;
+                const float fx = ara.x > (float) g.getRight() - marge ? ara.x - ((float) g.getRight() - marge) : ara.x < (float) g.getX() + marge ? ara.x - ((float) g.getX() + marge) : 0.0f;
+                const float fy = ara.y > (float) g.getBottom() - marge ? ara.y - ((float) g.getBottom() - marge) : ara.y < (float) g.getY() + marge ? ara.y - ((float) g.getY() + marge) : 0.0f;
+                bool mou = false;
+                if (fx != 0.0f) { iniciVista += (double) vel (fx) / pxPerTick; mou = true; }
+                if (fy != 0.0f)
+                {
+                    const int abans = desplY;
+                    desplY = juce::jlimit (0, juce::jmax (0, numFiles() * altNota - g.getHeight()), desplY + (int) vel (fy));
+                    mou = mou || desplY != abans;
+                }
+                if (mou) vistaCanviada();
+                inici = { xTick (ancoraTick), ancoraY - (float) desplY };
+            }
             const auto r = juce::Rectangle<float> (inici, ara);
             auto dins = midi::notesDins (*c, (long long) std::floor (tickX (r.getX()) - posTicks()), (long long) std::ceil (tickX (r.getRight()) - posTicks()),
                                          toY (r.getBottom()), toY (r.getY()));

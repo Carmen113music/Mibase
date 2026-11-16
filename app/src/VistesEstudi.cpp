@@ -1650,6 +1650,7 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
         triatsOriginals = estat.triats;
         mode = Mode::Requadre;
         puntRequadre = inici;
+        comencaRequadre();   // 0.54
         estat.avisa();
         return;
     }
@@ -1666,6 +1667,7 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
         triatsOriginals = estat.triats;
         mode = Mode::Requadre;
         puntRequadre = inici;
+        comencaRequadre();   // 0.54
         estat.avisa();
         return;
     }
@@ -1718,6 +1720,7 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
         triatsOriginals = {};
         mode = Mode::Requadre;
         puntRequadre = inici;
+        comencaRequadre();   // 0.54
         estat.avisa();
         return;
     }
@@ -1737,6 +1740,36 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
     triatsOriginals = estat.triats;
     mode = Mode::Decidint;
     estat.avisa();
+}
+
+void VistaPistes::comencaRequadre()
+{
+    // 0.54: on comença el requadre, en temps i en alçada de contingut, perquè s'aguanti encara que la vista es desplaci
+    ancoraT = estat.t ((float) inici.x);
+    ancoraY = inici.y + estat.desplY;
+    beginDragAutoRepeat (30);   // es continua desplaçant encara que el ratolí no es mogui
+}
+
+void VistaPistes::desplacaVoraRequadre (juce::Point<int> p)
+{
+    auto vel = [] (int fora) { return fora == 0 ? 0 : (fora > 0 ? 1 : -1) * juce::jmin (60, juce::roundToInt (std::abs (fora) * 0.35f) + 3); };
+    const int marge = 20;
+    const int fx = p.x > getWidth() - marge ? p.x - (getWidth() - marge) : p.x < marge ? p.x - marge : 0;
+    const int fy = p.y > getHeight() - marge ? p.y - (getHeight() - marge) : p.y < marge ? p.y - marge : 0;
+    bool mou = false;
+    if (fx != 0)
+    {
+        const double abans = estat.iniciVista;
+        estat.iniciVista = juce::jmax (0.0, estat.iniciVista + vel (fx) / estat.pxPerSegon);
+        mou = estat.iniciVista != abans;
+    }
+    if (fy != 0)
+    {
+        const int abans = estat.desplY;
+        estat.desplY = juce::jlimit (0, juce::jmax (0, estat.altTotal() - getHeight()), estat.desplY + vel (fy));
+        mou = mou || estat.desplY != abans;
+    }
+    if (mou && onVistaMoguda) onVistaMoguda();
 }
 
 void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
@@ -1845,6 +1878,8 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 
         case Mode::Requadre:
             if (e.getDistanceFromDragStart() < 4) return;
+            desplacaVoraRequadre (e.getPosition());   // 0.54: a la vora, la vista es desplaça sola
+            inici = { juce::roundToInt (estat.x (ancoraT)), ancoraY - estat.desplY };
             actualitzaRequadre (e.getPosition(), e.mods.isCommandDown() || e.mods.isShiftDown());
             estat.avisa();
             return;
