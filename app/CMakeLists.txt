@@ -17,6 +17,7 @@ target_sources(Mibase PRIVATE
     src/PanellHarmonia.cpp
     src/EscanerPlugins.cpp
     src/Plugins.cpp
+    src/FinestraReverb.cpp
     src/EditorVeu.cpp
     src/EditorSampler.cpp)
 

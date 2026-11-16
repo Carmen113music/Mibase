@@ -591,7 +591,7 @@ namespace mibase::reverb
         }
 
         // Configura un algorisme: longituds, reflexions, signes. No demana memòria.
-        void configura (int a, int q, const Params& p)
+        void configura (int a, int q, const Params&)
         {
             alg = a;
             qualitat = q;
@@ -1124,6 +1124,22 @@ namespace mibase::reverb
             }
         }
     };
+
+    std::vector<std::pair<float, float>> reflexionsVisibles (const Params& p)
+    {
+        std::vector<std::pair<float, float>> v;
+        Reverb::Nucli n;
+        n.fs = 48000.0;
+        n.configura ((int) p[Alg], 1, p);
+        const float s01 = p[Size] / 100.0f;
+        const float esc = n.alg == Early ? (0.25f + 1.1f * s01) : n.escalaMida (s01);
+        const float bal = p[EarlyLate] / 100.0f;
+        const float gE = n.alg == Early ? 1.0f : std::min (1.0f, 2.0f * (1.0f - bal)) * n.pf.erGuany;
+        for (int c = 0; c < 2; ++c)
+            for (int k = 0; k < n.numTaps; ++k)
+                v.push_back ({ (n.pf.erMinMs + n.pf.erSpanMs * n.taps[c][k].pos) * esc * 0.001f, n.taps[c][k].g * gE });
+        return v;
+    }
 
     // =========================================================================
     Reverb::Reverb() : nucli (std::make_unique<Nucli>())

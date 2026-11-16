@@ -91,6 +91,8 @@ namespace mibase::reverb
     double respostaEq (const Params& p, double f);
     /** Temps de decaïment (RT60, s) a la freqüència f, amb Decay EQ i damping. Infinit (1e9) amb freeze. */
     double decaimentA (const Params& p, double f);
+    /** Les reflexions primerenques (temps en s des del final del pre-delay, guany -1..1) dels dos canals, per dibuixar-les. */
+    std::vector<std::pair<float, float>> reflexionsVisibles (const Params& p);
 
     /** El que mesura el so (per a la visualització). Atòmics: el fil d'àudio ho escriu, la finestra ho llegeix. */
     struct Mesures
@@ -127,6 +129,7 @@ namespace mibase::reverb
         void buida() noexcept { demanaBuidar.store (true, std::memory_order_release); }
         /** D'on llegeix el tempo (bpm) per a les sincronitzacions. nullptr = 120. */
         void posaTempo (const std::atomic<double>* t) noexcept { tempo = t; }
+        double bpm() const noexcept { const double b = tempo != nullptr ? tempo->load (std::memory_order_relaxed) : 120.0; return b > 1.0 ? b : 120.0; }
 
         const Mesures& mesures() const noexcept { return mes; }
         /** Comptador de canvis de paràmetres (la finestra el mira per saber si s'ha de redibuixar). */

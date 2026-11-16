@@ -38,6 +38,12 @@ namespace inserts
         const auto x = (*v)[(size_t) k];
         if (mibase::esInsertVeu (x)) { if (obreVeu()) obreVeu() (pista); return; }
         if (plugins == nullptr) return;
+        if (x.plugin == mibase::reverb::idPlugin)
+        {
+            const auto* t = estat.pista (pista);
+            plugins->obreReverb (x, "Reverb · "_ca + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
+            return;
+        }
         plugins->obreFinestra (x.id, titol (x));
     }
 
@@ -84,6 +90,9 @@ namespace inserts
             m.addItem (1, "Vocal Editor (Mibase): afina i edita la veu"_ca, ! jaHiEs);
             m.addSeparator();
         }
+        // 0.55: la Reverb de Mibase (interna), a qualsevol pista, bus o al màster.
+        m.addItem (3, "Reverb (Mibase): espais, plates, shimmer, freeze…"_ca);
+        m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
             auto& i = it.getItem();
@@ -105,6 +114,26 @@ namespace inserts
                     else l[(size_t) k] = x;
                 }, "Efecte: Vocal Editor"_ca);
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
+                return;
+            }
+            if (r == 3)
+            {
+                std::string id;
+                canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
+                {
+                    mibase::Insert x;
+                    x.id = id = "i" + std::to_string (++estat.projecte.comptador);
+                    x.plugin = mibase::reverb::idPlugin;
+                    x.nom = mibase::reverb::nomPlugin;
+                    if (nou || k >= (int) l.size()) l.push_back (x);
+                    else l[(size_t) k] = x;
+                }, "Efecte: Reverb (Mibase)"_ca);
+                juce::MessageManager::callAsync ([&estat, plugins, pista, id]
+                {
+                    if (auto* l = llista (estat, pista))
+                        for (int i = 0; i < (int) l->size(); ++i)
+                            if ((*l)[(size_t) i].id == id) obre (estat, plugins, pista, i);
+                });
                 return;
             }
             if (r < 1000 || r - 1000 >= tipus->size()) return;
@@ -130,7 +159,7 @@ namespace inserts
         if (v == nullptr || k < 0 || k >= (int) v->size()) return;
         const auto x = (*v)[(size_t) k];
         juce::PopupMenu m;
-        m.addItem (1, mibase::esInsertVeu (x) ? "Obre el Vocal Editor"_ca : "Obre la finestra del plugin"_ca);
+        m.addItem (1, mibase::esInsertVeu (x) ? "Obre el Vocal Editor"_ca : (x.plugin == mibase::reverb::idPlugin ? "Obre la Reverb"_ca : "Obre la finestra del plugin"_ca));
         m.addItem (2, x.actiu ? "Apaga'l (el so hi passa de llarg)"_ca : "Encén-lo"_ca);
         m.addItem (6, "Canvia'l per un altre…"_ca);
         m.addSeparator();
@@ -232,7 +261,7 @@ public:
             g.setFont (dibuix::lletra (11.0f, true));
             g.drawText ("Deixa'l anar per treure'l"_ca, getLocalBounds(), juce::Justification::centred);
         }
-        setTooltip (x != nullptr ? inserts::ajuda() : "Clica per posar-hi un efecte VST3"_ca);
+        setTooltip (x != nullptr ? inserts::ajuda() : "Clica per posar-hi un efecte (la Reverb de Mibase o un VST3)"_ca);
     }
     void mouseDrag (const juce::MouseEvent& e) override
     {
