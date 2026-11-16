@@ -154,7 +154,7 @@ public:
         g.drawFittedText (juce::String::fromUTF8 (base != nullptr ? base->nom.c_str() : p->nom.c_str()), x, 8, w, 22, juce::Justification::centredLeft, 1, 0.8f);
         g.setColour (tema::accent);
         g.setFont (dibuix::lletra (12.5f));
-        g.drawText (juce::String::fromUTF8 (p->grup.c_str()) + (p->compas.empty() ? juce::String() : " · " + juce::String (p->compas)), x, 32, w, 16, juce::Justification::centredLeft);
+        g.drawText (juce::String::fromUTF8 (p->grup.c_str()) + (p->compas.empty() ? juce::String() : " · "_ca + juce::String (p->compas)), x, 32, w, 16, juce::Justification::centredLeft);
         g.setColour (tema::textMig);
         g.setFont (dibuix::lletra (12.0f));
         g.drawFittedText (juce::String::fromUTF8 (p->dibuix.c_str()), x, 48, w, 18, juce::Justification::centredLeft, 1, 0.7f);
@@ -255,8 +255,112 @@ private:
         repaint();
     }
 
+    /** 0.52: a la guitarra, el rasgueig pas a pas (fletxes, accents, apagats, palm mute…), com a l'editor. */
+    void pintaRasgueig (juce::Graphics& g)
+    {
+        namespace gt = mibase::guitarra;
+        const auto z = zonaDibuix;
+        g.setColour (juce::Colours::black.withAlpha (0.30f));
+        g.fillRect (z);
+        const auto* p = gt::patro (idVariacio());
+        if (p == nullptr) return;
+        const int n = (int) p->passos.size();
+        if (n == 0 || p->pasTicks <= 0)
+        {
+            g.setColour (tema::textMig);
+            g.setFont (dibuix::lletra (13.0f));
+            g.drawText ("Un sol cop, i deixa sonar"_ca, z, juce::Justification::centred);
+            return;
+        }
+        const auto zc = z.reduced (6, 4);
+        const float w = (float) zc.getWidth() / (float) n;
+        const float yNum = (float) zc.getY(), yCel = yNum + 16.0f, hCel = (float) zc.getHeight() - 16.0f - 18.0f, yPeu = yCel + hCel + 2.0f;
+        const auto col = tema::guitarra;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& x = p->passos[(size_t) i];
+            const long long t = (long long) i * p->pasTicks;
+            const float x0 = (float) zc.getX() + (float) i * w;
+            const juce::Rectangle<float> cel (x0 + 1.0f, yCel, w - 2.0f, hCel);
+            // fons: els temps, una mica més clars
+            g.setColour (t % 960 == 0 ? juce::Colours::white.withAlpha (0.07f) : juce::Colours::white.withAlpha (0.03f));
+            g.fillRoundedRectangle (cel, 3.0f);
+            if (t % 3840 == 0 && i > 0) { g.setColour (tema::linia2); g.fillRect (x0 - 0.5f, yNum, 1.5f, hCel + 16.0f); }
+            // número del temps (1, 2, 3, 4) o «i» a les corxeres
+            g.setFont (dibuix::lletra (10.5f, t % 960 == 0));
+            g.setColour (t % 960 == 0 ? tema::textMig : tema::suau);
+            const juce::String num = t % 960 == 0 ? juce::String ((int) ((t % 3840) / 960) + 1) : t % 480 == 0 ? juce::String ("i") : juce::String();
+            g.drawText (num, juce::Rectangle<float> (x0, yNum, w, 14.0f), juce::Justification::centred);
+
+            const bool avall = x.cop == gt::Cop::Avall || x.cop == gt::Cop::MutAvall;
+            const bool amunt = x.cop == gt::Cop::Amunt || x.cop == gt::Cop::MutAmunt;
+            const bool mut = x.cop == gt::Cop::MutAvall || x.cop == gt::Cop::MutAmunt;
+            const float cx = cel.getCentreX();
+            if (x.dit != gt::Dit::Cap)
+            {
+                // arpegis: la lletra del dit (P polze, I índex, M mitjà, A anular…)
+                static const char* const dits[] = { "", "P", "P2", "I", "M", "A", "Pk", "PA", "Tap", "Rg" };
+                g.setColour (col.withAlpha (x.suau ? 0.55f : 1.0f));
+                g.setFont (dibuix::lletra (x.accent ? 15.0f : 13.0f, x.accent));
+                g.drawText (dits[std::clamp ((int) x.dit, 0, 9)], cel, juce::Justification::centred);
+            }
+            else if (avall || amunt)
+            {
+                // la fletxa: llarga i gruixuda amb accent, curta i fluixa si és suau; més curta si només toca greus o aguts
+                float llarg = cel.getHeight() * (x.accent ? 0.78f : x.suau ? 0.42f : 0.62f);
+                if (x.abast != gt::Abast::Totes) llarg *= 0.6f;
+                const float gruix = x.accent ? 3.2f : x.suau ? 1.4f : 2.2f;
+                float y1 = cel.getCentreY() - llarg * 0.5f, y2 = cel.getCentreY() + llarg * 0.5f;
+                if (x.abast == gt::Abast::Baix) { y1 = cel.getY() + 6.0f; y2 = y1 + llarg; }
+                if (x.abast == gt::Abast::Aguts) { y2 = cel.getBottom() - 6.0f; y1 = y2 - llarg; }
+                const auto c = mut ? tema::textMig : col;
+                g.setColour (c.withAlpha (x.suau ? 0.55f : 1.0f));
+                const float cap = std::min (w * 0.36f, 9.0f) + gruix;
+                juce::Line<float> l (cx, avall ? y1 : y2, cx, avall ? y2 : y1);
+                g.drawArrow (l, gruix, cap, cap * 0.9f);
+                if (mut)   // cop apagat: una creu a sobre
+                {
+                    g.setColour (tema::text);
+                    const float r = std::min (w * 0.25f, 6.0f), yc = cel.getCentreY();
+                    g.drawLine (cx - r, yc - r, cx + r, yc + r, 1.6f);
+                    g.drawLine (cx - r, yc + r, cx + r, yc - r, 1.6f);
+                }
+            }
+            else if (x.cop == gt::Cop::Silenci)
+            {
+                g.setColour (tema::textMig);
+                g.fillRect (cx - w * 0.25f, cel.getCentreY() - 1.5f, w * 0.5f, 3.0f);   // silenci: para el so
+            }
+            else
+            {
+                g.setColour (tema::suau.withAlpha (0.6f));
+                g.fillEllipse (cx - 1.5f, cel.getCentreY() - 1.5f, 3.0f, 3.0f);         // deixa sonar
+            }
+            // a sota: accent, palm mute, slap, curt, dit lliure
+            juce::String peu;
+            if (x.accent) peu << ">";
+            if (x.tec == gt::Tecnica::Palm) peu << "PM";
+            if (x.tec == gt::Tecnica::Slap) peu << "S";
+            if (x.curt) peu << "'";
+            if (x.lliure > 0) peu << juce::String (x.lliure);
+            if (peu.isNotEmpty())
+            {
+                g.setColour (x.tec == gt::Tecnica::Palm ? tema::accent : tema::textMig);
+                g.setFont (dibuix::lletra (10.0f, true));
+                g.drawFittedText (peu, juce::Rectangle<int> ((int) x0, (int) yPeu, (int) w, 14), juce::Justification::centred, 1, 0.6f);
+            }
+        }
+        if (p->crescendo > 0)
+        {
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.0f));
+            g.drawText ("crescendo", z.reduced (6, 2), juce::Justification::topRight);
+        }
+    }
+
     void pintaDibuix (juce::Graphics& g)
     {
+        if (! piano) { pintaRasgueig (g); return; }
         // Un petit piano roll amb el que sonarà: quatre compassos amb els acords de prova (els del clip, o els de la tonalitat).
         const auto z = zonaDibuix;
         g.setColour (juce::Colours::black.withAlpha (0.30f));

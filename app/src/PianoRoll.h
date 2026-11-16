@@ -285,7 +285,9 @@ private:
     bool modeGuitarra() const;
     static constexpr int altBlocs = 22, altPatrons = 30, altFilaLlista = 22;
     int ampleColumna() const { return juce::jlimit (190, 280, getWidth() / 5); }
-    int ampleLlista() const { return 0; }     // 0.51: la llista i les variacions són a la finestra de patrons
+    int ampleLlista() const { return 2 * ampleColumna(); }     // llista + variacions
+    /** 0.52: les cinc variacions (original i parts de la cançó) han de cabre a la columna. */
+    int altFilaVariacio() const { return juce::jlimit (16, altFilaLlista + 4, (zonaVariacions().getHeight() - 34) / mibase::numPartsCanco); }
     juce::Rectangle<int> zonaLlista() const;       // a la dreta dels pads
     juce::Rectangle<int> zonaFilesLlista() const;
     juce::Rectangle<int> zonaVariacions() const;   // a la dreta de la llista
@@ -313,6 +315,7 @@ private:
     void obreEditorRasgueig();
     // ---- 0.51: finestra de patrons de guitarra i piano ----
     void obreFinestraPatrons();
+    static std::vector<mibase::guitarra::Patro> variacionsColumna (const mibase::guitarra::Patro& base);
     std::vector<mibase::guitarra::Tram> acordsProva (long long durada) const;
     mibase::BlocPatro blocFinestra (const std::string& id, unsigned mans, long long ini, long long dur, unsigned llavor) const;
     juce::String posaPatroFinestra (const std::string& id, unsigned mans, int on);
@@ -456,6 +459,7 @@ private:
     CaixaNumero octavaPads { "Octava", 1, 7, 4 };
     Segmentat voicingPads { { "Tancat", "Obert", "Guitarra" } };
     Boto btRasgueig { "Rasgueig", std::nullopt, Boto::Estil::Secundari };   // 0.29: només amb «Guitarra»
+    Boto btBiblioteca { "", dibuix::Icona::Lupa, Boto::Estil::Secundari };   // 0.52: obre la finestra de patrons
     std::string rasgueigAltre = "pa01";   // 0.47: el patró triat a l'altra eina (guitarra / piano), per tornar-hi
     std::string acordProva = "C";         // 0.47: l'últim pad tocat (per escoltar els patrons de piano)
     bool modePiano() const { return modeGuitarra() && estat.editors[(size_t) index].piano; }
