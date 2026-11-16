@@ -23,8 +23,10 @@
 #include "mibase/Bateria.h"
 #include "mibase/PatronsBateria.h"
 #include "mibase/SeguimentCapcal.h"
+#include "mibase/Reverb.h"
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <cmath>
 #include <chrono>
@@ -162,6 +164,7 @@ namespace
 #include "proves_051.inc"
 #include "proves_053.inc"
 #include "proves_054.inc"
+#include "proves_055.inc"
 
 int main()
 {
@@ -2302,6 +2305,7 @@ int main()
     proves051();
     proves053();
     proves054();
+    proves055();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
