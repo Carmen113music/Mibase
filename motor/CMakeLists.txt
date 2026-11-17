@@ -11,11 +11,17 @@ add_library(mibase_motor STATIC
     src/Midi.cpp
     src/SinteIntern.cpp
     src/Harmonia.cpp
+    src/Guitarra.cpp
+    src/Piano.cpp
     src/PresetsPads.cpp
     src/Bateria.cpp
+    src/PatronsBateria.cpp
     src/Veu.cpp
     src/Sampler.cpp
-    src/Biblioteca.cpp)
+    src/Biblioteca.cpp
+    src/GeneralMidi.cpp
+    src/Reverb.cpp
+    src/ReverbPresets.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

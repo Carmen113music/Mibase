@@ -11,6 +11,9 @@ public:
     Pom (const juce::String& nom, double mn, double mx, double perDefecte, bool bipolar, std::function<juce::String (double)> text);
     std::function<void()> onComenca, onAcaba;
     std::function<void (double)> onCanvi;
+    /** 0.55: si hi són, el doble clic serveix per escriure el valor i Ctrl/Alt + clic el torna al de sempre. */
+    std::function<void()> onEscriu, onReinicia;
+    double getValor() const noexcept { return valor; }
     void setValor (double v, bool igualATots) { valor = v; igual = igualATots; repaint(); }
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -20,7 +23,7 @@ public:
 private:
     juce::String nom;
     double mn, mx, defecte, valor, valor0 = 0.0;
-    bool bipolar, igual = true, arrossega = false;
+    bool bipolar, igual = true, arrossega = false, bloquejat = false;
     std::function<juce::String (double)> text;
     void posa (double v);
 };
@@ -88,11 +91,17 @@ inline void Pom::posa (double v)
     repaint();
 }
 
-inline void Pom::mouseDown (const juce::MouseEvent&) { valor0 = valor; arrossega = false; }
+inline void Pom::mouseDown (const juce::MouseEvent& e)
+{
+    valor0 = valor;
+    arrossega = false;
+    if (onReinicia && isEnabled() && (e.mods.isCommandDown() || e.mods.isAltDown())) { onReinicia(); bloquejat = true; return; }
+    bloquejat = false;
+}
 
 inline void Pom::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! isEnabled()) return;
+    if (! isEnabled() || bloquejat) return;
     if (! arrossega && e.getDistanceFromDragStart() < 2) return;
     if (! arrossega) { arrossega = true; if (onComenca) onComenca(); }
     const double rang = (mx - mn) * (e.mods.isShiftDown() ? 0.1 : 1.0);
@@ -107,6 +116,7 @@ inline void Pom::mouseUp (const juce::MouseEvent&)
 inline void Pom::mouseDoubleClick (const juce::MouseEvent&)
 {
     if (! isEnabled()) return;
+    if (onEscriu) { onEscriu(); return; }
     if (onComenca) onComenca();
     posa (defecte);
     if (onAcaba) onAcaba();

@@ -1,0 +1,93 @@
+// 0.43: guitarres en SoundFont (un so concret d'un .sf2). Amb MIBASE_SF2_GUITARRA = camí d'un .sf2, també se'n prova el so.
+namespace
+{
+    void proves043()
+    {
+        using namespace mibase;
+        prova ("sf2: l'instrument «sf2:fitxer|banc|programa|nom»", []
+        {
+            gm::RefSf2 r;
+            comprova (gm::llegeixRef ("sf2:Jaguar.sf2|8|27|Jaguar · chorus", r) && r.fitxer == "Jaguar.sf2" && r.banc == 8 && r.programa == 27 && r.nom == "Jaguar · chorus", "es llegeix");
+            comprova (gm::instrumentSf2 (r) == "sf2:Jaguar.sf2|8|27|Jaguar · chorus", "i es torna a escriure igual");
+            comprova (gm::llegeixRef ("sf2:A.sf2|0|25|Nom | amb barra", r) && r.nom == "Nom | amb barra", "el nom pot portar una barra");
+            comprova (! gm::llegeixRef ("gm:12", r) && ! gm::llegeixRef ("intern:piano", r) && ! gm::llegeixRef ("sf2:", r) && gm::programa ("sf2:A.sf2|0|25|x") < 0, "els altres instruments no ho són");
+            comprova (midi::nomInstrument ("sf2:A.sf2|0|25|Seagull · 12Str") == "Seagull · 12Str", "es mostra amb el seu nom");
+            comprova (gm::presetsDeFitxer ("/no/hi/es.sf2").empty(), "un fitxer que no hi és no té sons");
+        });
+
+        const char* cami = std::getenv ("MIBASE_SF2_GUITARRA");
+        if (cami == nullptr) { std::printf ("  (sense MIBASE_SF2_GUITARRA: no provo el so de les guitarres)\n"); return; }
+        prova ("sf2: els sons d'un fitxer de guitarra, i com sonen", [cami]
+        {
+            const auto ps = gm::presetsDeFitxer (cami);
+            comprova (ps.size() >= 5, "la llista de sons es llegeix sense carregar el fitxer (" + std::to_string (ps.size()) + ")");
+            auto banc = gm::llegeix (cami);
+            comprova (banc != nullptr && gm::numPresets (*banc) == (int) ps.size(), "coincideix amb el que diu el banc carregat");
+            if (banc == nullptr || ps.size() < 2) return;
+            auto toca = [&] (int programa, int bm, int vel)
+            {
+                gm::SinteGM s (banc, programa, bm);
+                s.prepara (48000.0, 512);
+                std::vector<float> L (48000, 0.0f), R (48000, 0.0f);
+                const EventInstrument on { 0, 0x90, 64, (std::uint8_t) vel };
+                s.processa (&on, 1, L.data(), R.data(), 512);
+                for (int p = 512; p + 512 <= 24000; p += 512) s.processa (nullptr, 0, L.data() + p, R.data() + p, 512);
+                double e = 0.0;
+                for (int i = 0; i < 24000; ++i) e += (double) L[(size_t) i] * L[(size_t) i];
+                return std::pair<double, std::vector<float>> (e, L);
+            };
+            const auto a = toca (ps[0].programa, ps[0].banc, 100), b = toca (ps[1].programa, ps[1].banc, 100), fluix = toca (ps[0].programa, ps[0].banc, 30);
+            comprova (a.first > 1.0e-3 && b.first > 1.0e-3, "els dos primers sons sonen");
+            comprova (a.second != b.second, "i són diferents");
+            comprova (fluix.first < a.first * 0.6, "tocat fluix sona més fluix");
+            // 0.44: els controls de la guitarra virtual
+            auto ambParams = [&] (const ParamsGuitarra& pg, bool deixa)
+            {
+                gm::SinteGM s (banc, ps[0].programa, ps[0].banc);
+                s.posaParams (pg);
+                s.prepara (48000.0, 512);
+                std::vector<float> L (48000, 0.0f), R (48000, 0.0f);
+                const EventInstrument on { 0, 0x90, 64, 100 }, off { 0, 0x80, 64, 0 };
+                s.processa (&on, 1, L.data(), R.data(), 512);
+                for (int p = 512; p + 512 <= 48000; p += 512)
+                    s.processa (deixa && p == 512 * 10 ? &off : nullptr, deixa && p == 512 * 10 ? 1 : 0, L.data() + p, R.data() + p, 512);
+                return L;
+            };
+            auto energia = [] (const std::vector<float>& v, int a, int b) { double e = 0.0; for (int i = a; i < b; ++i) e += (double) v[(size_t) i] * v[(size_t) i]; return e; };
+            auto aguts = [] (const std::vector<float>& v) { double e = 0.0; for (size_t i = 1; i < 20000; ++i) { const double d = v[i] - v[i - 1]; e += d * d; } return e; };
+            ParamsGuitarra def, x;
+            const auto base = ambParams (def, false);
+            {
+                const auto ref = toca (ps[0].programa, ps[0].banc, 100).second;   // (aquest només calcula mig segon)
+                comprova (std::equal (base.begin(), base.begin() + 23000, ref.begin()), "amb els controls per defecte sona exactament igual");
+            }
+            x = def; x.volumDb = -12.0;
+            comprova (std::abs (energia (ambParams (x, false), 0, 20000) / energia (base, 0, 20000) - 0.0631) < 0.01, "volum: -12 dB");
+            x = def; x.to = 0.0;
+            comprova (aguts (ambParams (x, false)) < aguts (base) * 0.5, "to tancat: menys aguts");
+            x = def; x.atac = 1.0;
+            const auto fort = ambParams (x, false);
+            x.atac = -1.0;
+            comprova (energia (fort, 0, 20000) > energia (base, 0, 20000) && energia (ambParams (x, false), 0, 20000) < energia (base, 0, 20000), "atac: més fort i més suau");
+            x = def; x.octava = 1;
+            comprova (ambParams (x, false) != base, "octava: una altra nota");
+            x = def; x.afina = 40.0;
+            comprova (ambParams (x, false) != base, "afinació: canvia el to");
+            x = def; x.sustain = 1.0;
+            const auto llarg = ambParams (x, true);
+            x.sustain = 0.0;
+            const auto curt = ambParams (x, true);
+            comprova (energia (llarg, 12000, 40000) > energia (curt, 12000, 40000) * 2.0, "sustain: en deixar la nota, queda sonant més o menys estona");
+            x = def; x.octava = 2;
+            comprova (energia (ambParams (x, true), 30000, 48000) < energia (base, 30000, 48000) + 1.0e-6, "amb l'octava canviada la nota també s'apaga (no queda penjada)");
+
+            // Un so d'un altre banc MIDI (els «-chorus», «12Str»… van al banc 8, 32…)
+            for (auto& p : ps)
+                if (p.banc > 0 && p.banc < 127)
+                {
+                    comprova (toca (p.programa, p.banc, 100).first > 1.0e-3, "un so d'un altre banc també sona (" + p.nom + ")");
+                    break;
+                }
+        });
+    }
+}

@@ -139,7 +139,7 @@ namespace mibase
             pla->bucleFi = edicio::fiBucle (p);
         }
 
-        const bool hiHaSolo = std::any_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& t) { return t.solo; });
+        const auto solo = edicio::estatSolo (p);
         for (const auto& t : p.pistes)
         {
             Pla::Pista pp;
@@ -147,7 +147,9 @@ namespace mibase
             pp.canals = t.canals == 2 ? 2 : 1;
             pp.guany = guanyDb (t.faderDb);
             pp.pan = (float) std::clamp (t.pan, -1.0, 1.0);
-            pp.sona = ! t.mut && (! hiHaSolo || t.solo);
+            const int estatSolo = solo[pla->pistes.size()];
+            pp.sona = estatSolo > 0;
+            pp.obert = estatSolo == 2;
             const bool ambVeu = corregides != nullptr && ! esMidi (t) && veuActiva (t);
             for (const auto& c : t.clips)
             {
@@ -178,8 +180,23 @@ namespace mibase
                 for (size_t j = k + 1; j < pp.clips.size(); ++j)
                 {
                     // 0.14: durant els fades del de dalt (crossfade), el de sota també sona.
-                    const double a = pp.clips[j].pos + pp.clips[j].inici + pp.clips[j].fadeIn,
-                                 b = pp.clips[j].pos + pp.clips[j].fi - pp.clips[j].fadeOut;
+                    const auto& u = pp.clips[j];
+                    const double a = u.pos + u.inici + u.fadeIn,
+                                 b = u.pos + u.fi - u.fadeOut;
+                    // 0.31.1: i hi fa el fade contrari (si els fades del de dalt toquen aquest clip)
+                    const double c0 = c.pos + c.inici, c1 = c.pos + c.fi, u0 = u.pos + u.inici, u1 = u.pos + u.fi;
+                    const bool tocaIn = u.fadeIn > 0.0 && u0 < c1 && a > c0, tocaOut = u.fadeOut > 0.0 && b < c1 && u1 > c0;
+                    // 0.32: si el de sota ja fa el seu fade en aquell tros (el crossfade fet amb la selecció i la X posa el
+                    // fade out al de sota i el fade in al de dalt), no se n'hi afegeix cap altre: baixaria dues vegades.
+                    const double eps = 1.0e-6;
+                    const bool jaSurt = c.fadeOut > 0.0 && c1 <= u0 + u.fadeIn + eps;    // el de sota s'acaba fent fade out dins el fade in del de dalt
+                    const bool jaEntra = c.fadeIn > 0.0 && c0 >= u1 - u.fadeOut - eps;   // el de sota comença fent fade in dins el fade out del de dalt
+                    Pla::Clip::Tapa x { u0, u0 + u.fadeIn, u1 - u.fadeOut, u1 };
+                    bool posaIn = tocaIn && ! jaSurt, posaOut = tocaOut && ! jaEntra;
+                    if (! posaIn) { x.a0 = x.b0; x.a1 = x.b0; }
+                    if (! posaOut) { x.b0 = x.a1; x.b1 = x.a1; if (! posaIn) x.b1 = x.a0; }
+                    if ((posaIn || posaOut) && u0 < c1 && u1 > c0)
+                        c.tapes.push_back (x);
                     if (b <= a) continue;
                     std::vector<std::pair<double, double>> nous;
                     for (auto& t : trams)
@@ -206,6 +223,70 @@ namespace mibase
                         if (auto e = efectes (x)) pp.inserts.push_back (std::move (e));
             pla->pistes.push_back (std::move (pp));
         }
+
+        // 0.33: busos, sortides i enviaments.
+        const int n = (int) p.pistes.size();
+        for (int i = 0; i < n; ++i)
+            if (esBus (p.pistes[(size_t) i]) && pla->numBusos < maxBusos)
+            {
+                pla->pistes[(size_t) i].bus = pla->numBusos++;
+                pla->pistes[(size_t) i].canals = 2;
+            }
+        auto busDe = [&] (const std::string& id)   // índex de la pista del bus (o -1)
+        {
+            const int j = edicio::pistaPerId (p, id);
+            return j >= 0 && pla->pistes[(size_t) j].bus >= 0 ? j : -1;
+        };
+        std::vector<std::vector<int>> cap ((size_t) n);   // a quines pistes va cada una (sortida i enviaments)
+        std::vector<int> entren ((size_t) n, 0);
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& t = p.pistes[(size_t) i];
+            if (const int j = busDe (t.sortida); j >= 0 && j != i) cap[(size_t) i].push_back (j);
+            for (const auto& e : t.enviaments)
+                if (e.actiu && ! e.mut)
+                    if (const int j = busDe (e.desti); j >= 0 && j != i) cap[(size_t) i].push_back (j);
+            for (int j : cap[(size_t) i]) ++entren[(size_t) j];
+        }
+        // Ordre de càlcul: cada pista abans dels busos on va.
+        std::vector<char> posada ((size_t) n, 0);
+        for (bool canvi = true; canvi;)
+        {
+            canvi = false;
+            for (int i = 0; i < n; ++i)
+                if (! posada[(size_t) i] && entren[(size_t) i] == 0)
+                {
+                    posada[(size_t) i] = 1;
+                    pla->ordre.push_back (i);
+                    for (int j : cap[(size_t) i]) --entren[(size_t) j];
+                    canvi = true;
+                }
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            auto& pp = pla->pistes[(size_t) i];
+            if (! posada[(size_t) i])
+            {
+                // Un cercle (la pantalla no el deixa fer; un fitxer tocat a mà, sí): aquesta va directa a la sortida.
+                pla->ordre.push_back (i);
+                continue;
+            }
+            const auto& t = p.pistes[(size_t) i];
+            if (const int j = busDe (t.sortida); j >= 0 && j != i && posada[(size_t) j]) pp.desti = pla->pistes[(size_t) j].bus;
+            for (const auto& e : t.enviaments)
+            {
+                if (! e.actiu || e.mut) continue;
+                const int j = busDe (e.desti);
+                if (j < 0 || j == i || ! posada[(size_t) j]) continue;
+                Pla::Pista::Envia x;
+                x.desti = pla->pistes[(size_t) j].bus;
+                const float g = guanyDb (e.nivellDb), pan = (float) std::clamp (e.pan, -1.0, 1.0);
+                x.guanyL = g * (pan <= 0.0f ? 1.0f : 1.0f - pan);
+                x.guanyR = g * (pan >= 0.0f ? 1.0f : 1.0f + pan);
+                x.mode = std::clamp (e.mode, 0, 2);
+                pp.envia.push_back (x);
+            }
+        }
         return pla;
     }
 
@@ -215,6 +296,10 @@ namespace mibase
         fs = nouFs > 0.0 ? nouFs : 48000.0;
         pL.assign ((size_t) std::max (16, maxBloc), 0.0f);
         pR.assign ((size_t) std::max (16, maxBloc), 0.0f);
+        maxN = (int) pL.size();
+        busL.assign ((size_t) maxBusos * (size_t) maxN, 0.0f);
+        busR.assign ((size_t) maxBusos * (size_t) maxN, 0.0f);
+        gEnvia.assign ((size_t) maxSlots * maxEnviaSuau * 2, -1.0f);
         clic.prepara (fs);
         if (slots.size() != (size_t) maxSlots) slots.assign ((size_t) maxSlots, EstatSlot {});
         evs.assign ((size_t) maxEventsBloc, EventInstrument {});
@@ -224,6 +309,7 @@ namespace mibase
     void Mesclador::reinicia() noexcept
     {
         gFet.fill (false);
+        std::fill (gEnvia.begin(), gEnvia.end(), -1.0f);
         masterFet = false;
         clic.reinicia();
         apagaNotes();
@@ -388,6 +474,19 @@ namespace mibase
             double env = c.guany;
             if (c.fadeIn > 0.0 && ft < c.inici + c.fadeIn) env *= std::clamp ((ft - c.inici) / c.fadeIn, 0.0, 1.0);
             if (c.fadeOut > 0.0 && ft > c.fi - c.fadeOut) env *= std::clamp ((c.fi - ft) / c.fadeOut, 0.0, 1.0);
+            // 0.31.1: crossfade: el contrari del fade del clip de dalt que el tapa
+            if (! c.tapes.empty())
+            {
+                const double t = (double) (pos + i) / fs;
+                for (const auto& x : c.tapes)
+                {
+                    if (t < x.a0 || t >= x.b1) continue;
+                    double g = 1.0;
+                    if (t < x.a1) g = std::min (g, (t - x.a0) / (x.a1 - x.a0));
+                    if (t > x.b0) g = std::min (g, (x.b1 - t) / (x.b1 - x.b0));
+                    env *= 1.0 - std::clamp (g, 0.0, 1.0);
+                }
+            }
 
             const double x = ft * a.fs;   // mostra del fitxer (amb decimals); si la freqüència és diferent, s'interpola
             long long k = (long long) std::floor (x);
@@ -408,17 +507,62 @@ namespace mibase
         }
     }
 
+    void Mesclador::envia (const Pla::Pista& t, int mode, const float* xL, const float* xR, int n, int nb) noexcept
+    {
+        for (size_t k = 0; k < t.envia.size(); ++k)
+        {
+            const auto& e = t.envia[k];
+            if (e.mode != mode || e.desti < 0 || e.desti >= nb) continue;
+            float l0 = e.guanyL, r0 = e.guanyR;
+            if (k < (size_t) maxEnviaSuau)
+            {
+                float* g = gEnvia.data() + ((size_t) (t.slot % maxSlots) * maxEnviaSuau + k) * 2;
+                if (g[0] >= 0.0f) { l0 = g[0]; r0 = g[1]; }
+                g[0] = e.guanyL;
+                g[1] = e.guanyR;
+            }
+            float* const dL = busL.data() + (std::ptrdiff_t) e.desti * maxN;
+            float* const dR = busR.data() + (std::ptrdiff_t) e.desti * maxN;
+            const float dl = (e.guanyL - l0) / (float) n, dr = (e.guanyR - r0) / (float) n;
+            for (int i = 0; i < n; ++i)
+            {
+                dL[i] += xL[i] * (l0 + dl * (float) i);
+                dR[i] += xR[i] * (r0 + dr * (float) i);
+            }
+        }
+    }
+
     void Mesclador::processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus,
                               bool reproduint, const EventDirecte* directe, int numDirecte) noexcept
     {
         if (n <= 0) return;
         n = std::min (n, (int) pL.size());
 
-        for (const auto& t : pla.pistes)
+        // 0.33: el que arriba a cada bus en aquest bloc comença en silenci.
+        const int nb = std::min (pla.numBusos, maxBusos);
+        for (int k = 0; k < nb; ++k)
         {
+            std::fill_n (busL.begin() + (std::ptrdiff_t) k * maxN, n, 0.0f);
+            std::fill_n (busR.begin() + (std::ptrdiff_t) k * maxN, n, 0.0f);
+        }
+        auto rampa = [n] (float* a, float g0, float g1) noexcept
+        {
+            if (std::abs (g0 - 1.0f) < 1.0e-7f && std::abs (g1 - 1.0f) < 1.0e-7f) return;
+            const float d = (g1 - g0) / (float) n;
+            for (int i = 0; i < n; ++i) a[i] *= g0 + d * (float) i;
+        };
+
+        const bool ambOrdre = pla.ordre.size() == pla.pistes.size();
+        for (size_t q = 0; q < pla.pistes.size(); ++q)
+        {
+            const auto& t = pla.pistes[ambOrdre ? (size_t) pla.ordre[q] : q];
             const int s = t.slot % maxSlots;
+            const bool esBus = t.bus >= 0 && t.bus < nb;
+            float* const xL = esBus ? busL.data() + (std::ptrdiff_t) t.bus * maxN : pL.data();
+            float* const xR = esBus ? busR.data() + (std::ptrdiff_t) t.bus * maxN : pR.data();
             bool instrumentFet = false;
-            if (t.instrument != nullptr && ! slots.empty())
+            if (esBus) {}   // un bus es calcula sempre (també aturat: les cues dels efectes no es tallen)
+            else if (t.instrument != nullptr && ! slots.empty())
             {
                 // L'instrument sempre rep els seus missatges (també silenciat: així les notes s'apaguen).
                 instrumentPista (t, pos, n, reproduint, directe, numDirecte);
@@ -430,18 +574,28 @@ namespace mibase
             else if (! reproduint)
                 continue;   // aturat: només sonen els instruments
 
-            const float g = t.sona && ! silenciAra[(size_t) s] ? t.guany : 0.0f;
-            const float objL = g * (t.pan <= 0.0f ? 1.0f : 1.0f - t.pan);
-            const float objR = g * (t.pan >= 0.0f ? 1.0f : 1.0f + t.pan);
-            if (! gFet[(size_t) s]) { gL[(size_t) s] = objL; gR[(size_t) s] = objR; gFet[(size_t) s] = true; }
-
-            const float l0 = gL[(size_t) s], r0 = gR[(size_t) s];
-            gL[(size_t) s] = objL;
-            gR[(size_t) s] = objR;
-            if (l0 < 1.0e-6f && r0 < 1.0e-6f && objL < 1.0e-6f && objR < 1.0e-6f)
+            const float porta = t.sona && ! silenciAra[(size_t) s] ? 1.0f : 0.0f;
+            const float fader = t.guany;
+            const float panL = t.pan <= 0.0f ? 1.0f : 1.0f - t.pan;
+            const float panR = t.pan >= 0.0f ? 1.0f : 1.0f + t.pan;
+            const float obert = t.obert ? 1.0f : 0.0f;
+            if (! gFet[(size_t) s])
+            {
+                gPorta[(size_t) s] = porta; gFader[(size_t) s] = fader; gPanL[(size_t) s] = panL; gPanR[(size_t) s] = panR;
+                gObert[(size_t) s] = obert; gFet[(size_t) s] = true;
+            }
+            const float porta0 = gPorta[(size_t) s], fader0 = gFader[(size_t) s], panL0 = gPanL[(size_t) s],
+                        panR0 = gPanR[(size_t) s], obert0 = gObert[(size_t) s];
+            gPorta[(size_t) s] = porta; gFader[(size_t) s] = fader; gPanL[(size_t) s] = panL; gPanR[(size_t) s] = panR;
+            gObert[(size_t) s] = obert;
+            if (porta0 < 1.0e-6f && porta < 1.0e-6f)
                 continue;   // no sona: ni es calcula
+            bool hiHaPre = false;
+            for (const auto& e : t.envia) hiHaPre = hiHaPre || e.mode == 0;
+            if (! hiHaPre && fader0 < 1.0e-6f && fader < 1.0e-6f)
+                continue;   // fader a baix i cap enviament pre-fader
 
-            if (! instrumentFet)
+            if (! instrumentFet && ! esBus)
             {
                 std::fill (pL.begin(), pL.begin() + n, 0.0f);
                 if (t.canals == 2) std::fill (pR.begin(), pR.begin() + n, 0.0f);
@@ -450,29 +604,38 @@ namespace mibase
                         sonaClip (c, t.canals, pos, n);
             }
 
-            bool estereo = t.canals == 2 || instrumentFet;
-            if (! t.inserts.empty())
-            {
-                // 0.19: efectes de la pista (abans del fader). Una pista mono hi entra pels dos costats.
-                if (! estereo) std::copy (pL.begin(), pL.begin() + n, pR.begin());
-                estereo = true;
-                for (const auto& e : t.inserts) e->processa (pL.data(), pR.data(), n);
-            }
-            const float* fontR = estereo ? pR.data() : pL.data();
-            const float dl = (objL - l0) / (float) n, dr = (objR - r0) / (float) n;
-            for (int i = 0; i < n; ++i)
-            {
-                const float a = pL[(size_t) i] * (l0 + dl * (float) i);
-                const float b = fontR[i] * (r0 + dr * (float) i);
-                pL[(size_t) i] = a;
-                pR[(size_t) i] = b;
-                L[i] += a;
-                R[i] += b;
-            }
+            // Una pista mono passa als dos costats (al mig): a partir d'aquí tot és estèreo.
+            if (! (t.canals == 2 || instrumentFet || esBus)) std::copy (xL, xL + n, xR);
+            // 0.19: efectes de la pista (abans del fader).
+            for (const auto& e : t.inserts) e->processa (xL, xR, n);
+
+            rampa (xL, porta0, porta);
+            rampa (xR, porta0, porta);
+            envia (t, 0, xL, xR, n, nb);          // pre-fader
+            rampa (xL, fader0, fader);
+            rampa (xR, fader0, fader);
+            envia (t, 1, xL, xR, n, nb);          // post-fader (abans del panorama)
+            rampa (xL, panL0, panL);
+            rampa (xR, panR0, panR);
+            envia (t, 2, xL, xR, n, nb);          // post-pan
+
             if (vus != nullptr)
             {
-                vus[s * 2].processa (pL.data(), n);
-                vus[s * 2 + 1].processa (pR.data(), n);
+                vus[s * 2].processa (xL, n);
+                vus[s * 2 + 1].processa (xR, n);
+            }
+
+            // Cap al bus on va, o a la sortida.
+            if (obert0 < 1.0e-6f && obert < 1.0e-6f) continue;
+            const bool aBus = t.desti >= 0 && t.desti < nb;
+            float* const dL = aBus ? busL.data() + (std::ptrdiff_t) t.desti * maxN : L;
+            float* const dR = aBus ? busR.data() + (std::ptrdiff_t) t.desti * maxN : R;
+            const float dob = (obert - obert0) / (float) n;
+            for (int i = 0; i < n; ++i)
+            {
+                const float g = obert0 + dob * (float) i;
+                dL[i] += xL[i] * g;
+                dR[i] += xR[i] * g;
             }
         }
 
@@ -849,11 +1012,12 @@ namespace mibase
         {
             return { edicio::iniciBucle (p), edicio::fiBucle (p) };
         }
-        const bool hiHaSolo = std::any_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& t) { return t.solo; });
+        const auto solo = edicio::estatSolo (p);
         double a = 1.0e18, b = -1.0e18;
-        for (const auto& t : p.pistes)
+        for (size_t it = 0; it < p.pistes.size(); ++it)
         {
-            if (t.mut || (hiHaSolo && ! t.solo)) continue;
+            const auto& t = p.pistes[it];
+            if (solo[it] == 0) continue;
             for (const auto& c : t.clips)
             {
                 if (c.midi && ! c.mut && esMidi (t) && ! c.notes.empty())

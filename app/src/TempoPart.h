@@ -19,7 +19,8 @@ namespace tempoPart
         auto* x = mibase::edicio::part (estat.projecte, id);
         if (x == nullptr) return;
         estat.desfes.abans (estat.projecte);
-        f (*x);
+        // 0.42: els clips MIDI i els acords queden als mateixos compassos encara que canviï el tempo de la part
+        mibase::midi::ambMusicaFixa (estat.projecte, [&] (mibase::Projecte& q) { if (auto* y = mibase::edicio::part (q, id)) f (*y); });
         estat.canviat (evolucio);
     }
 

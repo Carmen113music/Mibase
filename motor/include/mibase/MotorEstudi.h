@@ -47,6 +47,10 @@ namespace mibase
             float guany = 1.0f;
             /** Trossos de la línia de temps on sona de debò: un clip posat més amunt (més tard a la llista) el tapa. */
             std::vector<std::pair<double, double>> trams;
+            /** 0.31.1: els clips de dalt que el tapen amb un fade (en segons absoluts: comença, acaba el fade in,
+                comença el fade out, acaba). Mentre el de dalt puja, aquest baixa igual (crossfade complet). */
+            struct Tapa { double a0 = 0, a1 = 0, b0 = 0, b1 = 0; };
+            std::vector<Tapa> tapes;
         };
 
         /** Una nota MIDI, ja en segons absoluts i retallada a la finestra del clip (i al que no tapa un altre clip). */
@@ -77,6 +81,12 @@ namespace mibase
             std::vector<std::shared_ptr<Efecte>> inserts;   // 0.19: els actius, per ordre
             std::vector<Nota> notes;
             std::vector<Event> events;
+            // ---- 0.33: busos i enviaments ----
+            int bus = -1;            // és un bus: quin buffer d'entrada té (0..maxBusos-1); -1 = pista normal
+            int desti = -1;          // buffer del bus on va el so; -1 = a la sortida
+            bool obert = true;       // false: només sonen els seus enviaments (alimenta un retorn en solo)
+            struct Envia { int desti = 0; float guanyL = 1.0f, guanyR = 1.0f; int mode = 1; };
+            std::vector<Envia> envia;   // els encesos, per ordre
         };
 
         double tempo = 120.0;
@@ -95,10 +105,15 @@ namespace mibase
         int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
         std::vector<std::shared_ptr<Efecte>> insertsMaster;   // 0.19: cadena de màstering (abans del volum del màster)
         std::vector<Pista> pistes;
+        /** 0.33: en quin ordre s'han de calcular les pistes (índexs de «pistes»): cada una abans dels busos on va.
+            Si és buit, per ordre. */
+        std::vector<int> ordre;
+        int numBusos = 0;
         std::vector<std::shared_ptr<const AudioPresa>> audios;   // perquè no s'esborrin mentre sonen
     };
 
     constexpr int maxSlots = 128;
+    constexpr int maxBusos = 32;        // 0.33: busos (de grup i retorns) que poden sonar alhora
 
     /** Canal de la taula de cada pista (a partir del seu identificador, que no canvia). */
     int slotDePista (const Pista& t) noexcept;
@@ -169,8 +184,15 @@ namespace mibase
 
         double fs = 48000.0;
         std::vector<float> pL, pR;
-        std::array<float, maxSlots> gL {}, gR {};
+        // Volums suavitzats per slot: porta (mut/solo), fader, panorama i sortida oberta (0.33: separats, perquè
+        // els enviaments surten d'entremig).
+        std::array<float, maxSlots> gPorta {}, gFader {}, gPanL {}, gPanR {}, gObert {};
         std::array<bool, maxSlots> gFet {};
+        static constexpr int maxEnviaSuau = 8;   // enviaments per pista amb el nivell suavitzat (la resta, a salts)
+        std::vector<float> gEnvia;               // maxSlots * maxEnviaSuau * 2 (L, R); negatiu = encara no
+        std::vector<float> busL, busR;           // maxBusos * maxN: el que arriba a cada bus en aquest bloc
+        int maxN = 16;
+        void envia (const Pla::Pista& t, int mode, const float* xL, const float* xR, int n, int nb) noexcept;
         float gMaster = 1.0f;
         bool masterFet = false;
         ClicDeProva clic;

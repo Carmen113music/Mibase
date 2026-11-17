@@ -221,6 +221,22 @@ namespace mibase::bateria
                         x.original = s.value ("original", std::string());
                         if (! x.fitxer.empty() && fs::exists (dir / disc::cami (x.fitxer), ec)) k.sons.push_back (x);
                     }
+                if (j.contains ("files") && j["files"].is_array())
+                    for (auto& s : j["files"])
+                    {
+                        FilaBateria f;
+                        f.tipus = s.value ("tipus", std::string ("altres"));
+                        f.so = s.value ("fitxer", std::string());
+                        f.nom = s.value ("nom", f.so);
+                        f.nota = std::clamp (s.value ("nota", 36), 0, 127);
+                        f.volumDb = s.value ("volumDb", 0.0);
+                        f.pan = s.value ("pan", 0.0);
+                        f.afina = s.value ("afina", 0.0);
+                        f.decai = s.value ("decai", 1.0);
+                        f.talla = s.value ("talla", 0);
+                        f.mut = s.value ("mut", false);
+                        if (! f.so.empty() && fs::exists (dir / disc::cami (f.so), ec)) k.files.push_back (f);
+                    }
                 return k;
             }
             catch (...) {}
@@ -250,6 +266,14 @@ namespace mibase::bateria
             for (auto& s : k.sons)
                 sons.push_back ({ { "fitxer", s.fitxer }, { "nom", s.nom }, { "tipus", s.tipus }, { "original", s.original } });
             j["sons"] = sons;
+            if (! k.files.empty())
+            {
+                auto files = nlohmann::ordered_json::array();
+                for (auto& f : k.files)
+                    files.push_back ({ { "fitxer", f.so }, { "nom", f.nom }, { "tipus", f.tipus }, { "nota", f.nota }, { "volumDb", f.volumDb },
+                                       { "pan", f.pan }, { "afina", f.afina }, { "decai", f.decai }, { "talla", f.talla }, { "mut", f.mut } });
+                j["files"] = files;
+            }
             std::ofstream out (disc::cami (k.carpeta) / "kit.json", std::ios::binary);
             out << j.dump (2);
             return (bool) out;
@@ -277,6 +301,14 @@ namespace mibase::bateria
 
     std::vector<FilaBateria> filesDeKit (const Kit& k, const std::vector<FilaBateria>& actuals)
     {
+        if (! k.files.empty())
+        {
+            // 0.31: un kit desat des d'una pista: les seves files, tal com eren.
+            std::vector<FilaBateria> v = k.files;
+            const auto dirKit = disc::text (disc::cami (k.carpeta).filename());
+            for (auto& f : v) f.so = dirKit + "/" + f.so;
+            return v;
+        }
         std::vector<FilaBateria> v = actuals;
         for (auto& t : tipus())
         {

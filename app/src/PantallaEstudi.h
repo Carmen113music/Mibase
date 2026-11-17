@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mibase/SeguimentCapcal.h>
 #include "DialegText.h"
 #include "EditorVeu.h"
 #include "EditorSampler.h"
@@ -113,6 +114,9 @@ private:
     void sampleAFila (int fila, const juce::File& f);
     int pistaSamplerNova (const juce::File& f);
     void enviaAlSampler (int pista, int clip, bool nomesBiblioteca);   // 0.28
+    juce::File escriuTros (int pista, int clip, const juce::File& dir);   // 0.29
+    void clipAlSampler (int pista, int clip);                            // 0.29
+    void samplerABiblioteca();                                           // 0.29
     void gravaSampler();                                               // 0.28
     void commutaVeuAB();
     /** Envia al ServeiVeu l'estat de les preses que fan servir les pistes amb el Vocal Editor. */
@@ -130,6 +134,9 @@ private:
     void desenganxaPianoRoll (bool desenganxa);
     void acabaGravacioMidi();
     void canviaNom (int pista);
+    void busNou (bool fx, int pista, bool comSortida);
+    juce::File sampleEscoltat;               // 0.40: el sample de la biblioteca que s'està escoltant
+    juce::uint32 sampleEscoltatFins = 0;     // fins quan sona (ms del comptador)
     void canviaTempo();
     void demanaImportar (int pista, double on);
     void importa (const juce::StringArray& fitxers, int pista, double on);
@@ -168,7 +175,9 @@ private:
     Boto btClic { {}, dibuix::Icona::Metronom, Boto::Estil::Tecla };
     Boto btClicMenu { {}, dibuix::Icona::FletxaAvall, Boto::Estil::Secundari };
     Boto btTempo { "120 bpm · 4/4"_ca, std::nullopt, Boto::Estil::Secundari };
-    Segmentat snap { { "Compàs"_ca, "Temps", "Lliure" } };
+    Segmentat snap { { "Compàs"_ca, "Graella", "Lliure" } };
+    Boto btGraella { "1/4", std::nullopt, Boto::Estil::Secundari };   // 0.42: subdivisió de la taula de treball
+    void menuGraella();
     Boto btRequadre { {}, dibuix::Icona::Requadre, Boto::Estil::Tecla };
     Boto btInsereix { {}, dibuix::Icona::Insereix, Boto::Estil::Tecla };
     BotoColor btColor;
@@ -240,6 +249,11 @@ private:
     std::unique_ptr<juce::FileChooser> selector;
     juce::int64 ultimaCopia = 0, tempsZoom = 0;
     double anclaZoom = 0.0;
+    // 0.54: seguiment suau del capçal mentre sona
+    mibase::SeguimentCapcal seguiment;
+    double darrerTicMs = 0.0;
+    int transportAbans = 0;
+    double segonsPerCentrar() const;
     juce::Point<int> posZoom;
     bool calDesar = false;
 };

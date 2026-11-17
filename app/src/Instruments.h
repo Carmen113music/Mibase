@@ -10,6 +10,9 @@
 #include <mibase/SinteIntern.h>
 #include <mibase/Sampler.h>
 #include "Kits.h"
+#include "BancGM.h"
+#include "Guitarres.h"
+#include <mibase/GeneralMidi.h>
 
 /** Els instruments de les pistes MIDI del projecte obert (un per pista, viu mentre la pista hi és).
     És l'únic lloc que sap crear-los: ara el sinte intern; quan arribin els VST3, aquí es crearà
@@ -35,7 +38,7 @@ public:
             else s->posaParams (t.sampler);
             return e.instrument;
         }
-        if (t.tipus == "bateria")
+        if (mibase::esKit (t))
         {
             // 0.20: el sampler de bateria. Si canvien els sons, un de nou; si només canvien volums, afinació… s'hi posen sense parar.
             auto& e = llista[t.id];
@@ -51,6 +54,33 @@ public:
             return e.instrument;
         }
         if (t.tipus != "midi") return nullptr;
+        if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
+        {
+            // 0.43: una guitarra d'un .sf2 (el banc es carrega el primer cop que una pista el fa servir)
+            auto& e = llista[t.id];
+            const auto sig = t.instrument + "|" + guitarres::signatura (ref.fitxer);
+            if (e.instrument == nullptr || e.tipus != sig || e.fs != fs)
+            {
+                e.instrument = creaSf2 (ref, fs, maxBloc);
+                e.tipus = sig;
+                e.fs = fs;
+            }
+            if (auto* sg = dynamic_cast<mibase::gm::SinteGM*> (e.instrument.get())) sg->posaParams (t.guitarra);   // 0.44
+            return e.instrument;
+        }
+        if (const int prog = mibase::gm::programa (t.instrument); prog >= 0)
+        {
+            // 0.31: General MIDI. Si canvia el so o el banc, un de nou (és lleuger: comparteix les mostres del banc).
+            auto& e = llista[t.id];
+            const auto sig = t.instrument + "|" + bancgm::signatura();
+            if (e.instrument == nullptr || e.tipus != sig)
+            {
+                e.instrument = creaGM (prog, fs, maxBloc);
+                e.tipus = sig;
+                e.fs = fs;
+            }
+            return e.instrument;
+        }
         const auto desc = descripcio (t);
         auto& e = llista[t.id];
         const bool intern = mibase::midi::soIntern (desc) >= 0;
@@ -83,8 +113,15 @@ public:
         return [fs, bloc, carpetaProjecte] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
         {
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
-            if (t.tipus == "bateria") return kits::sampler (t, fs, bloc);
+            if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
+            if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
+            {
+                auto s = creaSf2 (ref, fs, bloc);
+                if (auto* sg = dynamic_cast<mibase::gm::SinteGM*> (s.get())) sg->posaParams (t.guitarra);
+                return s;
+            }
+            if (const int prog = mibase::gm::programa (t.instrument); prog >= 0) return creaGM (prog, fs, bloc);
             return crea (descripcio (t), fs, bloc);
         };
     }
@@ -144,6 +181,20 @@ private:
         auto s = std::make_shared<mibase::sampler::Samplejador> (mibase::sampler::prepara (m, t.sampler));
         s->posaParams (t.sampler);
         s->prepara (fs, bloc);
+        return s;
+    }
+
+    static std::shared_ptr<mibase::Instrument> creaSf2 (const mibase::gm::RefSf2& ref, double fs, int maxBloc)
+    {
+        auto s = std::make_shared<mibase::gm::SinteGM> (guitarres::banc (ref.fitxer), ref.programa, ref.banc);
+        s->prepara (fs, maxBloc);
+        return s;
+    }
+
+    static std::shared_ptr<mibase::Instrument> creaGM (int prog, double fs, int maxBloc)
+    {
+        auto s = std::make_shared<mibase::gm::SinteGM> (bancgm::banc(), prog);
+        s->prepara (fs, maxBloc);
         return s;
     }
 

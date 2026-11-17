@@ -215,7 +215,7 @@ private:
     {
         const bool hiHaProjecte = estudi != nullptr;
         juce::PopupMenu m;
-        m.addItem (1, "Desa   (Ctrl+S)", hiHaProjecte);
+        m.addItem (1, "Desa   (Ctrl+Maj+S)"_ca, hiHaProjecte);
         m.addItem (2, "Nova versió a partir d'aquí…"_ca, hiHaProjecte);
         m.addSeparator();
         m.addItem (3, "Projecte nou…"_ca);

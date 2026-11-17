@@ -98,10 +98,12 @@ EditorSampler::ParamPom& EditorSampler::afegeixPom (int fila, const juce::String
 EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
 {
     setWantsKeyboardFocus (true);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &btCarrega, &btGrava, &btEntrada, &btPlay, &btZero, &selBucle, &btConsola, &btTanca })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &btCarrega, &btGrava, &btEntrada, &btBiblioteca, &btPlay, &btZero, &selBucle, &btConsola, &btTanca })
         addAndMakeVisible (c);
     btGrava.setTooltip ("Grava un sample nou des de l'entrada de la targeta (al costat: quina). Torna-hi a clicar (o atura) per acabar. Es corregeix el retard"_ca);
     btGrava.onClick = [this] { if (onGrava) onGrava(); };
+    btBiblioteca.setTooltip ("Afegeix aquest sample a la biblioteca (se'n fa una còpia, amb el tipus, la nota i el tempo)"_ca);
+    btBiblioteca.onClick = [this] { if (onABiblioteca) onABiblioteca(); };
     btEntrada.setTooltip ("D'on grava el samplejador"_ca);
     btEntrada.onClick = [this] { menuEntrada(); };
     for (juce::Component* c : std::initializer_list<juce::Component*> { &selToc, &selVeus, &selFiltre, &selPendent, &btRoot, &btAlTempo, &btX2, &btD2,
@@ -147,7 +149,7 @@ EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
     selPendent.setTooltip ("Pendent del filtre"_ca);
     selPendent.onCanvi = [this] (int i) { canvia ([i] (ParamsSampler& p) { p.pendent = i == 1 ? 24 : 12; }); };
 
-    btRoot.setTooltip ("Detecta la nota del sample (la del fragment)"_ca);
+    btRoot.setTooltip ("La nota original del sample (la tecla taronja: arrossega-la pel teclat per canviar-la). Clic: la torna a detectar"_ca);
     btRoot.onClick = [this]
     {
         auto* p = params();
@@ -193,8 +195,6 @@ EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
     auto& pVeus = afegeixPom (1, "Veus", 1, 32, 16, false, [] (double v) { return juce::String ((int) std::lround (v)); },
                               [] (const ParamsSampler& p) { return (double) p.maxVeus; }, [] (ParamsSampler& p, double v) { p.maxVeus = (int) std::lround (v); });
     auto& pGain = afegeixPom (1, "Gain", -24, 24, 0, true, txtDb, [] (const ParamsSampler& p) { return p.guanyDb; }, [] (ParamsSampler& p, double v) { p.guanyDb = v; });
-    auto& pRoot = afegeixPom (1, "Root", 0, 127, 60, true, [] (double v) { return nomNota ((int) std::lround (v)); },
-                              [] (const ParamsSampler& p) { return (double) p.root; }, [] (ParamsSampler& p, double v) { p.root = (int) std::lround (v); });
     auto& pBpm = afegeixPom (1, "BPM", 0, 240, 0, false, [] (double v) { return v < 1.0 ? juce::String::fromUTF8 ("—") : juce::String (v, 1); },
                              [] (const ParamsSampler& p) { return p.bpm; }, [] (ParamsSampler& p, double v) { p.bpm = v < 1.0 ? 0.0 : std::round (v * 10.0) / 10.0; });
     auto& pTune = afegeixPom (1, "Tune", -24, 24, 0, true, [] (double v) { const int s = (int) std::lround (v); return (s > 0 ? "+" : "") + juce::String (s) + " st"; },
@@ -223,11 +223,10 @@ EditorSampler::EditorSampler (EstatEstudi& e) : SeccioEstudi (e)
                             [] (const ParamsSampler& p) { return xfDeSeg (p.crossfade); }, [] (ParamsSampler& p, double v) { p.crossfade = segDeXf (v); });
     pVel.pom->setTooltip ("Quant canvia el volum amb la força de la tecla (0 %: sempre igual)"_ca);
     pXf.pom->setTooltip ("Crossfade al punt d'unió del bucle (perquè no faci clic)"_ca);
-    pRoot.pom->setTooltip ("La nota que és el sample tal com està gravat: aquesta tecla el toca sense canviar el to"_ca);
 
     const int w = 54;
     fila1 = { { &selToc, 80, "Mode" }, { &selVeus, 74, "Mode" }, { pVeus.pom.get(), w, "Mode" },
-              { pGain.pom.get(), w, "So" }, { pRoot.pom.get(), w, "So" }, { &btRoot, 46, "So" }, { &btDurFixa, 86, "So" }, { pBpm.pom.get(), w, "So" }, { &btAlTempo, 66, "So" },
+              { pGain.pom.get(), w, "So" }, { &btRoot, 74, "So" }, { &btDurFixa, 86, "So" }, { pBpm.pom.get(), w, "So" }, { &btAlTempo, 66, "So" },
               { pTune.pom.get(), w, "So" }, { pFine.pom.get(), w, "So" },
               { pSpeed.pom.get(), w, "Speed" }, { &btX2, 30, "Speed" }, { &btD2, 30, "Speed" }, { &btManteTo, 90, "Speed" }, { &btReversa, 68, "Speed" } };
     fila2 = { { pWidth.pom.get(), w, "Sortida" }, { pPan.pom.get(), w, "Sortida" }, { pVol.pom.get(), w, "Sortida" },
@@ -306,6 +305,7 @@ void EditorSampler::sincronitza()
     btReversa.setToggleState (p->reversa, juce::dontSendNotification);
     btManteTo.setToggleState (p->mantenTo, juce::dontSendNotification);
     btDurFixa.setToggleState (p->durFixa, juce::dontSendNotification);
+    btRoot.setButtonText ("Root " + nomNota (p->root));
     btEntrada.setButtonText ("E" + juce::String (p->entradaGrava + 1) + (p->canalsGrava == 2 ? "-" + juce::String (p->entradaGrava + 2) : juce::String()));
     const bool gr = gravant && gravant();
     btGrava.setButtonText (gr ? "Atura" : "Grava");
@@ -365,7 +365,9 @@ void EditorSampler::resized()
     posa (btCarrega, 92);
     posa (btGrava, 74);
     btEntrada.setBounds (btGrava.getBounds().withX (btGrava.getRight() - 2).withWidth (44));
-    b.removeFromLeft (40);
+    b.removeFromLeft (48);
+    posa (btBiblioteca, 116);
+    b.removeFromLeft (14);
     posa (btPlay, 88);
     selBucle.setBounds (b.removeFromLeft (juce::jmin (360, b.getWidth())));
     btConsola.setToggleState (estat.sampler.consola, juce::dontSendNotification);
@@ -695,7 +697,12 @@ EditorSampler::Marca EditorSampler::marcaA (juce::Point<float> q) const
 void EditorSampler::mouseMove (const juce::MouseEvent& e)
 {
     const auto mk = marcaA (e.position);
-    if (notaA (e.position) >= 0) { setMouseCursor (juce::MouseCursor::PointingHandCursor); return; }
+    if (const int n = notaA (e.position); n >= 0)
+    {
+        const auto* p = params();
+        setMouseCursor (p != nullptr && n == p->root ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::PointingHandCursor);
+        return;
+    }
     setMouseCursor (mk == Marca::Escolta ? juce::MouseCursor::PointingHandCursor
                     : mk == Marca::Cap ? juce::MouseCursor::NormalCursor
                     : mk == Marca::NouBucle ? juce::MouseCursor::IBeamCursor
@@ -753,7 +760,7 @@ int EditorSampler::notaA (juce::Point<float> q) const
 void EditorSampler::pintaTeclat (juce::Graphics& g)
 {
     const auto* p = params();
-    const int root = p != nullptr ? p->root : -1;
+    const int root = rootArrossegada >= 0 ? rootArrossegada : (p != nullptr ? p->root : -1);
     auto sona = [this] (int n)
     {
         return n == notaRatoli;
@@ -807,6 +814,13 @@ void EditorSampler::mouseDown (const juce::MouseEvent& e)
             });
             return;
         }
+        if (const auto* p = params(); p != nullptr && n == p->root)   // 0.29: la tecla taronja s'arrossega
+        {
+            rootArrossegada = n;
+            setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+            repaint (zTeclat);
+            return;
+        }
         notaRatoli = n;
         const int vel = juce::jlimit (30, 127, 50 + (int) (77.0f * (e.position.y - (float) zTeclat.getY()) / (float) juce::jmax (1, zTeclat.getHeight())));
         if (onNota) onNota (0x90, (std::uint8_t) n, (std::uint8_t) vel);
@@ -830,6 +844,13 @@ void EditorSampler::mouseDown (const juce::MouseEvent& e)
 
 void EditorSampler::mouseDrag (const juce::MouseEvent& e)
 {
+    if (rootArrossegada >= 0)
+    {
+        // es pot sortir de la franja: compta la x
+        const int n = notaA ({ e.position.x, (float) zTeclat.getBottom() - 2.0f });
+        if (n >= 0 && n != rootArrossegada) { rootArrossegada = n; repaint (zTeclat); }
+        return;
+    }
     if (notaRatoli >= 0)
     {
         const int n = notaA (e.position);
@@ -879,6 +900,16 @@ void EditorSampler::mouseUp (const juce::MouseEvent& e)
         if (escoltant && onEscolta) onEscolta (estat.sampler.capcal);
         arrossegant = Marca::Cap;
         repaint();
+        return;
+    }
+    if (rootArrossegada >= 0)
+    {
+        const int n = rootArrossegada;
+        rootArrossegada = -1;
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        if (const auto* p = params(); p != nullptr && p->root != n)
+            canvia ([n] (ParamsSampler& q) { q.root = n; }, "Samplejador: nota original "_ca + nomNota (n));
+        repaint (zTeclat);
         return;
     }
     if (notaRatoli >= 0)

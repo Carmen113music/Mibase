@@ -212,7 +212,7 @@ private:
                 for (int i : mibase::edicio::pistesDeCarpeta (p, c.id)) r.push_back ({ c.id, i, true });
         }
         for (int i = 0; i < (int) p.pistes.size(); ++i)
-            if (p.pistes[(size_t) i].carpeta.empty()) r.push_back ({ {}, i, false });
+            if (p.pistes[(size_t) i].carpeta.empty() && ! mibase::esBus (p.pistes[(size_t) i])) r.push_back ({ {}, i, false });
         return r;
     }
 

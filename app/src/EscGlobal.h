@@ -17,3 +17,18 @@ inline bool cridaEscGlobal()
     juce::MessageManager::callAsync ([f] { f(); });   // fora de la finestra que es tancarà
     return true;
 }
+
+/** 0.46: les tecles de l'estudi (espai = play/atura, R = grava, L = bucle…) també des de les finestres a part
+    (guitarra virtual, sinte, kits, plugins). La posa l'estudi; torna si l'ha fet servir. */
+#include <juce_gui_basics/juce_gui_basics.h>
+inline std::function<bool (const juce::KeyPress&)>& teclaGlobal()
+{
+    static std::function<bool (const juce::KeyPress&)> f;
+    return f;
+}
+/** Per al keyPressed d'una finestra a part: Esc ho tanca tot; la resta va a l'estudi. */
+inline bool cridaTeclaGlobal (const juce::KeyPress& k)
+{
+    if (k == juce::KeyPress::escapeKey) return cridaEscGlobal();
+    return teclaGlobal() ? teclaGlobal() (k) : false;
+}

@@ -1,5 +1,6 @@
 #include "Plugins.h"
 #include "EscGlobal.h"
+#include "FinestraReverb.h"
 #include "Tema.h"
 #include "Text.h"
 
@@ -130,7 +131,7 @@ namespace
             setVisible (true);
         }
         void closeButtonPressed() override { juce::MessageManager::callAsync ([t = tancar] { t(); }); }
-        bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
 
     private:
         std::function<void()> tancar;
@@ -179,6 +180,20 @@ AdaptadorPlugin* GestorPlugins::viu (const std::string& clau)
 
 std::shared_ptr<mibase::Efecte> GestorPlugins::efecte (const mibase::Insert& x, double fs, int maxBloc)
 {
+    if (x.plugin == mibase::reverb::idPlugin)
+    {
+        auto& r = reverbs[x.id];
+        if (r == nullptr)
+        {
+            r = std::make_shared<mibase::reverb::Reverb>();
+            r->posaEstat (x.estat);
+            r->posaTempo (&RellotgePlugins::global().tempo);
+            r->prepara (fs, maxBloc);
+        }
+        else if (sensePreparar.erase (x.id) > 0) r->prepara (fs, maxBloc);   // encara no és a cap pla: es pot preparar
+        else if (adormides.erase (x.id) > 0) r->buida();
+        return r;
+    }
     auto& v = vius[x.id];
     if (v.a == nullptr || v.plugin != x.plugin)
     {
@@ -210,6 +225,16 @@ std::shared_ptr<mibase::Instrument> GestorPlugins::instrument (const mibase::Pis
 
 std::shared_ptr<mibase::Efecte> GestorPlugins::efecteNou (const mibase::Insert& x, double fs, int bloc)
 {
+    if (x.plugin == mibase::reverb::idPlugin)
+    {
+        auto r = std::make_shared<mibase::reverb::Reverb>();
+        auto it = reverbs.find (x.id);
+        r->posaEstat (it != reverbs.end() ? it->second->estat() : x.estat);
+        r->posa (mibase::reverb::FreezeOn, 0.0f);   // exportant no té sentit començar congelat
+        r->posaTempo (&RellotgePlugins::global().tempo);
+        r->prepara (fs, bloc);
+        return r;
+    }
     auto* a = viu (x.id);
     return crea (x.plugin, a != nullptr ? a->estat() : x.estat, fs, bloc);
 }
@@ -232,10 +257,18 @@ bool GestorPlugins::desaEstats (mibase::Projecte& p)
             if (e != desti) { desti = std::move (e); canvi = true; }
         }
     };
-    for (auto& x : p.insertsMaster) desa (x.id, x.estat);
+    auto desaReverb = [&] (mibase::Insert& x)
+    {
+        auto it = reverbs.find (x.id);
+        if (it == reverbs.end() || x.plugin != mibase::reverb::idPlugin) return false;
+        auto e = it->second->estat();
+        if (e != x.estat) { x.estat = std::move (e); canvi = true; }
+        return true;
+    };
+    for (auto& x : p.insertsMaster) if (! desaReverb (x)) desa (x.id, x.estat);
     for (auto& t : p.pistes)
     {
-        for (auto& x : t.inserts) desa (x.id, x.estat);
+        for (auto& x : t.inserts) if (! desaReverb (x)) desa (x.id, x.estat);
         if (esVst3 (t.instrument)) desa ("inst:" + t.id, t.estatInstrument);
     }
     return canvi;
@@ -243,6 +276,7 @@ bool GestorPlugins::desaEstats (mibase::Projecte& p)
 
 void GestorPlugins::buidaCues()
 {
+    for (auto& [clau, r] : reverbs) r->buida();
     for (auto& [clau, v] : vius)
     {
         if (v.a == nullptr) continue;
@@ -262,6 +296,21 @@ void GestorPlugins::neteja (const mibase::Projecte& p)
         for (const auto& x : t.inserts) hiSon[x.id] = x.plugin;
         if (esVst3 (t.instrument)) hiSon["inst:" + t.id] = t.instrument.substr (5);
     }
+    for (auto it = reverbs.begin(); it != reverbs.end();)
+    {
+        auto h = hiSon.find (it->first);
+        if (h == hiSon.end() || h->second != mibase::reverb::idPlugin)
+        {
+            finestres.erase (it->first);
+            adormides.erase (it->first);
+            sensePreparar.erase (it->first);
+            it = reverbs.erase (it);   // el pla vell la manté viva mentre calgui
+        }
+        else ++it;
+    }
+    auto marca = [this] (const mibase::Insert& x) { if (! x.actiu && reverbs.count (x.id)) adormides.insert (x.id); };
+    for (const auto& x : p.insertsMaster) marca (x);
+    for (const auto& t : p.pistes) for (const auto& x : t.inserts) marca (x);
     for (auto it = vius.begin(); it != vius.end();)
     {
         auto h = hiSon.find (it->first);
@@ -281,9 +330,30 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
         f->second->toFront (true);
         return;
     }
+    if (auto r = reverbs.find (clau); r != reverbs.end())
+    {
+        finestres[clau] = creaFinestraReverb (r->second, titol, [this, clau] { finestres.erase (clau); });
+        return;
+    }
     auto* a = viu (clau);
     if (a == nullptr) return;
     finestres[clau] = std::make_unique<FinestraPlugin> (titol, a->instancia(), [this, clau] { finestres.erase (clau); }, lateral ? lateral() : nullptr);
+}
+
+void GestorPlugins::obreReverb (const mibase::Insert& x, const juce::String& titol)
+{
+    if (x.plugin != mibase::reverb::idPlugin) return;
+    if (auto f = finestres.find (x.id); f != finestres.end()) { f->second->toFront (true); return; }
+    auto& r = reverbs[x.id];
+    if (r == nullptr)
+    {
+        r = std::make_shared<mibase::reverb::Reverb>();
+        r->posaEstat (x.estat);
+        r->posaTempo (&RellotgePlugins::global().tempo);
+        sensePreparar.insert (x.id);
+    }
+    const auto clau = x.id;
+    finestres[clau] = creaFinestraReverb (r, titol, [this, clau] { finestres.erase (clau); });
 }
 
 juce::PopupMenu GestorPlugins::menu (bool instruments, int base, juce::Array<juce::PluginDescription>& tipus) const
@@ -310,6 +380,18 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
     {
         t << "  " << on << " · " << juce::String::fromUTF8 (x.nom.c_str()) << (x.actiu ? " (encès)"_ca : " (apagat)"_ca) << ": ";
         if (mibase::esInsertVeu (x)) { t << "intern (Vocal Editor)\n"; return; }
+        if (x.plugin == mibase::reverb::idPlugin)
+        {
+            auto r = reverbs.find (x.id);
+            if (r == reverbs.end()) { t << "intern (Reverb), encara no creada\n"; return; }
+            const auto& m = r->second->mesures();
+            const auto p = r->second->params();
+            t << "intern (Reverb) · " << mibase::reverb::nomAlgorisme ((int) p[mibase::reverb::Alg]) << " · qualitat "_ca
+              << juce::String::fromUTF8 (mibase::reverb::textValor (mibase::reverb::Qualitat, p[mibase::reverb::Qualitat]).c_str())
+              << " · blocs " << (juce::int64) m.blocs.load() << " · entra " << dB (m.entrada.load()) << " dB · surt " << dB (m.sortida.load()) << " dB"
+              << (adormides.count (x.id) ? " · apagada" : "") << "\n";
+            return;
+        }
         auto it = vius.find (x.id);
         if (it != vius.end() && it->second.a != nullptr)
         {

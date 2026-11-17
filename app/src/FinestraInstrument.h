@@ -196,7 +196,7 @@ private:
 class FinestraSinte : public juce::DocumentWindow
 {
 public:
-    bool keyPressed (const juce::KeyPress& k) override { return k == juce::KeyPress::escapeKey && cridaEscGlobal(); }   // 0.27
+    bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }   // 0.27
     FinestraSinte (EstatEstudi& e, const std::string& id, const juce::String& titol, std::function<void()> enTancar)
         : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           tancar (std::move (enTancar))

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include "mibase/Projecte.h"
 
 #include <string>
@@ -86,6 +87,9 @@ namespace mibase::midi
     /** Canvia el tempo del projecte: els clips MIDI es mouen i s'estiren perquè les notes quedin als mateixos
         compassos i temps (l'àudio no es toca). */
     void canviaTempo (Projecte& p, double nouTempo);
+    /** 0.42: fa un canvi de tempo (de la cançó o d'una part) i deixa els clips MIDI i els de la pista d'Acords
+        exactament als mateixos compassos i amb la mateixa llargada en compassos. Els d'àudio no es mouen. */
+    void ambMusicaFixa (Projecte& p, const std::function<void (Projecte&)>& canvi);
     /** Quina pista pot tenir aquest clip? (els clips MIDI només van a pistes MIDI i al revés). */
     bool compatible (const Pista& t, const Clip& c);
 

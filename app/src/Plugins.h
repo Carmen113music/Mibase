@@ -2,9 +2,11 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <map>
+#include <set>
 #include <memory>
 #include <mibase/Instrument.h>
 #include <mibase/Projecte.h>
+#include <mibase/Reverb.h>
 
 /** 0.19: el temps de la cançó per als plugins (tempo, posició, sonant), perquè els delays i similars vagin a tempo.
     El fil d'àudio el posa al dia a cada bloc (ServeiAudio); els plugins el llegeixen. */
@@ -133,6 +135,8 @@ public:
     /** Obre (o porta davant) la finestra del plugin d'un insert (clau = id) o d'una pista (clau = «inst:» + id). */
     /** 0.20: «lateral» (si n'hi ha) fa el panell que va enganxat a la dreta de l'editor (l'escala del teclat). */
     void obreFinestra (const std::string& clau, const juce::String& titol, std::function<std::unique_ptr<juce::Component>()> lateral = {});
+    /** 0.55: obre la finestra de la Reverb de Mibase d'un insert (la crea si encara no sona, per exemple si està apagat). */
+    void obreReverb (const mibase::Insert& x, const juce::String& titol);
 
     const juce::KnownPluginList& llista() const noexcept { return plugins; }
     /** Menú dels plugins (instruments o efectes), per fabricant. Els ids dels ítems comencen a «base». */
@@ -151,6 +155,11 @@ private:
     juce::AudioPluginFormatManager formats;
     struct Viu { std::string plugin; std::shared_ptr<AdaptadorPlugin> a; };
     std::map<std::string, Viu> vius;
+    /** 0.55: les reverbs internes (insert «intern:reverb»), per id d'insert. «adormides»: inserts apagats (en tornar-los
+        a encendre s'oblida la cua vella, perquè no soni de cop). */
+    std::map<std::string, std::shared_ptr<mibase::reverb::Reverb>> reverbs;
+    std::set<std::string> adormides;
+    std::set<std::string> sensePreparar;   // creades per la finestra abans de sonar: es preparen en entrar al pla
     std::map<std::string, std::string> fallats;   // clau → plugin que no s'ha pogut obrir (no es torna a provar)
     std::map<std::string, std::unique_ptr<juce::DocumentWindow>> finestres;
     juce::String ultimError;
