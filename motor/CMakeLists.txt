@@ -25,7 +25,8 @@ add_library(mibase_motor STATIC
     src/Automatitzacio.cpp
     src/Dinamica.cpp
     src/DinamicaPresets.cpp
-    src/Convolucio.cpp)
+    src/Convolucio.cpp
+    src/Equalitzador.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

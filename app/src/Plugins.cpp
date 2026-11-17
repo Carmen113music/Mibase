@@ -1,6 +1,7 @@
 #include "Plugins.h"
 #include "EscGlobal.h"
 #include "FinestraDinamica.h"
+#include "FinestraEq.h"
 #include "FinestraReverb.h"
 #include "Tema.h"
 #include "Text.h"
@@ -393,6 +394,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraReverb (rv, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
         else if (auto d = std::dynamic_pointer_cast<mibase::dinamica::Dinamica> (r->second))
             finestres[clau] = creaFinestraDinamica (d, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
+        else if (auto q = std::dynamic_pointer_cast<mibase::eq::Equalitzador> (r->second))
+            finestres[clau] = creaFinestraEq (q, titol, [this, clau] { finestres.erase (clau); });
         return;
     }
     auto* a = viu (clau);
@@ -404,6 +407,7 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
 {
     std::shared_ptr<mibase::EfecteIntern> r;
     if (x.plugin == mibase::dinamica::idPlugin) r = std::make_shared<mibase::dinamica::Dinamica>();
+    else if (x.plugin == mibase::eq::idPlugin) r = std::make_shared<mibase::eq::Equalitzador>();
     else
     {
         auto rv = std::make_shared<mibase::reverb::Reverb>();
@@ -483,6 +487,17 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
             if (d == nullptr) { t << "intern (Dinàmica), encara no creada\n"_ca; return; }
             t << "intern (Dinàmica) · "_ca << mibase::dinamica::nomMode ((int) d->valor (mibase::dinamica::ModeP)) << " · reducció "_ca
               << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
+            return;
+        }
+        if (x.plugin == mibase::eq::idPlugin)
+        {
+            auto r = reverbs.find (x.id);
+            auto* q = r != reverbs.end() ? dynamic_cast<mibase::eq::Equalitzador*> (r->second.get()) : nullptr;
+            if (q == nullptr) { t << "intern (EQ Pro), encara no creat\n"_ca; return; }
+            int n = 0;
+            for (int k = 0; k < mibase::eq::maxBandes; ++k) if (q->banda (k).usada) ++n;
+            t << "intern (EQ Pro) · "_ca << n << " bandes · sortida "_ca << juce::String (q->sortida(), 1) << " dB" << (q->bypass() ? " · bypass"_ca : juce::String())
+              << " · "_ca << juce::String (q->frequenciaMostreig(), 0) << " Hz\n";
             return;
         }
         if (x.plugin == mibase::reverb::idPlugin)
