@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <map>
+#include <mutex>
 
 namespace mibase::automatitzacio
 {
@@ -26,6 +28,22 @@ namespace mibase::automatitzacio
         }
         if (o.rfind ("instrument:", 0) == 0) { idParam = o.substr (11); return 3; }
         return -1;
+    }
+
+    std::shared_ptr<std::atomic<bool>> bandera (const std::string& id)
+    {
+        static std::mutex m;
+        static std::map<std::string, std::shared_ptr<std::atomic<bool>>> b;
+        std::lock_guard<std::mutex> l (m);
+        auto& x = b[id];
+        if (x == nullptr) x = std::make_shared<std::atomic<bool>> (false);
+        return x;
+    }
+
+    const char* nomGrava (int mode)
+    {
+        static const char* const n[] = { "No", "Toca", "Enganxa", "Escriu" };
+        return n[std::clamp (mode, 0, 3)];
     }
 
     double guanyDeVolum (double v) noexcept

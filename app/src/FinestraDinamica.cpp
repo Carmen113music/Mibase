@@ -1,5 +1,6 @@
 #include "FinestraDinamica.h"
 
+#include "ControlSidechain.h"
 #include "Controls.h"
 #include "Dibuix.h"
 #include "EscGlobal.h"
@@ -57,8 +58,10 @@ namespace
     class PanellDinamica : public juce::Component, private juce::Timer
     {
     public:
-        explicit PanellDinamica (std::shared_ptr<Dinamica> d) : din (std::move (d)), corba (*din)
+        PanellDinamica (std::shared_ptr<Dinamica> d, ServeiSidechain* sc, const std::string& id) : din (std::move (d)), corba (*din), ctrlSc (sc, id)
         {
+            addChildComponent (ctrlSc);
+            ctrlSc.setVisible (sc != nullptr && ! id.empty());
             addAndMakeVisible (segMode);
             segMode.setTooltip (u8 (info (ModeP).ajuda));
             segMode.onCanvi = [this] (int m) { din->posa (ModeP, (float) m); refresca(); };
@@ -81,7 +84,7 @@ namespace
                 addAndMakeVisible (*pom);
                 poms.push_back ({ p, std::move (pom) });
             }
-            setSize (760, 430);
+            setSize (820, 430);
             refresca();
             startTimerHz (30);
         }
@@ -137,7 +140,8 @@ namespace
             // D'on escolta
             g.setFont (dibuix::lletra (11.5f, ms.sidechain.load()));
             g.setColour (ms.sidechain.load() ? tema::accent : tema::suau);
-            g.drawText (ms.sidechain.load() ? "Escolta: SIDECHAIN (una altra pista)"_ca : "Escolta: el so d'aquesta pista (sense sidechain)"_ca, zonaFont,
+            g.drawText (ms.sidechain.load() ? "Escolta: SIDECHAIN (una altra pista). Botó SC: encén o apaga; al costat, tria la pista."_ca
+                                                : "Escolta: el so d'aquesta pista. Per fer-la escoltar una altra pista: botó SC (a dalt)."_ca, zonaFont,
                         juce::Justification::centredLeft);
         }
 
@@ -146,10 +150,12 @@ namespace
             auto r = getLocalBounds();
             auto dalt = r.removeFromTop (56).reduced (14, 12);
             dalt.removeFromLeft (120);
-            segMode.setBounds (dalt.removeFromLeft (juce::jmin (dalt.getWidth() - 220, segMode.ampladaIdeal() + 40)));
-            btEscolta.setBounds (dalt.removeFromRight (110));
+            segMode.setBounds (dalt.removeFromLeft (juce::jmin (dalt.getWidth() - 420, segMode.ampladaIdeal() + 20)));
+            btEscolta.setBounds (dalt.removeFromRight (100));
             dalt.removeFromRight (8);
-            segDet.setBounds (dalt.removeFromRight (100));
+            segDet.setBounds (dalt.removeFromRight (90));
+            dalt.removeFromRight (8);
+            ctrlSc.setBounds (dalt.removeFromRight (juce::jmin (200, juce::jmax (120, dalt.getWidth() - 10))));
             r.reduce (14, 10);
             zonaFont = r.removeFromBottom (20);
             auto esq = r.removeFromLeft (230);
@@ -182,6 +188,7 @@ namespace
         Segmentat segDet { { "Peak", "RMS" } };
         Boto btEscolta { "Escolta SC", std::nullopt, Boto::Estil::Tecla };
         Corba corba;
+        ControlSidechain ctrlSc;
         std::vector<std::pair<int, std::unique_ptr<Pom>>> poms;
         juce::Rectangle<int> zonaGR, zonaFont;
         float grVist = 0.0f;
@@ -191,12 +198,12 @@ namespace
     class FinestraDinamica : public juce::DocumentWindow
     {
     public:
-        FinestraDinamica (std::shared_ptr<Dinamica> d, const juce::String& titol, std::function<void()> enTancar)
+        FinestraDinamica (std::shared_ptr<Dinamica> d, const juce::String& titol, std::function<void()> enTancar, ServeiSidechain* sc, const std::string& id)
             : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
               tancar (std::move (enTancar))
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new PanellDinamica (std::move (d)), true);
+            setContentOwned (new PanellDinamica (std::move (d), sc, id), true);
             setResizable (true, true);
             setResizeLimits (640, 360, 1600, 1000);
             centreWithSize (getWidth(), getHeight());
@@ -209,7 +216,8 @@ namespace
     };
 }
 
-std::unique_ptr<juce::DocumentWindow> creaFinestraDinamica (std::shared_ptr<Dinamica> d, const juce::String& titol, std::function<void()> enTancar)
+std::unique_ptr<juce::DocumentWindow> creaFinestraDinamica (std::shared_ptr<Dinamica> d, const juce::String& titol, std::function<void()> enTancar,
+                                                            ServeiSidechain* sc, const std::string& idInsert)
 {
-    return std::make_unique<FinestraDinamica> (std::move (d), titol, std::move (enTancar));
+    return std::make_unique<FinestraDinamica> (std::move (d), titol, std::move (enTancar), sc, idInsert);
 }

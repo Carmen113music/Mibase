@@ -1,5 +1,6 @@
 #include "FinestraReverb.h"
 
+#include "ControlSidechain.h"
 #include "Controls.h"
 #include "DialegText.h"
 #include "Dibuix.h"
@@ -647,7 +648,7 @@ private:
 class PanellReverb : public juce::Component, private juce::Timer
 {
 public:
-    PanellReverb (std::shared_ptr<Reverb> r);
+    PanellReverb (std::shared_ptr<Reverb> r, ServeiSidechain* sc = nullptr, const std::string& idInsert = {});
     ~PanellReverb() override;
 
     Reverb& reverb() { return *rv; }
@@ -714,6 +715,7 @@ private:
     PomR pDThr, pDAtk, pDRel, pDAmt, pGThr, pGAtk, pGHold, pGRel;
     PomR pDHpf, pDLpf;                                        // 0.56: filtre del detector del ducking
     Segmentat segDet { { "Peak", "RMS" } };
+    ControlSidechain ctrlSc;                                  // 0.57: SC i pista d'on escolta el ducking
     Segmentat segMod { { "Chorus", "Aleatori", "Vintage" } };
     Boto btModSync { "Sync", std::nullopt, Boto::Estil::Tecla };
     PomR pRate, pDepth;
@@ -1230,14 +1232,14 @@ void GraficDecay::mouseDoubleClick (const juce::MouseEvent& e)
 //==============================================================================
 // El panell
 //==============================================================================
-PanellReverb::PanellReverb (std::shared_ptr<Reverb> r)
+PanellReverb::PanellReverb (std::shared_ptr<Reverb> r, ServeiSidechain* sc, const std::string& idInsert)
     : rv (std::move (r)), vista (*rv), panellIR (*rv), pIrLong (*this, IrLong), pIrDamp (*this, IrDamp),
       pMix (*this, Mix), pDecay (*this, Decay), pPre (*this, PreDelay), pSize (*this, Size), pWidth (*this, Width),
       pDamp (*this, Damping), pDif (*this, Diffusion), pEL (*this, EarlyLate),
       pLowCut (*this, LowCut), pHighCut (*this, HighCut), pBandaF (*this, Eq1F, "Freq."), pBandaG (*this, Eq1G, "Guany"), pBandaQ (*this, Eq1Q, "Q"),
       pDecGreus (*this, DecGreus), pCreuGreu (*this, CreuGreu), pDecAguts (*this, DecAguts), pCreuAgut (*this, CreuAgut), pDamp2 (*this, Damping),
       pDThr (*this, DuckThr), pDAtk (*this, DuckAtk), pDRel (*this, DuckRel), pDAmt (*this, DuckAmt),
-      pDHpf (*this, DuckHpf, "Low Cut"), pDLpf (*this, DuckLpf, "High Cut"),
+      pDHpf (*this, DuckHpf, "Low Cut"), pDLpf (*this, DuckLpf, "High Cut"), ctrlSc (sc, idInsert),
       pGThr (*this, GateThr), pGAtk (*this, GateAtk), pGHold (*this, GateHold), pGRel (*this, GateRel),
       pRate (*this, ModRate), pDepth (*this, ModDepth), pShimAmt (*this, ShimAmt), pFreezeRel (*this, FreezeRel), pFb (*this, Feedback),
       pWidth2 (*this, Width), pSep (*this, Separacio), pOut (*this, Sortida)
@@ -1341,7 +1343,8 @@ PanellReverb::PanellReverb (std::shared_ptr<Reverb> r)
 
     comps[0] = { &grafEq, &pLowCut, &pHighCut, &pBandaF, &pBandaG, &pBandaQ };
     comps[1] = { &grafDecay, &pDecGreus, &pCreuGreu, &pDecAguts, &pCreuAgut, &pDamp2 };
-    comps[2] = { &btDuck, &pDThr, &pDAtk, &pDRel, &pDAmt, &pDHpf, &pDLpf, &segDet, &btGate, &pGThr, &pGAtk, &pGHold, &pGRel };
+    if (sc != nullptr && ! idInsert.empty()) comps[2].push_back (&ctrlSc);
+    comps[2].insert (comps[2].end(), { &btDuck, &pDThr, &pDAtk, &pDRel, &pDAmt, &pDHpf, &pDLpf, &segDet, &btGate, &pGThr, &pGAtk, &pGHold, &pGRel });
     comps[3] = { &segMod, &pRate, &btModSync, &pDepth };
     comps[4] = { &btShim, &segPitch, &pShimAmt, &btFreeze, &pFreezeRel, &btRev, &pFb };
     comps[5] = { &pWidth2, &pSep, &btMono, &segEntrada, &segQual, &pOut };
@@ -1704,11 +1707,7 @@ void PanellReverb::paint (juce::Graphics& g)
             const float red = juce::jlimit (0.0f, 1.0f, m.ducking.load() / 30.0f);
             g.setColour (tema::accent);
             g.fillRoundedRectangle (barra.toFloat().withWidth (barra.getWidth() * red), 3.0f);
-            // 0.56: d'on escolta el ducking
-            g.setFont (dibuix::lletra (11.0f, m.sidechain.load()));
-            g.setColour (m.sidechain.load() ? tema::accent : tema::suau);
-            g.drawText (m.sidechain.load() ? "Escolta: sidechain (una altra pista)"_ca : "Escolta: el so d'aquesta pista"_ca,
-                        caixes[2][0].reduced (12, 8).removeFromTop (24).withTrimmedLeft (80), juce::Justification::centredLeft);
+
             auto led = caixes[2][1].reduced (12, 0).removeFromBottom (14).translated (0, -8);
             g.setColour (juce::Colours::black.withAlpha (0.5f));
             g.fillRoundedRectangle (led.toFloat(), 3.0f);
@@ -1827,7 +1826,14 @@ void PanellReverb::resized()
                 auto z = caixes[2][k].reduced (12, 8);
                 auto cap = z.removeFromTop (24);
                 (k == 0 ? btDuck : btGate).setBounds (cap.removeFromRight (110));
-                if (k == 0) { cap.removeFromRight (8); segDet.setBounds (cap.removeFromRight (110)); }
+                if (k == 0)
+                {
+                    cap.removeFromRight (8);
+                    segDet.setBounds (cap.removeFromRight (100));
+                    cap.removeFromRight (8);
+                    cap.removeFromLeft (80);
+                    ctrlSc.setBounds (cap.removeFromRight (juce::jmin (210, cap.getWidth())));
+                }
                 z.removeFromBottom (22);
                 if (k == 0) posaPoms (z, { &pDThr, &pDAtk, &pDRel, &pDAmt, &pDHpf, &pDLpf }, 90);
                 else posaPoms (z, { &pGThr, &pGAtk, &pGHold, &pGRel }, 90);
@@ -1909,12 +1915,12 @@ namespace
     class FinestraReverb : public juce::DocumentWindow
     {
     public:
-        FinestraReverb (std::shared_ptr<Reverb> r, const juce::String& titol, std::function<void()> enTancar)
+        FinestraReverb (std::shared_ptr<Reverb> r, const juce::String& titol, std::function<void()> enTancar, ServeiSidechain* sc, const std::string& id)
             : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
               tancar (std::move (enTancar))
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new PanellReverb (std::move (r)), true);
+            setContentOwned (new PanellReverb (std::move (r), sc, id), true);
             setResizable (true, true);
             setResizeLimits (820, 400, 1800, 1300);
             centreWithSize (getWidth(), getHeight());
@@ -1927,7 +1933,8 @@ namespace
     };
 }
 
-std::unique_ptr<juce::DocumentWindow> creaFinestraReverb (std::shared_ptr<Reverb> reverb, const juce::String& titol, std::function<void()> enTancar)
+std::unique_ptr<juce::DocumentWindow> creaFinestraReverb (std::shared_ptr<Reverb> reverb, const juce::String& titol, std::function<void()> enTancar,
+                                                          ServeiSidechain* sc, const std::string& idInsert)
 {
-    return std::make_unique<FinestraReverb> (std::move (reverb), titol, std::move (enTancar));
+    return std::make_unique<FinestraReverb> (std::move (reverb), titol, std::move (enTancar), sc, idInsert);
 }

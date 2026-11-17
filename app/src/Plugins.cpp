@@ -390,9 +390,9 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
     if (auto r = reverbs.find (clau); r != reverbs.end())
     {
         if (auto rv = std::dynamic_pointer_cast<mibase::reverb::Reverb> (r->second))
-            finestres[clau] = creaFinestraReverb (rv, titol, [this, clau] { finestres.erase (clau); });
+            finestres[clau] = creaFinestraReverb (rv, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
         else if (auto d = std::dynamic_pointer_cast<mibase::dinamica::Dinamica> (r->second))
-            finestres[clau] = creaFinestraDinamica (d, titol, [this, clau] { finestres.erase (clau); });
+            finestres[clau] = creaFinestraDinamica (d, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
         return;
     }
     auto* a = viu (clau);

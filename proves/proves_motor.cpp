@@ -166,6 +166,7 @@ namespace
 #include "proves_054.inc"
 #include "proves_055.inc"
 #include "proves_056.inc"
+#include "proves_057.inc"
 
 int main()
 {
@@ -2308,6 +2309,7 @@ int main()
     proves054();
     proves055();
     proves056();
+    proves057();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

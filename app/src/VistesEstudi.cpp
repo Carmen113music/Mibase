@@ -2869,13 +2869,15 @@ void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void ColumnaEsquerra::resized()
 {
-    auto r = getLocalBounds().reduced (8, 10);
-    btTreball.setBounds (r.removeFromTop (44));
-    r.removeFromTop (6);
-    btMescles.setBounds (r.removeFromTop (44));
-    r.removeFromTop (6);
-    btEstructura.setBounds (r.removeFromTop (44));
-    r.removeFromTop (16);
+    // 0.57: pestanyes més primes (en pantalles baixes encara més), per deixar lloc al que hi ha a sota
+    auto r = getLocalBounds().reduced (8, 6);
+    const int altBoto = getHeight() < 640 ? 24 : 28;
+    btTreball.setBounds (r.removeFromTop (altBoto));
+    r.removeFromTop (3);
+    btMescles.setBounds (r.removeFromTop (altBoto));
+    r.removeFromTop (3);
+    btEstructura.setBounds (r.removeFromTop (altBoto));
+    r.removeFromTop (10);
     if (panellEditor != nullptr) panellEditor->setBounds (r.withTrimmedLeft (-2).withTrimmedRight (-4).withTrimmedBottom (-6));
     seguidors.setBounds (r);   // 0.37
     zonaNom = r.removeFromTop (44);

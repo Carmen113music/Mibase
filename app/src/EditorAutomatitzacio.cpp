@@ -115,11 +115,28 @@ void EditorAutomatitzacio::zoom (double f, float x)
 juce::Rectangle<int> EditorAutomatitzacio::zonaLinia (int i) const
 {
     const int n = juce::jmax (1, const_cast<EditorAutomatitzacio*> (this)->numLinies());
-    const int h = juce::jmax (48, zonaLinies.getHeight() / n);
+    const int h = juce::jmax (60, zonaLinies.getHeight() / n);
     return { zonaLinies.getX(), zonaLinies.getY() + i * h, zonaLinies.getWidth(), h };
 }
 juce::Rectangle<int> EditorAutomatitzacio::zonaCap (int i) const { return zonaLinia (i).removeFromLeft (ampleCap); }
 juce::Rectangle<int> EditorAutomatitzacio::zonaCorba (int i) const { return zonaLinia (i).withTrimmedLeft (ampleCap).reduced (0, 4); }
+
+EditorAutomatitzacio::ZonesCap EditorAutomatitzacio::zonesCap (int i) const
+{
+    ZonesCap z;
+    auto c = zonaCap (i).reduced (8, 4);
+    auto f1 = c.removeFromTop (18);
+    z.creu = f1.removeFromRight (16);
+    z.nom = f1;
+    c.removeFromTop (2);
+    auto f2 = c.removeFromTop (17);
+    z.llegeix = f2.removeFromLeft (64);
+    f2.removeFromLeft (4);
+    z.grava = f2.removeFromLeft (juce::jmin (106, f2.getWidth()));
+    c.removeFromTop (2);
+    z.valor = c.removeFromTop (16);
+    return z;
+}
 
 int EditorAutomatitzacio::liniaA (juce::Point<int> p) const
 {
@@ -263,6 +280,143 @@ void EditorAutomatitzacio::menuLinia (juce::Component* on, const std::string& id
         const auto& [obj, nom] = (*opcions)[(size_t) r - 1];
         obre (ed::pistaPerId (estat.projecte, estat.automat.pista), obj, nom);
     });
+}
+
+void EditorAutomatitzacio::menuGrava (int i, juce::Component* on, juce::Rectangle<int> r)
+{
+    auto* a = linia (i);
+    if (a == nullptr) return;
+    juce::PopupMenu m;
+    m.addSectionHeader ("Com es grava movent el control mentre sona"_ca);
+    m.addItem (1, "No: només es llegeix"_ca, true, a->grava == 0);
+    m.addItem (2, "Toca: grava mentre el mous; quan el deixes, torna a llegir"_ca, true, a->grava == 1);
+    m.addItem (3, "Enganxa: grava des que el toques fins que atures"_ca, true, a->grava == 2);
+    m.addItem (4, "Escriu: grava sempre (des del play fins que atures)"_ca, true, a->grava == 3);
+    const auto id = a->id;
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (on->localAreaToGlobal (r)), [this, i, id] (int x)
+    {
+        auto* b = linia (i);
+        if (x <= 0 || b == nullptr || b->id != id) return;
+        abans();
+        b->grava = x - 1;
+        fet ("Automatització: mode de gravació "_ca + mibase::automatitzacio::nomGrava (b->grava));
+    });
+}
+
+void EditorAutomatitzacio::menuCap (int i)
+{
+    juce::PopupMenu m, modes;
+    for (int k = 0; k < 4; ++k) modes.addItem (20 + k, mibase::automatitzacio::nomGrava (k));
+    m.addItem (1, "Totes les línies llegeixen"_ca);
+    m.addItem (2, "Cap línia llegeix"_ca);
+    m.addSubMenu ("Mode de gravació de totes"_ca, modes);
+    m.addSeparator();
+    m.addItem (3, "Esborra aquesta línia"_ca);
+    m.showMenuAsync (juce::PopupMenu::Options(), [this, i] (int x)
+    {
+        auto* t = pista();
+        if (x <= 0 || t == nullptr) return;
+        abans();
+        if (x == 1 || x == 2) for (auto& a : t->autos) a.activa = x == 1;
+        else if (x >= 20) for (auto& a : t->autos) a.grava = x - 20;
+        else if (x == 3 && i < (int) t->autos.size()) { t->autos.erase (t->autos.begin() + i); estat.automat.punts.clear(); }
+        fet ("Automatització"_ca);
+    });
+}
+
+double EditorAutomatitzacio::valorControl (mibase::Pista& t, const mibase::Automatitzacio& a)
+{
+    std::string ii, pid;
+    const int tipus = au::llegeixObjectiu (a.objectiu, ii, pid);
+    if (tipus == 0) return au::volumDeDb (t.faderDb);
+    if (tipus == 1) return (juce::jlimit (-1.0, 1.0, t.pan) + 1.0) * 0.5;
+    mibase::Parametritzable* obj = nullptr;
+    if (tipus == 2) { for (auto& x : t.inserts) if (x.id == ii) obj = plugins.parametres (x); }
+    else if (tipus == 3) obj = plugins.parametresInstrument (t.id);
+    if (obj == nullptr) return -1.0;
+    auto& c = cauIndexs()[t.id + "|" + a.objectiu];
+    if (c.first != obj) c = { obj, obj->indexParametre (pid) };
+    return c.second >= 0 ? (double) obj->parametre (c.second) : -1.0;
+}
+
+void EditorAutomatitzacio::desaGravat (mibase::Pista& t, mibase::Automatitzacio& a, EstatGrav& s)
+{
+    if (s.mostres.empty()) return;
+    auto v = s.mostres;
+    s.mostres.clear();
+    std::stable_sort (v.begin(), v.end(), [] (const mibase::PuntAuto& x, const mibase::PuntAuto& y) { return x.compas < y.compas; });
+    auto simp = au::simplifica (v, 0.004);
+    abans();
+    if (simp.size() == 1 && a.punts.empty()) au::posaPunt (a, simp.front());
+    else au::substitueix (a, simp.front().compas, simp.back().compas, simp);
+    a.activa = true;
+    (void) t;
+    fet ("Automatització gravada: "_ca + u8 (a.nom));
+}
+
+void EditorAutomatitzacio::ticGravacio()
+{
+    const bool sona = estat.transport != 0;
+    const double ara = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    const double c = ed::compasDeSegons (estat.projecte, estat.capcal);
+    const double marge = ed::compasDeSegons (estat.projecte, estat.capcal + 0.15) - c;
+    bool repinta = false;
+    for (int pi = 0; pi < estat.numPistes(); ++pi)
+    {
+        auto* t = estat.pista (pi);
+        for (size_t li = 0; li < t->autos.size(); ++li)
+        {
+            auto* a = &t->autos[li];
+            auto& s = grav[a->id];
+            if (a->grava == 0 && ! s.escrivint && s.mostres.empty()) { s.vPrev = -1.0; continue; }
+            const double v = valorControl (*t, *a);
+            const auto bandera = au::bandera (a->id);
+            if (! sona)
+            {
+                if (! s.mostres.empty()) { desaGravat (*t, *a, s); t = estat.pista (pi); a = &t->autos[li]; }
+                if (s.escrivint) repinta = true;
+                s.escrivint = false;
+                bandera->store (false);
+                s.vPrev = v;
+                continue;
+            }
+            if (v < 0.0) continue;
+            // Bucle: en tornar enrere, es desa el que s'ha gravat a la passada.
+            if (! s.mostres.empty() && c < s.mostres.back().compas - 1.0e-6)
+            {
+                desaGravat (*t, *a, s);
+                t = estat.pista (pi);
+                a = &t->autos[li];
+                if (a->grava == 1) s.escrivint = false;
+            }
+            std::string ii, pid;
+            const int tipus = au::llegeixObjectiu (a->objectiu, ii, pid);
+            const bool canvia = s.vPrev >= 0.0 && std::abs (v - s.vPrev) > 1.0e-4;
+            bool tocat = canvia;
+            if (canvia && tipus >= 2 && a->activa && ! a->punts.empty() && ! s.escrivint)
+            {
+                // si el valor és el que posa la mateixa corba (el motor llegint), no és la mà
+                for (double d : { -marge, 0.0, marge })
+                    if (std::abs (v - au::valorA (a->punts, c + d)) < 0.02) tocat = false;
+            }
+            const bool abans = s.escrivint;
+            if (a->grava == 3 || tocat) s.escrivint = true;
+            if (canvia) s.ultimCanvi = ara;
+            if (a->grava == 1 && s.escrivint && ! canvia && ara - s.ultimCanvi > 0.6)
+            {
+                desaGravat (*t, *a, s);
+                t = estat.pista (pi);
+                a = &t->autos[li];
+                s.escrivint = false;
+            }
+            if (a->grava == 0 && s.escrivint) { desaGravat (*t, *a, s); t = estat.pista (pi); a = &t->autos[li]; s.escrivint = false; }
+            bandera->store (s.escrivint);
+            if (s.escrivint && (s.mostres.empty() || c > s.mostres.back().compas + 1.0e-6)) s.mostres.push_back ({ c, v, 0, 0.0 });
+            if (abans != s.escrivint) repinta = true;
+            s.vPrev = v;
+        }
+    }
+    if (repinta && isVisible()) repaint();
 }
 
 void EditorAutomatitzacio::menuPunt (int li, int k)
@@ -462,16 +616,30 @@ void EditorAutomatitzacio::paint (juce::Graphics& g)
         g.fillRect (cap);
         g.setColour (tema::linia);
         g.drawHorizontalLine (zonaLinia (i).getBottom() - 1, (float) zonaLinia (i).getX(), (float) zonaLinia (i).getRight());
-        auto c = cap.reduced (8, 4);
-        auto fila1 = c.removeFromTop (18);
-        auto led = fila1.removeFromLeft (16).toFloat().reduced (2.0f);
-        g.setColour (a->activa ? colAuto : tema::linia2);
-        g.fillEllipse (led);
-        auto creu = fila1.removeFromRight (16).toFloat();
-        dibuix::pintaIcona (g, dibuix::Icona::Tanca, creu.reduced (3.0f), tema::suau);
+        const auto zc = zonesCap (i);
+        auto c = zc.valor;
+        dibuix::pintaIcona (g, dibuix::Icona::Tanca, zc.creu.toFloat().reduced (3.0f), tema::suau);
         g.setColour (a->activa ? tema::text : tema::suau);
         g.setFont (dibuix::lletra (11.5f, triada));
-        g.drawFittedText (u8 (a->nom), fila1.withTrimmedLeft (4), juce::Justification::centredLeft, 1, 0.75f);
+        g.drawFittedText (u8 (a->nom), zc.nom, juce::Justification::centredLeft, 1, 0.75f);
+        // 0.57: Llegeix (sí/no) i mode de gravació
+        auto xip = [&g] (juce::Rectangle<int> r, const juce::String& t, juce::Colour col, bool ple)
+        {
+            g.setColour (ple ? col.withAlpha (0.25f) : juce::Colours::black.withAlpha (0.3f));
+            g.fillRoundedRectangle (r.toFloat(), 3.0f);
+            g.setColour (ple ? col : tema::suau);
+            g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 3.0f, 1.0f);
+            g.setFont (dibuix::lletra (9.5f, true));
+            g.drawText (t, r, juce::Justification::centred);
+        };
+        xip (zc.llegeix, a->activa ? "LLEGEIX" : "NO LLEGEIX", colAuto, a->activa);
+        const bool esc = escrivint (a->id);
+        xip (zc.grava, "GRAVA: "_ca + juce::String (mibase::automatitzacio::nomGrava (a->grava)).toUpperCase(), esc ? tema::error : tema::accent, a->grava > 0);
+        if (esc)
+        {
+            g.setColour (tema::error);
+            g.fillEllipse (zc.grava.toFloat().removeFromRight (10.0f).withSizeKeepingCentre (6.0f, 6.0f).translated (-2.0f, 0.0f));
+        }
         std::string ii, pid;
         const int tipus = au::llegeixObjectiu (a->objectiu, ii, pid);
         int ix = -1;
@@ -481,18 +649,18 @@ void EditorAutomatitzacio::paint (juce::Graphics& g)
         {
             g.setColour (tema::errorText);
             g.setFont (dibuix::lletra (10.5f));
-            g.drawFittedText ("El plugin no hi és o està apagat"_ca, c.removeFromTop (16), juce::Justification::centredLeft, 1, 0.8f);
+            g.drawFittedText ("El plugin no hi és o està apagat"_ca, c, juce::Justification::centredLeft, 1, 0.8f);
         }
         else if (! a->punts.empty())
         {
             g.setColour (estat.transport != 0 ? colAuto : tema::textMig);
-            g.drawText (textValor (*a, au::valorA (a->punts, cCapcal)), c.removeFromTop (16), juce::Justification::centredLeft);
+            g.drawText (textValor (*a, au::valorA (a->punts, cCapcal)), c, juce::Justification::centredLeft);
         }
         else
         {
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (10.5f));
-            g.drawText ("Sense punts: doble clic per posar-ne"_ca, c.removeFromTop (16), juce::Justification::centredLeft);
+            g.drawText (a->grava > 0 ? "Sense punts: grava'l movent el control"_ca : "Sense punts: doble clic per posar-ne"_ca, c, juce::Justification::centredLeft);
         }
         // Zona de la corba
         g.setColour (juce::Colours::black.withAlpha (triada ? 0.45f : 0.3f));
@@ -626,9 +794,10 @@ void EditorAutomatitzacio::mouseDown (const juce::MouseEvent& e)
     auto* a = linia (i);
     if (zonaCap (i).contains (pos))
     {
-        auto c = zonaCap (i).reduced (8, 4);
-        auto fila1 = c.removeFromTop (18);
-        const auto led = fila1.removeFromLeft (16), creu = fila1.removeFromRight (16);
+        const auto zc = zonesCap (i);
+        const auto led = zc.llegeix, creu = zc.creu;
+        if (e.mods.isPopupMenu()) { triaLinia (i); menuCap (i); return; }
+        if (zc.grava.contains (pos)) { triaLinia (i); menuGrava (i, this, zc.grava); return; }
         if (led.contains (pos))
         {
             abans();

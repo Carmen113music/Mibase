@@ -4,6 +4,7 @@
 #include "DialegText.h"
 #include "EstatEstudi.h"
 #include "Plugins.h"
+#include <map>
 #include <mibase/Automatitzacio.h>
 
 /** 0.56: l'editor d'automatització, a baix (on s'obre el Piano Roll). Mostra les línies (lanes) d'una pista, una sota
@@ -22,6 +23,9 @@ public:
     void menuLinia (juce::Component* on, const std::string& idInsert = {});
     /** El transport (unes 30 vegades per segon): capçal i valors. */
     void tic();
+    /** 0.57: gravació de l'automatització (cal cridar-la sempre, encara que l'editor estigui tancat). */
+    void ticGravacio();
+    bool escrivint (const std::string& idLinia) const { auto it = grav.find (idLinia); return it != grav.end() && it->second.escrivint; }
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -41,6 +45,11 @@ private:
     juce::Rectangle<int> zonaLinia (int i) const;     // tota la fila
     juce::Rectangle<int> zonaCorba (int i) const;     // on es dibuixa la corba
     juce::Rectangle<int> zonaCap (int i) const;       // la capçalera de la fila
+    struct ZonesCap { juce::Rectangle<int> nom, creu, llegeix, grava, valor; };
+    ZonesCap zonesCap (int i) const;
+    void menuGrava (int i, juce::Component* on, juce::Rectangle<int> on2);
+    void menuCap (int i);
+    double valorControl (mibase::Pista& t, const mibase::Automatitzacio& a);
     int liniaA (juce::Point<int> p) const;
     double xASeg (float x) const;
     float segAX (double s) const;
@@ -92,5 +101,8 @@ private:
     bool desfetFet = false;
     double capcalPintat = -1.0;
     std::unique_ptr<DialegText> dialeg;
+    struct EstatGrav { bool escrivint = false; double vPrev = -1.0, ultimCanvi = 0.0; std::vector<mibase::PuntAuto> mostres; };
+    std::map<std::string, EstatGrav> grav;
+    void desaGravat (mibase::Pista& t, mibase::Automatitzacio& a, EstatGrav& s);
     static std::vector<mibase::PuntAuto>& portaRetalls() { static std::vector<mibase::PuntAuto> v; return v; }
 };

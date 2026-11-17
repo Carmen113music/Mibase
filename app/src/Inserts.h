@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ControlSidechain.h"
 #include "Controls.h"
 #include "EstatEstudi.h"
 #include "Plugins.h"
@@ -205,6 +206,102 @@ namespace inserts
         auto p = std::make_unique<PanellSidechain> (estat, plugins, pista, (*v)[(size_t) k].id);
         juce::CallOutBox::launchAsynchronously (std::move (p), on->getScreenBounds(), nullptr);
     }
+
+    /** 0.57: el sidechain vist des de la finestra de l'efecte (botó SC i pista d'on escolta). */
+    class ServeiScEstudi : public ServeiSidechain
+    {
+    public:
+        ServeiScEstudi (EstatEstudi& e, GestorPlugins& g) : estat (e), plugins (g) {}
+
+        bool actiu (const std::string& id) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            if (x == nullptr) return false;
+            for (auto& f : x->sidechain) if (f.actiu) return true;
+            return false;
+        }
+
+        juce::String nomFonts (const std::string& id) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            juce::String t;
+            if (x == nullptr) return t;
+            for (auto& f : x->sidechain)
+            {
+                const int j = mibase::edicio::pistaPerId (estat.projecte, f.pista);
+                if (j < 0) continue;
+                if (t.isNotEmpty()) t << " + ";
+                t << juce::String::fromUTF8 (estat.projecte.pistes[(size_t) j].nom.c_str());
+            }
+            return t;
+        }
+
+        void commuta (const std::string& id, juce::Component* on) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            if (x == nullptr) return;
+            if (x->sidechain.empty()) { menu (id, on); return; }
+            const bool encendre = ! actiu (id);
+            inserts::canvia (estat, &plugins, p, [id, encendre] (std::vector<mibase::Insert>& l)
+            {
+                for (auto& y : l) if (y.id == id) for (auto& f : y.sidechain) f.actiu = encendre;
+            }, encendre ? "Sidechain encès"_ca : "Sidechain apagat"_ca);
+        }
+
+        void menu (const std::string& id, juce::Component* on) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            if (x == nullptr) return;
+            const std::string desti = p >= 0 && estat.pista (p) != nullptr ? estat.pista (p)->id : std::string();
+            juce::PopupMenu m;
+            m.addSectionHeader ("D'on escolta (pots marcar-ne més d'una)"_ca);
+            for (int j = 0; j < estat.numPistes(); ++j)
+            {
+                const auto& t = estat.projecte.pistes[(size_t) j];
+                if (mibase::esAcords (t) || t.id == desti) continue;
+                bool ja = false;
+                for (auto& f : x->sidechain) ja = ja || f.pista == t.id;
+                const bool pot = ja || mibase::edicio::potSidechain (estat.projecte, t.id, desti);
+                m.addItem (j + 1, juce::String::fromUTF8 (t.nom.c_str()) + (pot ? juce::String() : " (faria un cercle)"_ca), pot, ja);
+            }
+            m.addSeparator();
+            m.addItem (100000, "Opcions: nivell i d'on es capta…"_ca, ! x->sidechain.empty());
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [this, id, sp = juce::Component::SafePointer<juce::Component> (on)] (int r)
+            {
+                int p2, k2;
+                if (busca (id, p2, k2) == nullptr) return;
+                if (r == 100000) { obreSidechain (estat, &plugins, p2, k2, sp.getComponent()); return; }
+                if (r <= 0 || r > estat.numPistes()) return;
+                const auto font = estat.projecte.pistes[(size_t) r - 1].id;
+                inserts::canvia (estat, &plugins, p2, [id, font] (std::vector<mibase::Insert>& l)
+                {
+                    for (auto& y : l)
+                        if (y.id == id)
+                        {
+                            auto it = std::find_if (y.sidechain.begin(), y.sidechain.end(), [&] (auto& f) { return f.pista == font; });
+                            if (it != y.sidechain.end()) y.sidechain.erase (it);
+                            else y.sidechain.push_back ({ font, 0.0, 1, true });
+                        }
+                }, "Sidechain"_ca);
+            });
+        }
+
+    private:
+        mibase::Insert* busca (const std::string& id, int& pista, int& k)
+        {
+            for (int p = -1; p < estat.numPistes(); ++p)
+                if (auto* v = llista (estat, p))
+                    for (size_t i = 0; i < v->size(); ++i)
+                        if ((*v)[i].id == id) { pista = p; k = (int) i; return &(*v)[i]; }
+            return nullptr;
+        }
+        EstatEstudi& estat;
+        GestorPlugins& plugins;
+    };
 
     inline void commuta (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k)
     {

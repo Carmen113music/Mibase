@@ -1,6 +1,8 @@
 #pragma once
 
 #include "mibase/Projecte.h"
+#include <atomic>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -34,6 +36,12 @@ namespace mibase::automatitzacio
     /** Valor de la corba en un compàs (abans del primer punt, el primer; després del darrer, el darrer).
         Sense punts: -1. */
     double valorA (const std::vector<PuntAuto>& punts, double compas) noexcept;
+
+    /** 0.57: la bandera «lliure» d'una línia (per id): quan és true, el motor no la llegeix (s'hi està gravant i mana el
+        control). La comparteixen la interfície i el pla; la mateixa línia té sempre el mateix objecte. */
+    std::shared_ptr<std::atomic<bool>> bandera (const std::string& idLinia);
+    /** Noms dels modes de gravació. */
+    const char* nomGrava (int mode);
 
     /** Una corba ja en segons, per al fil d'àudio (només llegeix: sense memòria ni bloquejos). */
     struct Corba

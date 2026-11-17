@@ -7,4 +7,5 @@
 
 /** 0.56: la finestra de «Dinàmica (Mibase)»: mode, poms, corba, reducció i d'on escolta (sidechain o so propi). */
 std::unique_ptr<juce::DocumentWindow> creaFinestraDinamica (std::shared_ptr<mibase::dinamica::Dinamica> d, const juce::String& titol,
-                                                            std::function<void()> enTancar);
+                                                            std::function<void()> enTancar, class ServeiSidechain* sc = nullptr,
+                                                            const std::string& idInsert = {});

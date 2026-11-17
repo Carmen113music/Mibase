@@ -277,6 +277,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     inserts::obreVeu() = [this] (int pista) { obreVeuDePista (pista); };
     // 0.56: automatització i biblioteca d'IR
     addChildComponent (editorAuto);
+    plugins.sidechain = &serveiSc;
     editorAuto.onTanca = [this] { tancaAutomatitzacio(); };
     editorAuto.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
     inserts::obreAutomatitzacio() = [this] (int pista, const std::string& idInsert)
@@ -1304,6 +1305,7 @@ void PantallaEstudi::tic()
     if (editorVeu.isVisible()) editorVeu.tic();
     if (editorSampler.isVisible()) editorSampler.tic();
     if (editorAuto.isVisible()) editorAuto.tic();
+    editorAuto.ticGravacio();   // 0.57: grava l'automatització encara que l'editor estigui tancat
 
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.

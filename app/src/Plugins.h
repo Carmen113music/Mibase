@@ -121,9 +121,12 @@ inline std::function<juce::String()>& informePlugins() { static std::function<ju
 
 /** Els plugins vius del projecte obert: un per insert (per id) i un per pista d'instrument VST3.
     Fil de la interfície. També obre i tanca les seves finestres. */
+class ServeiSidechain;
+
 class GestorPlugins
 {
 public:
+    ServeiSidechain* sidechain = nullptr;   // 0.57: per als botons SC de les finestres (el posa l'estudi)
     explicit GestorPlugins (const juce::KnownPluginList& llista);
     ~GestorPlugins();
 

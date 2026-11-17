@@ -182,7 +182,8 @@ namespace mibase
         std::string id;          // «aN»
         std::string objectiu;
         std::string nom;         // per mostrar («Reverb · Mix»)
-        bool activa = true;      // apagada: no mou res (el paràmetre es queda on el deixis)
+        bool activa = true;      // llegeix: apagada, no mou res (el paràmetre es queda on el deixis)
+        int grava = 0;           // 0.57: com es grava movent el control mentre sona: 0 no, 1 toca, 2 enganxa, 3 escriu
         std::vector<PuntAuto> punts;   // per ordre de compàs
         bool operator== (const Automatitzacio&) const = default;
     };

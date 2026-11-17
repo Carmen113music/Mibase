@@ -405,6 +405,7 @@ namespace mibase::disc
                         a.objectiu = v.value ("objectiu", std::string());
                         a.nom = v.value ("nom", std::string());
                         a.activa = v.value ("activa", true);
+                        a.grava = std::clamp (v.value ("grava", 0), 0, 3);
                         if (v.contains ("punts") && v["punts"].is_array())
                             for (auto& q : v["punts"])
                                 if (q.is_array() && q.size() >= 2)
@@ -839,7 +840,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                 {
                     json pts = json::array();
                     for (auto& q : a.punts) pts.push_back ({ q.compas, q.valor, q.forma, q.tensio });
-                    av.push_back ({ { "id", a.id }, { "objectiu", a.objectiu }, { "nom", a.nom }, { "activa", a.activa }, { "punts", pts } });
+                    av.push_back ({ { "id", a.id }, { "objectiu", a.objectiu }, { "nom", a.nom }, { "activa", a.activa }, { "grava", a.grava }, { "punts", pts } });
                 }
                 pista["automatitzacions"] = av;
             }

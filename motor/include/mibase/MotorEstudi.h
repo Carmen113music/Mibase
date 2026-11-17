@@ -98,6 +98,7 @@ namespace mibase
             bool scSempre = false;   // té enviaments de sidechain abans del fader: es calcula encara que estigui callada
             // ---- 0.56: automatització ----
             automatitzacio::Corba autoVolum, autoPan;
+            std::shared_ptr<std::atomic<bool>> lliureVolum, lliurePan;   // 0.57: s'hi està gravant: mana el control
             struct AutoParam
             {
                 Parametritzable* obj = nullptr;   // viu gràcies a «inserts» o «instrument»
@@ -105,6 +106,7 @@ namespace mibase
                 bool instrument = false;
                 automatitzacio::Corba corba;
                 mutable float ultim = -1.0f;     // el darrer valor enviat (no es torna a enviar si no canvia)
+                std::shared_ptr<std::atomic<bool>> lliure;   // 0.57
             };
             std::vector<AutoParam> autoParams;
             bool autoInserts = false;            // algun paràmetre d'un insert: els efectes es calculen a trossos petits

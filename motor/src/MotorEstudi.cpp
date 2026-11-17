@@ -230,8 +230,8 @@ namespace mibase
                 if (! a.activa || a.punts.empty()) continue;
                 std::string ii, pid;
                 const int tipus = automatitzacio::llegeixObjectiu (a.objectiu, ii, pid);
-                if (tipus == 0) pp.autoVolum = automatitzacio::corbaEnSegons (p, a);
-                else if (tipus == 1) pp.autoPan = automatitzacio::corbaEnSegons (p, a);
+                if (tipus == 0) { pp.autoVolum = automatitzacio::corbaEnSegons (p, a); pp.lliureVolum = automatitzacio::bandera (a.id); }
+                else if (tipus == 1) { pp.autoPan = automatitzacio::corbaEnSegons (p, a); pp.lliurePan = automatitzacio::bandera (a.id); }
                 else if (tipus == 2)
                 {
                     for (size_t k = 0; k < vius.back().size(); ++k)
@@ -241,7 +241,7 @@ namespace mibase
                             const int ix = obj->indexParametre (pid);
                             if (ix >= 0)
                             {
-                                pp.autoParams.push_back ({ obj, ix, false, automatitzacio::corbaEnSegons (p, a), -1.0f });
+                                pp.autoParams.push_back ({ obj, ix, false, automatitzacio::corbaEnSegons (p, a), -1.0f, automatitzacio::bandera (a.id) });
                                 pp.autoInserts = true;
                             }
                         }
@@ -250,7 +250,7 @@ namespace mibase
                 {
                     Parametritzable* obj = pp.instrument.get();
                     const int ix = obj->indexParametre (pid);
-                    if (ix >= 0) pp.autoParams.push_back ({ obj, ix, true, automatitzacio::corbaEnSegons (p, a), -1.0f });
+                    if (ix >= 0) pp.autoParams.push_back ({ obj, ix, true, automatitzacio::corbaEnSegons (p, a), -1.0f, automatitzacio::bandera (a.id) });
                 }
             }
             pp.scInserts.assign (pp.inserts.size(), -1);
@@ -634,7 +634,7 @@ namespace mibase
                 const double seg = (double) (pos + ofs + m) / fs;
                 for (const auto& a : t.autoParams)
                 {
-                    if (a.instrument) continue;
+                    if (a.instrument || (a.lliure != nullptr && a.lliure->load (std::memory_order_relaxed))) { a.ultim = -1.0f; continue; }
                     const float x = a.corba.a (seg);
                     if (std::abs (x - a.ultim) > 1.0e-6f) { a.obj->posaParametre (a.index, x); a.ultim = x; }
                 }
@@ -692,7 +692,7 @@ namespace mibase
             {
                 // 0.56: paràmetres automatitzats de l'instrument (al començament del bloc)
                 for (const auto& a : t.autoParams)
-                    if (a.instrument)
+                    if (a.instrument && ! (a.lliure != nullptr && a.lliure->load (std::memory_order_relaxed)))
                     {
                         const float x = a.corba.a ((double) (pos + n / 2) / fs);
                         if (std::abs (x - a.ultim) > 1.0e-6f) { a.obj->posaParametre (a.index, x); a.ultim = x; }
@@ -710,8 +710,10 @@ namespace mibase
             const float porta = t.sona && ! silenciAra[(size_t) s] ? 1.0f : 0.0f;
             // 0.56: el volum i el panorama automatitzats manen sobre el fader i el pom
             const double segAuto = (double) (pos + n) / fs;
-            const float fader = t.autoVolum.buida() ? t.guany : (float) automatitzacio::guanyDeVolum (t.autoVolum.a (segAuto));
-            const float panAra = t.autoPan.buida() ? t.pan : (float) automatitzacio::panDe (t.autoPan.a (segAuto));
+            const bool llegeixVol = ! t.autoVolum.buida() && ! (t.lliureVolum != nullptr && t.lliureVolum->load (std::memory_order_relaxed));
+            const bool llegeixPan = ! t.autoPan.buida() && ! (t.lliurePan != nullptr && t.lliurePan->load (std::memory_order_relaxed));
+            const float fader = ! llegeixVol ? t.guany : (float) automatitzacio::guanyDeVolum (t.autoVolum.a (segAuto));
+            const float panAra = ! llegeixPan ? t.pan : (float) automatitzacio::panDe (t.autoPan.a (segAuto));
             const float panL = panAra <= 0.0f ? 1.0f : 1.0f - panAra;
             const float panR = panAra >= 0.0f ? 1.0f : 1.0f + panAra;
             const float obert = t.obert ? 1.0f : 0.0f;
