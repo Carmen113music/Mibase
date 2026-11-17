@@ -2,6 +2,7 @@
 
 #include <bitset>
 
+#include "mibase/Automatitzacio.h"
 #include "mibase/ClicDeProva.h"
 #include "mibase/Edicio.h"
 #include "mibase/CuaSenseBloqueig.h"
@@ -87,6 +88,26 @@ namespace mibase
             bool obert = true;       // false: només sonen els seus enviaments (alimenta un retorn en solo)
             struct Envia { int desti = 0; float guanyL = 1.0f, guanyR = 1.0f; int mode = 1; };
             std::vector<Envia> envia;   // els encesos, per ordre
+            // ---- 0.56: sidechain ----
+            /** Per a cada insert (mateix ordre que «inserts»): buffer de sidechain que rep (-1: cap font). */
+            std::vector<int> scInserts;
+            /** Còpies cap als buffers de sidechain d'altres efectes. punt: 0 abans dels efectes, 1 després (abans del
+                fader), 2 després del fader. */
+            struct EnviaSc { int buf = 0; float guany = 1.0f; int punt = 1; };
+            std::vector<EnviaSc> scEnvia;
+            bool scSempre = false;   // té enviaments de sidechain abans del fader: es calcula encara que estigui callada
+            // ---- 0.56: automatització ----
+            automatitzacio::Corba autoVolum, autoPan;
+            struct AutoParam
+            {
+                Parametritzable* obj = nullptr;   // viu gràcies a «inserts» o «instrument»
+                int index = 0;
+                bool instrument = false;
+                automatitzacio::Corba corba;
+                mutable float ultim = -1.0f;     // el darrer valor enviat (no es torna a enviar si no canvia)
+            };
+            std::vector<AutoParam> autoParams;
+            bool autoInserts = false;            // algun paràmetre d'un insert: els efectes es calculen a trossos petits
         };
 
         double tempo = 120.0;
@@ -104,6 +125,8 @@ namespace mibase
         float master = 1.0f;
         int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
         std::vector<std::shared_ptr<Efecte>> insertsMaster;   // 0.19: cadena de màstering (abans del volum del màster)
+        std::vector<int> scMaster;                            // 0.56: buffer de sidechain de cada insert del màster (-1: cap)
+        int numSidechain = 0;                                 // 0.56: buffers de sidechain en ús
         std::vector<Pista> pistes;
         /** 0.33: en quin ordre s'han de calcular les pistes (índexs de «pistes»): cada una abans dels busos on va.
             Si és buit, per ordre. */
@@ -114,6 +137,7 @@ namespace mibase
 
     constexpr int maxSlots = 128;
     constexpr int maxBusos = 32;        // 0.33: busos (de grup i retorns) que poden sonar alhora
+    constexpr int maxSidechain = 32;    // 0.56: efectes amb sidechain que poden sonar alhora
 
     /** Canal de la taula de cada pista (a partir del seu identificador, que no canvia). */
     int slotDePista (const Pista& t) noexcept;
@@ -193,6 +217,12 @@ namespace mibase
         std::vector<float> busL, busR;           // maxBusos * maxN: el que arriba a cada bus en aquest bloc
         int maxN = 16;
         void envia (const Pla::Pista& t, int mode, const float* xL, const float* xR, int n, int nb) noexcept;
+        // 0.56
+        void enviaSc (const Pla::Pista& t, int punt, const float* xL, const float* xR, int n, int ns) noexcept;
+        void efectes (const Pla::Pista& t, const std::vector<std::shared_ptr<Efecte>>& v, const std::vector<int>& sc, float* xL, float* xR,
+                      long long pos, int n, int ns) noexcept;
+        std::vector<float> scL, scR;             // maxSidechain * maxN
+        Pla::Pista pistaBuida;                   // per als efectes del màster (sense automatització)
         float gMaster = 1.0f;
         bool masterFet = false;
         ClicDeProva clic;

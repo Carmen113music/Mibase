@@ -132,6 +132,21 @@ public:
     };
     EditorSampler sampler;
 
+    /** 0.56: editor d'automatització obert a baix (al mateix lloc que el Piano Roll), sobre una pista. Zoom propi. */
+    struct EditorAuto
+    {
+        bool obert = false;
+        std::string pista;          // id
+        std::string linia;          // id de la línia triada
+        std::vector<int> punts;     // punts triats de la línia triada
+        double iniciVista = -1.0;   // segons a la vora esquerra (-1: el mateix que la taula de treball en obrir-lo)
+        double pxPerSeg = 0.0;
+        int eina = 0;               // 0 fletxa, 1 llapis
+        int forma = 0;              // forma dels trams nous: 0 lineal, 1 suau, 2 esglaó
+        bool graella = true;
+    };
+    EditorAuto automat;
+
     /** 0.24: «Solo» dels editors (tecla * del teclat numèric): només sona la pista de l'editor; en apagar-lo,
         cada pista torna al solo que tenia. */
     struct SoloEditor

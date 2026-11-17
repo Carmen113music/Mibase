@@ -4,6 +4,7 @@
 #include "DialegText.h"
 #include "EditorVeu.h"
 #include "EditorSampler.h"
+#include "EditorAutomatitzacio.h"
 #include "PanellBiblioteca.h"
 #include "FinestraProgres.h"
 #include "CarregaPreses.h"
@@ -106,6 +107,8 @@ private:
     // 0.26: samplejador
     void obreSampler (int pista);
     void tancaSampler();
+    void obreAutomatitzacio (int pista);   // 0.56
+    void tancaAutomatitzacio();
     void tancaTot();   // 0.27: Esc global
     void demanaSample();
     void carregaSample (const std::string& idPista, const juce::File& f);
@@ -214,6 +217,7 @@ private:
     PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
     EditorVeu editorVeu { estat, serveiVeu };            // 0.22
     EditorSampler editorSampler { estat };               // 0.26
+    EditorAutomatitzacio editorAuto { estat, plugins };  // 0.56
     PanellEditor panellEditor { estat, panellHarmonia, panellBateria, [this] { return zonaEditors.actiu(); } };
     std::unique_ptr<FinestraKits> finestraKits;
     void obreKits();

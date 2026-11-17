@@ -18,6 +18,8 @@ target_sources(Mibase PRIVATE
     src/EscanerPlugins.cpp
     src/Plugins.cpp
     src/FinestraReverb.cpp
+    src/FinestraDinamica.cpp
+    src/EditorAutomatitzacio.cpp
     src/EditorVeu.cpp
     src/EditorSampler.cpp)
 

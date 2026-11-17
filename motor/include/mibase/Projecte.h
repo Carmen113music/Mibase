@@ -142,6 +142,17 @@ namespace mibase
         double longitud() const noexcept     { return fi - inici; }
     };
 
+    /** 0.56: una font de sidechain d'un insert: el so d'una altra pista (o bus) que controla la dinàmica de l'efecte
+        sense barrejar-se amb el que se sent. */
+    struct FontSidechain
+    {
+        std::string pista;       // id de la pista d'on surt el so
+        double nivellDb = 0.0;   // de -60 a +12
+        int punt = 1;            // on es capta: 0 abans dels efectes, 1 després dels efectes (abans del fader), 2 després del fader
+        bool actiu = true;
+        bool operator== (const FontSidechain&) const = default;
+    };
+
     /** 0.19: un plugin d'efecte en un insert (d'una pista o del màster). */
     struct Insert
     {
@@ -150,6 +161,30 @@ namespace mibase
         std::string nom;         // per mostrar-lo encara que no s'hagi pogut obrir
         bool actiu = true;       // apagat: el so hi passa de llarg
         std::string estat;       // ajustos del plugin (base64)
+        std::vector<FontSidechain> sidechain;   // 0.56: fonts externes (si el plugin en té entrada)
+    };
+
+    /** 0.56: un punt d'automatització. La posició és en compassos interns (com les parts i el bucle): si canvia el tempo,
+        la corba segueix la música. «forma» diu com es va d'aquest punt al següent. */
+    struct PuntAuto
+    {
+        double compas = 0.0;
+        double valor = 0.5;      // normalitzat 0..1
+        int forma = 0;           // 0 lineal, 1 suau (corba en S), 2 esglaó (es manté fins al punt següent)
+        double tensio = 0.0;     // -1..+1: corba el tram lineal (0 = recte)
+        bool operator== (const PuntAuto&) const = default;
+    };
+
+    /** 0.56: una línia (lane) d'automatització d'una pista. «objectiu» diu què mou:
+        «volum», «pan», «insert:<id insert>:<id paràmetre>» o «instrument:<id paràmetre>». */
+    struct Automatitzacio
+    {
+        std::string id;          // «aN»
+        std::string objectiu;
+        std::string nom;         // per mostrar («Reverb · Mix»)
+        bool activa = true;      // apagada: no mou res (el paràmetre es queda on el deixis)
+        std::vector<PuntAuto> punts;   // per ordre de compàs
+        bool operator== (const Automatitzacio&) const = default;
     };
 
     /** 0.44: els controls de la «Guitarra virtual» (instrument «sf2:…») d'una pista. */
@@ -260,6 +295,7 @@ namespace mibase
         std::string sortida;                       // id del bus on va el so (buit: a la sortida)
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
+        std::vector<Automatitzacio> autos;         // 0.56: automatització
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */

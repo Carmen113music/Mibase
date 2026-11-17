@@ -6,6 +6,7 @@
 #include <memory>
 #include <mibase/Instrument.h>
 #include <mibase/Projecte.h>
+#include <mibase/Dinamica.h>
 #include <mibase/Reverb.h>
 
 /** 0.19: el temps de la cançó per als plugins (tempo, posició, sonant), perquè els delays i similars vagin a tempo.
@@ -84,6 +85,15 @@ public:
     void apagaTot() noexcept override { apagar.store (true); }
     int latencia() const noexcept override { return plugin->getLatencySamples(); }
 
+    // 0.56: paràmetres (automatització) i entrada de sidechain (si el plugin en té)
+    int numParametres() const override;
+    mibase::InfoParametre infoParametre (int i) const override;
+    void posaParametre (int i, float v01) noexcept override;
+    float parametre (int i) const noexcept override;
+    std::string textParametre (int i, float v01) const override;
+    bool admetSidechain() const noexcept override { return canalSc >= 0; }
+    void posaSidechain (const float* l, const float* r) noexcept override { scL = l; scR = r; }
+
     juce::AudioPluginInstance& instancia() noexcept { return *plugin; }
     std::string estat() const;
     void posaEstat (const std::string& base64);
@@ -101,6 +111,9 @@ private:
     juce::MidiBuffer midi;
     int canals = 2, maxBloc = 0;
     std::atomic<bool> apagar { false };
+    int canalSc = -1;                        // 0.56: primer canal de l'entrada de sidechain al buffer (-1: no en té)
+    const float* scL = nullptr;
+    const float* scR = nullptr;
 };
 
 /** 0.25: el diagnòstic demana l'informe dels plugins del projecte obert (el posa la pantalla de l'estudi). */
@@ -135,8 +148,16 @@ public:
     /** Obre (o porta davant) la finestra del plugin d'un insert (clau = id) o d'una pista (clau = «inst:» + id). */
     /** 0.20: «lateral» (si n'hi ha) fa el panell que va enganxat a la dreta de l'editor (l'escala del teclat). */
     void obreFinestra (const std::string& clau, const juce::String& titol, std::function<std::unique_ptr<juce::Component>()> lateral = {});
-    /** 0.55: obre la finestra de la Reverb de Mibase d'un insert (la crea si encara no sona, per exemple si està apagat). */
-    void obreReverb (const mibase::Insert& x, const juce::String& titol);
+    /** 0.55: obre la finestra d'un efecte intern de Mibase (Reverb, 0.56 Dinàmica) d'un insert (el crea si encara no sona,
+        per exemple si està apagat). */
+    void obreIntern (const mibase::Insert& x, const juce::String& titol);
+    static bool esIntern (const std::string& plugin) { return plugin == mibase::reverb::idPlugin || plugin == mibase::dinamica::idPlugin; }
+    /** 0.56: els paràmetres d'un insert (clau = id) o d'un instrument VST3 («inst:» + id de pista). Si l'insert és intern i
+        encara no és viu, el crea (sense sonar). nullptr si no n'hi ha. */
+    mibase::Parametritzable* parametres (const mibase::Insert& x);
+    mibase::Parametritzable* parametresInstrument (const std::string& idPista);
+    /** 0.56: aquest insert accepta sidechain? (els interns, sí; un VST3, si té entrada lateral) */
+    bool admetSidechain (const mibase::Insert& x);
 
     const juce::KnownPluginList& llista() const noexcept { return plugins; }
     /** Menú dels plugins (instruments o efectes), per fabricant. Els ids dels ítems comencen a «base». */
@@ -157,7 +178,10 @@ private:
     std::map<std::string, Viu> vius;
     /** 0.55: les reverbs internes (insert «intern:reverb»), per id d'insert. «adormides»: inserts apagats (en tornar-los
         a encendre s'oblida la cua vella, perquè no soni de cop). */
-    std::map<std::string, std::shared_ptr<mibase::reverb::Reverb>> reverbs;
+    std::map<std::string, std::shared_ptr<mibase::EfecteIntern>> reverbs;   // 0.56: tots els interns (Reverb, Dinàmica)
+    std::shared_ptr<mibase::EfecteIntern> creaIntern (const mibase::Insert& x);
+    double ultimFs = 48000.0;
+    int ultimBloc = 512;
     std::set<std::string> adormides;
     std::set<std::string> sensePreparar;   // creades per la finestra abans de sonar: es preparen en entrar al pla
     std::map<std::string, std::string> fallats;   // clau → plugin que no s'ha pogut obrir (no es torna a provar)

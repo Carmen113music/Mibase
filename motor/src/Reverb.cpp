@@ -19,7 +19,7 @@ namespace mibase::reverb
         constexpr double pi = 3.14159265358979323846;
 
         const char* const nomsAlg[numAlgorismes] = { "Room", "Hall", "Chamber", "Plate", "Spring", "Vintage Digital",
-                                                     "Ambient", "Shimmer", "Gated", "Reverse", "Early Reflections" };
+                                                     "Ambient", "Shimmer", "Gated", "Reverse", "Early Reflections", "Convolució" };
         const char* const descAlg[numAlgorismes] = {
             "Habitacions petites i mitjanes: reflexions properes i una cua curta i natural.",
             "Sales grans i profundes: entrada suau, cua llarga i ampla.",
@@ -31,7 +31,8 @@ namespace mibase::reverb
             "Cua que puja de to (octava, quinta…): brillant i etèria.",
             "Reverb tallada de cop: la cua es manté i es talla en sec (bateries dels 80).",
             "Reverb al revés: el so creix fins al cop i es talla.",
-            "Només les primeres reflexions: dona espai i presència sense cua."
+            "Només les primeres reflexions: dona espai i presència sense cua.",
+            "Convolució: reprodueix un espai o un aparell real a partir d'una resposta impulsional (IR) en WAV."
         };
 
         struct Nota { const char* nom; double negres; };
@@ -98,6 +99,14 @@ namespace mibase::reverb
             { "sortida", "Sortida", -24, 6, 0, false, false, "Volum de la reverb (no toca el so original)." },
             { "qualitat", "Qualitat", 0, 2, 1, true, false, "Eco: menys CPU. Normal: equilibrat. Alta: més densitat i suavitat." },
             { "vista", "Vista", 0, 1, 0, true, false, "Simple o Avançat." },
+            // 0.56
+            { "duckdet", "Detector", 0, 1, 0, true, false, "Peak: reacciona a cada cop. RMS: segueix el volum mitjà (més suau)." },
+            { "duckhpf", "Filtre greus", 20, 2000, 20, false, true, "El detector no escolta els greus per sota d'aquí (que un baix o un bombo no l'activin)." },
+            { "ducklpf", "Filtre aguts", 500, 20000, 20000, false, true, "El detector no escolta els aguts per sobre d'aquí." },
+            { "irlong", "Length", 5, 100, 100, false, false, "Quina part de la IR es fa servir: més curt, cua més curta (acaba amb una baixada suau)." },
+            { "irdamp", "Damping", 0, 100, 0, false, false, "Els aguts de la IR s'apaguen més de pressa com més avança la cua." },
+            { "irnorm", "Normalitza", 0, 1, 1, true, false, "Totes les IR sonen amb un volum semblant (no és el volum de sortida)." },
+            { "irrev", "Reverse", 0, 1, 0, true, false, "La IR al revés: el so creix fins al final." },
         };
 
         inline float limita (float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
@@ -267,6 +276,7 @@ namespace mibase::reverb
             { 10,  40, 1.0f, 30, 0.90f, 24, 0.90f, 0.60f, 0.10f, 1.0f, 0, 1.20f, 0.45f },
             { 10,  40, 0.0f,  0, 0.00f,  0, 0.85f, 0.00f, 0.00f, 1.0f, 0, 1.20f, 0.0f },
             {  0,   0, 1.0f, 90, 1.00f, 28, 0.60f, 0.00f, 0.00f, 1.0f, 0, 1.15f, 0.0f },
+            { 26, 105, 0.0f,  0, 0.00f,  0, 0.80f, 0.60f, 0.00f, 0.5f, 0, 1.00f, 0.35f },   // 0.56: convolució (no fa servir el tanc)
         };
 
         // Proporcions (0..1) de les longituds del tanc: irregulars perquè no ressonin juntes.
@@ -309,6 +319,10 @@ namespace mibase::reverb
             case Qualitat: { const int i = (int) std::lround (v); return i == 0 ? "Eco" : i == 1 ? "Normal" : "Alta"; }
             case EntradaMode: return v > 0.5f ? "Mono→Estèreo" : "Estèreo";
             case ModeVista: return v > 0.5f ? "Avançat" : "Simple";
+            case DuckDet: return v > 0.5f ? "RMS" : "Peak";
+            case DuckHpf: return v <= 20.5f ? "Off" : textFreq (v);
+            case DuckLpf: return v >= 19999.0f ? "Off" : textFreq (v);
+            case IrLong: case IrDamp: return num (v, 0) + " %";
             default: return v > 0.5f ? "Sí" : "No";
         }
     }
@@ -584,6 +598,7 @@ namespace mibase::reverb
             shimRet = 0.0f;
             rcCompte = 0;
             envDuck = envGate = envGated = 0.0f;
+            msDuck = 0.0f;
             guanyDuck = 1.0f;
             gate = 1.0f;
             gated = 0.0f;
@@ -652,15 +667,26 @@ namespace mibase::reverb
 
         float escalaMida (float size01) const { return 0.35f + 1.0f * size01; }
 
-        void processa (Reverb& rv, const Params& p, double bpm, float* L, float* R, int n) noexcept
+        // 0.56: sidechain (font externa del ducking), detector i convolució
+        const float* kL = nullptr;
+        const float* kR = nullptr;
+        conv::Convolucio* cv = nullptr;
+        Biquad dkHP, dkLP;
+        float dkHpf = -1.0f, dkLpf = -1.0f, msDuck = 0.0f;
+
+        void processa (Reverb& rv, const Params& p, double bpm, float* L, float* R, int n, const float* scL, const float* scR) noexcept
         {
             const int aDem = (int) p[Alg], qDem = (int) p[Qualitat];
             if (alg < 0) { configura (aDem, qDem, p); fosa = 0.0f; fase = 0; }
             else if ((aDem != alg || qDem != qualitat) && fase == 0) fase = 1;
+            cv = &rv.conv;
+            rv.mes.sidechain.store (scL != nullptr, std::memory_order_relaxed);
 
             for (int ofs = 0; ofs < n; ofs += SB)
             {
                 const int m = std::min (SB, n - ofs);
+                kL = scL != nullptr ? scL + ofs : nullptr;
+                kR = scR != nullptr ? scR + ofs : nullptr;
                 subBloc (p, bpm, L + ofs, R + ofs, m);
             }
 
@@ -744,7 +770,7 @@ namespace mibase::reverb
             const float gDamp = coefPol (dampingHz (sDamp), fs);
             const float gCG = coefPol (sCG, fs), gCA = coefPol (sCA, fs);
             const float dampBypass = fb;
-            const bool esTanc = alg != Spring && alg != Reverse && alg != Early;
+            const bool esTanc = alg != Spring && alg != Reverse && alg != Early && alg != Convolucio;
             const bool apLlac = pf.difLlac > 0.0f && pf.apFrac > 0.0f;
             float gMitja = 0.0f;
             if (esTanc)
@@ -844,6 +870,16 @@ namespace mibase::reverb
             const float aDuckA = std::exp (-1.0f / (std::max (1.0f, p[DuckAtk]) * 0.001f * fsf));
             const float aDuckR = std::exp (-1.0f / (std::max (20.0f, p[DuckRel]) * 0.001f * fsf));
             const float thrDuck = p[DuckThr], amtDuck = p[DuckAmt];
+            const bool rmsDuck = p[DuckDet] > 0.5f;
+            const float aRms = 1.0f - std::exp (-1.0f / (0.015f * fsf));
+            const bool ambHpf = p[DuckHpf] > 20.5f, ambLpf = p[DuckLpf] < 19999.0f, ambFiltresDuck = ambHpf || ambLpf;
+            if (duckOn && (p[DuckHpf] != dkHpf || p[DuckLpf] != dkLpf))
+            {
+                dkHpf = p[DuckHpf];
+                dkLpf = p[DuckLpf];
+                dkHP.k = ambHpf ? passaAlt (dkHpf, fs) : Coef {};
+                dkLP.k = ambLpf ? passaBaix (std::min ((double) dkLpf, fs * 0.45), fs) : Coef {};
+            }
             const float aEnvR = std::exp (-1.0f / (0.06f * fsf));
             const float aGateA = 1.0f / (std::max (0.5f, p[GateAtk]) * 0.001f * fsf);
             const float aGateR = 1.0f / (std::max (5.0f, p[GateRel]) * 0.001f * fsf);
@@ -878,7 +914,7 @@ namespace mibase::reverb
                 pre[0].escriu (xL);
                 pre[1].escriu (xR);
                 preActual = preObj + (preActual - preObj) * gPre;
-                const float dPre = std::max (1.0f, preActual);
+                const float dPre = std::max (1.0f, alg == Convolucio ? preActual - (float) conv::Convolucio::latencia : preActual);
                 xL = pre[0].lineal (dPre);
                 xR = pre[1].lineal (dPre);
 
@@ -1038,6 +1074,15 @@ namespace mibase::reverb
                 wL += lL * gLate;
                 wR += lR * gLate;
 
+                // ---- 0.56: convolució (en lloc de les reflexions i el tanc) ----
+                if (alg == Convolucio && cv != nullptr)
+                {
+                    float cL = 0.0f, cR = 0.0f;
+                    cv->mostra (xL, xR, cL, cR);
+                    wL += cL;
+                    wR += cR;
+                }
+
                 // ---- Gated (algorisme): la cua es manté mentre hi ha so i es talla en sec ----
                 if (alg == Gated)
                 {
@@ -1095,8 +1140,19 @@ namespace mibase::reverb
                 // ---- Ducking ----
                 if (duckOn)
                 {
-                    envDuck = key > envDuck ? key : envDuck * aEnvR;   // detector ràpid; l'atac i el retorn són del guany
-                    const float over = guanyADb (envDuck) - thrDuck;
+                    // 0.56: el detector escolta la pista de sidechain (si n'hi ha) o el so propi; amb filtres i Peak/RMS.
+                    float k;
+                    if (ambFiltresDuck)
+                    {
+                        const float m = kL != nullptr ? 0.5f * (kL[s] + kR[s]) : 0.5f * (dL + dR);
+                        k = std::fabs (dkLP (dkHP (m)));
+                    }
+                    else k = kL != nullptr ? std::max (std::fabs (kL[s]), std::fabs (kR[s])) : key;
+                    if (! std::isfinite (k)) k = 0.0f;
+                    float nivell;
+                    if (rmsDuck) { msDuck += (k * k - msDuck) * aRms; nivell = std::sqrt (msDuck); }
+                    else { envDuck = k > envDuck ? k : envDuck * aEnvR; nivell = envDuck; }   // detector ràpid; l'atac i el retorn són del guany
+                    const float over = guanyADb (nivell) - thrDuck;
                     const float red = limita (over / 6.0f, 0.0f, 1.0f) * amtDuck;
                     const float obj = dbAGuany (-red);
                     guanyDuck = obj < guanyDuck ? obj + (guanyDuck - obj) * aDuckA : obj + (guanyDuck - obj) * aDuckR;
@@ -1152,8 +1208,145 @@ namespace mibase::reverb
 
     void Reverb::prepara (double fs, int)
     {
-        if (nucli->preparat && std::fabs (nucli->fs - fs) < 0.5) { nucli->buida(); return; }
+        opcionsConv();
+        if (nucli->preparat && std::fabs (nucli->fs - fs) < 0.5) { nucli->buida(); conv.prepara (fs); return; }
         nucli->prepara (fs);
+        conv.prepara (fs);
+    }
+
+    void Reverb::opcionsConv() noexcept
+    {
+        conv::Opcions o;
+        o.longitud = valor (IrLong) / 100.0;
+        o.damping = valor (IrDamp) / 100.0;
+        o.normalitza = valor (IrNorm) > 0.5f;
+        o.reversa = valor (IrRev) > 0.5f;
+        conv.posaOpcions (o);
+    }
+
+    std::string Reverb::estat() const
+    {
+        auto t = params().text();
+        if (! refIR.empty())
+        {
+            std::string e;
+            for (char c : refIR)
+            {
+                if (c == '%') e += "%25";
+                else if (c == ';') e += "%3B";
+                else if (c == '=') e += "%3D";
+                else e += c;
+            }
+            t += ";ir=" + e;
+        }
+        return t;
+    }
+
+    void Reverb::posaEstat (const std::string& s)
+    {
+        Params p;
+        if (! p.llegeix (s)) return;
+        posaParams (p);
+        std::string ref;
+        const auto a = s.find (";ir=");
+        if (a != std::string::npos)
+        {
+            const auto b = s.find (';', a + 4);
+            const auto e = s.substr (a + 4, b == std::string::npos ? std::string::npos : b - a - 4);
+            for (size_t i = 0; i < e.size(); ++i)
+            {
+                if (e[i] == '%' && i + 2 < e.size())
+                {
+                    const auto h = e.substr (i + 1, 2);
+                    ref += h == "25" ? '%' : h == "3B" ? ';' : h == "3D" ? '=' : '?';
+                    i += 2;
+                }
+                else ref += e[i];
+            }
+        }
+        if (ref != refIR)
+        {
+            std::string err;
+            if (ref.empty()) treuIR();
+            else carregaIR (ref, err);
+        }
+    }
+
+    bool Reverb::carregaIR (const std::string& referencia, std::string& error)
+    {
+        refIR = referencia;
+        auto ir = conv::carrega (conv::resol (referencia), error);
+        conv.posaIR (ir);
+        return ir != nullptr;
+    }
+
+    void Reverb::treuIR()
+    {
+        refIR.clear();
+        conv.posaIR (nullptr);
+    }
+
+    // ---- 0.56: paràmetres comuns ----
+    namespace
+    {
+        int paramDeIndex (int i) noexcept { return i < ModeVista ? i : i + 1; }   // la vista no és un paràmetre del so
+        bool esIR (int p) noexcept { return p == IrLong || p == IrDamp || p == IrNorm || p == IrRev; }
+    }
+
+    int Reverb::numParametres() const { return numParams - 1; }
+
+    InfoParametre Reverb::infoParametre (int i) const
+    {
+        const int p = paramDeIndex (std::clamp (i, 0, numParams - 2));
+        const auto& f = info (p);
+        InfoParametre r;
+        r.id = f.clau;
+        r.nom = f.nom;
+        if (p == DuckThr || p == DuckAtk || p == DuckRel || p == DuckAmt || p == DuckDet || p == DuckHpf || p == DuckLpf) r.nom = std::string ("Ducking ") + f.nom;
+        if (p == GateThr || p == GateAtk || p == GateHold || p == GateRel) r.nom = std::string ("Gate ") + f.nom;
+        if (esIR (p)) r.nom = std::string ("IR ") + f.nom;
+        r.passos = f.enter ? (int) (f.mx - f.mn) + 1 : 0;
+        r.automatitzable = ! (p == Alg || p == Qualitat || esIR (p));   // canvien l'estructura (fosa): no a cada bloc
+        return r;
+    }
+
+    float Reverb::normal (int p, float v) noexcept
+    {
+        const auto& f = info (p);
+        if (f.mx <= f.mn) return 0.0f;
+        if (f.log && f.mn > 0.0f) return limita ((float) (std::log (v / f.mn) / std::log (f.mx / f.mn)), 0.0f, 1.0f);
+        return limita ((v - f.mn) / (f.mx - f.mn), 0.0f, 1.0f);
+    }
+
+    float Reverb::deNormal (int p, float x) noexcept
+    {
+        const auto& f = info (p);
+        x = limita (x, 0.0f, 1.0f);
+        if (f.log && f.mn > 0.0f) return f.mn * std::pow (f.mx / f.mn, x);
+        return f.mn + (f.mx - f.mn) * x;
+    }
+
+    void Reverb::posaParametre (int i, float v01) noexcept
+    {
+        if (i < 0 || i >= numParams - 1) return;
+        const int p = paramDeIndex (i);
+        posa (p, deNormal (p, v01));
+    }
+
+    float Reverb::parametre (int i) const noexcept
+    {
+        if (i < 0 || i >= numParams - 1) return 0.0f;
+        const int p = paramDeIndex (i);
+        return normal (p, valor (p));
+    }
+
+    std::string Reverb::textParametre (int i, float v01) const
+    {
+        if (i < 0 || i >= numParams - 1) return {};
+        const int p = paramDeIndex (i);
+        float v = deNormal (p, v01);
+        if (info (p).enter) v = (float) std::lround (v);
+        return textValor (p, v);
     }
 
     void Reverb::posa (int p, float v) noexcept
@@ -1164,6 +1357,7 @@ namespace mibase::reverb
         if (i.enter) v = (float) std::lround (v);
         par[(size_t) p].store (v, std::memory_order_relaxed);
         canvis.fetch_add (1, std::memory_order_relaxed);
+        if (p == IrLong || p == IrDamp || p == IrNorm || p == IrRev) opcionsConv();   // 0.56 (sense bloquejos)
     }
 
     float Reverb::valor (int p) const noexcept { return p >= 0 && p < numParams ? par[(size_t) p].load (std::memory_order_relaxed) : 0.0f; }
@@ -1179,6 +1373,7 @@ namespace mibase::reverb
     {
         for (int i = 0; i < numParams; ++i) par[(size_t) i].store (p[i], std::memory_order_relaxed);
         canvis.fetch_add (1, std::memory_order_relaxed);
+        opcionsConv();
     }
 
     void Reverb::processa (float* L, float* R, int n) noexcept
@@ -1192,7 +1387,7 @@ namespace mibase::reverb
         Params p;
         for (int i = 0; i < numParams; ++i) p.v[(size_t) i] = par[(size_t) i].load (std::memory_order_relaxed);
         const double bpm = tempo != nullptr ? tempo->load (std::memory_order_relaxed) : 120.0;
-        nucli->processa (*this, p, bpm > 1.0 ? bpm : 120.0, L, R, n);
+        nucli->processa (*this, p, bpm > 1.0 ? bpm : 120.0, L, R, n, scL, scR);
 #ifdef MIBASE_REVERB_FTZ
         _mm_setcsr (csr);
 #endif

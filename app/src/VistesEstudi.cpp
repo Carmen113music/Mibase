@@ -2467,10 +2467,12 @@ void Capcaleres::menu (int pista)
     m.addItem (2, "Esborra la pista");
     m.addSeparator();
     m.addItem (9, "Afegeix una pista…"_ca);   // 0.42: sense haver d'anar al final de la taula
+    m.addItem (11, "Automatització… (A)"_ca + (t.autos.empty() ? juce::String() : " · " + juce::String ((int) t.autos.size()) + " línies"_ca));   // 0.56
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, pista] (int r)
     {
         if (r == 0 || pista >= estat.numPistes()) return;
         if (r == 1) { if (onCanviaNom) onCanviaNom (pista); return; }
+        if (r == 11) { if (onAutomatitzacio) onAutomatitzacio (pista); return; }   // 0.56
         if (r == 9)
         {
             VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
