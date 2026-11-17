@@ -35,5 +35,38 @@ namespace
             comprova (au::bandera (a.id) == au::bandera (a.id), "sempre la mateixa bandera");
             comprova (std::string (au::nomGrava (2)) == "Enganxa", "noms dels modes");
         });
+
+        prova ("0.58 Dinàmica: 80 presets de fàbrica (10 per categoria) i biblioteca de l'usuari", []
+        {
+            using namespace mibase::dinamica;
+            const auto& v = presetsFabrica();
+            comprova (v.size() == 80 && categories().size() == 8, "80 presets en 8 categories");
+            std::set<std::string> noms;
+            bool ok = true;
+            for (const auto& c : categories())
+            {
+                int n = 0;
+                for (const auto& p : v) if (p.categoria == c) ++n;
+                ok = ok && n == 10;
+            }
+            comprova (ok, "10 per categoria");
+            bool totsBe = true;
+            for (const auto& p : v)
+            {
+                noms.insert (p.nom);
+                Dinamica d;
+                d.posaEstat (p.estat);
+                totsBe = totsBe && d.estat() == p.estat;
+            }
+            comprova (noms.size() == v.size() && totsBe, "noms diferents i l'estat es recupera igual");
+            const auto f = std::filesystem::temp_directory_path() / "mibase_058_presets.json";
+            BibliotecaPresets b;
+            b.desaPreset ({ "Meu", "Carpeta", "", v[3].estat });
+            b.commutaFavorit (BibliotecaPresets::clauFabrica (v[0].nom));
+            comprova (b.desa (f), "desa");
+            BibliotecaPresets c;
+            comprova (c.carrega (f) && c.busca ("Meu") != nullptr && c.esFavorit ("f:" + v[0].nom) && c.nomLliure ("Meu") == "Meu 2", "carrega");
+            std::filesystem::remove (f);
+        });
     }
 }

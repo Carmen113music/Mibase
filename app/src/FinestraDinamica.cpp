@@ -2,6 +2,9 @@
 
 #include "ControlSidechain.h"
 #include "Controls.h"
+#include "DialegText.h"
+#include "NavegadorPresets.h"
+#include <map>
 #include "Dibuix.h"
 #include "EscGlobal.h"
 #include "Pom.h"
@@ -15,6 +18,21 @@ namespace
 {
     juce::String u8 (const std::string& s) { return juce::String::fromUTF8 (s.c_str(), (int) s.size()); }
     juce::String u8 (const char* s) { return juce::String::fromUTF8 (s); }
+
+    // 0.58: presets propis i favorits (Documents\Mibase\Dinamica\presets.json)
+    juce::File fitxerBiblioteca()
+    {
+        return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Mibase").getChildFile ("Dinamica").getChildFile ("presets.json");
+    }
+    BibliotecaPresets& biblioteca()
+    {
+        static BibliotecaPresets b;
+        static bool carregada = false;
+        if (! carregada) { carregada = true; b.carrega (dibuix::cami (fitxerBiblioteca())); }
+        return b;
+    }
+    void desaBiblioteca() { biblioteca().desa (dibuix::cami (fitxerBiblioteca())); }
+    std::map<const void*, juce::String>& nomsPreset() { static std::map<const void*, juce::String> m; return m; }   // per efecte (mentre dura la sessió)
 
     /** La corba (entrada → sortida) amb el punt on és ara el so. */
     class Corba : public juce::Component
@@ -55,11 +73,24 @@ namespace
         Dinamica& din;
     };
 
-    class PanellDinamica : public juce::Component, private juce::Timer
+    class PanellDinamica : public juce::Component, private juce::Timer, public OrigenPresets
     {
     public:
         PanellDinamica (std::shared_ptr<Dinamica> d, ServeiSidechain* sc, const std::string& id) : din (std::move (d)), corba (*din), ctrlSc (sc, id)
         {
+            // 0.58: presets
+            for (auto* b : { &btAnt, &btSeg, &btPreset, &btDesa }) addAndMakeVisible (b);
+            addAndMakeVisible (btFav);
+            btAnt.setTooltip ("Preset anterior"_ca);
+            btSeg.setTooltip ("Preset següent"_ca);
+            btPreset.setTooltip ("Clica per veure tots els presets (veus, guitarres, baix, bateria, sidechain…)"_ca);
+            btFav.setTooltip ("Preferit"_ca);
+            btDesa.setTooltip ("Desa els ajustos com un preset teu"_ca);
+            btAnt.onClick = [this] { pas (-1); };
+            btSeg.onClick = [this] { pas (1); };
+            btPreset.onClick = [this] { obreNavegador(); };
+            btFav.onClick = [this] { commutaFavoritActual(); };
+            btDesa.onClick = [this] { desaPreset(); };
             addChildComponent (ctrlSc);
             ctrlSc.setVisible (sc != nullptr && ! id.empty());
             addAndMakeVisible (segMode);
@@ -84,7 +115,7 @@ namespace
                 addAndMakeVisible (*pom);
                 poms.push_back ({ p, std::move (pom) });
             }
-            setSize (820, 430);
+            setSize (820, 470);
             refresca();
             startTimerHz (30);
         }
@@ -92,6 +123,9 @@ namespace
 
         void refresca()
         {
+            const auto nom = nomsPreset()[din.get()];
+            btPreset.setButtonText (nom.isEmpty() ? "(sense preset)"_ca : nom);
+            btFav.setToggleState (esFavorit (nom), juce::dontSendNotification);
             const int m = (int) din->valor (ModeP);
             segMode.setTriat (m);
             segDet.setTriat ((int) din->valor (Detector));
@@ -149,6 +183,17 @@ namespace
         {
             auto r = getLocalBounds();
             auto dalt = r.removeFromTop (56).reduced (14, 12);
+            {
+                auto pr = r.removeFromTop (34).reduced (14, 3);
+                btAnt.setBounds (pr.removeFromLeft (28));
+                btPreset.setBounds (pr.removeFromLeft (juce::jmin (300, pr.getWidth() - 160)));
+                btSeg.setBounds (pr.removeFromLeft (28));
+                pr.removeFromLeft (6);
+                btFav.setBounds (pr.removeFromLeft (26));
+                pr.removeFromLeft (6);
+                btDesa.setBounds (pr.removeFromLeft (80));
+            }
+            if (navegador != nullptr) navegador->setBounds (getLocalBounds());
             dalt.removeFromLeft (120);
             segMode.setBounds (dalt.removeFromLeft (juce::jmin (dalt.getWidth() - 420, segMode.ampladaIdeal() + 20)));
             btEscolta.setBounds (dalt.removeFromRight (100));
@@ -183,6 +228,122 @@ namespace
             repaint (zonaFont);
         }
 
+        // ---- 0.58: presets (OrigenPresets) ----
+        std::vector<const Preset*> totsPresets()
+        {
+            std::vector<const Preset*> v;
+            for (auto& p : biblioteca().usuari) v.push_back (&p);
+            for (auto& p : presetsFabrica()) v.push_back (&p);
+            return v;
+        }
+        bool esFavorit (const juce::String& nom)
+        {
+            const auto n = nom.toStdString();
+            return biblioteca().esFavorit (biblioteca().busca (n) != nullptr ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
+        }
+        void commutaFavoritActual()
+        {
+            const auto nom = nomsPreset()[din.get()].toStdString();
+            if (nom.empty()) { btFav.setToggleState (false, juce::dontSendNotification); return; }
+            biblioteca().commutaFavorit (biblioteca().busca (nom) != nullptr ? BibliotecaPresets::clauUsuari (nom) : BibliotecaPresets::clauFabrica (nom));
+            desaBiblioteca();
+            refresca();
+        }
+        void aplicaPreset (const Preset& p)
+        {
+            din->posaEstat (p.estat);
+            nomsPreset()[din.get()] = u8 (p.nom);
+            refresca();
+        }
+        void pas (int d)
+        {
+            const auto v = totsPresets();
+            if (v.empty()) return;
+            const auto nom = nomsPreset()[din.get()].toStdString();
+            int i = -1;
+            for (int k = 0; k < (int) v.size(); ++k) if (v[(size_t) k]->nom == nom) i = k;
+            i = i < 0 ? (d > 0 ? 0 : (int) v.size() - 1) : (i + d + (int) v.size()) % (int) v.size();
+            aplicaPreset (*v[(size_t) i]);
+        }
+        void desaPreset()
+        {
+            const auto actual = nomsPreset()[din.get()];
+            const bool meu = biblioteca().busca (actual.toStdString()) != nullptr;
+            const auto proposta = meu ? actual : u8 (biblioteca().nomLliure ((actual.isEmpty() ? juce::String ("Dinàmica"_ca) : actual + " (meu)"_ca).toStdString()));
+            dialeg = std::make_unique<DialegText> ("Desa el preset"_ca, "Nom del preset (si ja en tens un amb aquest nom, se substitueix)."_ca, "Desa"_ca,
+                [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom."_ca : juce::String(); },
+                [this] (const juce::String& t)
+                {
+                    const auto nom = t.trim().toStdString();
+                    const auto* ja = biblioteca().busca (nom);
+                    biblioteca().desaPreset ({ nom, ja != nullptr ? ja->categoria : std::string ("Meus"), "", din->estat() });
+                    desaBiblioteca();
+                    nomsPreset()[din.get()] = u8 (nom);
+                    refresca();
+                }, proposta);
+            DialegText::mostra (*this, dialeg);
+        }
+        void obreNavegador()
+        {
+            navegador = std::make_unique<NavegadorPresetsComu> (*this);
+            addAndMakeVisible (*navegador);
+            navegador->setBounds (getLocalBounds());
+            navegador->grabKeyboardFocus();
+        }
+        juce::StringArray categoriesFabrica() override { juce::StringArray a; for (auto& c : categories()) a.add (u8 (c)); return a; }
+        juce::StringArray carpetesUsuari() override { juce::StringArray a; for (auto& c : biblioteca().carpetes()) a.add (u8 (c)); return a; }
+        std::vector<EntradaPreset> entrades() override
+        {
+            std::vector<EntradaPreset> v;
+            const auto tots = totsPresets();
+            const int nu = (int) biblioteca().usuari.size();
+            for (int i = 0; i < (int) tots.size(); ++i)
+            {
+                const auto& p = *tots[(size_t) i];
+                Dinamica d;
+                d.posaEstat (p.estat);
+                const bool usuari = i < nu;
+                v.push_back ({ u8 (p.nom), u8 (p.categoria), u8 (p.descripcio), u8 (nomMode ((int) d.valor (ModeP))), usuari,
+                               biblioteca().esFavorit (usuari ? BibliotecaPresets::clauUsuari (p.nom) : BibliotecaPresets::clauFabrica (p.nom)), i });
+            }
+            return v;
+        }
+        juce::String presetActual() override { return nomsPreset()[din.get()]; }
+        void aplica (const EntradaPreset& e) override
+        {
+            const auto tots = totsPresets();
+            if (e.index >= 0 && e.index < (int) tots.size()) aplicaPreset (*tots[(size_t) e.index]);
+        }
+        void commutaFavorit (const EntradaPreset& e) override
+        {
+            const auto n = e.nom.toStdString();
+            biblioteca().commutaFavorit (e.usuari ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
+            desaBiblioteca();
+            refresca();
+        }
+        bool existeixMeu (const juce::String& nom) override { return biblioteca().busca (nom.toStdString()) != nullptr; }
+        void reanomena (const juce::String& vell, const juce::String& nou) override
+        {
+            if (biblioteca().reanomena (vell.toStdString(), nou.toStdString()))
+            {
+                desaBiblioteca();
+                if (nomsPreset()[din.get()] == vell) nomsPreset()[din.get()] = nou;
+            }
+            refresca();
+        }
+        void mou (const juce::String& nom, const juce::String& carpeta) override { biblioteca().mou (nom.toStdString(), carpeta.toStdString()); desaBiblioteca(); }
+        void esborra (const juce::String& nom) override { biblioteca().esborra (nom.toStdString()); desaBiblioteca(); refresca(); }
+        void tancaNavegador() override
+        {
+            juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<PanellDinamica> (this)] { if (sp != nullptr) { sp->navegador.reset(); sp->grabKeyboardFocus(); } });
+        }
+
+        std::unique_ptr<NavegadorPresetsComu> navegador;
+        std::unique_ptr<DialegText> dialeg;
+        Boto btAnt { {}, dibuix::Icona::Rebobina, Boto::Estil::Subtil }, btSeg { {}, dibuix::Icona::Endavant, Boto::Estil::Subtil };
+        Boto btPreset { "(sense preset)"_ca, std::nullopt, Boto::Estil::Secundari };
+        BotoEstrella btFav;
+        Boto btDesa { "Desa", dibuix::Icona::Disc, Boto::Estil::Secundari };
         std::shared_ptr<Dinamica> din;
         Segmentat segMode { { "Compressor", "Gate", "Expander", "De-esser" } };
         Segmentat segDet { { "Peak", "RMS" } };

@@ -1,6 +1,7 @@
 #include "FinestraReverb.h"
 
 #include "ControlSidechain.h"
+#include "NavegadorPresets.h"
 #include "Controls.h"
 #include "DialegText.h"
 #include "Dibuix.h"
@@ -98,23 +99,6 @@ private:
 
 //==============================================================================
 /** Botó d'estrella (favorit), dibuixat (sense emojis). */
-class BotoEstrella : public juce::Button
-{
-public:
-    BotoEstrella() : juce::Button ("favorit") { setMouseCursor (juce::MouseCursor::PointingHandCursor); setWantsKeyboardFocus (false); }
-    void paintButton (juce::Graphics& g, bool sobre, bool) override
-    {
-        auto r = getLocalBounds().toFloat().reduced (3.0f);
-        const float s = juce::jmin (r.getWidth(), r.getHeight());
-        r = r.withSizeKeepingCentre (s, s);
-        juce::Path p;
-        p.addStar (r.getCentre(), 5, s * 0.22f, s * 0.5f, 0.0f);
-        if (getToggleState()) { g.setColour (tema::guitarra); g.fillPath (p); }
-        g.setColour (getToggleState() ? tema::guitarra : (sobre ? tema::text : tema::suau));
-        g.strokePath (p, juce::PathStrokeType (1.4f));
-    }
-};
-
 //==============================================================================
 /** La pantalla de dalt: la forma de la reverb (pre-delay, reflexions, cua i decay per bandes), el nivell real de la cua
     que passa, els nivells d'entrada i sortida i l'amplada estèreo. */
@@ -898,7 +882,7 @@ private:
         g.drawText (f.nom, 34, 0, w - 230, h, juce::Justification::centredLeft);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.5f));
-        g.drawText ((f.usuari ? "Meu · "_ca : juce::String()) + f.cat + " · " + u8 (nomAlgorisme ((int) f.pr->p[Alg])), w - 230, 0, 222, h, juce::Justification::centredRight);
+        g.drawText ((f.usuari ? "Meu · "_ca : juce::String()) + f.cat + " · "_ca + u8 (nomAlgorisme ((int) f.pr->p[Alg])), w - 230, 0, 222, h, juce::Justification::centredRight);
     }
     void listBoxItemClicked (int fila, const juce::MouseEvent& e) override
     {

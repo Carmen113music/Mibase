@@ -2220,6 +2220,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 {
     auto* c = estat.clip ({ pista, clip });
     if (c == nullptr || ! c->midi) return;
+    estat.automat.obert = false;   // 0.58: l'editor d'automatització deixa el lloc
     estat.focusEditor = true;
     estat.triaClip (pista, clip);
     int i = estat.editorDe ({ pista, clip });
@@ -2256,6 +2257,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 void PantallaEstudi::mostraPianoRoll (bool visible)
 {
     if (visible && estat.veu.obert) estat.veu.obert = false;   // 0.22: comparteixen el lloc de baix
+    if (visible) estat.automat.obert = false;                     // 0.58
     if (visible && estat.sampler.obert) estat.sampler.obert = false;   // 0.26
     // 0.31: el clip a obrir: el MIDI triat; si no n'hi ha, el de la pista triada (MIDI o bateria: així P obre també el Drumpad)
     // on és el capçal, o el primer.
@@ -2450,6 +2452,7 @@ void PantallaEstudi::obreVeu (int pista, int clip)
     auto* t = estat.pista (pista);
     auto* c = estat.clip ({ pista, clip });
     if (t == nullptr || c == nullptr || c->midi || c->presa.empty() || mibase::esMidi (*t)) return;
+    estat.automat.obert = false;   // 0.58
     if (audioPreses.find (c->presa) == audioPreses.end())
     {
         estat.info = "Aquest clip no té l'àudio carregat"_ca;
@@ -2626,6 +2629,7 @@ void PantallaEstudi::obreSampler (int pista)
 {
     auto* t = estat.pista (pista);
     if (t == nullptr || ! mibase::esSampler (*t)) return;
+    estat.automat.obert = false;   // 0.58
     if (estat.pianoRoll) mostraPianoRoll (false);
     estat.veu.obert = false;
     if (estat.sampler.pista != t->id) { estat.sampler.pxPerSeg = 0.0; estat.sampler.iniciVista = 0.0; estat.sampler.capcal = 0.0; }
@@ -2640,6 +2644,8 @@ void PantallaEstudi::obreSampler (int pista)
 void PantallaEstudi::obreAutomatitzacio (int pista)
 {
     if (estat.pista (pista) == nullptr) return;
+    if (estat.veu.obert) tancaVeu();            // 0.58: un sol editor a baix
+    if (estat.sampler.obert) tancaSampler();
     editorAuto.obre (pista);
     colocaSeccions();
     estat.avisa();

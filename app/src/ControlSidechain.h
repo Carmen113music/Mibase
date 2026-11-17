@@ -28,10 +28,16 @@ public:
         addAndMakeVisible (btSc);
         addAndMakeVisible (btFont);
         btSc.setLlum (tema::accent);
-        btSc.setTooltip ("Sidechain: el so d'una altra pista controla aquest efecte (sense barrejar-s'hi). Encén o apaga."_ca);
         btFont.setTooltip ("D'on escolta: tria la pista (o pistes) i, a «Opcions», el nivell i d'on es capta."_ca);
-        btSc.onClick = [this] { if (servei != nullptr) servei->commuta (idInsert, &btFont); refresca(); };
+        btSc.onClick = [this]
+        {
+            if (perMenu) { perMenu = false; return; }
+            if (servei != nullptr) servei->commuta (idInsert, &btFont);
+            refresca();
+        };
+        btSc.setTooltip ("Sidechain: el so d'una altra pista controla aquest efecte (sense barrejar-s'hi). Clic: encén o apaga. Botó dret: tria la pista."_ca);
         btFont.onClick = [this] { if (servei != nullptr) servei->menu (idInsert, &btFont); };
+        btSc.addMouseListener (this, false);   // 0.58: botó dret a SC = triar la pista
         setVisible (servei != nullptr && ! idInsert.empty());
         refresca();
         startTimerHz (4);
@@ -46,7 +52,18 @@ public:
         btFont.setBounds (r);
     }
 
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.eventComponent == &btSc) perMenu = false;
+        if (e.eventComponent == &btSc && e.mods.isPopupMenu() && servei != nullptr)
+        {
+            perMenu = true;
+            servei->menu (idInsert, &btSc);
+        }
+    }
+
 private:
+    bool perMenu = false;
     void timerCallback() override { refresca(); }
     void refresca()
     {

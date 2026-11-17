@@ -2,6 +2,8 @@
 
 #include "mibase/Instrument.h"
 #include <array>
+#include <filesystem>
+#include <vector>
 #include <atomic>
 #include <string>
 
@@ -28,6 +30,30 @@ namespace mibase::dinamica
     };
     const InfoParam& info (int p);
     std::string textValor (int p, float v);
+
+    /** 0.58: presets (de fàbrica i de l'usuari), com els de la Reverb. «estat» és el text de Dinamica::estat(). */
+    struct Preset { std::string nom, categoria, descripcio, estat; };
+    const std::vector<std::string>& categories();
+    const std::vector<Preset>& presetsFabrica();
+    class BibliotecaPresets
+    {
+    public:
+        std::vector<Preset> usuari;
+        std::vector<std::string> favorits;     // «f:Nom» (fàbrica) o «u:Nom» (usuari)
+        bool carrega (const std::filesystem::path& fitxer);
+        bool desa (const std::filesystem::path& fitxer) const;
+        void desaPreset (const Preset& p);
+        bool esborra (const std::string& nom);
+        bool reanomena (const std::string& nom, const std::string& nou);
+        bool mou (const std::string& nom, const std::string& carpeta);
+        const Preset* busca (const std::string& nom) const;
+        std::vector<std::string> carpetes() const;
+        static std::string clauFabrica (const std::string& nom) { return "f:" + nom; }
+        static std::string clauUsuari (const std::string& nom) { return "u:" + nom; }
+        bool esFavorit (const std::string& clau) const;
+        void commutaFavorit (const std::string& clau);
+        std::string nomLliure (const std::string& base) const;
+    };
 
     struct Mesures
     {

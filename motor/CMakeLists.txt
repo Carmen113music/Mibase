@@ -24,6 +24,7 @@ add_library(mibase_motor STATIC
     src/ReverbPresets.cpp
     src/Automatitzacio.cpp
     src/Dinamica.cpp
+    src/DinamicaPresets.cpp
     src/Convolucio.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
