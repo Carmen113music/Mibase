@@ -1,5 +1,7 @@
 #pragma once
 
+#include "FinestraFlotant.h"
+
 #include "Kits.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "Controls.h"
@@ -246,11 +248,13 @@ public:
             if (auto f = finestresGuitarra.find (id); f != finestresGuitarra.end()) { f->second->toFront (true); return; }
             finestresGuitarra[id] = std::make_unique<FinestraGuitarra> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · guitarra virtual"_ca,
                                                                       [this, id] { finestresGuitarra.erase (id); });
+            quedaSobreMibase (*finestresGuitarra[id]);   // 0.70
             return;
         }
         if (auto f = finestresSinte.find (id); f != finestresSinte.end()) { f->second->toFront (true); return; }
         finestresSinte[id] = std::make_unique<FinestraSinte> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · sinte intern"_ca,
                                                               [this, id] { finestresSinte.erase (id); });
+        quedaSobreMibase (*finestresSinte[id]);   // 0.70
     }
 private:
     void menuInstrument()
