@@ -2,6 +2,7 @@
 #include "EscGlobal.h"
 #include "FinestraDelay.h"
 #include "FinestraSaturacio.h"
+#include "FinestraDrive.h"
 #include "FinestraDinamica.h"
 #include "FinestraEq.h"
 #include "FinestraReverb.h"
@@ -402,6 +403,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraDelay (dl, titol, [this, clau] { finestres.erase (clau); });
         else if (auto st = std::dynamic_pointer_cast<mibase::saturacio::Saturacio> (r->second))   // 0.66
             finestres[clau] = creaFinestraSaturacio (st, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto dv = std::dynamic_pointer_cast<mibase::drive::Drive> (r->second))   // 0.67
+            finestres[clau] = creaFinestraDrive (dv, titol, [this, clau] { finestres.erase (clau); });
         return;
     }
     auto* a = viu (clau);
@@ -415,6 +418,7 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
     if (x.plugin == mibase::dinamica::idPlugin) r = std::make_shared<mibase::dinamica::Dinamica>();
     else if (x.plugin == mibase::eq::idPlugin) r = std::make_shared<mibase::eq::Equalitzador>();
     else if (x.plugin == mibase::saturacio::idPlugin) r = std::make_shared<mibase::saturacio::Saturacio>();   // 0.66
+    else if (x.plugin == mibase::drive::idPlugin) r = std::make_shared<mibase::drive::Drive>();               // 0.67
     else if (x.plugin == mibase::delay::idPlugin)   // 0.65
     {
         auto dl = std::make_shared<mibase::delay::Delay>();
@@ -500,6 +504,15 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
             if (d == nullptr) { t << "intern (Dinàmica), encara no creada\n"_ca; return; }
             t << "intern (Dinàmica) · "_ca << mibase::dinamica::nomMode ((int) d->valor (mibase::dinamica::ModeP)) << " · reducció "_ca
               << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
+            return;
+        }
+        if (x.plugin == mibase::drive::idPlugin)   // 0.67
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::drive::Drive*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Drive), encara no creat\n"_ca; return; }
+            t << "intern (Drive) · "_ca << juce::String::fromUTF8 (mibase::drive::nomMode ((int) d->valor (mibase::drive::ModeP)))
+              << " · gain " << juce::String (d->valor (mibase::drive::Gain), 1) << " · sortida " << dB (d->mesures().sortida.load()) << " dB\n";
             return;
         }
         if (x.plugin == mibase::saturacio::idPlugin)   // 0.66

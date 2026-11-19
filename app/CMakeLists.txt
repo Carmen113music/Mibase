@@ -21,6 +21,7 @@ target_sources(Mibase PRIVATE
     src/FinestraDinamica.cpp
     src/FinestraDelay.cpp
     src/FinestraSaturacio.cpp
+    src/FinestraDrive.cpp
     src/FinestraEq.cpp
     src/EditorAutomatitzacio.cpp
     src/EditorVeu.cpp

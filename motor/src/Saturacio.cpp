@@ -9,20 +9,19 @@ namespace mibase::saturacio
     namespace
     {
         constexpr double pi = 3.14159265358979323846;
-        const char* const curts[numEstils] = { "A", "E", "N", "T", "P", "Overdrive", "Fuzz" };
-        const char* const llargs[numEstils] = { "A · Cinta", "E · Consola", "N · Preamp", "T · Triode", "P · Pèntode", "Overdrive", "Fuzz" };
+        const char* const curts[numEstils] = { "A", "E", "N", "T", "P", "Suau" };
+        const char* const llargs[numEstils] = { "A · Cinta", "E · Consola", "N · Preamp", "T · Triode", "P · Pèntode", "Suau" };
         const char* const descs[numEstils] = {
             "A: com un preamp de cinta. Càlid i rodó, greus plens, aguts suaus.",
             "E: com una consola britànica dels 60. Brillant i aspre, molt present.",
             "N: com un preamp de transistors clàssic. Gruixut als mitjos, harmònics parells.",
             "T: com una vàlvula triode. Càlid, asimètric; amb drive alt, brut i gros.",
             "P: com una vàlvula pèntode. Agressiu i mossegador, el més dur dels cinc.",
-            "Overdrive: com un pedal de guitarra. Mitjos endavant i greus nets.",
-            "Fuzz: saturació extrema i quadrada, com els pedals dels 60.",
+            "Suau: la saturació de sempre, neutra i rodona. No canvia el to, només afegeix escalfor i cos.",
         };
         // clau, nom, min, max, defecte, enter, log, ajuda
         const InfoParam infos[numParams] = {
-            { "estil", "Style", 0, numEstils - 1, 0, true, false, "El caràcter de la saturació: A, E, N, T, P (estils analògics), Overdrive o Fuzz." },
+            { "estil", "Style", 0, numEstils - 1, 0, true, false, "El caràcter de la saturació: A, E, N, T, P (estils analògics) o Suau. Per a pedals de guitarra, el Drive." },
             { "drive", "Drive", 0, 10, 3, false, false, "Quanta saturació: de 0 (gairebé net) a 10 (+36 dB a l'entrada de la corba)." },
             { "punish", "Punish", 0, 1, 0, true, false, "Afegeix +20 dB de drive: per destrossar el so." },
             { "lowcut", "Low Cut", 20, 1000, 20, false, true, "Treu greus abans de saturar (menys fang)." },
@@ -71,7 +70,7 @@ namespace mibase::saturacio
         /** Harmònics parells que no desapareixen amb el drive alt (com el biaix d'una vàlvula): depenen del so abans del drive. */
         inline float parells (int estil, float u) noexcept
         {
-            static const float k[numEstils] = { 0.06f, 0.0f, 0.18f, 0.3f, 0.0f, 0.0f, 0.22f };
+            static const float k[numEstils] = { 0.06f, 0.0f, 0.18f, 0.3f, 0.0f, 0.04f };
             const float kk = k[std::clamp (estil, 0, numEstils - 1)];
             if (kk == 0.0f) return 0.0f;
             const float t = std::tanh (2.0f * u);
@@ -100,8 +99,7 @@ namespace mibase::saturacio
                 return x >= 0.0f ? (1.0f - std::exp (-kp * x)) / kp : -(1.0f - std::exp (kn * x)) / kn * 0.75f + 0.25f * std::tanh (x);
             }
             case P: return x / std::sqrt (std::sqrt (1.0f + x * x * x * x));
-            case Overdrive: return (float) (2.0 / pi) * std::atan (x * (float) (pi / 2.0));
-            default: { constexpr float b = 0.2f; return 0.7f * (std::tanh (2.0f * (x + b)) - std::tanh (2.0f * b)); }   // Fuzz
+            default: return std::tanh (x);   // Suau
         }
     }
     }
@@ -175,8 +173,7 @@ namespace mibase::saturacio
                 case N: campana (c.preA, 700, 0.8, 3.0, fs); campana (c.postA, 700, 0.8, -2.0, fs); prestatgeBaix (c.postB, 120, 1.0, fs); break;
                 case T: prestatgeBaix (c.preA, 200, 1.5, fs); passaBaixos (c.postA, 13000, 0.6, fs); break;
                 case P: campana (c.preA, 1800, 0.9, 4.0, fs); passaBaixos (c.postA, 12000, 0.7071, fs); break;
-                case Overdrive: prestatgeBaix (c.preA, 700, -9.0, fs); prestatgeBaix (c.postA, 700, 6.0, fs); passaBaixos (c.postB, 5500, 0.7071, fs); break;
-                default: prestatgeBaix (c.preA, 150, 3.0, fs); passaBaixos (c.postA, 7000, 0.7071, fs); break;
+                default: break;   // Suau: sense colors
             }
             const float t = valor (Tone) * 0.6f;
             prestatgeBaix (c.toneLo, 900, -t, fs);

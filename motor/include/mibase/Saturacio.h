@@ -11,7 +11,8 @@
 /** 0.66: «Saturació (Mibase)», efecte intern d'insert («intern:saturacio»). Base dels futurs amplis i pedals.
 
     Inspirada en el Decapitator: cinc estils analògics (A cinta, E consola britànica, N preamp de transistors,
-    T vàlvula triode, P vàlvula pèntode) i dos de pedal (Overdrive i Fuzz). Drive, Punish (+20 dB), Low Cut amb
+    T vàlvula triode, P vàlvula pèntode) i, des de la 0.67, Suau (la saturació de sempre). Els sons de pedal
+    (crunch, overdrive, distorsió, fuzz) són al Drive (Drive.h). Drive, Punish (+20 dB), Low Cut amb
     Thump (cop de greus al tall), Tone (fosc ↔ brillant), High Cut amb Steep, Mix, Output i Auto (el volum de sortida
     es queda igual encara que pugis el drive). La distorsió es fa a 4 vegades la freqüència de mostreig perquè no
     surtin harmònics fantasma.
@@ -23,8 +24,8 @@ namespace mibase::saturacio
     inline constexpr const char* idPlugin = "intern:saturacio";
     inline constexpr const char* nomPlugin = "Saturació (Mibase)";
 
-    enum Estil : int { A, E, N, T, P, Overdrive, Fuzz, numEstils };
-    const char* nomEstil (int e);          // «A», «E»… «Overdrive», «Fuzz»
+    enum Estil : int { A, E, N, T, P, Suau, numEstils };   // 0.67: Suau ocupa el lloc de l'Overdrive (ara al Drive); el Fuzz, també al Drive
+    const char* nomEstil (int e);          // «A», «E»… «Suau»
     const char* nomLlargEstil (int e);     // «A · Cinta»
     const char* descripcioEstil (int e);
 
@@ -102,12 +103,7 @@ namespace mibase::saturacio
         float driveDb() const noexcept;
         const Mesures& mesures() const noexcept { return mes; }
 
-    private:
-        std::array<std::atomic<float>, numParams> par;
-        std::atomic<bool> demanaBuidar { false };
-        Mesures mes;
-        double fs = 48000.0;
-
+        // ---- filtres (també els fa servir el Drive) ----
         struct Bq
         {
             float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
@@ -119,6 +115,12 @@ namespace mibase::saturacio
         static void campana (Bq& b, double f, double q, double db, double fs) noexcept;
         static void prestatgeAlt (Bq& b, double f, double db, double fs) noexcept;
         static void prestatgeBaix (Bq& b, double f, double db, double fs) noexcept;
+
+    private:
+        std::array<std::atomic<float>, numParams> par;
+        std::atomic<bool> demanaBuidar { false };
+        Mesures mes;
+        double fs = 48000.0;
 
         // per canal
         struct Canal

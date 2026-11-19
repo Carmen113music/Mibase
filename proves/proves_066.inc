@@ -46,7 +46,7 @@ namespace
             comprova (harm (L, 24000, 48000, 400.0) / harm (L, 24000, 48000, 200.0) < 0.01, "drive 0 i so fluix: gairebé net");
         });
 
-        prova ("0.66 Saturació: el T i el N fan parells, el P i l'Overdrive gairebé només senars", [&]
+        prova ("0.66 Saturació: el T i el N fan parells, el P i l'E gairebé només senars", [&]
         {
             auto parells = [&] (int e)
             {
@@ -58,7 +58,7 @@ namespace
                 return harm (L, 24000, 48000, 600.0) / harm (L, 24000, 48000, 900.0);
             };
             comprova (parells (saturacio::T) > 0.15 && parells (saturacio::N) > 0.15, "T i N: 2n harmònic important");
-            comprova (parells (saturacio::P) < 0.1 && parells (saturacio::Overdrive) < 0.1, "P i Overdrive: simètrics");
+            comprova (parells (saturacio::P) < 0.1 && parells (saturacio::E) < 0.1, "P i E: simètrics");
         });
 
         prova ("0.66 Saturació: Auto manté el volum, sense alias i estat/presets", [&]

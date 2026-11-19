@@ -14,7 +14,7 @@ namespace mibase::saturacio
 
     namespace
     {
-        // estil (0 A, 1 E, 2 N, 3 T, 4 P, 5 Overdrive, 6 Fuzz), drive, punish, low cut, thump, tone, high cut, steep, mix, sortida
+        // estil (0 A, 1 E, 2 N, 3 T, 4 P, 5 Suau), drive, punish, low cut, thump, tone, high cut, steep, mix, sortida
         struct V { const char* cat; const char* nom; const char* desc; int estil; float drive; int punish; float lc; int thump; float tone; float hc; int steep; float mix, out; };
         const V taula[] = {
             { "Veus", "Veu càlida", "Una mica de cinta: la veu més rodona i present.", 0, 2.5f, 0, 80, 0, 0.0f, 16000, 0, 100, 0 },
@@ -25,28 +25,27 @@ namespace mibase::saturacio
             { "Veus", "Paral·lel subtil", "Molta saturació barrejada a poc: densitat sense que es noti.", 3, 7.0f, 0, 120, 0, 0.0f, 14000, 0, 25, 0 },
             { "Guitarres", "Acústica amb cos", "Cinta suau per a guitarra acústica.", 0, 3.0f, 0, 90, 0, -0.5f, 17000, 0, 100, 0 },
             { "Guitarres", "Elèctrica neta calenta", "El punt d'un ampli de vàlvules abans de trencar.", 3, 4.0f, 0, 80, 0, 0.0f, 12000, 0, 100, 0 },
-            { "Guitarres", "Crunch", "Overdrive mig: per a acords amb una mica de pèl.", 5, 5.0f, 0, 80, 0, 1.0f, 9000, 0, 100, 0 },
-            { "Guitarres", "Overdrive de solo", "Mitjos endavant i sustain.", 5, 8.0f, 0, 100, 0, 2.0f, 8000, 1, 100, 0 },
-            { "Guitarres", "Fuzz anys 60", "Fuzz quadrat i gruixut.", 6, 8.0f, 0, 60, 0, 0.0f, 7000, 0, 100, 0 },
             { "Guitarres", "Pèntode rock", "Agressiu i dens, per a riffs.", 4, 7.0f, 0, 90, 1, 0.0f, 9000, 1, 100, 0 },
             { "Baix", "Baix rodó", "Cinta: greus més plens sense perdre definició.", 0, 4.0f, 0, 30, 0, -1.0f, 10000, 0, 100, 0 },
             { "Baix", "Baix amb grinyol", "Preamp de transistors que fa sortir les notes.", 2, 6.0f, 0, 40, 0, 1.5f, 9000, 0, 100, 0 },
-            { "Baix", "Baix distorsionat", "Fuzz barrejat amb l'original: greus nets i aguts bruts.", 6, 7.0f, 0, 40, 0, 1.0f, 6000, 1, 45, 0 },
+            { "Baix", "Baix distorsionat", "Pèntode a fons barrejat amb l'original: greus nets i aguts bruts.", 4, 7.0f, 0, 40, 0, 1.0f, 6000, 1, 45, 0 },
             { "Bateria", "Bateria aixafada", "Pèntode a fons en paral·lel: energia.", 4, 8.0f, 1, 60, 0, 1.0f, 12000, 0, 35, 0 },
             { "Bateria", "Caixa amb cos", "Triode per donar gruix a la caixa.", 3, 5.0f, 0, 120, 1, 0.5f, 14000, 0, 100, 0 },
             { "Bateria", "Bombo amb cop", "Thump al tall de greus i una mica de cinta.", 0, 4.0f, 0, 45, 1, -1.0f, 9000, 1, 100, 0 },
-            { "Bateria", "Sala trencada", "Overheads o sala destrossats, barrejats.", 6, 9.0f, 1, 200, 0, 2.0f, 8000, 1, 30, 0 },
+            { "Bateria", "Sala trencada", "Overheads o sala destrossats, barrejats.", 4, 9.0f, 1, 200, 0, 2.0f, 8000, 1, 30, 0 },
             { "Teclats i sintes", "Piano vintage", "Cinta suau: un piano amb aire antic.", 0, 3.0f, 0, 60, 0, -2.0f, 12000, 0, 100, 0 },
-            { "Teclats i sintes", "Orgue amb vàlvula", "Overdrive per a orgue rock.", 5, 6.0f, 0, 70, 0, 0.5f, 8000, 0, 100, 0 },
+            { "Teclats i sintes", "Orgue amb vàlvula", "Triode a fons per a orgue rock.", 3, 6.0f, 0, 70, 0, 0.5f, 8000, 0, 100, 0 },
             { "Teclats i sintes", "Sinte agressiu", "Consola a fons: un lead que talla.", 1, 7.0f, 0, 80, 0, 2.0f, 16000, 0, 100, 0 },
+            { "Busos i mescla", "Escalfor suau", "La saturació de sempre, neutra: cos sense canviar el to.", 5, 3.0f, 0, 20, 0, 0.0f, 20000, 0, 100, 0 },
+            { "Veus", "Veu amb escalfor", "Saturació suau i neutra per a qualsevol veu.", 5, 3.5f, 0, 90, 0, 0.0f, 18000, 0, 100, 0 },
+            { "Màster", "Màster suau", "Molt poca saturació neutra per arrodonir els pics.", 5, 1.0f, 0, 20, 0, 0.0f, 20000, 0, 100, 0 },
             { "Busos i mescla", "Cola de bus", "Una mica de cinta per enganxar un grup.", 0, 1.5f, 0, 20, 0, 0.0f, 20000, 0, 100, 0 },
             { "Busos i mescla", "Calidesa de consola", "Com passar per una consola: subtil.", 2, 1.5f, 0, 20, 0, 0.0f, 20000, 0, 100, 0 },
             { "Màster", "Màster cinta", "Molt subtil: arrodoneix els pics del màster.", 0, 1.0f, 0, 20, 0, -0.3f, 20000, 0, 100, 0 },
             { "Màster", "Màster brillant", "Una mica de consola per obrir els aguts.", 1, 1.0f, 0, 20, 0, 0.8f, 20000, 0, 100, 0 },
             { "Extrem", "Destrucció", "Punish i pèntode: tot trencat.", 4, 10.0f, 1, 100, 0, 0.0f, 10000, 0, 100, 0 },
             { "Extrem", "Ràdio vella", "Estret, trencat i sense greus.", 3, 8.0f, 0, 700, 1, 2.0f, 3500, 1, 100, 0 },
-            { "Extrem", "Fuzz trencat", "El Fuzz amb Punish: s'ensorra.", 6, 10.0f, 1, 80, 0, -1.0f, 6000, 1, 100, 0 },
-            { "Extrem", "Telèfon", "Banda estreta i brut.", 5, 7.0f, 0, 900, 0, 3.0f, 3000, 1, 100, 0 },
+            { "Extrem", "Telèfon", "Banda estreta i brut.", 1, 7.0f, 0, 900, 0, 3.0f, 3000, 1, 100, 0 },
         };
     }
 

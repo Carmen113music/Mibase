@@ -340,7 +340,7 @@ namespace
         BotoEstrella btFav;
         Boto btDesa { "Desa", dibuix::Icona::Disc, Boto::Estil::Secundari };
         std::shared_ptr<Saturacio> sat;
-        Segmentat segEstil { { "A", "E", "N", "T", "P", "Overdrive", "Fuzz" } };
+        Segmentat segEstil { { "A", "E", "N", "T", "P", "Suau" } };
         Boto btPunish { "Punish", std::nullopt, Boto::Estil::Tecla };
         Boto btThump { "Thump", std::nullopt, Boto::Estil::Tecla };
         Boto btSteep { "Steep", std::nullopt, Boto::Estil::Tecla };
