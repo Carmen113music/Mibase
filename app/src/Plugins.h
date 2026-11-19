@@ -9,6 +9,10 @@
 #include <mibase/Dinamica.h>
 #include <mibase/Reverb.h>
 #include <mibase/Equalitzador.h>
+#include <mibase/Delay.h>
+#include <mibase/Saturacio.h>
+#include <mibase/Drive.h>
+#include <mibase/Limitador.h>
 
 /** 0.19: el temps de la cançó per als plugins (tempo, posició, sonant), perquè els delays i similars vagin a tempo.
     El fil d'àudio el posa al dia a cada bloc (ServeiAudio); els plugins el llegeixen. */
@@ -155,7 +159,10 @@ public:
     /** 0.55: obre la finestra d'un efecte intern de Mibase (Reverb, 0.56 Dinàmica) d'un insert (el crea si encara no sona,
         per exemple si està apagat). */
     void obreIntern (const mibase::Insert& x, const juce::String& titol);
-    static bool esIntern (const std::string& plugin) { return plugin == mibase::reverb::idPlugin || plugin == mibase::dinamica::idPlugin || plugin == mibase::eq::idPlugin; }
+    static bool esIntern (const std::string& plugin) { return plugin == mibase::reverb::idPlugin || plugin == mibase::dinamica::idPlugin || plugin == mibase::eq::idPlugin
+                                                                  || plugin == mibase::delay::idPlugin || plugin == mibase::saturacio::idPlugin
+                                                                  || plugin == mibase::drive::idPlugin
+                                                                  || plugin == mibase::limitador::idPlugin; }
     /** 0.56: els paràmetres d'un insert (clau = id) o d'un instrument VST3 («inst:» + id de pista). Si l'insert és intern i
         encara no és viu, el crea (sense sonar). nullptr si no n'hi ha. */
     mibase::Parametritzable* parametres (const mibase::Insert& x);
@@ -171,6 +178,9 @@ public:
     juce::String getUltimError() const { return ultimError; }
     /** 0.25: com estan els efectes i instruments VST3 del projecte (per al diagnòstic). */
     juce::String informe (const mibase::Projecte& p) const;
+    /** 0.68: quantes mostres retarda aquest insert (0 si no en retarda o encara no és viu). */
+    int latencia (const std::string& idInsert) const;
+    double latenciaMs (const std::string& idInsert) const { return latencia (idInsert) * 1000.0 / (ultimFs > 1000.0 ? ultimFs : 48000.0); }
 
 private:
     std::shared_ptr<AdaptadorPlugin> crea (const std::string& id, const std::string& estat, double fs, int maxBloc);

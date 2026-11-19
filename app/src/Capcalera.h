@@ -42,6 +42,13 @@ public:
         btPlay.setLlum (vintage::ledVerd);
         btGrava.setLlum (vintage::ledVermell);
         btBucle.setLlum (vintage::ledGroc);
+        addAndMakeVisible (btRetard);   // 0.68
+        btRetard.setLlum (vintage::ledGroc);
+        btRetard.setTooltip ("Retard mínim (RM): apaga un moment els plugins que retarden el so a la pista que graves o toques, "
+                             "als busos i al màster, perquè no sentis retard als auriculars. S'encén sol mentre graves. "
+                             "Botó dret: a partir de quants ms els apaga."_ca);
+        btRetard.onClick = [this] { if (onRetardMinim) onRetardMinim(); };
+        btRetard.onClicDret = [this] { if (onMenuRetardMinim) onMenuRetardMinim (btRetard); };   // 0.69: el mínim
 
         setProjecte ({});
         actualitza();
@@ -57,6 +64,10 @@ public:
     std::function<int()> onEstatTransport;
     /** El bucle és encès (llum del botó). */
     std::function<bool()> onBucleActiu;
+    /** 0.68: «Retard mínim»: clic al botó, i si ara és encès (pel botó o perquè es grava). */
+    std::function<void()> onRetardMinim;
+    std::function<bool()> onRetardMinimActiu;
+    std::function<void (juce::Component&)> onMenuRetardMinim;   // 0.69
 
     void setPantalla (Pantalla p)
     {
@@ -114,10 +125,10 @@ public:
         zonaLcd = r.removeFromRight (156);
         r.removeFromRight (8);
         const int tecla = 42;
-        zonaTransport = r.removeFromRight (tecla * 7 + 6 * 3).withTrimmedTop (1).withTrimmedBottom (1);
+        zonaTransport = r.removeFromRight (tecla * 8 + 7 * 3).withTrimmedTop (1).withTrimmedBottom (1);
         {
             auto t = zonaTransport;
-            for (auto* b : { &btPrincipi, &btRebobina, &btEndavant, &btAtura, &btPlay, &btGrava, &btBucle })
+            for (auto* b : { &btPrincipi, &btRebobina, &btEndavant, &btAtura, &btPlay, &btGrava, &btBucle, &btRetard })
             {
                 b->setBounds (t.removeFromLeft (tecla));
                 t.removeFromLeft (3);
@@ -147,6 +158,7 @@ private:
         for (auto* b : { &btPrincipi, &btRebobina, &btEndavant, &btAtura, &btPlay, &btGrava })
             b->setVisible (transportVisible);
         btBucle.setVisible (transportVisible);
+        btRetard.setVisible (transportVisible);
         resized();
         repaint();
     }
@@ -159,6 +171,7 @@ private:
         btPlay.setToggleState (t == 1, juce::dontSendNotification);
         btGrava.setToggleState (t == 3 || (t == 2 && (comptador / 4) % 2 == 0), juce::dontSendNotification);
         btBucle.setToggleState (onBucleActiu && onBucleActiu(), juce::dontSendNotification);
+        btRetard.setToggleState (onRetardMinimActiu && onRetardMinimActiu(), juce::dontSendNotification);
 
         auto p = onPosicio ? onPosicio() : std::pair<juce::String, juce::String>();
         if (p != posicio)
@@ -180,6 +193,7 @@ private:
     Boto btPlay { {}, dibuix::Icona::Play, Boto::Estil::Tecla };
     Boto btGrava { {}, dibuix::Icona::Grava, Boto::Estil::Tecla };
     Boto btBucle { {}, dibuix::Icona::Bucle, Boto::Estil::Tecla };
+    Boto btRetard { "RM", std::nullopt, Boto::Estil::Tecla };   // 0.68: «Retard mínim»
 
     juce::Rectangle<int> zonaTransport, zonaLcd;
     std::pair<juce::String, juce::String> posicio;

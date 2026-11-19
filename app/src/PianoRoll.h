@@ -324,6 +324,8 @@ public:
 private:
     void commutaSegueix();
     void triaRasgueig (const std::string& id, bool escolta);
+    /** 0.66: en obrir un clip, el patró triat (guitarra i piano) torna a ser el dels blocs del clip (el del capçal o el primer). */
+    void recuperaPatronsDelClip();
     void escoltaRasgueig (const std::vector<mibase::Nota>& notes);
     void aturaEscolta();   // 0.49.1
     void obreEditorRasgueig();
@@ -340,9 +342,13 @@ private:
     Boto btSegueix { "Segueix acords", std::nullopt, Boto::Estil::Tecla };
     // 0.49: com es toquen els acords a l'eina de patrons de guitarra (oberts, powerchords, octaves greus o agudes)
     Boto btForma { "Acords: oberts", std::nullopt, Boto::Estil::Secundari };
+    Boto btOctava { "+1 oct", std::nullopt, Boto::Estil::Tecla };   // 0.68: patrons de guitarra una octava més amunt
     mibase::guitarra::Forma formaGuitarra = mibase::guitarra::Forma::Oberts;
     bool formaABarra = true;
     void menuForma();
+    int octavaGuitarra = 0;           // 0.66: els patrons de guitarra, una octava més amunt (+1)
+    void posaOctavaGuitarra (int o);
+    juce::String textForma (bool llarg) const;
     void posaForma (mibase::guitarra::Forma f, bool tambeBloc);
     bool ambForma() const { return modeGuitarra() && ! modePiano(); }
     int desplLlista = 0, blocTriat = -1, acordTriat = -1;

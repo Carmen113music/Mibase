@@ -110,6 +110,7 @@ namespace mibase
         int vel = 88;
         bool fix = false;             // retocat a mà: no es reescriu fins que es desbloqueja
         std::string forma;            // 0.49: forma dels acords (guitarra::textForma): "" oberts, "power", "oct", "oct+"
+        int octava = 0;               // 0.66: guitarra: +1 = tot una octava més amunt (plugins que fan servir els greus per a efectes)
         // ---- 0.47: patrons de piano («tipus» = "piano"; buit = rasgueig de guitarra). «passos» és la mà dreta. ----
         std::string tipus;
         std::string passosEsq;        // la mà esquerra
@@ -172,6 +173,7 @@ namespace mibase
         bool actiu = true;       // apagat: el so hi passa de llarg
         std::string estat;       // ajustos del plugin (base64)
         std::vector<FontSidechain> sidechain;   // 0.56: fonts externes (si el plugin en té entrada)
+        bool encesAmbRM = false;   // 0.69: «Retard mínim» no l'apaga mai (per exemple, un ampli de guitarra)
     };
 
     /** 0.56: un punt d'automatització. La posició és en compassos interns (com les parts i el bucle): si canvia el tempo,
@@ -428,6 +430,9 @@ namespace mibase
         /** true: la tonalitat es dedueix de les notes MIDI (si n'hi ha prou); false: l'ha triada en Roger. */
         bool tonalitatAuto = true;
         Tonalitat tonalitat;                      // la triada (o la darrera detectada)
+        /** 0.65: en automàtic, la que en Roger ha triat amb «Una altra» (la detecció la fa servir mentre sigui possible). */
+        bool tePreferida = false;
+        Tonalitat tonalitatPreferida;
         ModeEscala modeEscala = ModeEscala::Visual;
         bool ressaltaAcord = true;                // pinta les notes de l'acord que sona al capçal
         std::vector<CanviTonalitat> canvisTonalitat;   // per a més endavant (es desen i es llegeixen)

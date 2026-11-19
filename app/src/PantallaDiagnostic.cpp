@@ -923,6 +923,16 @@ juce::String PantallaDiagnostic::textDiagnostic()
           << (ultim == 0 ? juce::String ("-") : juce::String ((int) (ara - ultim)) + " ms") << "\n"
           << "Motor: " << (es >= 0 && es < 4 ? estats[es] : "?") << " · pla: " << (e.tePla() ? "sí"_ca : "NO") << "\n"
           << "Pic de sortida des de l'última còpia: "_ca << (pic > 0.0f ? juce::String (juce::Decibels::gainToDecibels (pic), 1) + " dB" : juce::String ("silenci")) << "\n";
+        // 0.64: on es perd (nivells de l'últim mig segon)
+        auto& so = e.mesclador.sonda;
+        auto db = [] (float x) { return x > 1.0e-6f ? juce::String (juce::Decibels::gainToDecibels (x), 1) + " dB" : juce::String ("silenci"); };
+        t << "Notes rebudes pels instruments (aturat): " << (int) so.evsAturat.load() << "\n"
+          << "Ara: instruments " << db (so.picInstrument.load()) << " · després dels efectes " << db (so.picEfectes.load())
+          << " · màster "_ca << db (so.picMaster.load()) << "\n"
+          << "Trossos silenciats per valors no vàlids: "_ca << (int) so.noValids.load() << "\n"
+          << "Compensació del retard (PDC): la pista que s'avança més, "_ca << so.pdcMaxim.load() << " mostres ("
+          << juce::String (so.pdcMaxim.load() * 1000.0 / juce::jmax (8000.0, e.getFs()), 1).replaceCharacter ('.', ',') << " ms)"
+          << (e.mesclador.getRetardMinim() ? " · Retard mínim encès: "_ca + juce::String (so.pdcSaltats.load()) + " plugins apagats"_ca : juce::String()) << "\n";
     }
 
     t << "\n-- MIDI --\n";

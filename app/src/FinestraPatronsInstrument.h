@@ -37,7 +37,12 @@ public:
             addAndMakeVisible (c);
         auto& m = memoria();
         // el patró que l'editor ja tenia triat (sense la variació)
-        if (! triat.empty() && mibase::guitarra::patro (triat) != nullptr) m.id = mibase::guitarra::arrelDe (triat);   // 0.53
+        if (! triat.empty() && mibase::guitarra::patro (triat) != nullptr)
+        {
+            m.id = mibase::guitarra::arrelDe (triat);   // 0.53
+            // 0.66: i la variació (Estrofa, Tornada…), si és de les de fàbrica
+            if (m.id == triat.substr (0, triat.find ('~'))) m.part = (int) mibase::guitarra::partDe (triat);
+        }
         if (mibase::guitarra::patro (m.id) == nullptr || mibase::guitarra::patro (m.id)->piano != piano) m.id = totsElsPatrons().front()->id;
 
         cerca.setFont (dibuix::lletra (13.5f));

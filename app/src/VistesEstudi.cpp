@@ -2281,9 +2281,34 @@ void Capcaleres::paint (juce::Graphics& g)
             auto text = r.withTrimmedLeft (14).withTrimmedRight (10).withTrimmedTop (6);
             g.setFont (dibuix::lletra (14.0f, true));
             g.drawText ("ACORDS", text.removeFromTop (20), juce::Justification::centredLeft);
-            g.setColour (tema::suau);
-            g.setFont (dibuix::lletra (10.5f));
-            g.drawFittedText ("Arrossega-hi acords del Chord Pad o fes-hi doble clic"_ca, text.withTrimmedBottom (6), juce::Justification::topLeft, 2, 0.8f);
+            // 0.65: la tonalitat de la cançó (la mateixa que fa servir tot el programa) i «Una altra» si en dubta
+            namespace hm = mibase::harmonia;
+            const auto det = hm::detecta (p);
+            const bool hiHaAcords = std::any_of (t.clips.begin(), t.clips.end(), [] (const mibase::Clip& c) { return c.esAcord(); });
+            if (hiHaAcords || det.usable)
+            {
+                const auto ton = hm::tonalitatEfectiva (p);
+                auto fila = text.removeFromTop (22);
+                if (const auto rb = rectAltraTonalitat (i); ! rb.isEmpty())
+                {
+                    fila.setRight (rb.getX() - 6);
+                    vintage::tecla (g, rb.toFloat(), false, false, col);
+                    g.setColour (tema::text);
+                    g.setFont (dibuix::lletra (10.5f, true));
+                    g.drawText ("Una altra"_ca, rb, juce::Justification::centred);
+                }
+                g.setColour (p.tonalitatAuto && det.dubtosa ? tema::textMig : tema::text);
+                g.setFont (dibuix::lletra (12.5f, true));
+                g.drawFittedText ("To: "_ca + dibuix::utf8 (hm::nomTo (ton.to, ton)) + (ton.escala == 1 ? " menor"_ca : (ton.escala == 0 ? " major"_ca
+                                      : " (" + dibuix::utf8 (hm::nomTonalitat (ton)) + ")"))
+                                  + (p.tonalitatAuto && det.dubtosa ? " ?" : ""), fila, juce::Justification::centredLeft, 1, 0.8f);
+            }
+            else
+            {
+                g.setColour (tema::suau);
+                g.setFont (dibuix::lletra (10.5f));
+                g.drawFittedText ("Arrossega-hi acords del Chord Pad o fes-hi doble clic"_ca, text.withTrimmedBottom (6), juce::Justification::topLeft, 2, 0.8f);
+            }
             g.setColour (col.withAlpha (0.6f));
             g.fillRect (0, r.getBottom() - 2, getWidth(), 2);
             continue;
@@ -2536,9 +2561,19 @@ juce::Rectangle<int> Capcaleres::zonaES (int fila) const
 juce::Rectangle<int> Capcaleres::rectES (int fila) const
 {
     // 0.37: el botó E/S, el mateix rectangle per pintar-lo i per clicar-lo (si no hi cap, no hi és)
+    // 0.65: sempre a la dreta i de la mateixa mida a totes les pistes
     auto z = zonaES (fila);
-    if (z.getWidth() <= 30) return {};
-    return z.removeFromLeft (juce::jmin (z.getWidth(), 46));
+    if (z.getWidth() < 46) return {};
+    return z.removeFromRight (46);
+}
+
+juce::Rectangle<int> Capcaleres::rectAltraTonalitat (int fila) const
+{
+    // 0.65: el botó «Una altra» de la tonalitat, a la capçalera de la pista d'Acords (a la segona fila)
+    if (fila < 0 || fila >= estat.numPistes() || ! mibase::esAcords (estat.projecte.pistes[(size_t) fila])) return {};
+    const int y = estat.yPista (fila) + 6 + 20;
+    const juce::Rectangle<int> r (getWidth() - 10 - 64, y + 1, 64, 20);
+    return r.getX() > 110 && estat.altPista >= 50 ? r : juce::Rectangle<int>();
 }
 
 bool Capcaleres::esEstreta (int fila) const
@@ -2662,6 +2697,21 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    if (mibase::esAcords (estat.projecte.pistes[(size_t) fila]) && rectAltraTonalitat (fila).contains (e.getPosition()))
+    {
+        // 0.65: «Una altra»: la següent tonalitat possible (es queda mentre les notes i els acords la permetin)
+        namespace hm = mibase::harmonia;
+        comencaCanvi();
+        restaura();
+        auto& p = estat.projecte;
+        p.tonalitatPreferida = hm::seguentCandidata (p);
+        p.tePreferida = true;
+        p.tonalitatAuto = true;
+        const auto ton = hm::tonalitatEfectiva (p);
+        acabaCanvi ("Tonalitat: "_ca + dibuix::utf8 (hm::nomTonalitat (ton)) + " (provant-ne una altra)"_ca);
+        estat.info = "Tonalitat: "_ca + dibuix::utf8 (hm::nomTonalitat (ton)) + ". Si afegeixes acords que no hi encaixen, tornarà a la més probable."_ca;
+        return;
+    }
     if (mibase::esAcords (estat.projecte.pistes[(size_t) fila]))   // 0.36: la pista d'Acords no té tecles ni E/S: només es tria
     {
         estat.pistaTriada = fila;

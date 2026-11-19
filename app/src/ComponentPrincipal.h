@@ -26,6 +26,9 @@ public:
         };
         capcalera.onEstatTransport = [this] { return estudi ? estudi->estatTransport() : 0; };
         capcalera.onBucleActiu = [this] { return estudi != nullptr && estudi->bucleActiu(); };
+        capcalera.onRetardMinim = [this] { if (estudi) estudi->commutaRetardMinim(); };
+        capcalera.onRetardMinimActiu = [this] { return estudi != nullptr && estudi->retardMinimActiu(); };
+        capcalera.onMenuRetardMinim = [this] (juce::Component& on) { if (estudi) estudi->menuRetardMinim (on); };
         capcalera.onPosicio = [this]
         {
             return estudi ? estudi->textPosicio() : std::pair<juce::String, juce::String>();

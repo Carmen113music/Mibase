@@ -80,11 +80,13 @@ namespace mibase
             /** Pistes MIDI: l'instrument (el fa servir el fil d'àudio; la interfície el manté viu) i les notes ordenades. */
             std::shared_ptr<Instrument> instrument;
             std::vector<std::shared_ptr<Efecte>> inserts;   // 0.19: els actius, per ordre
+            std::vector<char> encesAmbRM;                  // 0.69: per a cada insert (mateix ordre): RM no l'apaga
             std::vector<Nota> notes;
             std::vector<Event> events;
             // ---- 0.33: busos i enviaments ----
             int bus = -1;            // és un bus: quin buffer d'entrada té (0..maxBusos-1); -1 = pista normal
             int desti = -1;          // buffer del bus on va el so; -1 = a la sortida
+            bool armada = false;     // 0.68: té el botó de gravar encès (amb «Retard mínim», sense plugins que retarden)
             bool obert = true;       // false: només sonen els seus enviaments (alimenta un retorn en solo)
             struct Envia { int desti = 0; float guanyL = 1.0f, guanyR = 1.0f; int mode = 1; };
             std::vector<Envia> envia;   // els encesos, per ordre
@@ -127,6 +129,7 @@ namespace mibase
         float master = 1.0f;
         int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
         std::vector<std::shared_ptr<Efecte>> insertsMaster;   // 0.19: cadena de màstering (abans del volum del màster)
+        std::vector<char> encesAmbRMMaster;                   // 0.69: RM no l'apaga (mateix ordre)
         std::vector<int> scMaster;                            // 0.56: buffer de sidechain de cada insert del màster (-1: cap)
         int numSidechain = 0;                                 // 0.56: buffers de sidechain en ús
         std::vector<Pista> pistes;
@@ -169,6 +172,32 @@ namespace mibase
     class Mesclador
     {
     public:
+        /** 0.64: per trobar on es perd el so (el fil d'àudio escriu, la interfície llegeix). Els «pic» baixen sols
+            (uns 0,5 s) per veure el que passa ara mateix. */
+        struct Sonda
+        {
+            std::atomic<unsigned int> evsAturat { 0 };     // missatges MIDI que han arribat als instruments amb la cançó aturada
+            std::atomic<float> picInstrument { 0.0f };     // el que surt dels instruments (abans dels efectes)
+            std::atomic<float> picEfectes { 0.0f };        // les pistes d'instrument després dels seus efectes
+            std::atomic<float> picMaster { 0.0f };         // la sortida, després de la cadena del màster
+            std::atomic<unsigned int> noValids { 0 };      // trossos amb valors no vàlids (NaN, infinit o desmesurats) que s'han silenciat
+            std::atomic<int> slotNoValid { -1 };           // l'últim slot que els ha donat (-2 = el màster)
+            // 0.68: compensació del retard dels plugins (PDC)
+            std::atomic<int> pdcMaxim { 0 };               // la pista que s'avança més (mostres)
+            std::atomic<int> pdcSaltats { 0 };             // plugins que retarden apagats ara per «Retard mínim»
+        };
+        /** 0.68: «Retard mínim»: els plugins que retarden s'apaguen a les pistes que es graven o es toquen en directe,
+            als busos i al màster (per no sentir retard als auriculars). */
+        void setRetardMinim (bool b) noexcept { retardMinim.store (b, std::memory_order_relaxed); }
+        /** 0.69: RM només apaga els plugins que retarden més d'aquestes mostres (Preferències: 5 ms per defecte). */
+        void setLlindarRM (int mostres) noexcept { llindarRM.store (std::max (0, mostres), std::memory_order_relaxed); }
+        bool getRetardMinim() const noexcept { return retardMinim.load (std::memory_order_relaxed); }
+        /** 0.68: la pista (slot) que toca el teclat ara (-1: cap); la posa el motor. */
+        void setSlotDirecte (int s) noexcept { slotDirecte = s; }
+        /** 0.68: quantes mostres s'avança una pista: el retard dels seus plugins, del bus (o busos) on va i del màster. */
+        static int retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats = nullptr,
+                             const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
+        Sonda sonda;
         void prepara (double fs, int maxBloc);
         /** Suma a L i R «n» mostres a partir de la mostra «pos» de la línia de temps (pot ser negativa).
             «vus»: un Mesurador per slot i canal (2 * maxSlots), o nullptr.
@@ -221,8 +250,11 @@ namespace mibase
         void envia (const Pla::Pista& t, int mode, const float* xL, const float* xR, int n, int nb) noexcept;
         // 0.56
         void enviaSc (const Pla::Pista& t, int punt, const float* xL, const float* xR, int n, int ns) noexcept;
+        std::atomic<bool> retardMinim { false };
+        std::atomic<int> llindarRM { 0 };
+        int slotDirecte = -1;
         void efectes (const Pla::Pista& t, const std::vector<std::shared_ptr<Efecte>>& v, const std::vector<int>& sc, float* xL, float* xR,
-                      long long pos, int n, int ns) noexcept;
+                      long long pos, int n, int ns, bool salta = false, const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
         std::vector<float> scL, scR;             // maxSidechain * maxN
         Pla::Pista pistaBuida;                   // per als efectes del màster (sense automatització)
         float gMaster = 1.0f;
@@ -317,7 +349,9 @@ namespace mibase
 
         double fs = 48000.0;
         int maxBloc = 512;
-        Mesclador mesclador;
+    public:
+        Mesclador mesclador;   // 0.64: públic per a la sonda del diagnòstic
+    private:
         std::vector<float> mixL, mixR;
         std::array<int, maxEntrades> mapaEntrades {};
 

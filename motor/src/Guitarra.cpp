@@ -1414,6 +1414,8 @@ namespace mibase::guitarra
                 if (n.dur > 0) r.push_back (n);
             }
         }
+        if (b.octava != 0)   // 0.66: una octava més amunt (o avall)
+            for (auto& n : r) n.to = std::clamp (n.to + 12 * b.octava, 0, 127);
         return r;
     }
 

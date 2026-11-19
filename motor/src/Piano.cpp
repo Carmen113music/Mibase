@@ -40,18 +40,22 @@ namespace mibase::piano
 
         /** 0.61: una nota de la mà dreta (calculada en posició fonamental) a la seva lloc a la inversió: es mou el mateix
             que la nota de l'acord de la seva classe (o, si no és de l'acord, que la nota de l'acord més propera). */
-        int aInversio (const Acord& a, int n)
+int aInversio (const Acord& a, int n)
         {
-            if (a.desplaca.empty()) return n;
+            // 0.64 (en Roger): el patró és de «dits», no de notes. Si el dibuix era 5-3-1 (sol-mi-do), a la 1a inversió
+            // continua sent 5-3-1 però amb do-sol-mi: cada veu de l'acord (la de baix, la del mig, la de dalt) passa a la
+            // nota que ocupa el mateix lloc a la inversió. Les notes de pas mantenen la distància amb la seva veu.
+            if (a.desplaca.empty() || a.dreta.size() != a.fonamental.size()) return n;
             int millor = 0, dist = 99;
             for (size_t j = 0; j < a.fonamental.size(); ++j)
             {
                 const int f = a.fonamental[j];
-                if (((n - f) % 12 + 12) % 12 == 0) return n + a.desplaca[j];
+                if (((n - f) % 12 + 12) % 12 == 0) return a.dreta[j] + (n - f);
                 const int d = std::min (((n - f) % 12 + 12) % 12, ((f - n) % 12 + 12) % 12);
-                if (d < dist) { dist = d; millor = a.desplaca[j]; }
+                if (d < dist) { dist = d; millor = (int) j; }
             }
-            return n + millor;
+            const int base = a.dreta[(size_t) millor] + (n - a.fonamental[(size_t) millor]);
+            return n + 12 * (int) std::lround ((base - n) / 12.0);   // la mateixa nota, a l'octava de la seva veu
         }
 
         Acord prepara (const harmonia::AcordPad& a)

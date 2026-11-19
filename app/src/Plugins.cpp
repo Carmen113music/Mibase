@@ -1,5 +1,9 @@
 #include "Plugins.h"
 #include "EscGlobal.h"
+#include "FinestraDelay.h"
+#include "FinestraSaturacio.h"
+#include "FinestraDrive.h"
+#include "FinestraLimitador.h"
 #include "FinestraDinamica.h"
 #include "FinestraEq.h"
 #include "FinestraReverb.h"
@@ -396,6 +400,14 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraDinamica (d, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
         else if (auto q = std::dynamic_pointer_cast<mibase::eq::Equalitzador> (r->second))
             finestres[clau] = creaFinestraEq (q, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto dl = std::dynamic_pointer_cast<mibase::delay::Delay> (r->second))   // 0.65
+            finestres[clau] = creaFinestraDelay (dl, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto st = std::dynamic_pointer_cast<mibase::saturacio::Saturacio> (r->second))   // 0.66
+            finestres[clau] = creaFinestraSaturacio (st, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto dv = std::dynamic_pointer_cast<mibase::drive::Drive> (r->second))   // 0.67
+            finestres[clau] = creaFinestraDrive (dv, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto lm = std::dynamic_pointer_cast<mibase::limitador::Limitador> (r->second))   // 0.69
+            finestres[clau] = creaFinestraLimitador (lm, titol, [this, clau] { finestres.erase (clau); });
         return;
     }
     auto* a = viu (clau);
@@ -408,6 +420,15 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
     std::shared_ptr<mibase::EfecteIntern> r;
     if (x.plugin == mibase::dinamica::idPlugin) r = std::make_shared<mibase::dinamica::Dinamica>();
     else if (x.plugin == mibase::eq::idPlugin) r = std::make_shared<mibase::eq::Equalitzador>();
+    else if (x.plugin == mibase::saturacio::idPlugin) r = std::make_shared<mibase::saturacio::Saturacio>();   // 0.66
+    else if (x.plugin == mibase::drive::idPlugin) r = std::make_shared<mibase::drive::Drive>();               // 0.67
+    else if (x.plugin == mibase::limitador::idPlugin) r = std::make_shared<mibase::limitador::Limitador>();   // 0.69
+    else if (x.plugin == mibase::delay::idPlugin)   // 0.65
+    {
+        auto dl = std::make_shared<mibase::delay::Delay>();
+        dl->posaTempo (&RellotgePlugins::global().tempo);
+        r = dl;
+    }
     else
     {
         auto rv = std::make_shared<mibase::reverb::Reverb>();
@@ -489,6 +510,45 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
               << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
             return;
         }
+        if (x.plugin == mibase::limitador::idPlugin)   // 0.69
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::limitador::Limitador*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Limitador), encara no creat\n"_ca; return; }
+            t << "intern (Limitador) · "_ca << juce::String::fromUTF8 (mibase::limitador::nomEstil ((int) d->valor (mibase::limitador::EstilP)))
+              << " · reducció " << juce::String (d->mesures().reduccio.load(), 1) << " dB · " << juce::String (d->mesures().lufsCurt.load(), 1)
+              << " LUFS · latència " << d->latencia() << " mostres\n";
+            return;
+        }
+        if (x.plugin == mibase::drive::idPlugin)   // 0.67
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::drive::Drive*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Drive), encara no creat\n"_ca; return; }
+            t << "intern (Drive) · "_ca << juce::String::fromUTF8 (mibase::drive::nomMode ((int) d->valor (mibase::drive::ModeP)))
+              << " · gain " << juce::String (d->valor (mibase::drive::Gain), 1) << " · sortida " << dB (d->mesures().sortida.load()) << " dB\n";
+            return;
+        }
+        if (x.plugin == mibase::saturacio::idPlugin)   // 0.66
+        {
+            auto r = reverbs.find (x.id);
+            auto* s = r != reverbs.end() ? dynamic_cast<mibase::saturacio::Saturacio*> (r->second.get()) : nullptr;
+            if (s == nullptr) { t << "intern (Decapitor), encara no creat\n"_ca; return; }
+            t << "intern (Decapitor) · "_ca << juce::String::fromUTF8 (mibase::saturacio::nomLlargEstil ((int) s->valor (mibase::saturacio::EstilP)))
+              << " · drive " << juce::String (s->driveDb(), 1) << " dB · sortida " << dB (s->mesures().sortida.load()) << " dB\n";
+            return;
+        }
+        if (x.plugin == mibase::delay::idPlugin)   // 0.65
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::delay::Delay*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Delay), encara no creat\n"_ca; return; }
+            t << "intern (Delay) · "_ca << mibase::delay::nomCaracter ((int) d->valor (mibase::delay::CaracterP)) << " · "
+              << mibase::delay::nomEncaminament ((int) d->valor (mibase::delay::EncaminamentP)) << " · "
+              << juce::String (d->tempsL() * 1000.0, 0) << " ms · eco " << dB (d->mesures().eco.load()) << " dB"
+              << (d->valor (mibase::delay::Freeze) > 0.5f ? " · freeze" : "") << "\n";
+            return;
+        }
         if (x.plugin == mibase::eq::idPlugin)
         {
             auto r = reverbs.find (x.id);
@@ -533,4 +593,12 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
     if (t.isEmpty()) t << "  (cap efecte al projecte)\n";
     if (ultimError.isNotEmpty()) t << "  Últim error: "_ca << ultimError << "\n";
     return t;
+}
+
+int GestorPlugins::latencia (const std::string& idInsert) const
+{
+    // 0.68: per mostrar el retard de cada efecte (els VST3 el diuen; els interns de Mibase no en tenen)
+    if (auto r = reverbs.find (idInsert); r != reverbs.end() && r->second != nullptr) return std::max (0, r->second->latencia());
+    if (auto v = vius.find (idInsert); v != vius.end() && v->second.a != nullptr) return std::max (0, v->second.a->latencia());
+    return 0;
 }

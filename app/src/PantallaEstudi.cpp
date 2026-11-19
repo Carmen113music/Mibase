@@ -1236,12 +1236,57 @@ void PantallaEstudi::refrescaSo()
     historial.afegeix ("So refrescat en tornar a Mibase"_ca);
 }
 
+void PantallaEstudi::commutaRetardMinim()
+{
+    retardMinimBoto = ! retardMinimBoto;
+    servei.estudi().mesclador.setRetardMinim (retardMinimActiu());
+    estat.info = retardMinimBoto ? "Retard mínim encès: els plugins que retarden s'apaguen a la pista que toques o graves, als busos i al màster"_ca
+                                 : "Retard mínim apagat: tots els plugins sonen i el retard es compensa"_ca;
+    estat.avisa();
+}
+
+void PantallaEstudi::menuRetardMinim (juce::Component& on)
+{
+    // 0.69: un retard petit gairebé no es nota tocant: per defecte, RM només apaga els plugins de més de 5 ms
+    const int ara = ajustos.getIntValue ("estudi.rmMinimMs", 5);
+    juce::PopupMenu m;
+    m.addSectionHeader ("Retard mínim: apaga els plugins que retarden més de…"_ca);
+    for (int ms : { 0, 2, 5, 10, 20 })
+        m.addItem (ms + 1, ms == 0 ? "Qualsevol retard"_ca : juce::String (ms) + " ms", true, ms == ara);
+    m.addSeparator();
+    m.addItem (100, "Perquè un plugin no s'apagui mai (un ampli de guitarra…): botó dret sobre l'efecte"_ca, false);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&on), [jo] (int r)
+    {
+        if (jo == nullptr || r < 1 || r > 21) return;
+        jo->ajustos.setValue ("estudi.rmMinimMs", r - 1);
+        jo->estat.info = "Retard mínim: apaga els plugins de més de "_ca + juce::String (r - 1) + " ms";
+        jo->estat.avisa();
+    });
+}
+
 void PantallaEstudi::tic()
 {
+    servei.estudi().mesclador.setRetardMinim (retardMinimActiu());   // 0.68: s'encén sol mentre es grava
+    servei.estudi().mesclador.setLlindarRM ((int) (ajustos.getIntValue ("estudi.rmMinimMs", 5) * 0.001 * servei.estudi().getFs()));   // 0.69
     {
         const bool davant = juce::Process::isForegroundProcess();
         if (davant && ! eraDavant) refrescaSo();
         eraDavant = davant;
+        // 0.64: si una pista ha donat valors no vàlids (NaN…), el mesclador l'ha silenciada: posa els efectes a zero i anota-ho
+        auto& sonda = servei.estudi().mesclador.sonda;
+        if (const auto nv = sonda.noValids.load(); nv != noValidsVistos)
+        {
+            noValidsVistos = nv;
+            const int slot = sonda.slotNoValid.load();
+            juce::String qui = slot == -2 ? juce::String ("el màster"_ca) : "una pista"_ca;
+            for (const auto& t : estat.projecte.pistes)
+                if (slot >= 0 && t.id.size() > 1 && std::atoi (t.id.c_str() + 1) % 128 == slot) qui = "la pista «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "»"_ca;
+            plugins.buidaCues();
+            historial.afegeix ("So recuperat: "_ca + qui + " donava valors no vàlids (silenciada un moment i efectes a zero)"_ca);
+        }
+    }
+    {
     }
     auto& motor = servei.estudi();
     motor.recull();
@@ -1462,7 +1507,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
     }
     if (tipus == "midi")
     {
-        const auto nom = ed::nomPistaLliure (estat.projecte, "Piano");
+        const auto nom = ed::nomPistaLliure (estat.projecte, "Instrument");   // 0.65: abans «Piano»
         auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
         t.canals = 2;
         t.instrument = "intern:piano";

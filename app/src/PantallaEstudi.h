@@ -61,6 +61,11 @@ public:
     void commutaBucle();
     void fesCrossfade();
     bool bucleActiu() const noexcept { return estat.projecte.bucle.marcat && estat.projecte.bucle.actiu; }
+    /** 0.68: «Retard mínim» (el botó RM, o sol mentre es grava). */
+    void commutaRetardMinim();
+    void menuRetardMinim (juce::Component& on);   // 0.69: a partir de quants ms apaga
+    bool retardMinimActiu() const noexcept { return retardMinimBoto || estatTransport() >= 2; }
+    bool retardMinimBoto = false;
     std::pair<juce::String, juce::String> textPosicio() const;
 
     void paint (juce::Graphics& g) override;
@@ -167,7 +172,8 @@ private:
 
     juce::PropertiesFile& ajustos;
     Historial& historial;
-    bool eraDavant = true;   // 0.62.1: Mibase era la finestra de davant (per refrescar el so en tornar-hi)
+    bool eraDavant = true;
+    unsigned int noValidsVistos = 0;   // 0.64: trossos silenciats per valors no vàlids (sonda del mesclador)   // 0.62.1: Mibase era la finestra de davant (per refrescar el so en tornar-hi)
     void refrescaSo();
     ServeiAudio& servei;
     EstatEstudi estat;

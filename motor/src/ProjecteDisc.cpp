@@ -23,6 +23,7 @@ namespace
         for (const auto& x : v)
         {
             nlohmann::json o = { { "id", x.id }, { "plugin", x.plugin }, { "nom", x.nom }, { "actiu", x.actiu }, { "estat", x.estat } };
+            if (x.encesAmbRM) o["encesAmbRM"] = true;   // 0.69
             if (! x.sidechain.empty())   // 0.56
             {
                 auto sc = nlohmann::json::array();
@@ -47,6 +48,7 @@ namespace
             x.plugin = e.value ("plugin", std::string());
             x.nom = e.value ("nom", std::string());
             x.actiu = e.value ("actiu", true);
+            x.encesAmbRM = e.value ("encesAmbRM", false);   // 0.69
             x.estat = e.value ("estat", std::string());
             if (e.contains ("sidechain") && e["sidechain"].is_array())   // 0.56
                 for (const auto& f : e["sidechain"])
@@ -533,6 +535,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                 x.vel = std::clamp (b.value ("vel", 88), 1, 127);
                                 x.fix = b.value ("fix", false);
                                 x.forma = b.value ("forma", std::string());   // 0.49
+                                x.octava = std::clamp (b.value ("octava", 0), -2, 2);   // 0.66
                                 x.tipus = b.value ("tipus", std::string());   // 0.47
                                 x.passosEsq = b.value ("passosEsq", std::string());
                                 x.pasTicksEsq = b.value ("pasTicksEsq", 480LL);
@@ -655,6 +658,11 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             };
             p.tonalitatAuto = t.value ("automatica", true);
             p.tonalitat = llegeixTon (t);
+            if (t.contains ("preferida") && t["preferida"].is_object())   // 0.65
+            {
+                p.tePreferida = true;
+                p.tonalitatPreferida = llegeixTon (t["preferida"]);
+            }
             const auto mode = t.value ("mode", std::string ("visual"));
             p.modeEscala = mode == "assistit" ? ModeEscala::Assistit : mode == "bloquejat" ? ModeEscala::Bloquejat : ModeEscala::Visual;
             p.ressaltaAcord = t.value ("acord", true);
@@ -721,6 +729,9 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                { "escala", harmonia::escales()[(size_t) std::clamp (p.tonalitat.escala, 0, (int) harmonia::escales().size() - 1)].id },
                                { "mode", p.modeEscala == ModeEscala::Assistit ? "assistit" : p.modeEscala == ModeEscala::Bloquejat ? "bloquejat" : "visual" },
                                { "acord", p.ressaltaAcord }, { "canvis", canvis } };
+            if (p.tePreferida)   // 0.65: la triada amb «Una altra»
+                j["tonalitat"]["preferida"] = { { "to", p.tonalitatPreferida.to },
+                    { "escala", harmonia::escales()[(size_t) std::clamp (p.tonalitatPreferida.escala, 0, (int) harmonia::escales().size() - 1)].id } };
         }
         {
             json carpetes = json::array();
@@ -784,6 +795,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                         { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel },
                                         { "fix", b.fix } });
                         if (! b.forma.empty()) bl.back()["forma"] = b.forma;   // 0.49: powerchords i octaves
+                        if (b.octava != 0) bl.back()["octava"] = b.octava;     // 0.66
                         if (! b.tipus.empty())   // 0.47: patrons de piano
                         {
                             auto& u = bl.back();

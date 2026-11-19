@@ -17,7 +17,11 @@ namespace inserts
         return t != nullptr ? &t->inserts : nullptr;
     }
 
-    inline juce::String titol (const mibase::Insert& x) { return juce::String::fromUTF8 (x.nom.c_str()); }
+    inline juce::String titol (const mibase::Insert& x)
+    {
+        if (x.plugin == mibase::saturacio::idPlugin) return juce::String::fromUTF8 (mibase::saturacio::nomPlugin);   // 0.68: els projectes vells deien «Saturació»
+        return juce::String::fromUTF8 (x.nom.c_str());
+    }
 
     /** 0.22: qui obre el Vocal Editor d'una pista (el posa la pantalla de l'estudi). */
     inline std::function<void (int pista)>& obreVeu() { static std::function<void (int)> f; return f; }
@@ -42,7 +46,12 @@ namespace inserts
         if (GestorPlugins::esIntern (x.plugin))
         {
             const auto* t = estat.pista (pista);
-            const juce::String qui = x.plugin == mibase::reverb::idPlugin ? "Reverb · "_ca : "Dinàmica · "_ca;
+            const juce::String qui = x.plugin == mibase::reverb::idPlugin ? "Reverb · "_ca
+                                   : x.plugin == mibase::dinamica::idPlugin ? "Dinàmica · "_ca
+                                   : x.plugin == mibase::delay::idPlugin ? "Delay · "_ca
+                                   : x.plugin == mibase::saturacio::idPlugin ? "Decapitor · "_ca
+                                   : x.plugin == mibase::drive::idPlugin ? "Drive · "_ca
+                                   : x.plugin == mibase::limitador::idPlugin ? "Limitador · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
             plugins->obreIntern (x, qui + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
             return;
         }
@@ -350,6 +359,10 @@ namespace inserts
         m.addItem (3, "Reverb (Mibase): espais, plates, convolució, shimmer…"_ca);
         m.addItem (4, "Dinàmica (Mibase): compressor, gate, expander, de-esser"_ca);
         m.addItem (5, "EQ Pro (Mibase): equalitzador de fins a 24 bandes"_ca);
+        m.addItem (6, "Delay (Mibase): ecos de cinta, analògics, ping-pong…"_ca);
+        m.addItem (7, "Decapitor (Mibase): saturació de cinta, consola, vàlvules o suau (per a la mescla)"_ca);
+        m.addItem (8, "Drive (Mibase): pedal de crunch, overdrive, distorsió i fuzz"_ca);
+        m.addItem (9, "Limitador (Mibase): per al màster i els busos, amb LUFS"_ca);
         m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
@@ -374,18 +387,21 @@ namespace inserts
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
                 return;
             }
-            if (r == 3 || r == 4 || r == 5)
+            if (r >= 3 && r <= 9)
             {
                 std::string id;
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
                 {
                     mibase::Insert x;
                     x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                    x.plugin = r == 3 ? mibase::reverb::idPlugin : (r == 4 ? mibase::dinamica::idPlugin : mibase::eq::idPlugin);
-                    x.nom = r == 3 ? mibase::reverb::nomPlugin : (r == 4 ? mibase::dinamica::nomPlugin : mibase::eq::nomPlugin);
+                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin, mibase::limitador::idPlugin };
+                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin, mibase::limitador::nomPlugin };
+                    x.plugin = ids[r - 3];
+                    x.nom = noms[r - 3];
                     if (nou || k >= (int) l.size()) l.push_back (x);
                     else l[(size_t) k] = x;
-                }, r == 3 ? "Efecte: Reverb (Mibase)"_ca : (r == 4 ? "Efecte: Dinàmica (Mibase)"_ca : "Efecte: EQ Pro (Mibase)"_ca));
+                }, "Efecte: "_ca + juce::String::fromUTF8 (r == 3 ? mibase::reverb::nomPlugin : r == 4 ? mibase::dinamica::nomPlugin : r == 5 ? mibase::eq::nomPlugin
+                                                     : r == 6 ? mibase::delay::nomPlugin : r == 7 ? mibase::saturacio::nomPlugin : r == 8 ? mibase::drive::nomPlugin : mibase::limitador::nomPlugin));
                 juce::MessageManager::callAsync ([&estat, plugins, pista, id]
                 {
                     if (auto* l = llista (estat, pista))
@@ -428,6 +444,8 @@ namespace inserts
             m.addItem (8, "Automatitza un paràmetre…"_ca, pista >= 0);
         }
         m.addItem (6, "Canvia'l per un altre…"_ca);
+        // 0.69: «Retard mínim» no l'apaga mai (per sentir un ampli de guitarra mentre es grava)
+        m.addItem (9, "Sempre encès amb RM (Retard mínim)"_ca, true, x.encesAmbRM);
         m.addSeparator();
         m.addItem (3, "Mou amunt"_ca, k > 0);
         m.addItem (4, "Mou avall"_ca, k + 1 < (int) v->size());
@@ -441,6 +459,9 @@ namespace inserts
             else if (r == 3) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k > 0 && k < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k - 1]); }, {});
             else if (r == 4) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k + 1 < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k + 1]); }, {});
             else if (r == 5) treu (estat, plugins, pista, k);
+            else if (r == 9)
+                canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k < (int) l.size()) l[(size_t) k].encesAmbRM = ! l[(size_t) k].encesAmbRM; },
+                        "Efecte: sempre encès amb RM (o ja no)"_ca);
             else if (r == 7) obreSidechain (estat, plugins, pista, k, on);
             else if (r == 8)
             {
@@ -463,7 +484,7 @@ namespace inserts
     }
 
     /** x == nullptr: ranura buida («+ Efecte» si és la primera buida). */
-    inline void pinta (juce::Graphics& g, juce::Rectangle<int> r, const mibase::Insert* x, bool primeraBuida, bool petit)
+    inline void pinta (juce::Graphics& g, juce::Rectangle<int> r, const mibase::Insert* x, bool primeraBuida, bool petit, double retardMs = 0.0)
     {
         const auto rf = r.toFloat();
         g.setColour (juce::Colours::black.withAlpha (0.45f));
@@ -494,6 +515,18 @@ namespace inserts
             g.setColour (tema::accent);
             g.setFont (dibuix::lletra (8.5f, true));
             g.drawText ("SC", sc, juce::Justification::centred);
+            g.setColour (x->actiu ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (petit ? 10.5f : 11.5f, x->actiu));
+        }
+        if (retardMs >= 0.5 && ! petit)   // 0.68: aquest efecte retarda el so (Mibase ho compensa)
+        {
+            const auto txt = juce::String (juce::roundToInt (retardMs)) + " ms";
+            auto rr = zNom.removeFromRight (juce::jmin (zNom.getWidth() / 2, 36)).toFloat().reduced (1.0f, 4.0f);
+            g.setColour (vintage::ledGroc.withAlpha (0.18f));
+            g.fillRoundedRectangle (rr, 2.0f);
+            g.setColour (vintage::ledGroc);
+            g.setFont (dibuix::lletra (8.5f, true));
+            g.drawText (txt, rr, juce::Justification::centred);
             g.setColour (x->actiu ? tema::text : tema::suau);
             g.setFont (dibuix::lletra (petit ? 10.5f : 11.5f, x->actiu));
         }
@@ -537,7 +570,8 @@ public:
     {
         auto* v = inserts::llista (estat, pista ? pista() : -1);
         const mibase::Insert* x = (v != nullptr && index < (int) v->size()) ? &(*v)[(size_t) index] : nullptr;
-        inserts::pinta (g, getLocalBounds(), x, v != nullptr && index == (int) v->size(), false);
+        const double ms = x != nullptr && x->actiu && plugins != nullptr ? plugins->latenciaMs (x->id) : 0.0;
+        inserts::pinta (g, getLocalBounds(), x, v != nullptr && index == (int) v->size(), false, ms);
         if (fora && x != nullptr)
         {
             // 0.31: s'està arrossegant fora: si es deixa anar, es treu
