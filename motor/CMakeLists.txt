@@ -27,7 +27,8 @@ add_library(mibase_motor STATIC
     src/DinamicaPresets.cpp
     src/Convolucio.cpp
     src/Equalitzador.cpp
-    src/Espectre.cpp)
+    src/Espectre.cpp
+    src/EqPresets.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

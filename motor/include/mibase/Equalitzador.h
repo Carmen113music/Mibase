@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mibase/Dinamica.h"
 #include "mibase/Espectre.h"
 #include "mibase/Instrument.h"
 #include <array>
@@ -82,6 +83,16 @@ namespace mibase::eq
     /** 0.60: el canal «germà» (Mid ↔ Side, L ↔ R); l'estèreo es queda igual. */
     int canalOposat (int c);
 
+    // ---- 0.63: presets, A/B i Auto Gain ----
+    /** Els presets fan servir el mateix format que els de la Dinàmica (nom, categoria, descripció, estat). */
+    using Preset = dinamica::Preset;
+    using BibliotecaPresets = dinamica::BibliotecaPresets;
+    const std::vector<std::string>& categories();
+    const std::vector<Preset>& presetsFabrica();
+    /** Auto Gain: els dB que cal sumar a la sortida perquè la corba no faci sonar més fort ni més fluix
+        (potència mitjana amb soroll rosa de 20 Hz a 20 kHz, sense comptar la dinàmica). Estàtic: no bomba. */
+    double guanyAuto (const std::vector<Banda>& bandes, double fs = 48000.0);
+
     // ---- Paràmetres (automatització): Sortida, Bypass i, per banda, Encesa, Freqüència, Guany i Q ----
     constexpr int paramsPerBanda = 4;
     enum ParamGlobal : int { PSortida, PBypass, numGlobals };
@@ -116,6 +127,10 @@ namespace mibase::eq
         void posaSortida (float db) noexcept;
         bool bypass() const noexcept { return byp.load (std::memory_order_relaxed); }
         void posaBypass (bool b) noexcept { byp.store (b, std::memory_order_relaxed); }
+        /** 0.63: Auto Gain (el calcula la finestra amb guanyAuto() i el posa a la sortida; aquí només es desa). */
+        bool autoGain() const noexcept { return autoG.load (std::memory_order_relaxed); }
+        void posaAutoGain (bool b) noexcept { autoG.store (b, std::memory_order_relaxed); toca(); }
+        std::vector<Banda> bandes() const { std::vector<Banda> v; for (int k = 0; k < maxBandes; ++k) v.push_back (banda (k)); return v; }
         /** Comptador que puja a cada canvi (la finestra el mira per saber si s'ha de redibuixar). */
         unsigned versio() const noexcept { return canvis.load (std::memory_order_relaxed); }
         double frequenciaMostreig() const noexcept { return fsAtom.load (std::memory_order_relaxed); }
@@ -159,6 +174,7 @@ namespace mibase::eq
         std::atomic<double> fsAtom { 48000.0 };
         std::atomic<float> picIn { 0.0f }, picOut { 0.0f };
         std::atomic<bool> captura { false };
+        std::atomic<bool> autoG { false };
         std::atomic<int> solo { -1 };
         espectre::Anell anellIn, anellOut;
 

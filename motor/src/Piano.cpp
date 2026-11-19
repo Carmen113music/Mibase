@@ -338,16 +338,13 @@ namespace mibase::piano
 
     std::vector<int> invertida (const std::vector<int>& fonamental, int inversio)
     {
+        // 0.62.1 (demanat per en Roger): no és un cicle; cada pas amunt puja la nota més greu una octava i cada pas
+        // avall baixa la més aguda, de manera que es va pujant (o baixant) d'octava inversió a inversió.
         auto v = fonamental;
         std::sort (v.begin(), v.end());
-        const int n = (int) v.size();
-        if (n < 2) return v;
-        const int k = ((inversio % n) + n) % n;
-        for (int i = 0; i < k; ++i) { v.front() += 12; std::sort (v.begin(), v.end()); }
-        // l'octava: la que deixa l'acord més a prop de l'original
-        auto mitjana = [] (const std::vector<int>& x) { double m = 0.0; for (int y : x) m += y; return m / (double) x.size(); };
-        const double m0 = mitjana (fonamental), m = mitjana (v);
-        if (std::abs (m - 12.0 - m0) < std::abs (m - m0)) for (auto& x : v) x -= 12;
+        if (v.size() < 2) return v;
+        for (int i = 0; i < inversio; ++i) { v.front() += 12; std::sort (v.begin(), v.end()); }
+        for (int i = 0; i > inversio; --i) { v.back() -= 12; std::sort (v.begin(), v.end()); }
         return v;
     }
 

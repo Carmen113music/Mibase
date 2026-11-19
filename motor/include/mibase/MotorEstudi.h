@@ -298,6 +298,8 @@ namespace mibase
         // ---- Fil d'àudio ----
         /** SUMA el so a les sortides (no les esborra). No demana memòria ni s'espera mai. */
         void processa (const float* const* entrades, int numEntrades, float* const* sortides, int numSortides, int n) noexcept;
+        /** 0.62.1 (diagnòstic): el fil d'àudio té un pla per fer sonar? */
+        bool tePla() const noexcept { return ambPla.load (std::memory_order_relaxed); }
 
     private:
         struct Ordre
@@ -320,6 +322,7 @@ namespace mibase
         std::array<int, maxEntrades> mapaEntrades {};
 
         Pla* pla = nullptr;    // el que sona (només el toca el fil d'àudio)
+        std::atomic<bool> ambPla { false };
         CuaSenseBloqueig<Pla*, 64> nous;
         CuaSenseBloqueig<Pla*, 1024> vells;
         CuaSenseBloqueig<Ordre, 64> cuaOrdres;

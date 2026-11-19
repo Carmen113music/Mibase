@@ -183,8 +183,9 @@ namespace mibase::guitarra
         les escriu actualitza). Torna'n l'índex. */
     int posaBloc (Clip& c, BlocPatro b);
     void treuBloc (Clip& c, int quin, bool ambNotes);
-    /** 0.61: canvia el pas d'un compàs ([ini, ini + dur), ticks del clip). Torna el pas nou. */
-    int mouVeu (Clip& c, long long ini, long long dur, int delta);
+    /** 0.61: canvia el pas d'un compàs ([ini, ini + dur), ticks del clip). Torna el pas nou. Amb maxAbs > 0, el pas
+        no passa de ±maxAbs (0.62.1: el piano no surt del teclat). */
+    int mouVeu (Clip& c, long long ini, long long dur, int delta, int maxAbs = 0);
     /** 0.61: el pas d'un compàs (0 si no en té). */
     int veuDe (const Clip& c, long long ini);
     /** 0.61: torna el compàs a la disposició original. */

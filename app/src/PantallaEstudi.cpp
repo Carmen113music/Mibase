@@ -1226,8 +1226,23 @@ void PantallaEstudi::acabaGravacio()
                        "El disc no ha anat prou de pressa i s'han perdut "_ca + juce::String (r.perdudes) + " mostres de la gravació.");
 }
 
+/** 0.62.1: el que fa el play abans de sonar (pla nou i plugins a zero), però sense fer sonar res. En Roger ha vist
+    que, tornant a Mibase des d'una altra finestra, a vegades els instruments no sonen fins que es fa play. */
+void PantallaEstudi::refrescaSo()
+{
+    if (estat.transport != 0 || ! servei.enMarxa()) return;
+    publicaPla();
+    plugins.buidaCues();
+    historial.afegeix ("So refrescat en tornar a Mibase"_ca);
+}
+
 void PantallaEstudi::tic()
 {
+    {
+        const bool davant = juce::Process::isForegroundProcess();
+        if (davant && ! eraDavant) refrescaSo();
+        eraDavant = davant;
+    }
     auto& motor = servei.estudi();
     motor.recull();
     if (ed::teCanvisTempo (estat.projecte))   // 0.28: els plugins (delays a tempo…) saben el tempo d'on sona

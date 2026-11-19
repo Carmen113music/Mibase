@@ -2,7 +2,9 @@
 
 #include "Controls.h"
 #include "Dibuix.h"
+#include "DialegText.h"
 #include "EscGlobal.h"
+#include "NavegadorPresets.h"
 #include "Pom.h"
 #include "Tema.h"
 #include "Text.h"
@@ -28,6 +30,21 @@ namespace
         int mode = mibase::espectre::Mitjana, velocitat = mibase::espectre::Normal;
     };
     AjustAnalitzador& ajustAn() { static AjustAnalitzador a; return a; }
+
+    // 0.63: presets propis i favorits (Documents\Mibase\EQ\presets.json), com la Dinàmica
+    juce::File fitxerBibliotecaEq()
+    {
+        return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Mibase").getChildFile ("EQ").getChildFile ("presets.json");
+    }
+    BibliotecaPresets& bibliotecaEq()
+    {
+        static BibliotecaPresets b;
+        static bool carregada = false;
+        if (! carregada) { carregada = true; b.carrega (dibuix::cami (fitxerBibliotecaEq())); }
+        return b;
+    }
+    void desaBibliotecaEq() { bibliotecaEq().desa (dibuix::cami (fitxerBibliotecaEq())); }
+    std::map<const void*, juce::String>& nomsPresetEq() { static std::map<const void*, juce::String> m; return m; }
     constexpr float rangEspectre = 96.0f;                   // dB de dalt (0) a baix de la gràfica
 
     // 0.62: els poms de la dinàmica (valor ↔ 0..1)
@@ -239,11 +256,157 @@ namespace
     };
 
     // ---------------------------------------------------------------------------------------------------------------
-    class PanellEq : public juce::Component, private juce::Timer
+    class PanellEq : public juce::Component, private juce::Timer, public OrigenPresets
     {
     public:
         explicit PanellEq (std::shared_ptr<Equalitzador> e);
         ~PanellEq() override { stopTimer(); q->posaSolo (-1); q->posaCaptura (false); }
+
+        // ---- 0.63: presets, A/B i Auto Gain ----
+        std::vector<const Preset*> totsPresets()
+        {
+            std::vector<const Preset*> v;
+            for (auto& p : bibliotecaEq().usuari) v.push_back (&p);
+            for (auto& p : presetsFabrica()) v.push_back (&p);
+            return v;
+        }
+        juce::String nomPreset() { return nomsPresetEq()[q.get()]; }
+        bool esFavorit (const juce::String& nom)
+        {
+            const auto n = nom.toStdString();
+            return bibliotecaEq().esFavorit (bibliotecaEq().busca (n) != nullptr ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
+        }
+        void aplicaPreset (const Preset& p)
+        {
+            abansDeCanviar();
+            const bool ag = q->autoGain();
+            q->posaEstat (p.estat);
+            q->posaAutoGain (ag);
+            if (ag) aplicaAutoGain();
+            nomsPresetEq()[q.get()] = juce::String::fromUTF8 (p.nom.c_str());
+            triades.clear();
+            focus = -1;
+            refresca();
+            grafica.invalida();
+        }
+        void pasPreset (int d)
+        {
+            const auto v = totsPresets();
+            if (v.empty()) return;
+            const auto nom = nomPreset().toStdString();
+            int i = -1;
+            for (int k = 0; k < (int) v.size(); ++k) if (v[(size_t) k]->nom == nom) i = k;
+            i = i < 0 ? (d > 0 ? 0 : (int) v.size() - 1) : (i + d + (int) v.size()) % (int) v.size();
+            aplicaPreset (*v[(size_t) i]);
+        }
+        void desaPreset()
+        {
+            const auto actual = nomPreset();
+            const bool meu = bibliotecaEq().busca (actual.toStdString()) != nullptr;
+            const auto proposta = meu ? actual : juce::String::fromUTF8 (bibliotecaEq().nomLliure ((actual.isEmpty() ? juce::String ("EQ") : actual + " (meu)"_ca).toStdString()).c_str());
+            dialeg = std::make_unique<DialegText> ("Desa el preset"_ca, "Nom del preset (si ja en tens un amb aquest nom, se substitueix)."_ca, "Desa"_ca,
+                [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom."_ca : juce::String(); },
+                [this] (const juce::String& t)
+                {
+                    const auto nom = t.trim().toStdString();
+                    const auto* ja = bibliotecaEq().busca (nom);
+                    bibliotecaEq().desaPreset ({ nom, ja != nullptr ? ja->categoria : std::string ("Meus"), "", q->estat() });
+                    desaBibliotecaEq();
+                    nomsPresetEq()[q.get()] = juce::String::fromUTF8 (nom.c_str());
+                    refresca();
+                }, proposta);
+            DialegText::mostra (*this, dialeg);
+        }
+        void obreNavegador()
+        {
+            navegador = std::make_unique<NavegadorPresetsComu> (*this);
+            addAndMakeVisible (*navegador);
+            navegador->setBounds (getLocalBounds());
+            navegador->grabKeyboardFocus();
+        }
+        juce::StringArray categoriesFabrica() override { juce::StringArray a; for (auto& c : categories()) a.add (juce::String::fromUTF8 (c.c_str())); return a; }
+        juce::StringArray carpetesUsuari() override { juce::StringArray a; for (auto& c : bibliotecaEq().carpetes()) a.add (juce::String::fromUTF8 (c.c_str())); return a; }
+        std::vector<EntradaPreset> entrades() override
+        {
+            std::vector<EntradaPreset> v;
+            const auto tots = totsPresets();
+            const int nu = (int) bibliotecaEq().usuari.size();
+            for (int i = 0; i < (int) tots.size(); ++i)
+            {
+                const auto& p = *tots[(size_t) i];
+                const bool usuari = i < nu;
+                int nb = 0;
+                for (size_t a = p.estat.find (";b"); a != std::string::npos; a = p.estat.find (";b", a + 2)) if (p.estat.compare (a, 4, ";byp") != 0) ++nb;
+                v.push_back ({ juce::String::fromUTF8 (p.nom.c_str()), juce::String::fromUTF8 (p.categoria.c_str()), juce::String::fromUTF8 (p.descripcio.c_str()),
+                               juce::String (nb) + (nb == 1 ? " banda" : " bandes"), usuari,
+                               bibliotecaEq().esFavorit (usuari ? BibliotecaPresets::clauUsuari (p.nom) : BibliotecaPresets::clauFabrica (p.nom)), i });
+            }
+            return v;
+        }
+        juce::String presetActual() override { return nomPreset(); }
+        void aplica (const EntradaPreset& e) override
+        {
+            const auto tots = totsPresets();
+            if (e.index >= 0 && e.index < (int) tots.size()) aplicaPreset (*tots[(size_t) e.index]);
+        }
+        void commutaFavorit (const EntradaPreset& e) override
+        {
+            const auto n = e.nom.toStdString();
+            bibliotecaEq().commutaFavorit (e.usuari ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
+            desaBibliotecaEq();
+            refresca();
+        }
+        bool existeixMeu (const juce::String& nom) override { return bibliotecaEq().busca (nom.toStdString()) != nullptr; }
+        void reanomena (const juce::String& vell, const juce::String& nou) override
+        {
+            if (bibliotecaEq().reanomena (vell.toStdString(), nou.toStdString()))
+            {
+                desaBibliotecaEq();
+                if (nomPreset() == vell) nomsPresetEq()[q.get()] = nou;
+            }
+            refresca();
+        }
+        void mou (const juce::String& nom, const juce::String& carpeta) override { bibliotecaEq().mou (nom.toStdString(), carpeta.toStdString()); desaBibliotecaEq(); }
+        void esborra (const juce::String& nom) override { bibliotecaEq().esborra (nom.toStdString()); desaBibliotecaEq(); refresca(); }
+        void tancaNavegador() override
+        {
+            juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<PanellEq> (this)] { if (sp != nullptr) { sp->navegador.reset(); sp->grabKeyboardFocus(); } });
+        }
+        // A/B: dues versions dels ajustos per comparar (mentre la finestra és oberta)
+        std::string estatAB[2];
+        int costatAB = 0;
+        void triaAB (int c)
+        {
+            if (c == costatAB) return;
+            estatAB[costatAB] = q->estat();
+            if (estatAB[c].empty()) estatAB[c] = estatAB[costatAB];
+            abansDeCanviar();
+            q->posaEstat (estatAB[c]);
+            costatAB = c;
+            netejaTriades();
+            refresca();
+            grafica.invalida();
+        }
+        void copiaAB()
+        {
+            estatAB[1 - costatAB] = q->estat();
+            refresca();
+        }
+        void aplicaAutoGain()
+        {
+            if (! q->autoGain()) return;
+            const float g = (float) guanyAuto (q->bandes(), q->frequenciaMostreig() > 0.0 ? q->frequenciaMostreig() : 48000.0);
+            if (std::abs (g - q->sortida()) > 0.01f) q->posaSortida (g);
+        }
+        std::unique_ptr<NavegadorPresetsComu> navegador;
+        std::unique_ptr<DialegText> dialeg;
+        Boto btAnt { {}, dibuix::Icona::Rebobina, Boto::Estil::Subtil }, btSeg { {}, dibuix::Icona::Endavant, Boto::Estil::Subtil };
+        Boto btPreset { "(sense preset)"_ca, std::nullopt, Boto::Estil::Secundari };
+        BotoEstrella btFav;
+        Boto btDesaPreset { "Desa", dibuix::Icona::Disc, Boto::Estil::Secundari };
+        Boto btA { "A", std::nullopt, Boto::Estil::Tecla }, btB { "B", std::nullopt, Boto::Estil::Tecla };
+        Boto btCopiaAB { "Copia a B", std::nullopt, Boto::Estil::Subtil };
+        Boto btAutoGain { "Auto Gain", std::nullopt, Boto::Estil::Tecla };
         Equalitzador& eq() { return *q; }
 
         // selecció
@@ -1154,6 +1317,44 @@ namespace
         addChildComponent (btDinamica);
         addChildComponent (btSidechain);
         q->posaCaptura (ajustAn().on);
+
+        // 0.63: presets, A/B i Auto Gain
+        for (auto* b : { &btAnt, &btSeg, &btPreset, &btDesaPreset, &btA, &btB, &btCopiaAB, &btAutoGain }) addAndMakeVisible (b);
+        addAndMakeVisible (btFav);
+        btAnt.setTooltip ("Preset anterior"_ca);
+        btSeg.setTooltip ("Preset següent"_ca);
+        btPreset.setTooltip ("Clica per veure tots els presets (veus, guitarres, baix, bateria, mastering…)"_ca);
+        btFav.setTooltip ("Preferit"_ca);
+        btDesaPreset.setTooltip ("Desa els ajustos com un preset teu"_ca);
+        btAnt.onClick = [this] { pasPreset (-1); };
+        btSeg.onClick = [this] { pasPreset (1); };
+        btPreset.onClick = [this] { obreNavegador(); };
+        btDesaPreset.onClick = [this] { desaPreset(); };
+        btFav.onClick = [this]
+        {
+            const auto nom = nomPreset().toStdString();
+            if (nom.empty()) { btFav.setToggleState (false, juce::dontSendNotification); return; }
+            bibliotecaEq().commutaFavorit (bibliotecaEq().busca (nom) != nullptr ? BibliotecaPresets::clauUsuari (nom) : BibliotecaPresets::clauFabrica (nom));
+            desaBibliotecaEq();
+            refresca();
+        };
+        btA.setLlum (tema::guitarra);
+        btB.setLlum (tema::guitarra);
+        btA.setTooltip ("Ajustos A (per comparar amb els B)"_ca);
+        btB.setTooltip ("Ajustos B: la primera vegada són una còpia dels A"_ca);
+        btA.onClick = [this] { triaAB (0); };
+        btB.onClick = [this] { triaAB (1); };
+        btCopiaAB.setTooltip ("Copia els ajustos que sonen ara a l'altre costat"_ca);
+        btCopiaAB.onClick = [this] { copiaAB(); };
+        btAutoGain.setLlum (tema::veu);
+        btAutoGain.setTooltip ("Ajusta la sortida perquè l'EQ no faci sonar més fort ni més fluix (per comparar amb el bypass sense enganyar l'orella)"_ca);
+        btAutoGain.onClick = [this]
+        {
+            abansDeCanviar();
+            q->posaAutoGain (! q->autoGain());
+            aplicaAutoGain();
+            refresca();
+        };
         addAndMakeVisible (segRang);
         addAndMakeVisible (pomSortida);
         addAndMakeVisible (segCanal);
@@ -1260,7 +1461,7 @@ namespace
         editorValor.onEscapeKey = [this] { editorValor.setVisible (false); pomEscrit = -1; grabKeyboardFocus(); };
         editorValor.onFocusLost = [this] { editorValor.setVisible (false); pomEscrit = -1; };
 
-        setSize (1100, 620);
+        setSize (1100, 660);
         refresca();
         startTimerHz (30);
     }
@@ -1298,7 +1499,18 @@ namespace
     {
         netejaTriades();
         if (const int so = q->soloBanda(); so >= 0 && so != focus) q->posaSolo (focus);   // l'escolta segueix la banda triada
+        aplicaAutoGain();   // 0.63 (si està encès): la sortida segueix la corba
         versioVista = q->versio();
+        {
+            const auto nom = nomPreset();
+            btPreset.setButtonText (nom.isEmpty() ? "(sense preset)"_ca : nom);
+            btFav.setToggleState (esFavorit (nom), juce::dontSendNotification);
+            btA.setToggleState (costatAB == 0, juce::dontSendNotification);
+            btB.setToggleState (costatAB == 1, juce::dontSendNotification);
+            btCopiaAB.setButtonText (costatAB == 0 ? "Copia a B" : "Copia a A");
+            btAutoGain.setToggleState (q->autoGain(), juce::dontSendNotification);
+            pomSortida.setEnabled (! q->autoGain());
+        }
         btAnalitzador.setToggleState (ajustAn().on, juce::dontSendNotification);
         btFreeze.setToggleState (ajustAn().freeze, juce::dontSendNotification);
         btFreeze.setEnabled (ajustAn().on);
@@ -1429,6 +1641,7 @@ namespace
     void PanellEq::resized()
     {
         auto r = getLocalBounds();
+        if (navegador != nullptr) navegador->setBounds (r);
         auto dalt = r.removeFromTop (52).reduced (14, 10);
         zonaTitol = dalt.removeFromLeft (110);
         btDesfes.setBounds (dalt.removeFromLeft (30));
@@ -1443,6 +1656,25 @@ namespace
         btFreeze.setBounds (dalt.removeFromLeft (70));
         dalt.removeFromLeft (4);
         btOpcionsAn.setBounds (dalt.removeFromLeft (72));
+
+        // 0.63: presets, A/B i Auto Gain
+        {
+            auto pr = r.removeFromTop (34).reduced (14, 2);
+            btAnt.setBounds (pr.removeFromLeft (28));
+            btPreset.setBounds (pr.removeFromLeft (juce::jmin (280, pr.getWidth() / 3)));
+            btSeg.setBounds (pr.removeFromLeft (28));
+            pr.removeFromLeft (4);
+            btFav.setBounds (pr.removeFromLeft (28));
+            pr.removeFromLeft (4);
+            btDesaPreset.setBounds (pr.removeFromLeft (80));
+            btAutoGain.setBounds (pr.removeFromRight (100));
+            pr.removeFromRight (16);
+            btCopiaAB.setBounds (pr.removeFromRight (86));
+            pr.removeFromRight (4);
+            btB.setBounds (pr.removeFromRight (36));
+            pr.removeFromRight (2);
+            btA.setBounds (pr.removeFromRight (36));
+        }
 
         r.reduce (12, 8);
         zonaBanda = r.removeFromBottom (128);

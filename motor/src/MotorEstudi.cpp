@@ -1031,6 +1031,7 @@ namespace mibase
         }
 
         auto ara = (Estat) estat.load (std::memory_order_relaxed);
+        ambPla.store (pla != nullptr, std::memory_order_relaxed);
         if (pla == nullptr)
             return;
         if (ara == Estat::Aturat)

@@ -550,6 +550,7 @@ namespace mibase::eq
         char b[160];
         std::snprintf (b, sizeof b, ";out=%.6g;byp=%d", (double) sortidaDb.load(), byp.load() ? 1 : 0);
         s += b;
+        if (autoG.load()) s += ";ag=1";   // 0.63
         for (int k = 0; k < maxBandes; ++k)
         {
             const auto x = banda (k);
@@ -575,6 +576,7 @@ namespace mibase::eq
         for (int k = 0; k < maxBandes; ++k) at[(size_t) k].usada.store (false);
         sortidaDb.store (0.0f);
         byp.store (false);
+        autoG.store (false);
         size_t a = 0;
         while (a < s.size())
         {
@@ -588,6 +590,7 @@ namespace mibase::eq
             const auto val = parell.substr (eq + 1);
             if (clau == "out") posaSortida ((float) std::strtod (val.c_str(), nullptr));
             else if (clau == "byp") byp.store (std::atoi (val.c_str()) != 0);
+            else if (clau == "ag") autoG.store (std::atoi (val.c_str()) != 0);
             else if (clau.size() > 1 && clau[0] == 'b')
             {
                 const int k = std::atoi (clau.c_str() + 1);

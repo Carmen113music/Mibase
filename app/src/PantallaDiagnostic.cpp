@@ -910,6 +910,21 @@ juce::String PantallaDiagnostic::textDiagnostic()
     if (ultimResultatLatencia.isNotEmpty())
         t << "Última mesura d'aquesta sessió:\n"_ca << ultimResultatLatencia << "\n";
 
+    // 0.62.1: si el so s'ha perdut, què passa ara mateix (copiar-ho ABANS de fer play)
+    {
+        auto& e = servei.estudi();
+        const auto ara = juce::Time::getMillisecondCounter();
+        const auto ultim = servei.msUltimBloc.load();
+        const float pic = servei.picSortidaAudio.exchange (0.0f);
+        const char* estats[] = { "aturat", "sonant", "comptant", "gravant" };
+        const int es = (int) e.getEstat();
+        t << "\n-- So ara --\n"
+          << "Blocs d'àudio: " << juce::String ((juce::int64) servei.blocsAudio.load()) << " · l'últim fa "_ca
+          << (ultim == 0 ? juce::String ("-") : juce::String ((int) (ara - ultim)) + " ms") << "\n"
+          << "Motor: " << (es >= 0 && es < 4 ? estats[es] : "?") << " · pla: " << (e.tePla() ? "sí"_ca : "NO") << "\n"
+          << "Pic de sortida des de l'última còpia: "_ca << (pic > 0.0f ? juce::String (juce::Decibels::gainToDecibels (pic), 1) + " dB" : juce::String ("silenci")) << "\n";
+    }
+
     t << "\n-- MIDI --\n";
     for (const auto& m : juce::MidiInput::getAvailableDevices())
         t << m.name << (gestor.isMidiInputDeviceEnabled (m.identifier) ? " (activat)" : " (no activat)") << "\n";

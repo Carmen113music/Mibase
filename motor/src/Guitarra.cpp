@@ -535,12 +535,14 @@ namespace mibase::guitarra
         return 0;
     }
 
-    int mouVeu (Clip& c, long long ini, long long dur, int delta)
+    int mouVeu (Clip& c, long long ini, long long dur, int delta, int maxAbs)
     {
+        auto limita = [maxAbs] (int p) { return maxAbs > 0 ? std::clamp (p, -maxAbs, maxAbs) : p; };
+        delta = limita (delta);
         for (auto it = c.veus.begin(); it != c.veus.end(); ++it)
             if (it->ini == ini)
             {
-                it->pas += delta;
+                it->pas = limita (it->pas + delta);
                 it->dur = dur;
                 const int p = it->pas;
                 if (p == 0) c.veus.erase (it);

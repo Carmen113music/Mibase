@@ -5,14 +5,16 @@ namespace
     {
         using namespace mibase;
 
-        prova ("0.61 piano: inversions reals (majors, menors, disminuïts, augmentats i de 7a), en cicle i sense salts", []
+        prova ("0.61 piano: inversions reals (majors, menors, disminuïts, augmentats i de 7a), pujant i baixant d'octava", []
         {
             auto pcs = [] (std::vector<int> v) { for (auto& x : v) x = ((x % 12) + 12) % 12; std::sort (v.begin(), v.end()); return v; };
             const std::vector<int> c { 60, 64, 67 };
             comprova (piano::invertida (c, 0) == c, "0 = posició fonamental");
             comprova (piano::invertida (c, 1) == std::vector<int> ({ 64, 67, 72 }), "1a: E G C");
-            comprova (piano::invertida (c, 2) == std::vector<int> ({ 55, 60, 64 }), "2a: G C E (a prop de l'original)");
-            comprova (piano::invertida (c, 3) == c && piano::invertida (c, -1) == piano::invertida (c, 2), "en cicle, endavant i enrere");
+            comprova (piano::invertida (c, 2) == std::vector<int> ({ 67, 72, 76 }), "2a: G C E");
+            comprova (piano::invertida (c, 3) == std::vector<int> ({ 72, 76, 79 }), "3 passos: la fonamental una octava amunt (sense cicle)");
+            comprova (piano::invertida (c, -1) == std::vector<int> ({ 55, 60, 64 }) && piano::invertida (c, -3) == std::vector<int> ({ 48, 52, 55 }),
+                      "enrere: va baixant (2a inversió a sota, i l'octava de sota)");
             for (const char* nom : { "C", "Cm", "Cdim", "Caug", "C7", "Cm7", "Cmaj7", "F#m7", "Bb7" })
             {
                 const auto a = harmonia::llegeixAcord (nom);
@@ -28,9 +30,11 @@ namespace
                     double m = 0.0; for (int x : v) m += x; m /= n;
                     be = be && pcs (v) == pcs (f) && (int) v.size() == n
                          && ((v.front() - f[(size_t) k]) % 12 + 12) % 12 == 0   // la greu és la nota k de l'acord
-                         && std::abs (m - m0) <= 7.0 && v.back() - v.front() < 12;
+                         && m >= m0 - 0.01 && m <= m0 + 12.01 && v.back() - v.front() < 12;
                 }
-                be = be && piano::invertida (f, n) == f;
+                auto amunt = f; for (auto& x : amunt) x += 12;
+                auto avall = f; for (auto& x : avall) x -= 12;
+                be = be && piano::invertida (f, n) == amunt && piano::invertida (f, -n) == avall;
                 comprova (be, std::string (nom) + ": " + std::to_string (n) + " inversions, mateixes notes, la greu correcta, sense salts");
             }
         });

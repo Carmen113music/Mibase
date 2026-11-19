@@ -167,6 +167,8 @@ private:
 
     juce::PropertiesFile& ajustos;
     Historial& historial;
+    bool eraDavant = true;   // 0.62.1: Mibase era la finestra de davant (per refrescar el so en tornar-hi)
+    void refrescaSo();
     ServeiAudio& servei;
     EstatEstudi estat;
     ServeiVeu serveiVeu;       // 0.22: abans dels components que el fan servir
