@@ -121,7 +121,7 @@ namespace mibase
         if (efectes)
             for (const auto& x : p.insertsMaster)
                 if (x.actiu)
-                    if (auto e = efectes (x)) { pla->insertsMaster.push_back (std::move (e)); viusMaster.push_back (&x); }
+                    if (auto e = efectes (x)) { pla->insertsMaster.push_back (std::move (e)); pla->encesAmbRMMaster.push_back (x.encesAmbRM ? 1 : 0); viusMaster.push_back (&x); }
         if (const auto* es = edicio::estructuraActiva (p))
             for (auto& pc : es->peces)
                 for (auto& x : p.parts)
@@ -224,7 +224,7 @@ namespace mibase
             if (efectes)
                 for (const auto& x : t.inserts)
                     if (x.actiu && ! esInsertVeu (x))
-                        if (auto e = efectes (x)) { pp.inserts.push_back (std::move (e)); vius.back().push_back (&x); }
+                        if (auto e = efectes (x)) { pp.inserts.push_back (std::move (e)); pp.encesAmbRM.push_back (x.encesAmbRM ? 1 : 0); vius.back().push_back (&x); }
             // 0.56: automatització
             for (const auto& a : t.autos)
             {
@@ -648,7 +648,7 @@ namespace mibase
     }
 
     void Mesclador::efectes (const Pla::Pista& t, const std::vector<std::shared_ptr<Efecte>>& v, const std::vector<int>& sc, float* xL, float* xR,
-                             long long pos, int n, int ns, bool salta) noexcept
+                             long long pos, int n, int ns, bool salta, const std::vector<char>* fixos, int llindar) noexcept
     {
         // 0.56: amb paràmetres d'insert automatitzats, a trossos de 128 mostres (el valor canvia a cada tros).
         const int tros = t.autoInserts ? 128 : n;
@@ -672,20 +672,23 @@ namespace mibase
                     v[k]->posaSidechain (scL.data() + (std::ptrdiff_t) b * maxN + ofs, scR.data() + (std::ptrdiff_t) b * maxN + ofs);
                 else
                     v[k]->posaSidechain (nullptr, nullptr);
-                if (salta && v[k]->latencia() > 0) continue;   // 0.68: «Retard mínim»
+                if (salta && v[k]->latencia() > llindar && ! (fixos != nullptr && k < fixos->size() && (*fixos)[k] != 0))
+                    continue;   // 0.68: «Retard mínim» (0.69: amb mínim i els «sempre encesos»)
                 v[k]->processa (xL + ofs, xR + ofs, m);
             }
         }
     }
 
-    int Mesclador::retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats) noexcept
+    int Mesclador::retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats, const std::vector<char>* fixos, int llindar) noexcept
     {
         int r = 0;
-        for (const auto& e : v)
+        for (size_t k = 0; k < v.size(); ++k)
         {
+            const auto& e = v[k];
             const int l = e != nullptr ? std::clamp (e->latencia(), 0, 1 << 20) : 0;
             if (l <= 0) continue;
-            if (salta) { if (saltats != nullptr) ++*saltats; continue; }
+            const bool fix = fixos != nullptr && k < fixos->size() && (*fixos)[k] != 0;
+            if (salta && ! fix && l > llindar) { if (saltats != nullptr) ++*saltats; continue; }
             r += l;
         }
         return r;
@@ -723,12 +726,13 @@ namespace mibase
         // tantes mostres abans com retarden els seus plugins, els del bus (o busos) on va i els del màster: així tot
         // arriba junt a la sortida, sense retardar res. El que es toca en directe no es pot avançar.
         const bool minim = retardMinim.load (std::memory_order_relaxed);
+        const int llindar = llindarRM.load (std::memory_order_relaxed);
         int saltats = 0;
-        const int latMaster = retardDe (pla.insertsMaster, minim, &saltats);
+        const int latMaster = retardDe (pla.insertsMaster, minim, &saltats, &pla.encesAmbRMMaster, llindar);
         std::array<int, maxBusos> latBus {}, destiBus {};
         destiBus.fill (-1);
         for (const auto& t : pla.pistes)
-            if (t.bus >= 0 && t.bus < nb && t.bus < maxBusos) { latBus[(size_t) t.bus] = retardDe (t.inserts, minim, &saltats); destiBus[(size_t) t.bus] = t.desti; }
+            if (t.bus >= 0 && t.bus < nb && t.bus < maxBusos) { latBus[(size_t) t.bus] = retardDe (t.inserts, minim, &saltats, &t.encesAmbRM, llindar); destiBus[(size_t) t.bus] = t.desti; }
         std::array<int, maxBusos> latCami {};   // d'un bus fins a la sortida (busos dins de busos)
         for (int b = 0; b < maxBusos && b < nb; ++b)
         {
@@ -750,7 +754,7 @@ namespace mibase
             if (! esBus)
             {
                 const int av = (t.instrument != nullptr ? std::clamp (t.instrument->latencia(), 0, 1 << 20) : 0)
-                             + retardDe (t.inserts, minim && enDirecte, &saltats)
+                             + retardDe (t.inserts, minim && enDirecte, &saltats, &t.encesAmbRM, llindar)
                              + (t.desti >= 0 && t.desti < nb && t.desti < maxBusos ? latCami[(size_t) t.desti] : 0) + latMaster;
                 posT = pos + av;
                 pdcMaxim = std::max (pdcMaxim, av);
@@ -818,7 +822,7 @@ namespace mibase
             if (! (t.canals == 2 || instrumentFet || esBus)) std::copy (xL, xL + n, xR);
             // 0.19: efectes de la pista (abans del fader). 0.56: amb sidechain i automatització.
             enviaSc (t, 0, xL, xR, n, ns);        // sidechain: abans dels efectes
-            if (! t.inserts.empty()) efectes (t, t.inserts, t.scInserts, xL, xR, posT, n, ns, minim && (esBus || enDirecte));
+            if (! t.inserts.empty()) efectes (t, t.inserts, t.scInserts, xL, xR, posT, n, ns, minim && (esBus || enDirecte), &t.encesAmbRM, llindar);
             if (! valid (xL, xR, n))   // 0.64: un efecte o instrument espatllat no pot deixar muda tota la mescla
             {
                 sonda.noValids.fetch_add (1, std::memory_order_relaxed);
@@ -864,7 +868,7 @@ namespace mibase
         // 0.19: cadena de màstering (abans del volum del màster). 0.56: amb sidechain.
         if (! pla.insertsMaster.empty())
         {
-            efectes (pistaBuida, pla.insertsMaster, pla.scMaster, L, R, pos, n, ns, minim);
+            efectes (pistaBuida, pla.insertsMaster, pla.scMaster, L, R, pos, n, ns, minim, &pla.encesAmbRMMaster, llindar);
         }
         if (! valid (L, R, n))   // 0.64
         {

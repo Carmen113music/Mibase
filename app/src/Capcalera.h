@@ -45,8 +45,10 @@ public:
         addAndMakeVisible (btRetard);   // 0.68
         btRetard.setLlum (vintage::ledGroc);
         btRetard.setTooltip ("Retard mínim (RM): apaga un moment els plugins que retarden el so a la pista que graves o toques, "
-                             "als busos i al màster, perquè no sentis retard als auriculars. S'encén sol mentre graves."_ca);
+                             "als busos i al màster, perquè no sentis retard als auriculars. S'encén sol mentre graves. "
+                             "Botó dret: a partir de quants ms els apaga."_ca);
         btRetard.onClick = [this] { if (onRetardMinim) onRetardMinim(); };
+        btRetard.onClicDret = [this] { if (onMenuRetardMinim) onMenuRetardMinim (btRetard); };   // 0.69: el mínim
 
         setProjecte ({});
         actualitza();
@@ -65,6 +67,7 @@ public:
     /** 0.68: «Retard mínim»: clic al botó, i si ara és encès (pel botó o perquè es grava). */
     std::function<void()> onRetardMinim;
     std::function<bool()> onRetardMinimActiu;
+    std::function<void (juce::Component&)> onMenuRetardMinim;   // 0.69
 
     void setPantalla (Pantalla p)
     {

@@ -1245,9 +1245,30 @@ void PantallaEstudi::commutaRetardMinim()
     estat.avisa();
 }
 
+void PantallaEstudi::menuRetardMinim (juce::Component& on)
+{
+    // 0.69: un retard petit gairebé no es nota tocant: per defecte, RM només apaga els plugins de més de 5 ms
+    const int ara = ajustos.getIntValue ("estudi.rmMinimMs", 5);
+    juce::PopupMenu m;
+    m.addSectionHeader ("Retard mínim: apaga els plugins que retarden més de…"_ca);
+    for (int ms : { 0, 2, 5, 10, 20 })
+        m.addItem (ms + 1, ms == 0 ? "Qualsevol retard"_ca : juce::String (ms) + " ms", true, ms == ara);
+    m.addSeparator();
+    m.addItem (100, "Perquè un plugin no s'apagui mai (un ampli de guitarra…): botó dret sobre l'efecte"_ca, false);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&on), [jo] (int r)
+    {
+        if (jo == nullptr || r < 1 || r > 21) return;
+        jo->ajustos.setValue ("estudi.rmMinimMs", r - 1);
+        jo->estat.info = "Retard mínim: apaga els plugins de més de "_ca + juce::String (r - 1) + " ms";
+        jo->estat.avisa();
+    });
+}
+
 void PantallaEstudi::tic()
 {
     servei.estudi().mesclador.setRetardMinim (retardMinimActiu());   // 0.68: s'encén sol mentre es grava
+    servei.estudi().mesclador.setLlindarRM ((int) (ajustos.getIntValue ("estudi.rmMinimMs", 5) * 0.001 * servei.estudi().getFs()));   // 0.69
     {
         const bool davant = juce::Process::isForegroundProcess();
         if (davant && ! eraDavant) refrescaSo();

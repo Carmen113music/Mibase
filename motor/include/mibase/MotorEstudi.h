@@ -80,6 +80,7 @@ namespace mibase
             /** Pistes MIDI: l'instrument (el fa servir el fil d'àudio; la interfície el manté viu) i les notes ordenades. */
             std::shared_ptr<Instrument> instrument;
             std::vector<std::shared_ptr<Efecte>> inserts;   // 0.19: els actius, per ordre
+            std::vector<char> encesAmbRM;                  // 0.69: per a cada insert (mateix ordre): RM no l'apaga
             std::vector<Nota> notes;
             std::vector<Event> events;
             // ---- 0.33: busos i enviaments ----
@@ -128,6 +129,7 @@ namespace mibase
         float master = 1.0f;
         int sortidaMaster = 0;   // primer canal = 2 * sortidaMaster
         std::vector<std::shared_ptr<Efecte>> insertsMaster;   // 0.19: cadena de màstering (abans del volum del màster)
+        std::vector<char> encesAmbRMMaster;                   // 0.69: RM no l'apaga (mateix ordre)
         std::vector<int> scMaster;                            // 0.56: buffer de sidechain de cada insert del màster (-1: cap)
         int numSidechain = 0;                                 // 0.56: buffers de sidechain en ús
         std::vector<Pista> pistes;
@@ -187,11 +189,14 @@ namespace mibase
         /** 0.68: «Retard mínim»: els plugins que retarden s'apaguen a les pistes que es graven o es toquen en directe,
             als busos i al màster (per no sentir retard als auriculars). */
         void setRetardMinim (bool b) noexcept { retardMinim.store (b, std::memory_order_relaxed); }
+        /** 0.69: RM només apaga els plugins que retarden més d'aquestes mostres (Preferències: 5 ms per defecte). */
+        void setLlindarRM (int mostres) noexcept { llindarRM.store (std::max (0, mostres), std::memory_order_relaxed); }
         bool getRetardMinim() const noexcept { return retardMinim.load (std::memory_order_relaxed); }
         /** 0.68: la pista (slot) que toca el teclat ara (-1: cap); la posa el motor. */
         void setSlotDirecte (int s) noexcept { slotDirecte = s; }
         /** 0.68: quantes mostres s'avança una pista: el retard dels seus plugins, del bus (o busos) on va i del màster. */
-        static int retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats = nullptr) noexcept;
+        static int retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats = nullptr,
+                             const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
         Sonda sonda;
         void prepara (double fs, int maxBloc);
         /** Suma a L i R «n» mostres a partir de la mostra «pos» de la línia de temps (pot ser negativa).
@@ -246,9 +251,10 @@ namespace mibase
         // 0.56
         void enviaSc (const Pla::Pista& t, int punt, const float* xL, const float* xR, int n, int ns) noexcept;
         std::atomic<bool> retardMinim { false };
+        std::atomic<int> llindarRM { 0 };
         int slotDirecte = -1;
         void efectes (const Pla::Pista& t, const std::vector<std::shared_ptr<Efecte>>& v, const std::vector<int>& sc, float* xL, float* xR,
-                      long long pos, int n, int ns, bool salta = false) noexcept;
+                      long long pos, int n, int ns, bool salta = false, const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
         std::vector<float> scL, scR;             // maxSidechain * maxN
         Pla::Pista pistaBuida;                   // per als efectes del màster (sense automatització)
         float gMaster = 1.0f;

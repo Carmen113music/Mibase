@@ -50,7 +50,8 @@ namespace inserts
                                    : x.plugin == mibase::dinamica::idPlugin ? "Dinàmica · "_ca
                                    : x.plugin == mibase::delay::idPlugin ? "Delay · "_ca
                                    : x.plugin == mibase::saturacio::idPlugin ? "Decapitor · "_ca
-                                   : x.plugin == mibase::drive::idPlugin ? "Drive · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
+                                   : x.plugin == mibase::drive::idPlugin ? "Drive · "_ca
+                                   : x.plugin == mibase::limitador::idPlugin ? "Limitador · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
             plugins->obreIntern (x, qui + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
             return;
         }
@@ -361,6 +362,7 @@ namespace inserts
         m.addItem (6, "Delay (Mibase): ecos de cinta, analògics, ping-pong…"_ca);
         m.addItem (7, "Decapitor (Mibase): saturació de cinta, consola, vàlvules o suau (per a la mescla)"_ca);
         m.addItem (8, "Drive (Mibase): pedal de crunch, overdrive, distorsió i fuzz"_ca);
+        m.addItem (9, "Limitador (Mibase): per al màster i els busos, amb LUFS"_ca);
         m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
@@ -385,21 +387,21 @@ namespace inserts
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
                 return;
             }
-            if (r >= 3 && r <= 8)
+            if (r >= 3 && r <= 9)
             {
                 std::string id;
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
                 {
                     mibase::Insert x;
                     x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin };
-                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin };
+                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin, mibase::limitador::idPlugin };
+                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin, mibase::limitador::nomPlugin };
                     x.plugin = ids[r - 3];
                     x.nom = noms[r - 3];
                     if (nou || k >= (int) l.size()) l.push_back (x);
                     else l[(size_t) k] = x;
                 }, "Efecte: "_ca + juce::String::fromUTF8 (r == 3 ? mibase::reverb::nomPlugin : r == 4 ? mibase::dinamica::nomPlugin : r == 5 ? mibase::eq::nomPlugin
-                                                     : r == 6 ? mibase::delay::nomPlugin : r == 7 ? mibase::saturacio::nomPlugin : mibase::drive::nomPlugin));
+                                                     : r == 6 ? mibase::delay::nomPlugin : r == 7 ? mibase::saturacio::nomPlugin : r == 8 ? mibase::drive::nomPlugin : mibase::limitador::nomPlugin));
                 juce::MessageManager::callAsync ([&estat, plugins, pista, id]
                 {
                     if (auto* l = llista (estat, pista))
@@ -442,6 +444,8 @@ namespace inserts
             m.addItem (8, "Automatitza un paràmetre…"_ca, pista >= 0);
         }
         m.addItem (6, "Canvia'l per un altre…"_ca);
+        // 0.69: «Retard mínim» no l'apaga mai (per sentir un ampli de guitarra mentre es grava)
+        m.addItem (9, "Sempre encès amb RM (Retard mínim)"_ca, true, x.encesAmbRM);
         m.addSeparator();
         m.addItem (3, "Mou amunt"_ca, k > 0);
         m.addItem (4, "Mou avall"_ca, k + 1 < (int) v->size());
@@ -455,6 +459,9 @@ namespace inserts
             else if (r == 3) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k > 0 && k < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k - 1]); }, {});
             else if (r == 4) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k + 1 < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k + 1]); }, {});
             else if (r == 5) treu (estat, plugins, pista, k);
+            else if (r == 9)
+                canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k < (int) l.size()) l[(size_t) k].encesAmbRM = ! l[(size_t) k].encesAmbRM; },
+                        "Efecte: sempre encès amb RM (o ja no)"_ca);
             else if (r == 7) obreSidechain (estat, plugins, pista, k, on);
             else if (r == 8)
             {

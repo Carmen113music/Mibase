@@ -173,6 +173,7 @@ namespace mibase
         bool actiu = true;       // apagat: el so hi passa de llarg
         std::string estat;       // ajustos del plugin (base64)
         std::vector<FontSidechain> sidechain;   // 0.56: fonts externes (si el plugin en té entrada)
+        bool encesAmbRM = false;   // 0.69: «Retard mínim» no l'apaga mai (per exemple, un ampli de guitarra)
     };
 
     /** 0.56: un punt d'automatització. La posició és en compassos interns (com les parts i el bucle): si canvia el tempo,

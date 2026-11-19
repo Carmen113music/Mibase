@@ -138,10 +138,18 @@ Efecte intern per a qualsevol pista, bus, retorn d'efectes o el màster: **+ Efe
 - **Presets**: 100 de fàbrica en 9 categories, cercador (sense accents ni majúscules), filtres Tots / Favorits / Fàbrica / Meus. Un clic l'escolta, doble clic el posa i tanca. Els teus presets es poden reanomenar, moure de carpeta i esborrar; es desen a `Documents\Mibase\Reverb\presets.json`.
 - Els ajustos es desen amb el projecte (com els d'un VST3).
 
+### Limitador de Mibase (0.69)
+- **+ Efecte → Limitador (Mibase)**, sobretot per al màster i els busos. Puja el volum (**Gain**) i no deixa que cap pic passi del sostre (**Ceiling**, normalment -1 dB). Mira 5 ms endavant per baixar el volum just a temps; aquest retard el compensa Mibase sol (a l'efecte hi surt «5 ms»).
+- **Estils**: *Transparent* (el que menys es nota), *Modern* (el de cada dia), *Punch* (deixa passar el cop de la bateria) i *Agressiu* (per sonar molt fort).
+- **Release** (com de ràpid torna a pujar) amb **Auto release** (s'adapta: menys bombeig), **Link** (els dos costats baixen igual), **True Peak** (vigila també els pics entre mostres) i **Escolta igualat** (abaixa el que has pujat amb Gain per comparar només el so).
+- A la finestra: gràfic de la reducció dels últims 12 s, vúmetres IN / GR / OUT i el volum percebut en **LUFS** (últims 3 s). Com a referència, les plataformes de música solen anar al voltant de -14 LUFS.
+- **20 presets** (Màster, Busos, Pistes, Seguretat, Especials) i els teus.
+
 ### Compensació del retard dels plugins (0.68)
 - Alguns plugins retarden el so (els que «miren endavant», com limitadors o EQ de fase lineal; per exemple, uns 23 ms). **Mibase ho compensa sol**: cada pista llegeix el seu so tant abans com retarden els seus plugins, els del bus on va i els del màster, i així tot arriba junt. No s'ha de configurar res i no afegeix retard.
 - A la columna dels efectes, un efecte que retarda porta una etiqueta groga amb els **ms**. Al diagnòstic («So ara») surt quant s'avança la pista que més.
 - **RM (Retard mínim)**, al transport, al costat del bucle: apaga un moment els plugins que retarden a la pista que graves o toques amb el teclat, als busos i al màster, perquè no notis retard als auriculars. **S'encén sol mentre graves** i es torna a apagar en parar.
+- (0.69) Només apaga els que retarden **més de 5 ms** (un retard més petit gairebé no es nota tocant); **botó dret sobre RM** per canviar-ho (qualsevol, 2, 5, 10 o 20 ms). Perquè un plugin concret no s'apagui mai (un ampli de guitarra com el Guitar Rig): **botó dret sobre l'efecte → Sempre encès amb RM**.
 - El que es toca en directe no es pot avançar: si toques a través d'una pista amb un plugin que retarda, el sentiràs amb aquell retard (per això hi ha RM). Els enviaments a un retorn que retarda no es compensen (de moment).
 
 ### Delay de Mibase (0.65)
@@ -366,6 +374,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.69.0** — **Limitador de Mibase**: limitador / maximitzador amb 4 estils, Gain, Ceiling, Release i Auto, Link, True Peak, Escolta igualat, gràfic de reducció, LUFS i 20 presets; mira 5 ms endavant i el PDC ho compensa. **RM**: només apaga els plugins de més de 5 ms (botó dret sobre RM per canviar-ho) i cada efecte pot quedar **sempre encès amb RM** (botó dret sobre l'efecte).
 - **0.68.0** — **Compensació del retard dels plugins**: les pistes amb plugins que retarden (i els busos i el màster) arriben al seu lloc; etiqueta amb els ms a cada efecte que retarda; botó **RM (Retard mínim)** al transport, que s'encén sol en gravar. Patrons de guitarra: botó **+1 oct** al costat de «Acords: …» (també mou els blocs retocats a mà); treta l'opció del menú. La Saturació es diu **Decapitor (Mibase)**.
 - **0.67.0** — **Drive de Mibase**, efecte nou amb aspecte de pedal: Crunch, Overdrive, Distorsió i Fuzz, amb Gain, Tone, Level, Bass, Mix, Gate i Tight, i 24 presets. La **Saturació** queda per a la mescla: els estils Overdrive i Fuzz passen al Drive i hi ha un estil nou, **Suau** (si en algun projecte de la 0.66 hi havies posat Overdrive, ara sona Suau).
 - **0.66.0** — **Saturació de Mibase**: efecte intern nou inspirat en el Decapitator (estils A, E, N, T, P, Overdrive i Fuzz; Drive, Punish, Low Cut amb Thump, Tone, High Cut amb Steep, Mix, Output i Auto), amb sobremostreig ×4 i 30 presets. Patrons de guitarra: opció **Una octava més amunt**. En tornar a obrir un projecte, les eines Patrons de guitarra i de piano (i la seva llista) recorden el patró i la variació dels blocs del clip, en lloc de tornar al primer de la llista.

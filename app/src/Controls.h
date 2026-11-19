@@ -28,6 +28,20 @@ public:
     /** Color fix de la icona (per exemple, el play verd). */
     void setColorIcona (juce::Colour c) { colorIcona = c; repaint(); }
     void setMidaText (float m) { midaText = m; repaint(); }
+    /** 0.69: si hi és, el clic dret obre això (i no fa el clic normal). */
+    std::function<void()> onClicDret;
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (onClicDret && e.mods.isPopupMenu()) { dret = true; onClicDret(); return; }
+        dret = false;
+        juce::Button::mouseDown (e);
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (dret) { dret = false; return; }
+        juce::Button::mouseUp (e);
+    }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! dret) juce::Button::mouseDrag (e); }
 
     int ampladaIdeal() const
     {
@@ -134,6 +148,7 @@ public:
     }
 
 private:
+    bool dret = false;
     std::optional<dibuix::Icona> ic;
     Estil es;
     juce::Colour llum, colorIcona;

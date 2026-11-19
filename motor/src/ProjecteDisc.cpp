@@ -23,6 +23,7 @@ namespace
         for (const auto& x : v)
         {
             nlohmann::json o = { { "id", x.id }, { "plugin", x.plugin }, { "nom", x.nom }, { "actiu", x.actiu }, { "estat", x.estat } };
+            if (x.encesAmbRM) o["encesAmbRM"] = true;   // 0.69
             if (! x.sidechain.empty())   // 0.56
             {
                 auto sc = nlohmann::json::array();
@@ -47,6 +48,7 @@ namespace
             x.plugin = e.value ("plugin", std::string());
             x.nom = e.value ("nom", std::string());
             x.actiu = e.value ("actiu", true);
+            x.encesAmbRM = e.value ("encesAmbRM", false);   // 0.69
             x.estat = e.value ("estat", std::string());
             if (e.contains ("sidechain") && e["sidechain"].is_array())   // 0.56
                 for (const auto& f : e["sidechain"])

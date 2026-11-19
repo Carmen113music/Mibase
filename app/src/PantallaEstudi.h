@@ -63,6 +63,7 @@ public:
     bool bucleActiu() const noexcept { return estat.projecte.bucle.marcat && estat.projecte.bucle.actiu; }
     /** 0.68: «Retard mínim» (el botó RM, o sol mentre es grava). */
     void commutaRetardMinim();
+    void menuRetardMinim (juce::Component& on);   // 0.69: a partir de quants ms apaga
     bool retardMinimActiu() const noexcept { return retardMinimBoto || estatTransport() >= 2; }
     bool retardMinimBoto = false;
     std::pair<juce::String, juce::String> textPosicio() const;
