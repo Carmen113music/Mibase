@@ -57,6 +57,24 @@ namespace
             comprova (! (a == b), "les notes sí que canvien");
         });
 
+        prova ("0.64 piano: el dibuix de dits es manté a la inversió (5-3-1: sol-mi-do → do-sol-mi)", []
+        {
+            piano::Patro p;
+            p.id = "prova"; p.dreta = "5 3 1 3"; p.esquerra = "1"; p.pasDreta = 480; p.pasEsquerra = 1920;
+            piano::Opcions o0, o1, o2;
+            o1.inversio = 1;
+            o2.inversio = -1;
+            auto dreta = [] (const std::vector<Nota>& v) { std::vector<int> r; for (auto& n : v) if (n.to >= 55) r.push_back (n.to); return r; };
+            const auto a = dreta (piano::toca (harmonia::llegeixAcord ("C"), p, 1920, o0));
+            const auto b = dreta (piano::toca (harmonia::llegeixAcord ("C"), p, 1920, o1));
+            const auto c = dreta (piano::toca (harmonia::llegeixAcord ("C"), p, 1920, o2));
+            auto txt = [] (const std::vector<int>& v) { std::string t; for (int x : v) t += harmonia::nomTo (x % 12) + std::to_string (x / 12 - 1) + " "; return t; };
+            std::printf ("        (fonamental: %s· 1a: %s· avall: %s)\n", txt (a).c_str(), txt (b).c_str(), txt (c).c_str());
+            comprova (a == std::vector<int> ({ 67, 64, 60, 64 }), "fonamental: sol mi do mi");
+            comprova (b == std::vector<int> ({ 72, 67, 64, 67 }), "1a inversió: do sol mi sol (el mateix dibuix)");
+            comprova (c == std::vector<int> ({ 64, 60, 55, 60 }), "un pas avall: mi do sol do");
+        });
+
         prova ("0.61 guitarra: les cinc formes CAGED de Do, pujant pel mànec", []
         {
             const auto v = guitarra::posicionsCaged (harmonia::llegeixAcord ("C"));

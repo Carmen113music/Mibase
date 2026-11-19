@@ -1242,6 +1242,20 @@ void PantallaEstudi::tic()
         const bool davant = juce::Process::isForegroundProcess();
         if (davant && ! eraDavant) refrescaSo();
         eraDavant = davant;
+        // 0.64: si una pista ha donat valors no vàlids (NaN…), el mesclador l'ha silenciada: posa els efectes a zero i anota-ho
+        auto& sonda = servei.estudi().mesclador.sonda;
+        if (const auto nv = sonda.noValids.load(); nv != noValidsVistos)
+        {
+            noValidsVistos = nv;
+            const int slot = sonda.slotNoValid.load();
+            juce::String qui = slot == -2 ? juce::String ("el màster"_ca) : "una pista"_ca;
+            for (const auto& t : estat.projecte.pistes)
+                if (slot >= 0 && t.id.size() > 1 && std::atoi (t.id.c_str() + 1) % 128 == slot) qui = "la pista «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "»"_ca;
+            plugins.buidaCues();
+            historial.afegeix ("So recuperat: "_ca + qui + " donava valors no vàlids (silenciada un moment i efectes a zero)"_ca);
+        }
+    }
+    {
     }
     auto& motor = servei.estudi();
     motor.recull();

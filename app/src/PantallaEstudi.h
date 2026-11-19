@@ -167,7 +167,8 @@ private:
 
     juce::PropertiesFile& ajustos;
     Historial& historial;
-    bool eraDavant = true;   // 0.62.1: Mibase era la finestra de davant (per refrescar el so en tornar-hi)
+    bool eraDavant = true;
+    unsigned int noValidsVistos = 0;   // 0.64: trossos silenciats per valors no vàlids (sonda del mesclador)   // 0.62.1: Mibase era la finestra de davant (per refrescar el so en tornar-hi)
     void refrescaSo();
     ServeiAudio& servei;
     EstatEstudi estat;

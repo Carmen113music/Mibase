@@ -380,6 +380,31 @@ namespace mibase
         reinicia();
     }
 
+    namespace
+    {
+        float picDe (const float* L, const float* R, int n) noexcept
+        {
+            float p = 0.0f;
+            for (int i = 0; i < n; ++i) p = std::max (p, std::max (std::abs (L[i]), std::abs (R[i])));
+            return p;
+        }
+        void puja (std::atomic<float>& a, float p, int n, double fs) noexcept
+        {
+            const float ara = a.load (std::memory_order_relaxed) * (float) std::exp (-(double) n / (0.5 * std::max (1.0, fs)));
+            a.store (std::max (ara, p), std::memory_order_relaxed);
+        }
+        /** Si un tros té valors no vàlids (NaN, infinit o més de +60 dB), el deixa en silenci i ho diu. */
+        bool valid (float* L, float* R, int n) noexcept
+        {
+            float s = 0.0f;
+            for (int i = 0; i < n; ++i) s += std::abs (L[i]) + std::abs (R[i]);
+            if (std::isfinite (s) && s < 2000.0f * (float) n) return true;
+            std::fill (L, L + n, 0.0f);
+            std::fill (R, R + n, 0.0f);
+            return false;
+        }
+    }
+
     void Mesclador::reinicia() noexcept
     {
         gFet.fill (false);
@@ -699,10 +724,12 @@ namespace mibase
                     }
                 // L'instrument sempre rep els seus missatges (també silenciat: així les notes s'apaguen).
                 instrumentPista (t, pos, n, reproduint, directe, numDirecte);
+                if (! reproduint && numEvs > 0) sonda.evsAturat.fetch_add ((unsigned) numEvs, std::memory_order_relaxed);
                 if (numEvs == 0 && ! t.instrument->fentSo())
                     continue;
                 t.instrument->processa (evs.data(), numEvs, pL.data(), pR.data(), n);
                 instrumentFet = true;
+                puja (sonda.picInstrument, picDe (pL.data(), pR.data(), n), n, fs);
             }
             else if (! reproduint)
                 continue;   // aturat: només sonen els instruments
@@ -747,6 +774,13 @@ namespace mibase
             // 0.19: efectes de la pista (abans del fader). 0.56: amb sidechain i automatització.
             enviaSc (t, 0, xL, xR, n, ns);        // sidechain: abans dels efectes
             if (! t.inserts.empty()) efectes (t, t.inserts, t.scInserts, xL, xR, pos, n, ns);
+            if (! valid (xL, xR, n))   // 0.64: un efecte o instrument espatllat no pot deixar muda tota la mescla
+            {
+                sonda.noValids.fetch_add (1, std::memory_order_relaxed);
+                sonda.slotNoValid.store (t.slot, std::memory_order_relaxed);
+                if (t.instrument != nullptr) for (auto& sl : slots) if (sl.inst == t.instrument.get()) sl.apagar = true;
+            }
+            if (instrumentFet) puja (sonda.picEfectes, picDe (xL, xR, n), n, fs);
             enviaSc (t, 1, xL, xR, n, ns);        // sidechain: després dels efectes (abans del fader)
 
             rampa (xL, porta0, porta);
@@ -785,6 +819,14 @@ namespace mibase
         {
             efectes (pistaBuida, pla.insertsMaster, pla.scMaster, L, R, pos, n, ns);
         }
+        if (! valid (L, R, n))   // 0.64
+        {
+            sonda.noValids.fetch_add (1, std::memory_order_relaxed);
+            sonda.slotNoValid.store (-2, std::memory_order_relaxed);
+            gFet.fill (false);
+            masterFet = false;
+        }
+        puja (sonda.picMaster, picDe (L, R, n), n, fs);
 
         // Volum de la sortida.
         if (! masterFet) { gMaster = pla.master; masterFet = true; }

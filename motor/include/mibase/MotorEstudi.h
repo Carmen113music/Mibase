@@ -169,6 +169,18 @@ namespace mibase
     class Mesclador
     {
     public:
+        /** 0.64: per trobar on es perd el so (el fil d'àudio escriu, la interfície llegeix). Els «pic» baixen sols
+            (uns 0,5 s) per veure el que passa ara mateix. */
+        struct Sonda
+        {
+            std::atomic<unsigned int> evsAturat { 0 };     // missatges MIDI que han arribat als instruments amb la cançó aturada
+            std::atomic<float> picInstrument { 0.0f };     // el que surt dels instruments (abans dels efectes)
+            std::atomic<float> picEfectes { 0.0f };        // les pistes d'instrument després dels seus efectes
+            std::atomic<float> picMaster { 0.0f };         // la sortida, després de la cadena del màster
+            std::atomic<unsigned int> noValids { 0 };      // trossos amb valors no vàlids (NaN, infinit o desmesurats) que s'han silenciat
+            std::atomic<int> slotNoValid { -1 };           // l'últim slot que els ha donat (-2 = el màster)
+        };
+        Sonda sonda;
         void prepara (double fs, int maxBloc);
         /** Suma a L i R «n» mostres a partir de la mostra «pos» de la línia de temps (pot ser negativa).
             «vus»: un Mesurador per slot i canal (2 * maxSlots), o nullptr.
@@ -317,7 +329,9 @@ namespace mibase
 
         double fs = 48000.0;
         int maxBloc = 512;
-        Mesclador mesclador;
+    public:
+        Mesclador mesclador;   // 0.64: públic per a la sonda del diagnòstic
+    private:
         std::vector<float> mixL, mixR;
         std::array<int, maxEntrades> mapaEntrades {};
 
