@@ -17,7 +17,11 @@ namespace inserts
         return t != nullptr ? &t->inserts : nullptr;
     }
 
-    inline juce::String titol (const mibase::Insert& x) { return juce::String::fromUTF8 (x.nom.c_str()); }
+    inline juce::String titol (const mibase::Insert& x)
+    {
+        if (x.plugin == mibase::saturacio::idPlugin) return juce::String::fromUTF8 (mibase::saturacio::nomPlugin);   // 0.68: els projectes vells deien «Saturació»
+        return juce::String::fromUTF8 (x.nom.c_str());
+    }
 
     /** 0.22: qui obre el Vocal Editor d'una pista (el posa la pantalla de l'estudi). */
     inline std::function<void (int pista)>& obreVeu() { static std::function<void (int)> f; return f; }
@@ -45,7 +49,7 @@ namespace inserts
             const juce::String qui = x.plugin == mibase::reverb::idPlugin ? "Reverb · "_ca
                                    : x.plugin == mibase::dinamica::idPlugin ? "Dinàmica · "_ca
                                    : x.plugin == mibase::delay::idPlugin ? "Delay · "_ca
-                                   : x.plugin == mibase::saturacio::idPlugin ? "Saturació · "_ca
+                                   : x.plugin == mibase::saturacio::idPlugin ? "Decapitor · "_ca
                                    : x.plugin == mibase::drive::idPlugin ? "Drive · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
             plugins->obreIntern (x, qui + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
             return;
@@ -355,7 +359,7 @@ namespace inserts
         m.addItem (4, "Dinàmica (Mibase): compressor, gate, expander, de-esser"_ca);
         m.addItem (5, "EQ Pro (Mibase): equalitzador de fins a 24 bandes"_ca);
         m.addItem (6, "Delay (Mibase): ecos de cinta, analògics, ping-pong…"_ca);
-        m.addItem (7, "Saturació (Mibase): cinta, consola, vàlvules, suau (per a la mescla)"_ca);
+        m.addItem (7, "Decapitor (Mibase): saturació de cinta, consola, vàlvules o suau (per a la mescla)"_ca);
         m.addItem (8, "Drive (Mibase): pedal de crunch, overdrive, distorsió i fuzz"_ca);
         m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)

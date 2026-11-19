@@ -22,7 +22,7 @@
 namespace mibase::saturacio
 {
     inline constexpr const char* idPlugin = "intern:saturacio";
-    inline constexpr const char* nomPlugin = "Saturació (Mibase)";
+    inline constexpr const char* nomPlugin = "Decapitor (Mibase)";   // 0.68: abans «Saturació (Mibase)» (l'id no canvia)
 
     enum Estil : int { A, E, N, T, P, Suau, numEstils };   // 0.67: Suau ocupa el lloc de l'Overdrive (ara al Drive); el Fuzz, també al Drive
     const char* nomEstil (int e);          // «A», «E»… «Suau»

@@ -519,8 +519,8 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
         {
             auto r = reverbs.find (x.id);
             auto* s = r != reverbs.end() ? dynamic_cast<mibase::saturacio::Saturacio*> (r->second.get()) : nullptr;
-            if (s == nullptr) { t << "intern (Saturació), encara no creada\n"_ca; return; }
-            t << "intern (Saturació) · "_ca << juce::String::fromUTF8 (mibase::saturacio::nomLlargEstil ((int) s->valor (mibase::saturacio::EstilP)))
+            if (s == nullptr) { t << "intern (Decapitor), encara no creat\n"_ca; return; }
+            t << "intern (Decapitor) · "_ca << juce::String::fromUTF8 (mibase::saturacio::nomLlargEstil ((int) s->valor (mibase::saturacio::EstilP)))
               << " · drive " << juce::String (s->driveDb(), 1) << " dB · sortida " << dB (s->mesures().sortida.load()) << " dB\n";
             return;
         }

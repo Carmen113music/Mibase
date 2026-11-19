@@ -145,7 +145,7 @@ namespace
             auto t = getLocalBounds().removeFromTop (56).reduced (14, 9).removeFromLeft (120).toFloat();
             g.setColour (tema::text);
             g.setFont (dibuix::lletra (17.0f, true));
-            g.drawText ("SATURACIÓ"_ca, t.removeFromTop (22.0f), juce::Justification::centredLeft);
+            g.drawText ("DECAPITOR", t.removeFromTop (22.0f), juce::Justification::centredLeft);
             g.setColour (tema::accent);
             g.setFont (dibuix::lletra (10.0f, true));
             g.drawText ("MIBASE", t, juce::Justification::centredLeft);
@@ -264,7 +264,7 @@ namespace
         {
             const auto actual = nomsPreset()[sat.get()];
             const bool meu = biblioteca().busca (actual.toStdString()) != nullptr;
-            const auto proposta = meu ? actual : u8 (biblioteca().nomLliure ((actual.isEmpty() ? juce::String ("Saturació"_ca) : actual + " (meu)"_ca).toStdString()));
+            const auto proposta = meu ? actual : u8 (biblioteca().nomLliure ((actual.isEmpty() ? juce::String ("Decapitor") : actual + " (meu)"_ca).toStdString()));
             dialeg = std::make_unique<DialegText> ("Desa el preset"_ca, "Nom del preset (si ja en tens un amb aquest nom, se substitueix)."_ca, "Desa"_ca,
                 [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom."_ca : juce::String(); },
                 [this] (const juce::String& t)

@@ -342,6 +342,7 @@ private:
     Boto btSegueix { "Segueix acords", std::nullopt, Boto::Estil::Tecla };
     // 0.49: com es toquen els acords a l'eina de patrons de guitarra (oberts, powerchords, octaves greus o agudes)
     Boto btForma { "Acords: oberts", std::nullopt, Boto::Estil::Secundari };
+    Boto btOctava { "+1 oct", std::nullopt, Boto::Estil::Tecla };   // 0.68: patrons de guitarra una octava més amunt
     mibase::guitarra::Forma formaGuitarra = mibase::guitarra::Forma::Oberts;
     bool formaABarra = true;
     void menuForma();
