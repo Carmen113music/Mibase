@@ -414,6 +414,13 @@ namespace mibase::eq
         b.freq = a.freq.load (std::memory_order_relaxed);
         b.guany = a.guany.load (std::memory_order_relaxed);
         b.q = a.q.load (std::memory_order_relaxed);
+        b.dinamica = a.dinamica.load (std::memory_order_relaxed);
+        b.sidechain = a.sidechain.load (std::memory_order_relaxed);
+        b.llindar = a.llindar.load (std::memory_order_relaxed);
+        b.ratio = a.ratio.load (std::memory_order_relaxed);
+        b.rang = a.rang.load (std::memory_order_relaxed);
+        b.atac = a.atac.load (std::memory_order_relaxed);
+        b.retorn = a.retorn.load (std::memory_order_relaxed);
         return b;
     }
 
@@ -428,6 +435,14 @@ namespace mibase::eq
         a.guany.store (std::isfinite (b.guany) ? lim (b.guany, -guanyMax, guanyMax) : 0.0f, std::memory_order_relaxed);
         a.q.store (std::isfinite (b.q) ? lim (b.q, qMin, qMax) : qDefecte, std::memory_order_relaxed);
         a.activa.store (b.activa, std::memory_order_relaxed);
+        auto fin = [] (float v, float mn, float mx, float def) { return std::isfinite (v) ? lim (v, mn, mx) : def; };
+        a.llindar.store (fin (b.llindar, llindarMin, llindarMax, -24.0f), std::memory_order_relaxed);
+        a.ratio.store (fin (b.ratio, ratioMin, ratioMax, 3.0f), std::memory_order_relaxed);
+        a.rang.store (fin (b.rang, -rangMax, rangMax, -6.0f), std::memory_order_relaxed);
+        a.atac.store (fin (b.atac, atacMin, atacMax, 10.0f), std::memory_order_relaxed);
+        a.retorn.store (fin (b.retorn, retornMin, retornMax, 120.0f), std::memory_order_relaxed);
+        a.sidechain.store (b.sidechain, std::memory_order_relaxed);
+        a.dinamica.store (b.dinamica && potSerDinamica (lim (b.tipus, 0, numTipus - 1)), std::memory_order_relaxed);
         a.usada.store (b.usada, std::memory_order_release);
         toca();
     }
@@ -542,6 +557,14 @@ namespace mibase::eq
             std::snprintf (b, sizeof b, ";b%d=%d,%.7g,%.6g,%.6g,%d,%d,%d", k, x.tipus, (double) x.freq, (double) x.guany, (double) x.q,
                            x.pendent, x.canal, x.activa ? 1 : 0);
             s += b;
+            const Banda def;
+            if (x.dinamica || x.sidechain || x.llindar != def.llindar || x.ratio != def.ratio || x.rang != def.rang || x.atac != def.atac || x.retorn != def.retorn)
+            {
+                // 0.62: la dinàmica (els estats sense aquests camps la tenen apagada)
+                std::snprintf (b, sizeof b, ",%d,%d,%.6g,%.6g,%.6g,%.6g,%.6g", x.dinamica ? 1 : 0, x.sidechain ? 1 : 0, (double) x.llindar, (double) x.ratio,
+                               (double) x.rang, (double) x.atac, (double) x.retorn);
+                s += b;
+            }
         }
         return s;
     }
@@ -579,6 +602,16 @@ namespace mibase::eq
                 x.pendent = (int) llegeixNum (val, p);
                 x.canal = (int) llegeixNum (val, p);
                 x.activa = p < val.size() ? llegeixNum (val, p) != 0.0 : true;
+                if (p < val.size())   // 0.62: dinàmica
+                {
+                    x.dinamica = llegeixNum (val, p) != 0.0;
+                    x.sidechain = p < val.size() && llegeixNum (val, p) != 0.0;
+                    if (p < val.size()) x.llindar = (float) llegeixNum (val, p);
+                    if (p < val.size()) x.ratio = (float) llegeixNum (val, p);
+                    if (p < val.size()) x.rang = (float) llegeixNum (val, p);
+                    if (p < val.size()) x.atac = (float) llegeixNum (val, p);
+                    if (p < val.size()) x.retorn = (float) llegeixNum (val, p);
+                }
                 posaBanda (k, x);
             }
         }
@@ -640,11 +673,18 @@ namespace mibase::eq
             suau (v.lf, lf, 1.0e-5);
             suau (v.g, g, 1.0e-4);
             suau (v.lq, lq, 1.0e-5);
+            // 0.62: dinàmica (el detector ha calculat v.dyn al tros anterior)
+            const bool dinamica = a.dinamica.load (std::memory_order_relaxed);
+            if (! dinamica && v.dyn != 0.0) { v.dyn = 0.0; v.env = 0.0; dynAra[(size_t) k].store (0.0f, std::memory_order_relaxed); }
+            if (dinamica && v.det.b0 == 1.0 && v.det.b2 == 0.0) canvia = true;   // encara no té el filtre del detector
+            if (std::abs (v.dyn - v.dynDis) > 1.0e-3 || (v.dyn == 0.0 && v.dynDis != 0.0)) canvia = true;
             if (canvia)
             {
                 Banda b;
                 b.tipus = v.tipus; b.pendent = v.pendent; b.canal = v.canal;
-                b.freq = (float) std::exp (v.lf); b.guany = (float) v.g; b.q = (float) std::exp (v.lq);
+                b.freq = (float) std::exp (v.lf); b.guany = (float) (v.g + v.dyn); b.q = (float) std::exp (v.lq);
+                v.dynDis = v.dyn;
+                if (dinamica) { auto bd = b; bd.guany = 0.0f; v.det = dissenyaSolo (bd, fs); }
                 const bool teAnt = v.coefsBons;
                 const int nAnt = v.n;
                 for (int i = 0; i < nAnt; ++i) v.sAnt[i] = v.s[i];
@@ -674,7 +714,7 @@ namespace mibase::eq
         }
     }
 
-    void Equalitzador::tros16 (float* L, float* R, int n, int ofs) noexcept
+    void Equalitzador::tros16 (float* L, float* R, int n, int ofs, const float* sl, const float* sr) noexcept
     {
         double l[tros], r[tros], dl[tros], dr[tros], x[tros], y[tros];
         float picI = 0.0f;
@@ -703,6 +743,35 @@ namespace mibase::eq
                 const double obj = on && mateixa ? 1.0 : 0.0;
                 if (v.pres <= 0.0 && obj <= 0.0) continue;
                 algunaBanda = true;
+
+                // 0.62: el detector de la dinàmica (la zona de la banda, del so propi o del sidechain)
+                if (on && a.dinamica.load (std::memory_order_relaxed) && v.det.b0 != 1.0)
+                {
+                    const bool ext = a.sidechain.load (std::memory_order_relaxed) && sl != nullptr && sr != nullptr;
+                    const double ka = std::exp (-1.0 / (std::max (0.05, (double) a.atac.load (std::memory_order_relaxed)) * 0.001 * fs));
+                    const double kr = std::exp (-1.0 / (std::max (1.0, (double) a.retorn.load (std::memory_order_relaxed)) * 0.001 * fs));
+                    const auto& c = v.det;
+                    double env = v.env;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        double x;
+                        if (ext) x = v.canal == Side ? 0.5 * ((double) sl[i] - sr[i]) : (v.canal == Esquerre ? sl[i] : v.canal == Dret ? sr[i] : 0.5 * ((double) sl[i] + sr[i]));
+                        else x = v.canal == Side ? 0.5 * (dl[i] - dr[i]) : (v.canal == Esquerre ? dl[i] : v.canal == Dret ? dr[i] : 0.5 * (dl[i] + dr[i]));
+                        const double y = c.b0 * x + v.zd[0];
+                        v.zd[0] = c.b1 * x - c.a1 * y + v.zd[1];
+                        v.zd[1] = c.b2 * x - c.a2 * y;
+                        const double ay = std::abs (y);
+                        env = ay > env ? ay + ka * (env - ay) : ay + kr * (env - ay);
+                    }
+                    if (! std::isfinite (env) || ! std::isfinite (v.zd[0]) || ! std::isfinite (v.zd[1])) { env = 0.0; v.zd[0] = v.zd[1] = 0.0; }
+                    v.env = env;
+                    const double nivell = 20.0 * std::log10 (std::max (1.0e-9, env));
+                    const double sobre = nivell - (double) a.llindar.load (std::memory_order_relaxed);
+                    const double rt = std::max (1.0, (double) a.ratio.load (std::memory_order_relaxed)), rg = (double) a.rang.load (std::memory_order_relaxed);
+                    const double mou = sobre > 0.0 ? sobre * (1.0 - 1.0 / rt) : 0.0;
+                    v.dyn = rg < 0.0 ? -std::min (mou, -rg) : std::min (mou, rg);
+                    dynAra[(size_t) k].store ((float) v.dyn, std::memory_order_relaxed);
+                }
 
                 auto filtra = [&] (double* buf, int ch)
                 {
@@ -864,12 +933,14 @@ namespace mibase::eq
         {
             if (dinsTros <= 0) { actualitza(); dinsTros = tros; }
             const int m = std::min (dinsTros, n - i);
-            tros16 (L + i, R + i, m, tros - dinsTros);
+            tros16 (L + i, R + i, m, tros - dinsTros, scL != nullptr ? scL + i : nullptr, scR != nullptr ? scR + i : nullptr);
             dinsTros -= m;
             i += m;
         }
 #ifdef MIBASE_EQ_FTZ
         _mm_setcsr (csr);
 #endif
+        scConnectat.store (scL != nullptr, std::memory_order_relaxed);
+        scL = scR = nullptr;   // el sidechain val per a aquest bloc
     }
 }

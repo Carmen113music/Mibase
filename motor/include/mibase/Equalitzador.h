@@ -44,6 +44,13 @@ namespace mibase::eq
     constexpr float guanyMax = 30.0f;
     constexpr float qMin = 0.025f, qMax = 40.0f, qDefecte = 0.7071f;
     constexpr float sortidaMax = 24.0f;
+    // 0.61→0.62: EQ dinàmica
+    constexpr float llindarMin = -60.0f, llindarMax = 0.0f;
+    constexpr float ratioMin = 1.0f, ratioMax = 20.0f;
+    constexpr float rangMax = 24.0f;
+    constexpr float atacMin = 0.1f, atacMax = 200.0f, retornMin = 5.0f, retornMax = 2000.0f;   // ms
+    /** Els tipus que poden ser dinàmics (els que tenen guany). */
+    inline bool potSerDinamica (int tipus) { return tipus == 0 || tipus == 1 || tipus == 2 || tipus == 7; }
 
     /** Els valors d'una banda (com els veu la interfície). */
     struct Banda
@@ -51,6 +58,10 @@ namespace mibase::eq
         bool usada = false, activa = true;
         int tipus = Bell, pendent = 1, canal = Estereo;
         float freq = 1000.0f, guany = 0.0f, q = qDefecte;
+        // 0.62: dinàmica. Quan el so de la zona de la banda passa del llindar, el guany es mou fins a «rang» dB
+        // (negatiu: baixa, com un de-esser o un compressor d'una zona; positiu: puja). Detector: el so propi o el sidechain.
+        bool dinamica = false, sidechain = false;
+        float llindar = -24.0f, ratio = 3.0f, rang = -6.0f, atac = 10.0f, retorn = 120.0f;
         bool operator== (const Banda&) const = default;
     };
 
@@ -121,6 +132,11 @@ namespace mibase::eq
         /** Escolta només la zona d'una banda (-1 = so normal). No es desa ni s'automatitza. */
         void posaSolo (int k) noexcept { solo.store (k >= 0 && k < maxBandes ? k : -1, std::memory_order_relaxed); toca(); }
         int soloBanda() const noexcept { return solo.load (std::memory_order_relaxed); }
+        /** 0.62: quants dB mou ara la dinàmica de cada banda (per dibuixar-la). */
+        float dinamicaAra (int k) const noexcept { return k >= 0 && k < maxBandes ? dynAra[(size_t) k].load (std::memory_order_relaxed) : 0.0f; }
+        bool sidechainConnectat() const noexcept { return scConnectat.load (std::memory_order_relaxed); }
+        bool admetSidechain() const noexcept override { return true; }
+        void posaSidechain (const float* l, const float* r) noexcept override { scL = l; scR = r; }
 
     private:
         struct Atomica
@@ -128,7 +144,13 @@ namespace mibase::eq
             std::atomic<bool> usada { false }, activa { true };
             std::atomic<int> tipus { Bell }, pendent { 1 }, canal { Estereo };
             std::atomic<float> freq { 1000.0f }, guany { 0.0f }, q { qDefecte };
+            std::atomic<bool> dinamica { false }, sidechain { false };
+            std::atomic<float> llindar { -24.0f }, ratio { 3.0f }, rang { -6.0f }, atac { 10.0f }, retorn { 120.0f };
         };
+        std::array<std::atomic<float>, maxBandes> dynAra {};
+        std::atomic<bool> scConnectat { false };
+        const float* scL = nullptr;
+        const float* scR = nullptr;
         std::array<Atomica, maxBandes> at;
         std::atomic<float> sortidaDb { 0.0f };
         std::atomic<bool> byp { false };
@@ -150,6 +172,12 @@ namespace mibase::eq
             int n = 0;
             Seccio s[maxSeccions], sAnt[maxSeccions];          // coeficients d'aquest tros i de l'anterior (s'hi passa mostra a mostra)
             double z[2][maxSeccions][2] {};                    // estat de cada canal (TDF-II)
+            // 0.62: dinàmica
+            Seccio det;                                        // filtre del detector (la zona de la banda)
+            double zd[2] {};
+            double env = 0.0;                                  // nivell del detector (lineal)
+            double dyn = 0.0;                                  // dB que mou ara (els fa servir el disseny del tros següent)
+            double dynDis = 0.0;                               // els dB amb què s'han fet els coeficients
         };
         std::array<Viva, maxBandes> vi;
         double fs = 48000.0;
@@ -165,7 +193,7 @@ namespace mibase::eq
 
         static constexpr int tros = 16;
         void actualitza() noexcept;
-        void tros16 (float* L, float* R, int n, int ofs) noexcept;
+        void tros16 (float* L, float* R, int n, int ofs, const float* sl, const float* sr) noexcept;
         void toca() noexcept { canvis.fetch_add (1, std::memory_order_relaxed); }
     };
 }

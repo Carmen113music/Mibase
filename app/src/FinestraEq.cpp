@@ -30,6 +30,34 @@ namespace
     AjustAnalitzador& ajustAn() { static AjustAnalitzador a; return a; }
     constexpr float rangEspectre = 96.0f;                   // dB de dalt (0) a baix de la gràfica
 
+    // 0.62: els poms de la dinàmica (valor ↔ 0..1)
+    enum PomDyn { DLlindar, DRatio, DRang, DAtac, DRetorn, numPomsDyn };
+    double logA01 (double v, double a, double b) { return std::log (v / a) / std::log (b / a); }
+    double logDe01 (double x, double a, double b) { return a * std::pow (b / a, x); }
+    double dynA01 (int quin, const Banda& b)
+    {
+        switch (quin)
+        {
+            case DLlindar: return (b.llindar - llindarMin) / (llindarMax - llindarMin);
+            case DRatio:   return logA01 (b.ratio, ratioMin, ratioMax);
+            case DRang:    return (b.rang + rangMax) / (2.0 * rangMax);
+            case DAtac:    return logA01 (b.atac, atacMin, atacMax);
+            default:       return logA01 (b.retorn, retornMin, retornMax);
+        }
+    }
+    void dynDe01 (int quin, double x, Banda& b)
+    {
+        x = juce::jlimit (0.0, 1.0, x);
+        switch (quin)
+        {
+            case DLlindar: b.llindar = (float) (llindarMin + x * (llindarMax - llindarMin)); break;
+            case DRatio:   b.ratio = (float) logDe01 (x, ratioMin, ratioMax); break;
+            case DRang:    b.rang = (float) (std::round ((-rangMax + x * 2.0 * rangMax) * 10.0) / 10.0); break;
+            case DAtac:    b.atac = (float) logDe01 (x, atacMin, atacMax); break;
+            default:       b.retorn = (float) logDe01 (x, retornMin, retornMax); break;
+        }
+    }
+
     juce::String coma (double v, int dec)
     {
         if (dec <= 0) return juce::String ((int) std::lround (v));
@@ -370,6 +398,11 @@ namespace
         Boto btDuplica { "Duplica", std::nullopt, Boto::Estil::Subtil };
         Boto btEsborra { "Esborra", std::nullopt, Boto::Estil::Subtil };
         Boto btEscolta { "Escolta-la", std::nullopt, Boto::Estil::Tecla };
+        // 0.62: dinàmica
+        Boto btDinamica { "Dinàmica"_ca, std::nullopt, Boto::Estil::Tecla };
+        Boto btSidechain { "Sidechain", std::nullopt, Boto::Estil::Tecla };
+        std::array<std::unique_ptr<Pom>, numPomsDyn> pomsDyn;
+        float dynVist[maxBandes] {};
         Pom pomFreq { "Freqüència"_ca, 0.0, 1.0, 0.5, false, [this] (double v) { return focus >= 0 ? u8 (q->textParametre (indexParam (focus, PFreq), (float) v)) : juce::String(); } };
         Pom pomGuany { "Guany", 0.0, 1.0, 0.5, true, [this] (double v) { return focus >= 0 ? u8 (q->textParametre (indexParam (focus, PGuany), (float) v)) : juce::String(); } };
         Pom pomQ { "Q", 0.0, 1.0, 0.5, false, [this] (double v) { return focus >= 0 ? u8 (q->textParametre (indexParam (focus, PQ), (float) v)) : juce::String(); } };
@@ -411,7 +444,9 @@ namespace
             if (! b.usada) { cb.clear(); continue; }
             cb.assign (n, 0.0f);
             Seccio s[maxSeccions];
-            const int ns = dissenya (b, fs, s);
+            auto bAra = b;   // 0.62: la corba es dibuixa amb el que mou ara la dinàmica
+            if (b.dinamica && b.activa) bAra.guany = juce::jlimit (-guanyMax, guanyMax, b.guany + q.dinamicaAra (k));
+            const int ns = dissenya (bAra, fs, s);
             for (size_t i = 0; i < n; ++i)
             {
                 const double f = freqDeX (xs[i]);
@@ -605,6 +640,18 @@ namespace
             const bool triada = p.triades.count (k) > 0;
             const float r = triada || k == nodeSobre ? 9.0f : 7.5f;
             const auto c = colorBanda (k);
+            if (b.dinamica && teGuany (b.tipus))
+            {
+                // 0.62: el rang de la dinàmica (línia fins on pot arribar) i on és ara (punt petit)
+                const double fn = factorNode (b.tipus);
+                const float yRang = (float) juce::jlimit ((double) area().getY(), (double) area().getBottom(), yDeDb (fn * (b.guany + b.rang)));
+                g.setColour (c.withAlpha (0.55f));
+                g.drawLine (pt.x, pt.y, pt.x, yRang, 2.0f);
+                g.drawLine (pt.x - 5.0f, yRang, pt.x + 5.0f, yRang, 1.5f);
+                const float yAra = (float) juce::jlimit ((double) area().getY(), (double) area().getBottom(), yDeDb (fn * (b.guany + q.dinamicaAra (k))));
+                g.setColour (c);
+                g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ pt.x, yAra }));
+            }
             if (triada)
             {
                 g.setColour (c.withAlpha (0.25f));
@@ -645,6 +692,7 @@ namespace
             if (teQ (b.tipus, b.pendent)) t << sep << "Q " << coma (b.q, 2);
             if (tePendent (b.tipus)) t << sep << juce::String (dbPerOctava (b.pendent)) << " dB/oct";
             if (b.canal != Estereo) t << sep << u8 (nomCanal (b.canal));
+            if (b.dinamica) t << sep << "dinàmica "_ca << textDb (b.rang) << (b.sidechain ? " (sidechain)" : "");
             if (! b.activa) t << sep << "apagada";
         }
         else if (picSobre >= 0 && (size_t) picSobre < freqCol.size())
@@ -1042,6 +1090,69 @@ namespace
         btEscolta.setLlum (tema::guitarra);
         btEscolta.setTooltip ("Escolta només la zona del so que toca aquesta banda (per trobar ressonàncies). No es desa."_ca);
         btEscolta.onClick = [this] { commutaSolo(); };
+
+        // 0.62: dinàmica
+        btDinamica.setLlum (tema::accent);
+        btDinamica.setTooltip ("Banda dinàmica: només actua quan la seva zona sona fort (passa del llindar). "
+                               "Rang negatiu: baixa (de-esser, ressonàncies, un baix que ressona); positiu: puja"_ca);
+        btDinamica.onClick = [this]
+        {
+            if (focus < 0) return;
+            const bool nou = ! q->banda (focus).dinamica;
+            aTotes ([nou] (Banda& b) { if (potSerDinamica (b.tipus)) b.dinamica = nou; });
+        };
+        btSidechain.setLlum (tema::veu);
+        btSidechain.setTooltip ("El detector escolta el so de la cadena lateral (sidechain) en lloc del propi. "
+                                "La font es tria a l'insert (com a la Dinàmica). Sense font connectada, fa servir el so propi"_ca);
+        btSidechain.onClick = [this]
+        {
+            if (focus < 0) return;
+            const bool nou = ! q->banda (focus).sidechain;
+            aTotes ([nou] (Banda& b) { b.sidechain = nou; });
+        };
+        static const char* nomsDyn[] = { "Llindar", "Ràtio", "Rang", "Atac", "Retorn" };
+        for (int i = 0; i < numPomsDyn; ++i)
+        {
+            pomsDyn[(size_t) i] = std::make_unique<Pom> (juce::String::fromUTF8 (nomsDyn[i]), 0.0, 1.0, 0.5, i == DRang, [this, i] (double v)
+            {
+                Banda b;
+                dynDe01 (i, v, b);
+                switch (i)
+                {
+                    case DLlindar: return coma (b.llindar, 1) + " dB";
+                    case DRatio:   return coma (b.ratio, 1) + ":1";
+                    case DRang:    return textDb (b.rang);
+                    case DAtac:    return coma (b.atac, b.atac < 10.0f ? 1 : 0) + " ms";
+                    default:       return coma (b.retorn, 0) + " ms";
+                }
+            });
+            auto& pm = *pomsDyn[(size_t) i];
+            addChildComponent (pm);
+            pm.onComenca = [this] { abansDeCanviar(); };
+            pm.onCanvi = [this, i] (double v)
+            {
+                if (focus < 0) return;
+                for (int k : triades) { auto b = q->banda (k); dynDe01 (i, v, b); q->posaBanda (k, b); }
+                grafica.invalida();
+                llista.repaint();
+            };
+            pm.onReinicia = [this, i]
+            {
+                const Banda def;
+                aTotes ([i, def] (Banda& b)
+                {
+                    if (i == DLlindar) b.llindar = def.llindar; else if (i == DRatio) b.ratio = def.ratio; else if (i == DRang) b.rang = def.rang;
+                    else if (i == DAtac) b.atac = def.atac; else b.retorn = def.retorn;
+                });
+            };
+        }
+        pomsDyn[DLlindar]->setTooltip ("A partir de quin nivell de la zona de la banda comença a actuar. Ctrl + clic: -24 dB"_ca);
+        pomsDyn[DRatio]->setTooltip ("Com d'enèrgic: com més alt, abans arriba a tot el rang"_ca);
+        pomsDyn[DRang]->setTooltip ("Com a molt quants dB es mou: negatiu baixa, positiu puja"_ca);
+        pomsDyn[DAtac]->setTooltip ("Com de de pressa reacciona quan el so passa del llindar"_ca);
+        pomsDyn[DRetorn]->setTooltip ("Com de de pressa torna a lloc quan el so baixa"_ca);
+        addChildComponent (btDinamica);
+        addChildComponent (btSidechain);
         q->posaCaptura (ajustAn().on);
         addAndMakeVisible (segRang);
         addAndMakeVisible (pomSortida);
@@ -1149,7 +1260,7 @@ namespace
         editorValor.onEscapeKey = [this] { editorValor.setVisible (false); pomEscrit = -1; grabKeyboardFocus(); };
         editorValor.onFocusLost = [this] { editorValor.setVisible (false); pomEscrit = -1; };
 
-        setSize (1000, 600);
+        setSize (1100, 620);
         refresca();
         startTimerHz (30);
     }
@@ -1209,7 +1320,13 @@ namespace
                                     (juce::Component*) &btDuplica, (juce::Component*) &btEsborra, (juce::Component*) &pomFreq, (juce::Component*) &pomGuany,
                                     (juce::Component*) &pomQ, (juce::Component*) &btEscolta })
             c->setVisible (hiHa);
-        if (! hiHa) return;
+        if (! hiHa)
+        {
+            btDinamica.setVisible (false);
+            btSidechain.setVisible (false);
+            for (auto& pm : pomsDyn) pm->setVisible (false);
+            return;
+        }
         const auto b = q->banda (focus);
         btTipus.setButtonText (u8 (nomTipus (b.tipus)));
         btPendent.setButtonText (juce::String (dbPerOctava (b.pendent)) + " dB/oct");
@@ -1218,6 +1335,16 @@ namespace
         btEncesa.setToggleState (b.activa, juce::dontSendNotification);
         btEncesa.setButtonText (b.activa ? "Encesa" : "Apagada");
         btEscolta.setToggleState (q->soloBanda() == focus, juce::dontSendNotification);
+        const bool potDyn = potSerDinamica (b.tipus);
+        btDinamica.setVisible (potDyn);
+        btDinamica.setToggleState (b.dinamica, juce::dontSendNotification);
+        btSidechain.setVisible (potDyn && b.dinamica);
+        btSidechain.setToggleState (b.sidechain, juce::dontSendNotification);
+        for (int i = 0; i < numPomsDyn; ++i)
+        {
+            pomsDyn[(size_t) i]->setVisible (potDyn && b.dinamica);
+            pomsDyn[(size_t) i]->setValor (dynA01 (i, b), true);
+        }
         pomFreq.setValor (q->parametre (indexParam (focus, PFreq)), true);
         pomGuany.setValor (q->parametre (indexParam (focus, PGuany)), true);
         pomGuany.setVisible (teGuany (b.tipus));
@@ -1230,6 +1357,14 @@ namespace
     {
         if (q->versio() != versioVista) refresca();   // automatització o canvis de fora
         grafica.actualitzaEspectre();
+        // 0.62: el moviment de les bandes dinàmiques
+        bool mou = false;
+        for (int k = 0; k < maxBandes; ++k)
+        {
+            const float d = q->dinamicaAra (k);
+            if (std::abs (d - dynVist[k]) > 0.1f) { dynVist[k] = d; mou = true; }
+        }
+        if (mou) grafica.invalida();
         const float i = q->picEntrada(), o = q->picSortida();
         vuIn = std::max (i, vuIn * 0.86f);
         vuOut = std::max (o, vuOut * 0.86f);
@@ -1336,7 +1471,7 @@ namespace
         btDuplica.setBounds (fila.removeFromRight (84));
         b.removeFromTop (2);
         b.removeFromTop (4);
-        const int ample = 96;
+        const int ample = pomsDyn[0]->isVisible() ? 80 : 96;
         for (auto* pm : { &pomFreq, &pomGuany, &pomQ })
         {
             if (! pm->isVisible()) continue;
@@ -1344,7 +1479,19 @@ namespace
             b.removeFromLeft (8);
         }
         b.removeFromLeft (8);
-        btEscolta.setBounds (b.removeFromLeft (104).removeFromTop (30));
+        {
+            auto col = b.removeFromLeft (100);
+            btEscolta.setBounds (col.removeFromTop (28));
+            col.removeFromTop (6);
+            btDinamica.setBounds (col.removeFromTop (28));
+        }
+        if (pomsDyn[0]->isVisible())
+        {
+            b.removeFromLeft (10);
+            for (auto& pm : pomsDyn) { pm->setBounds (b.removeFromLeft (66)); b.removeFromLeft (2); }
+            b.removeFromLeft (6);
+            btSidechain.setBounds (b.removeFromLeft (90).removeFromTop (28));
+        }
     }
 
     bool PanellEq::keyPressed (const juce::KeyPress& k)
