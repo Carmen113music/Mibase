@@ -655,6 +655,11 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             };
             p.tonalitatAuto = t.value ("automatica", true);
             p.tonalitat = llegeixTon (t);
+            if (t.contains ("preferida") && t["preferida"].is_object())   // 0.65
+            {
+                p.tePreferida = true;
+                p.tonalitatPreferida = llegeixTon (t["preferida"]);
+            }
             const auto mode = t.value ("mode", std::string ("visual"));
             p.modeEscala = mode == "assistit" ? ModeEscala::Assistit : mode == "bloquejat" ? ModeEscala::Bloquejat : ModeEscala::Visual;
             p.ressaltaAcord = t.value ("acord", true);
@@ -721,6 +726,9 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                { "escala", harmonia::escales()[(size_t) std::clamp (p.tonalitat.escala, 0, (int) harmonia::escales().size() - 1)].id },
                                { "mode", p.modeEscala == ModeEscala::Assistit ? "assistit" : p.modeEscala == ModeEscala::Bloquejat ? "bloquejat" : "visual" },
                                { "acord", p.ressaltaAcord }, { "canvis", canvis } };
+            if (p.tePreferida)   // 0.65: la triada amb «Una altra»
+                j["tonalitat"]["preferida"] = { { "to", p.tonalitatPreferida.to },
+                    { "escala", harmonia::escales()[(size_t) std::clamp (p.tonalitatPreferida.escala, 0, (int) harmonia::escales().size() - 1)].id } };
         }
         {
             json carpetes = json::array();

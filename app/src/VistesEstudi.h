@@ -225,6 +225,7 @@ public:
     juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
     juce::Rectangle<int> zonaES (int fila) const;
     juce::Rectangle<int> rectSegueix (int fila) const;   // 0.41
+    juce::Rectangle<int> rectAltraTonalitat (int fila) const;   // 0.65
     std::function<juce::Array<juce::MidiDeviceInfo>()> teclats;   // 0.40: per al menú E/S de les pistes d'instrument
     bool esEstreta (int fila) const;
     juce::Rectangle<int> rectES (int fila) const;   // 0.37

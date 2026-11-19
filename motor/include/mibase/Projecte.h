@@ -428,6 +428,9 @@ namespace mibase
         /** true: la tonalitat es dedueix de les notes MIDI (si n'hi ha prou); false: l'ha triada en Roger. */
         bool tonalitatAuto = true;
         Tonalitat tonalitat;                      // la triada (o la darrera detectada)
+        /** 0.65: en automàtic, la que en Roger ha triat amb «Una altra» (la detecció la fa servir mentre sigui possible). */
+        bool tePreferida = false;
+        Tonalitat tonalitatPreferida;
         ModeEscala modeEscala = ModeEscala::Visual;
         bool ressaltaAcord = true;                // pinta les notes de l'acord que sona al capçal
         std::vector<CanviTonalitat> canvisTonalitat;   // per a més endavant (es desen i es llegeixen)

@@ -1,5 +1,6 @@
 #include "Plugins.h"
 #include "EscGlobal.h"
+#include "FinestraDelay.h"
 #include "FinestraDinamica.h"
 #include "FinestraEq.h"
 #include "FinestraReverb.h"
@@ -396,6 +397,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraDinamica (d, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
         else if (auto q = std::dynamic_pointer_cast<mibase::eq::Equalitzador> (r->second))
             finestres[clau] = creaFinestraEq (q, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto dl = std::dynamic_pointer_cast<mibase::delay::Delay> (r->second))   // 0.65
+            finestres[clau] = creaFinestraDelay (dl, titol, [this, clau] { finestres.erase (clau); });
         return;
     }
     auto* a = viu (clau);
@@ -408,6 +411,12 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
     std::shared_ptr<mibase::EfecteIntern> r;
     if (x.plugin == mibase::dinamica::idPlugin) r = std::make_shared<mibase::dinamica::Dinamica>();
     else if (x.plugin == mibase::eq::idPlugin) r = std::make_shared<mibase::eq::Equalitzador>();
+    else if (x.plugin == mibase::delay::idPlugin)   // 0.65
+    {
+        auto dl = std::make_shared<mibase::delay::Delay>();
+        dl->posaTempo (&RellotgePlugins::global().tempo);
+        r = dl;
+    }
     else
     {
         auto rv = std::make_shared<mibase::reverb::Reverb>();
@@ -487,6 +496,17 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
             if (d == nullptr) { t << "intern (Dinàmica), encara no creada\n"_ca; return; }
             t << "intern (Dinàmica) · "_ca << mibase::dinamica::nomMode ((int) d->valor (mibase::dinamica::ModeP)) << " · reducció "_ca
               << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
+            return;
+        }
+        if (x.plugin == mibase::delay::idPlugin)   // 0.65
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::delay::Delay*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Delay), encara no creat\n"_ca; return; }
+            t << "intern (Delay) · "_ca << mibase::delay::nomCaracter ((int) d->valor (mibase::delay::CaracterP)) << " · "
+              << mibase::delay::nomEncaminament ((int) d->valor (mibase::delay::EncaminamentP)) << " · "
+              << juce::String (d->tempsL() * 1000.0, 0) << " ms · eco " << dB (d->mesures().eco.load()) << " dB"
+              << (d->valor (mibase::delay::Freeze) > 0.5f ? " · freeze" : "") << "\n";
             return;
         }
         if (x.plugin == mibase::eq::idPlugin)

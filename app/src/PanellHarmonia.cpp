@@ -421,6 +421,12 @@ public:
             estatText = "Detectada: "_ca + txt (hm::nomTonalitat (t)) + " (" + juce::String (juce::roundToInt (d.confianca * 100.0)) + " %)";
             col = vintage::ledVerd;
         }
+        else if (d.usable)
+        {
+            // 0.65: pocs acords a la pista d'Acords: és una proposta («Una altra» a la pista d'Acords en prova una altra)
+            estatText = "Proposta (pocs acords): "_ca + txt (hm::nomTonalitat (t)) + ". A la pista d'Acords, «Una altra» en prova una altra."_ca;
+            col = tema::textMig;
+        }
         else
         {
             estatText = "Encara no hi ha prou notes per detectar-la: tria-la a mà (ara "_ca + txt (hm::nomTonalitat (t)) + ")";
@@ -660,6 +666,7 @@ private:
     {
         estat.desfes.abans (estat.projecte);
         auto& p = estat.projecte;
+        p.tePreferida = false;   // 0.65: tornar a triar oblida la provada amb «Una altra»
         if (automatica)
         {
             const auto d = hm::detecta (p);

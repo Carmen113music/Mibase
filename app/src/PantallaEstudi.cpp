@@ -1476,7 +1476,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
     }
     if (tipus == "midi")
     {
-        const auto nom = ed::nomPistaLliure (estat.projecte, "Piano");
+        const auto nom = ed::nomPistaLliure (estat.projecte, "Instrument");   // 0.65: abans «Piano»
         auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
         t.canals = 2;
         t.instrument = "intern:piano";

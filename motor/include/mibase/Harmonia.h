@@ -75,15 +75,31 @@ namespace mibase::harmonia
     Reconegut reconeix (const std::vector<int>& notes);
 
     // ---- Tonalitat de la cançó ----
+    /** 0.65: una tonalitat possible i com hi encaixen les notes (correlació, -1..1). */
+    struct Candidat
+    {
+        Tonalitat tonalitat;
+        double puntuacio = 0.0;
+    };
     struct Deteccio
     {
         bool fiable = false;      // hi ha prou notes i la millor tonalitat destaca
-        Tonalitat tonalitat;      // Major o Menor natural
+        Tonalitat tonalitat;      // Major o Menor natural (0.65: la preferida si encara és possible)
         double confianca = 0.0;   // 0..1
         int notes = 0;
+        // ---- 0.65 ----
+        int acords = 0;           // blocs de la pista d'Acords que hi compten
+        bool usable = false;      // fiable, o hi ha acords a la pista d'Acords (encara que siguin pocs)
+        bool dubtosa = true;      // poques notes o la segona és molt a prop de la primera
+        bool preferida = false;   // s'ha fet servir la triada amb «Una altra»
+        std::vector<Candidat> candidats;   // les possibles, de més a menys probable (com a molt 5)
     };
-    /** A partir de totes les notes MIDI del projecte (durada de cada nota), amb els perfils de Krumhansl. */
+    /** A partir de totes les notes MIDI del projecte (durada de cada nota) i, des de la 0.65, dels acords de la pista
+        d'Acords (les notes de cada acord, amb una mica més de pes per a la fonamental del primer i del darrer), amb els
+        perfils de Krumhansl. Si «Projecte::tonalitatPreferida» encara és entre les possibles, és la que surt. */
     Deteccio detecta (const Projecte& p);
+    /** 0.65: la candidata que ve després de la que surt ara (per al botó «Una altra»). Si no n'hi ha cap altra, la mateixa. */
+    Tonalitat seguentCandidata (const Projecte& p);
     /** La que fa servir el programa: la triada a mà o, en automàtic, la detectada (si és fiable; si no, la desada). */
     Tonalitat tonalitatEfectiva (const Projecte& p);
 

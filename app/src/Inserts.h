@@ -42,7 +42,9 @@ namespace inserts
         if (GestorPlugins::esIntern (x.plugin))
         {
             const auto* t = estat.pista (pista);
-            const juce::String qui = x.plugin == mibase::reverb::idPlugin ? "Reverb · "_ca : "Dinàmica · "_ca;
+            const juce::String qui = x.plugin == mibase::reverb::idPlugin ? "Reverb · "_ca
+                                   : x.plugin == mibase::dinamica::idPlugin ? "Dinàmica · "_ca
+                                   : x.plugin == mibase::delay::idPlugin ? "Delay · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
             plugins->obreIntern (x, qui + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
             return;
         }
@@ -350,6 +352,7 @@ namespace inserts
         m.addItem (3, "Reverb (Mibase): espais, plates, convolució, shimmer…"_ca);
         m.addItem (4, "Dinàmica (Mibase): compressor, gate, expander, de-esser"_ca);
         m.addItem (5, "EQ Pro (Mibase): equalitzador de fins a 24 bandes"_ca);
+        m.addItem (6, "Delay (Mibase): ecos de cinta, analògics, ping-pong…"_ca);
         m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
@@ -374,18 +377,18 @@ namespace inserts
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
                 return;
             }
-            if (r == 3 || r == 4 || r == 5)
+            if (r == 3 || r == 4 || r == 5 || r == 6)
             {
                 std::string id;
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
                 {
                     mibase::Insert x;
                     x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                    x.plugin = r == 3 ? mibase::reverb::idPlugin : (r == 4 ? mibase::dinamica::idPlugin : mibase::eq::idPlugin);
-                    x.nom = r == 3 ? mibase::reverb::nomPlugin : (r == 4 ? mibase::dinamica::nomPlugin : mibase::eq::nomPlugin);
+                    x.plugin = r == 3 ? mibase::reverb::idPlugin : (r == 4 ? mibase::dinamica::idPlugin : (r == 6 ? mibase::delay::idPlugin : mibase::eq::idPlugin));
+                    x.nom = r == 3 ? mibase::reverb::nomPlugin : (r == 4 ? mibase::dinamica::nomPlugin : (r == 6 ? mibase::delay::nomPlugin : mibase::eq::nomPlugin));
                     if (nou || k >= (int) l.size()) l.push_back (x);
                     else l[(size_t) k] = x;
-                }, r == 3 ? "Efecte: Reverb (Mibase)"_ca : (r == 4 ? "Efecte: Dinàmica (Mibase)"_ca : "Efecte: EQ Pro (Mibase)"_ca));
+                }, r == 3 ? "Efecte: Reverb (Mibase)"_ca : (r == 4 ? "Efecte: Dinàmica (Mibase)"_ca : (r == 6 ? "Efecte: Delay (Mibase)"_ca : "Efecte: EQ Pro (Mibase)"_ca)));
                 juce::MessageManager::callAsync ([&estat, plugins, pista, id]
                 {
                     if (auto* l = llista (estat, pista))

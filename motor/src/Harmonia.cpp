@@ -284,6 +284,34 @@ namespace mibase::harmonia
         const bool hiHaSolo = std::any_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& t) { return t.solo; });
         for (const auto& t : p.pistes)
         {
+            if (esAcords (t))
+            {
+                // 0.65: la pista d'Acords també compta (les notes de cada acord, pel temps que dura)
+                const Clip* primer = nullptr;
+                const Clip* darrer = nullptr;
+                for (const auto& c : t.clips)
+                {
+                    if (! c.esAcord() || c.mut) continue;
+                    const auto a = llegeixAcord (c.acord);
+                    if (a.buit()) continue;
+                    const double dur = std::max (0.05, c.fiVisible() - c.iniciVisible());
+                    std::set<int> pcs;
+                    for (int n : notesPad (a)) pcs.insert (pc (n));
+                    for (int x : pcs) { h[(size_t) x] += dur; ++d.notes; }
+                    ++d.acords;
+                    if (primer == nullptr || c.iniciVisible() < primer->iniciVisible()) primer = &c;
+                    if (darrer == nullptr || c.iniciVisible() > darrer->iniciVisible()) darrer = &c;
+                }
+                // la fonamental del primer i del darrer acord pesa una mica més (sovint és la del to)
+                // (el primer, més: les cançons solen començar pel to)
+                for (const auto& [c, pes] : { std::pair<const Clip*, double> { primer, 0.75 }, std::pair<const Clip*, double> { darrer, 0.4 } })
+                    if (c != nullptr)
+                    {
+                        const auto a = llegeixAcord (c->acord);
+                        h[(size_t) pc (a.arrel)] += pes * std::max (0.05, c->fiVisible() - c->iniciVisible());
+                    }
+                continue;
+            }
             if (t.tipus != "midi" || t.mut || (hiHaSolo && ! t.solo)) continue;
             for (const auto& c : t.clips)
             {
@@ -316,23 +344,53 @@ namespace mibase::harmonia
             }
             return (sxx <= 0.0 || syy <= 0.0) ? 0.0 : sxy / std::sqrt (sxx * syy);
         };
-        double millor = -2.0;
+        std::vector<Candidat> tots;
         for (int to = 0; to < 12; ++to)
         {
-            const double a = correl (major, to), b = correl (menor, to);
-            if (a > millor) { millor = a; d.tonalitat = { to, 0 }; }
-            if (b > millor) { millor = b; d.tonalitat = { to, 1 }; }
+            tots.push_back ({ { to, 0 }, correl (major, to) });
+            tots.push_back ({ { to, 1 }, correl (menor, to) });
         }
+        std::stable_sort (tots.begin(), tots.end(), [] (const Candidat& a, const Candidat& b) { return a.puntuacio > b.puntuacio; });
+        const double millor = tots.front().puntuacio;
+        d.tonalitat = tots.front().tonalitat;
         d.confianca = std::clamp (millor, 0.0, 1.0);
         d.fiable = d.notes >= 8 && diferents >= 4 && millor >= 0.5;
+        d.usable = d.fiable || (d.acords > 0 && diferents >= 3);
+        // 0.65: les possibles (a prop de la millor); sempre almenys dues, si hi ha notes
+        if (diferents > 0)
+            for (const auto& c : tots)
+            {
+                if (d.candidats.size() >= 5) break;
+                if (d.candidats.size() >= 2 && (c.puntuacio < millor - 0.25 || c.puntuacio <= 0.0)) break;
+                d.candidats.push_back (c);
+            }
+        const double segona = tots.size() > 1 ? tots[1].puntuacio : -1.0;
+        d.dubtosa = ! d.fiable || millor - segona < 0.1;
+        if (p.tePreferida && d.usable)
+            for (const auto& c : d.candidats)
+                if (c.tonalitat == p.tonalitatPreferida)
+                {
+                    d.tonalitat = c.tonalitat;
+                    d.confianca = std::clamp (c.puntuacio, 0.0, 1.0);
+                    d.preferida = true;
+                }
         return d;
+    }
+
+    Tonalitat seguentCandidata (const Projecte& p)
+    {
+        const auto d = detecta (p);
+        if (d.candidats.empty()) return d.tonalitat;
+        int i = 0;
+        for (int k = 0; k < (int) d.candidats.size(); ++k) if (d.candidats[(size_t) k].tonalitat == d.tonalitat) i = k;
+        return d.candidats[(size_t) ((i + 1) % (int) d.candidats.size())].tonalitat;
     }
 
     Tonalitat tonalitatEfectiva (const Projecte& p)
     {
         if (! p.tonalitatAuto) return p.tonalitat;
         const auto d = detecta (p);
-        return d.fiable ? d.tonalitat : p.tonalitat;
+        return d.usable ? d.tonalitat : p.tonalitat;
     }
 
     std::vector<int> notesSonant (const Projecte& p, double t)
