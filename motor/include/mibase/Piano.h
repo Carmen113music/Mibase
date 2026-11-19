@@ -39,7 +39,12 @@ namespace mibase::piano
     std::string dibuix (const Patro& p);
     long long ticksCompas (const std::string& compas);
 
-    struct Opcions { int vel = 0; double tempo = 120.0; double variacio = 0.0; unsigned llavor = 1; };
+    struct Opcions { int vel = 0; double tempo = 120.0; double variacio = 0.0; unsigned llavor = 1;
+                     int inversio = 0;   // 0.61: inversió de la mà dreta (cíclica; 0 = posició fonamental)
+    };
+    /** 0.61: les notes de la mà dreta (acord tancat) amb una inversió: la més greu puja una octava a cada pas, el
+        cicle torna a l'original; l'octava es tria perquè l'acord quedi a prop de l'original (sense salts grossos). */
+    std::vector<int> invertida (const std::vector<int>& fonamental, int inversio);
     /** Les notes del patró amb aquest acord durant «durada» ticks (el patró es repeteix). Ticks des de zero. */
     std::vector<Nota> toca (const harmonia::AcordPad& acord, const Patro& p, long long durada, const Opcions& o = {});
 

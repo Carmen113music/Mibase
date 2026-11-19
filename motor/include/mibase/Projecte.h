@@ -84,6 +84,15 @@ namespace mibase
         bool operator== (const AcordClip&) const = default;
     };
 
+    /** 0.61: la disposició d'un acord en un compàs d'un clip de patrons: inversió (piano) o posició CAGED (guitarra).
+        «pas» = quants passos des de l'original (cíclic; 0 = l'original, i llavors no es desa). */
+    struct VeuCompas
+    {
+        long long ini = 0, dur = 0;   // el compàs, en ticks des de l'inici del clip
+        int pas = 0;
+        bool operator== (const VeuCompas&) const = default;
+    };
+
     /** 0.41: bloc de patró dins d'un clip MIDI: el ritme (rasgueig) d'aquell tros. L'acord no és seu: surt de la
         pista d'Acords (si la pista la segueix) o dels acords del clip. Les notes són normals i es reescriuen soles
         quan canvia l'acord o el patró, tret que el bloc estigui «fix» (retocat a mà). Porta el rasgueig sencer en
@@ -135,6 +144,7 @@ namespace mibase
         std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
         std::vector<AcordClip> acords;  // 0.41: acords posats a mà (si la pista no segueix la pista d'Acords)
         std::vector<AcordClip> acordsFixos;   // 0.48: acords fixats a mà en un clip que segueix la pista d'Acords (manen sobre els de la pista)
+        std::vector<VeuCompas> veus;    // 0.61: inversions / posicions CAGED per compàs
         bool acordsPropis = false;      // 0.46: aquest clip no segueix la pista d'Acords encara que la pista sí (fa servir «acords»)
 
         double iniciVisible() const noexcept { return pos + inici; }

@@ -116,7 +116,7 @@ private:
     - (0.8) Segell: un acord del panell d'harmonia es posa amb un clic (EstatEstudi::segell).
     - insereixAcords(): els generadors (arpegis, rasgueigs…) hi afegiran notes MIDI normals.
     - Carril de baix: ara la velocitat; més endavant els controladors (CC1, CC11, CC64, pitch bend…). */
-class PianoRoll : public SeccioEstudi, public juce::DragAndDropTarget, private juce::ScrollBar::Listener
+class PianoRoll : public SeccioEstudi, public juce::DragAndDropTarget, public juce::TooltipClient, private juce::ScrollBar::Listener
 {
 public:
     PianoRoll (EstatEstudi& e, int index);
@@ -313,6 +313,15 @@ private:
     void variaBloc (int quin);
     void posaPatroA (int x);
     bool compasA (int x, long long& ini, long long& dur) const;
+    bool compasDeTick (double t, long long& ini, long long& dur) const;   // 0.61: el compàs d'un tick (absolut)
+    // 0.61: (−) i (+) de cada compàs a la línia dels acords: inversió (piano) o posició CAGED (guitarra)
+    struct ControlVeu { juce::Rectangle<float> seg, menys, mes; long long ini = 0, dur = 0; int pas = 0; std::string acord; };
+    std::vector<ControlVeu> controlsVeu() const;
+    juce::String textVeu (const std::string& acord, int pas, long long tick) const;
+    juce::String tooltipVeu;
+public:
+    juce::String getTooltip() override { return tooltipVeu; }
+private:
     void commutaSegueix();
     void triaRasgueig (const std::string& id, bool escolta);
     void escoltaRasgueig (const std::vector<mibase::Nota>& notes);

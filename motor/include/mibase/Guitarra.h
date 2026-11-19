@@ -48,6 +48,17 @@ namespace mibase::guitarra
     Posicio posicio (const harmonia::AcordPad& a, Forma f);
     std::vector<int> notes (const harmonia::AcordPad& a, Forma f);
 
+    // ---- 0.61: posicions CAGED ----
+    /** Una posició de l'acord al mànec i la forma CAGED d'on surt ('C', 'A', 'G', 'E', 'D'; 0 si no ve de cap,
+        com la d'un acord amb una altra nota greu; a les powerchords i octaves, '6' '5' '4' '3' = la corda de la fonamental). */
+    struct PosicioCaged { Posicio pos; char forma = 0; };
+    /** Les posicions de l'acord pujant pel mànec, sense repetir: les cinc formes CAGED que es poden tocar (les dels
+        acords oberts, moguts amb celleta; si un tipus d'acord no en té, la més còmoda a la mateixa zona del mànec).
+        La de sempre (posicio()) hi és sempre. */
+    std::vector<PosicioCaged> posicionsCaged (const harmonia::AcordPad& a, Forma f = Forma::Oberts);
+    /** La posició «pas» passos amunt (+) o avall (−) des de la de sempre, en cicle (0 = la de sempre). */
+    PosicioCaged posicioCaged (const harmonia::AcordPad& a, Forma f, int pas);
+
     // ---- Rasgueig ----
     enum class Cop { Res, Silenci, Avall, Amunt, MutAvall, MutAmunt };
     /** 0.32: com es toca el cop (a més de la direcció). */
@@ -148,13 +159,15 @@ namespace mibase::guitarra
     std::vector<LlocMastil> alMastil (std::vector<int> tons);
 
     // ---- 0.41: blocs de patró que llegeixen els acords ----
-    struct Tram { long long ini = 0, fi = 0; std::string acord; bool fix = false; };   // fix (0.48): fixat a mà al clip
+    struct Tram { long long ini = 0, fi = 0; std::string acord; bool fix = false;   // fix (0.48): fixat a mà al clip
+                  int pas = 0; };   // 0.61: inversió (piano) o posició CAGED (guitarra) del compàs (Clip::veus)
     /** 0.48: fixa un acord en un tros d'un clip que segueix la pista d'Acords (mana sobre el de la pista). */
     int posaAcordFix (Clip& c, AcordClip a);
     /** Treu els acords fixos que toquen [ini, fi). Diu si n'ha tret cap. */
     bool treuAcordsFixos (Clip& c, long long ini, long long fi);
     /** Els acords que valen per a un clip, en ticks del clip i per ordre: els de la pista d'Acords si la pista
-        la segueix; si no, els que s'hi han posat a mà. */
+        la segueix; si no, els que s'hi han posat a mà. 0.61: els compassos amb una disposició pròpia (Clip::veus) surten
+        en un tram a part amb el seu «pas». */
     std::vector<Tram> acordsDe (const Projecte& p, const Pista& t, const Clip& c);
     BlocPatro blocDe (const Patro* p, long long ini, long long dur, double variacio, unsigned llavor, int vel);
     Patro patroDeBloc (const BlocPatro& b);
@@ -170,6 +183,12 @@ namespace mibase::guitarra
         les escriu actualitza). Torna'n l'índex. */
     int posaBloc (Clip& c, BlocPatro b);
     void treuBloc (Clip& c, int quin, bool ambNotes);
+    /** 0.61: canvia el pas d'un compàs ([ini, ini + dur), ticks del clip). Torna el pas nou. */
+    int mouVeu (Clip& c, long long ini, long long dur, int delta);
+    /** 0.61: el pas d'un compàs (0 si no en té). */
+    int veuDe (const Clip& c, long long ini);
+    /** 0.61: torna el compàs a la disposició original. */
+    void treuVeu (Clip& c, long long ini);
     /** Posa un acord a mà al clip (els que trepitja s'escurcen o desapareixen). */
     int posaAcord (Clip& c, AcordClip a);
     void treuAcord (Clip& c, int quin);

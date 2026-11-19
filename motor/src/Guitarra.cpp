@@ -378,6 +378,187 @@ namespace mibase::guitarra
         return posicio (a, f).notes();
     }
 
+    // ---- 0.61: CAGED ----
+    namespace
+    {
+        /** La posició més còmoda amb la fonamental a la corda «cr» al trast «r» i la resta de dits entre els trasts
+            «lo» i «hi» (les cordes més greus no sonen). Mateixes regles que posicio(): cordes seguides, totes les notes
+            que calen i com a molt 4 dits (amb celleta). */
+        Posicio cercaFinestra (const harmonia::AcordPad& a, int cr, int r, int lo, int hi)
+        {
+            const auto iv = intervals (a);
+            std::vector<int> cal = iv;
+            auto treu = [&cal] (int i) { cal.erase (std::remove (cal.begin(), cal.end(), i), cal.end()); };
+            if (iv.size() >= 5) treu (7);
+            if (cal.size() > 4) treu (2);
+            if (cal.size() > 4) treu (5);
+            bool esDe[12] = {}, esCal[12] = {};
+            for (int i : iv) esDe[pc (a.arrel + i)] = true;
+            for (int i : cal) esCal[pc (a.arrel + i)] = true;
+            std::array<std::vector<int>, numCordes> op;
+            for (int s = 0; s < numCordes; ++s)
+            {
+                auto& o = op[(size_t) s];
+                o.assign (1, -1);
+                if (s < cr) continue;
+                if (s == cr) { o.assign (1, r); continue; }
+                for (int t = std::max (0, lo); t <= hi; ++t)
+                    if (esDe[pc (afinacio[(size_t) s] + t)]) o.push_back (t);
+            }
+            Posicio millor;
+            double millorPunts = 1e9;
+            std::array<size_t, numCordes> k {};
+            for (;;)
+            {
+                Posicio p;
+                for (int s = 0; s < numCordes; ++s) p.trast[(size_t) s] = op[(size_t) s][k[(size_t) s]];
+                int ultima = -1, quantes = 0, trepitjades = 0, minT = 99, maxT = 0, aire = 0;
+                bool forat = false, te[12] = {};
+                for (int s = cr; s < numCordes; ++s)
+                {
+                    const int t = p.trast[(size_t) s];
+                    if (t < 0) continue;
+                    if (ultima >= 0 && s != ultima + 1) forat = true;
+                    ultima = s;
+                    ++quantes;
+                    te[pc (afinacio[(size_t) s] + t)] = true;
+                    if (t == 0) ++aire;
+                    else { ++trepitjades; minT = std::min (minT, t); maxT = std::max (maxT, t); }
+                }
+                bool val = quantes >= std::min (4, numCordes - cr) && ! forat;
+                for (int n = 0; val && n < 12; ++n) if (esCal[n] && ! te[n]) val = false;
+                int dits = trepitjades;
+                if (val && aire == 0 && trepitjades > 0) { dits = 1; for (int t : p.trast) if (t > minT) ++dits; }
+                if (val && (dits > 4 || maxT - minT > 3)) val = false;
+                if (val)
+                {
+                    int falten = 0;
+                    for (int i : iv) if (! te[pc (a.arrel + i)]) ++falten;
+                    const double punts = -3.0 * quantes + 1.5 * dits + 3.0 * falten + (maxT - minT >= 3 ? 4.0 : 0.0) + (ultima < numCordes - 1 ? 2.0 : 0.0);
+                    if (punts < millorPunts - 1e-9) { millorPunts = punts; millor = p; }
+                }
+                int s = numCordes - 1;
+                while (s >= 0 && ++k[(size_t) s] >= op[(size_t) s].size()) k[(size_t) s--] = 0;
+                if (s < 0) break;
+            }
+            return millor;
+        }
+
+        double altura (const Posicio& p)
+        {
+            double sum = 0.0;
+            int n = 0;
+            for (int t : p.trast) if (t >= 0) { sum += t; ++n; }
+            return n > 0 ? sum / n : 0.0;
+        }
+    }
+
+    std::vector<PosicioCaged> posicionsCaged (const harmonia::AcordPad& a, Forma f)
+    {
+        std::vector<PosicioCaged> v;
+        if (a.buit()) return v;
+        const auto deSempre = posicio (a, f);
+        auto afegeix = [&v] (const Posicio& p, char forma)
+        {
+            if (p.buida()) return;
+            for (int t : p.trast) if (t > 17) return;   // fora del mànec
+            for (auto& x : v) if (x.pos == p) { if (x.forma == 0) x.forma = forma; return; }
+            v.push_back ({ p, forma });
+        };
+        const int arrel = pc (a.arrel);
+        if (f != Forma::Oberts)
+        {
+            // powerchords i octaves: la fonamental a la 6a, 5a, 4a (i 3a) corda
+            for (int c = 0; c <= 3; ++c)
+            {
+                const int segona = f == Forma::Power ? c + 1 : c + 2;
+                if (segona >= numCordes) continue;
+                const int t = pc (arrel - afinacio[(size_t) c]);
+                Posicio p;
+                p.trast[(size_t) c] = t;
+                p.trast[(size_t) segona] = f == Forma::Power ? t + 7 - (afinacio[(size_t) segona] - afinacio[(size_t) c])
+                                                             : t + 12 - (afinacio[(size_t) segona] - afinacio[(size_t) c]);
+                if (p.trast[(size_t) segona] < 0) continue;
+                afegeix (p, (char) ('6' - c));
+            }
+        }
+        else if (a.baix < 0 || a.baix == a.arrel)
+        {
+            auto net = a;
+            net.inversio = 0;
+            net.baix = -1;
+            struct Forma1 { char lletra; int arrel; int corda; bool avall; };   // avall: la forma s'estén per sota de la fonamental
+            static const Forma1 formes[] = { { 'C', 0, 1, true }, { 'A', 9, 1, false }, { 'G', 7, 0, true }, { 'E', 4, 0, false }, { 'D', 2, 2, false } };
+            for (const auto& fm : formes)
+            {
+                // la forma de l'acord obert (C, Am, G7, Emaj7…) moguda amb celleta fins a la fonamental bona
+                auto obert = net;
+                obert.arrel = fm.arrel;
+                Posicio p;
+                for (auto& o : oberts)
+                    if (o.acord[0] == fm.lletra && harmonia::llegeixAcord (o.acord) == obert)
+                    {
+                        const auto base = llegeixPosicio (o.pos);
+                        const int d = pc (arrel - fm.arrel);
+                        for (int s = 0; s < numCordes; ++s) p.trast[(size_t) s] = base.trast[(size_t) s] < 0 ? -1 : base.trast[(size_t) s] + d;
+                        break;
+                    }
+                if (p.buida())
+                {
+                    // aquest tipus d'acord no té forma oberta amb aquesta lletra: la més còmoda a la mateixa zona
+                    int r = pc (arrel - afinacio[(size_t) fm.corda]);
+                    if (fm.avall && r < 3) r += 12;
+                    p = fm.avall ? cercaFinestra (net, fm.corda, r, r - 3, r) : cercaFinestra (net, fm.corda, r, r, r + 3);
+                }
+                afegeix (p, fm.lletra);
+            }
+        }
+        afegeix (deSempre, 0);
+        std::stable_sort (v.begin(), v.end(), [] (const PosicioCaged& x, const PosicioCaged& y) { return altura (x.pos) < altura (y.pos); });
+        return v;
+    }
+
+    PosicioCaged posicioCaged (const harmonia::AcordPad& a, Forma f, int pas)
+    {
+        const auto v = posicionsCaged (a, f);
+        if (v.empty()) return { posicio (a, f), 0 };
+        const auto deSempre = posicio (a, f);
+        int i0 = 0;
+        for (size_t i = 0; i < v.size(); ++i) if (v[i].pos == deSempre) { i0 = (int) i; break; }
+        const int n = (int) v.size();
+        return v[(size_t) (((i0 + pas) % n + n) % n)];
+    }
+
+    int veuDe (const Clip& c, long long ini)
+    {
+        for (const auto& v : c.veus) if (v.ini == ini) return v.pas;
+        return 0;
+    }
+
+    int mouVeu (Clip& c, long long ini, long long dur, int delta)
+    {
+        for (auto it = c.veus.begin(); it != c.veus.end(); ++it)
+            if (it->ini == ini)
+            {
+                it->pas += delta;
+                it->dur = dur;
+                const int p = it->pas;
+                if (p == 0) c.veus.erase (it);
+                return p;
+            }
+        if (delta == 0 || dur <= 0) return 0;
+        // els compassos no es trepitgen: si n'hi havia un altre al mateix tros (canvi de compàs o de tempo), fora
+        std::erase_if (c.veus, [&] (const VeuCompas& v) { return v.ini < ini + dur && ini < v.ini + v.dur; });
+        c.veus.push_back ({ ini, dur, delta });
+        std::sort (c.veus.begin(), c.veus.end(), [] (const VeuCompas& x, const VeuCompas& y) { return x.ini < y.ini; });
+        return delta;
+    }
+
+    void treuVeu (Clip& c, long long ini)
+    {
+        std::erase_if (c.veus, [ini] (const VeuCompas& v) { return v.ini == ini; });
+    }
+
     const std::vector<Patro>& patrons()
     {
         static const std::vector<Patro> llista = []
@@ -1163,6 +1344,22 @@ namespace mibase::guitarra
             }
             endreca();
         }
+        // 0.61: els compassos amb disposició pròpia, en trams a part
+        for (const auto& v : c.veus)
+        {
+            if (v.pas == 0 || v.dur <= 0) continue;
+            const long long a = v.ini, b = v.ini + v.dur;
+            std::vector<Tram> nou;
+            for (const auto& x : r)
+            {
+                if (x.fi <= a || x.ini >= b) { nou.push_back (x); continue; }
+                if (x.ini < a) { auto y = x; y.fi = a; nou.push_back (y); }
+                auto m = x; m.ini = std::max (x.ini, a); m.fi = std::min (x.fi, b); m.pas = v.pas;
+                nou.push_back (m);
+                if (x.fi > b) { auto y = x; y.ini = b; nou.push_back (y); }
+            }
+            r = std::move (nou);
+        }
         return r;
     }
 
@@ -1180,6 +1377,7 @@ namespace mibase::guitarra
             {
                 const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
                 if (y - x < 10) continue;
+                o.inversio = a.pas;   // 0.61
                 for (auto n : piano::toca (harmonia::llegeixAcord (a.acord), pp, b.dur, o))
                 {
                     n.ini += bi;
@@ -1195,7 +1393,9 @@ namespace mibase::guitarra
         {
             const long long x = std::max (bi, a.ini), y = std::min (bf, a.fi);
             if (y - x < 10) continue;
-            const auto cordes = notes (harmonia::llegeixAcord (a.acord), p.forma);   // 0.49: oberts, powerchords o octaves
+            auto cordes = notes (harmonia::llegeixAcord (a.acord), p.forma);   // 0.49: oberts, powerchords o octaves
+            if (a.pas != 0)   // 0.61: una altra posició CAGED
+                if (const auto pc = posicioCaged (harmonia::llegeixAcord (a.acord), p.forma, a.pas).pos; ! pc.buida()) cordes = pc.notes();
             if (cordes.empty()) continue;
             if (p.passos.empty())
             {
