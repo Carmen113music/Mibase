@@ -342,6 +342,45 @@ namespace mibase::eq
         return m;
     }
 
+    Seccio dissenyaSolo (const Banda& b, double fs)
+    {
+        Seccio s;
+        if (fs <= 0.0) return s;
+        const double f = lim ((double) b.freq, 20.0, 0.45 * fs);
+        const double w = 2.0 * pi * f / fs, cs = std::cos (w), sn = std::sin (w);
+        const bool baixos = b.tipus == LowShelf || b.tipus == HighPass;
+        const bool alts = b.tipus == HighShelf || b.tipus == LowPass;
+        if (baixos || alts)
+        {
+            const double al = sn / (2.0 * 0.7071), a0 = 1.0 + al;
+            const double k = baixos ? (1.0 - cs) * 0.5 : (1.0 + cs) * 0.5;
+            s.b0 = k / a0;
+            s.b1 = (baixos ? 1.0 - cs : -(1.0 + cs)) / a0;
+            s.b2 = k / a0;
+            s.a1 = -2.0 * cs / a0;
+            s.a2 = (1.0 - al) / a0;
+            return s;
+        }
+        const double q = b.tipus == Tilt ? 0.5 : lim ((double) b.q, 0.3, 30.0);
+        const double al = sn / (2.0 * q), a0 = 1.0 + al;
+        s.b0 = al / a0; s.b1 = 0.0; s.b2 = -al / a0;
+        s.a1 = -2.0 * cs / a0;
+        s.a2 = (1.0 - al) / a0;
+        return s;
+    }
+
+    int canalOposat (int c)
+    {
+        switch (c)
+        {
+            case Mid: return Side;
+            case Side: return Mid;
+            case Esquerre: return Dret;
+            case Dret: return Esquerre;
+            default: return c;
+        }
+    }
+
     // ---- Equalitzador ----
     Equalitzador::Equalitzador() = default;
 
@@ -357,6 +396,9 @@ namespace mibase::eq
         wet = byp.load() ? 0.0 : 1.0;
         apagatDelTot = false;
         demanaBuidar.store (false);
+        soloViu = -1;
+        soloMix = 0.0;
+        for (auto& c : soloZ) c[0] = c[1] = 0.0;
     }
 
     Banda Equalitzador::banda (int k) const noexcept
@@ -611,6 +653,25 @@ namespace mibase::eq
                 v.coefsBons = true;
             }
         }
+
+        // escolta d'una banda: el filtre segueix els valors suavitzats de la banda (sense salts)
+        const int sObj = solo.load (std::memory_order_relaxed);
+        if (sObj >= 0 && at[(size_t) sObj].usada.load (std::memory_order_relaxed))
+        {
+            if (soloViu != sObj && soloMix <= 0.0) for (auto& c : soloZ) c[0] = c[1] = 0.0;
+            soloViu = sObj;
+        }
+        if (soloViu >= 0)
+        {
+            const auto& a = at[(size_t) soloViu];
+            const auto& v = vi[(size_t) soloViu];
+            Banda b;
+            b.tipus = a.tipus.load (std::memory_order_relaxed);
+            b.canal = a.canal.load (std::memory_order_relaxed);
+            b.freq = (float) (v.viva ? std::exp (v.lf) : (double) a.freq.load (std::memory_order_relaxed));
+            b.q = (float) (v.viva ? std::exp (v.lq) : (double) a.q.load (std::memory_order_relaxed));
+            soloS = dissenyaSolo (b, fs);
+        }
     }
 
     void Equalitzador::tros16 (float* L, float* R, int n, int ofs) noexcept
@@ -738,6 +799,55 @@ namespace mibase::eq
             }
         }
         if (estalvia) { gSort = gObj; }
+
+        // escolta d'una banda (amb fosa d'entrada i de sortida)
+        {
+            const int sObj = solo.load (std::memory_order_relaxed);
+            const double obj = sObj >= 0 && sObj == soloViu ? 1.0 : 0.0;
+            if (soloMix > 0.0 || obj > 0.0)
+            {
+                const int canal = soloViu >= 0 ? at[(size_t) soloViu].canal.load (std::memory_order_relaxed) : Estereo;
+                const double pasS = 1.0 / (0.015 * fs);
+                const auto& c = soloS;
+                auto biquad = [&c] (double in, double* z)
+                {
+                    const double o = c.b0 * in + z[0];
+                    z[0] = c.b1 * in - c.a1 * o + z[1];
+                    z[1] = c.b2 * in - c.a2 * o;
+                    return o;
+                };
+                picO = 0.0f;
+                for (int i = 0; i < n; ++i)
+                {
+                    const double l0 = L[i], r0 = R[i];
+                    double sl, sr;
+                    switch (canal)
+                    {
+                        case Esquerre: sl = sr = biquad (l0, soloZ[0]); break;
+                        case Dret: sl = sr = biquad (r0, soloZ[0]); break;
+                        case Mid: sl = sr = biquad (0.5 * (l0 + r0), soloZ[0]); break;
+                        case Side: { const double x = biquad (0.5 * (l0 - r0), soloZ[0]); sl = x; sr = -x; break; }
+                        default: sl = biquad (l0, soloZ[0]); sr = biquad (r0, soloZ[1]); break;
+                    }
+                    if (soloMix != obj) soloMix = obj > soloMix ? std::min (obj, soloMix + pasS) : std::max (obj, soloMix - pasS);
+                    const double e = soloMix * soloMix * (3.0 - 2.0 * soloMix);
+                    L[i] = (float) (l0 + e * (sl - l0));
+                    R[i] = (float) (r0 + e * (sr - r0));
+                    picO = std::max (picO, std::max (std::abs (L[i]), std::abs (R[i])));
+                }
+                for (auto& z : soloZ) for (auto& x : z) if (! std::isfinite (x)) z[0] = z[1] = 0.0;
+                if (soloMix <= 0.0 && obj <= 0.0) { soloViu = -1; for (auto& z : soloZ) z[0] = z[1] = 0.0; }
+            }
+        }
+
+        // analitzador: entrada i sortida (mitjana de L i R)
+        if (captura.load (std::memory_order_relaxed))
+            for (int i = 0; i < n; ++i)
+            {
+                anellIn.escriuUna ((float) (0.5 * (dl[i] + dr[i])));
+                anellOut.escriuUna (0.5f * (L[i] + R[i]));
+            }
+
         if (picI > picIn.load (std::memory_order_relaxed)) picIn.store (picI, std::memory_order_relaxed);
         if (picO > picOut.load (std::memory_order_relaxed)) picOut.store (picO, std::memory_order_relaxed);
     }

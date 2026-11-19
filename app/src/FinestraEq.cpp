@@ -18,7 +18,17 @@ namespace
     juce::String u8 (const std::string& s) { return juce::String::fromUTF8 (s.c_str(), (int) s.size()); }
     juce::String u8 (const char* s) { return juce::String::fromUTF8 (s); }
 
-    constexpr double fVistaMin = 20.0, fVistaMax = 20000.0;
+    constexpr double fVistaMin = 20.0, fVistaMax = 20000.0;   // la vista sencera (amb zoom se'n veu un tros)
+
+    /** 0.60: ajustos de l'analitzador (els mateixos per a totes les finestres de l'EQ mentre el programa és obert). */
+    struct AjustAnalitzador
+    {
+        bool on = true, inclinacio = true, freeze = false;
+        int que = 2;                                        // 0 entrada, 1 sortida, 2 totes dues
+        int mode = mibase::espectre::Mitjana, velocitat = mibase::espectre::Normal;
+    };
+    AjustAnalitzador& ajustAn() { static AjustAnalitzador a; return a; }
+    constexpr float rangEspectre = 96.0f;                   // dB de dalt (0) a baix de la gràfica
 
     juce::String coma (double v, int dec)
     {
@@ -119,8 +129,15 @@ namespace
         float rangDb = 12.0f;
         void invalida() { calculat = false; repaint(); }
 
-        double xDeFreq (double f) const { return area().getX() + area().getWidth() * std::log (f / fVistaMin) / std::log (fVistaMax / fVistaMin); }
-        double freqDeX (double x) const { return fVistaMin * std::pow (fVistaMax / fVistaMin, (x - area().getX()) / std::max (1.0f, area().getWidth())); }
+        // 0.60: zoom de freqüències (Ctrl + roda) i analitzador
+        bool ampliada() const { return fMin > fVistaMin * 1.001 || fMax < fVistaMax * 0.999; }
+        void vistaSencera() { fMin = fVistaMin; fMax = fVistaMax; invalida(); }
+        void actualitzaEspectre();
+        void esborraEspectre() { colIn.clear(); colOut.clear(); repaint(); }
+
+        double xDeFreq (double f) const { return area().getX() + area().getWidth() * std::log (f / fMin) / std::log (fMax / fMin); }
+        double freqDeX (double x) const { return fMin * std::pow (fMax / fMin, (x - area().getX()) / std::max (1.0f, area().getWidth())); }
+        double yEsp (double d) const { return area().getY() + area().getHeight() * (-d / rangEspectre); }
         double yDeDb (double d) const { return area().getCentreY() - area().getHeight() * 0.5 * d / rangDb; }
         double dbDeY (double y) const { return (area().getCentreY() - y) / (area().getHeight() * 0.5) * rangDb; }
         juce::Rectangle<float> area() const { return getLocalBounds().toFloat().reduced (1.0f, 6.0f).withTrimmedBottom (14.0f); }
@@ -128,6 +145,14 @@ namespace
     private:
         PanellEq& p;
         bool calculat = false;
+        double fMin = fVistaMin, fMax = fVistaMax;
+        // analitzador
+        std::unique_ptr<mibase::espectre::Analitzador> an;
+        std::vector<float> mostres, freqCol, colIn, colOut, tmp;
+        std::uint32_t posIn = 0, posOut = 0;
+        double tAnterior = 0.0;
+        int picSobre = -1;
+        void zoom (double x, double factor);
         std::vector<float> xs;
         std::array<std::vector<float>, maxBandes> corbaBanda;    // dB per columna
         std::array<std::vector<float>, numCanals> corbaTotal;
@@ -190,7 +215,7 @@ namespace
     {
     public:
         explicit PanellEq (std::shared_ptr<Equalitzador> e);
-        ~PanellEq() override { stopTimer(); }
+        ~PanellEq() override { stopTimer(); q->posaSolo (-1); q->posaCaptura (false); }
         Equalitzador& eq() { return *q; }
 
         // selecció
@@ -293,6 +318,25 @@ namespace
             refresca();
         }
         void menuBanda (int k, juce::Component* on);
+        void menuAnalitzador();
+        void commutaSolo() { if (focus < 0) return; q->posaSolo (q->soloBanda() == focus ? -1 : focus); refresca(); }
+        void copiaACanalOposat()
+        {
+            std::vector<int> nous;
+            bool fet = false;
+            for (int k : std::vector<int> (triades.begin(), triades.end()))
+            {
+                auto b = q->banda (k);
+                if (b.canal == Estereo) continue;
+                const int l = q->bandaLliure();
+                if (l < 0) break;
+                if (! fet) { abansDeCanviar(); fet = true; }
+                b.canal = canalOposat (b.canal);
+                q->posaBanda (l, b);
+                nous.push_back (l);
+            }
+            if (! nous.empty()) triaRequadre (nous, false);
+        }
         void menuBuit (double f, double db, juce::Component* on);
         void editaValors (int k, juce::Rectangle<int> on);
         void refresca();
@@ -314,6 +358,9 @@ namespace
         Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Subtil }, btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Subtil };
         Segmentat segRang { { "6 dB", "12 dB", "24 dB", "30 dB" } };
         Boto btBypass { "Bypass", std::nullopt, Boto::Estil::Tecla };
+        Boto btAnalitzador { "Analitzador", std::nullopt, Boto::Estil::Tecla };
+        Boto btOpcionsAn { "Opcions", std::nullopt, Boto::Estil::Subtil };
+        Boto btFreeze { "Freeze", std::nullopt, Boto::Estil::Tecla };
         Pom pomSortida { "Sortida", 0.0, 1.0, 0.5, true, [this] (double v) { return u8 (q->textParametre (PSortida, (float) v)); } };
         // panell de la banda
         Boto btTipus { "Bell", std::nullopt, Boto::Estil::Secundari };
@@ -322,6 +369,7 @@ namespace
         Boto btEncesa { "Encesa", std::nullopt, Boto::Estil::Tecla };
         Boto btDuplica { "Duplica", std::nullopt, Boto::Estil::Subtil };
         Boto btEsborra { "Esborra", std::nullopt, Boto::Estil::Subtil };
+        Boto btEscolta { "Escolta-la", std::nullopt, Boto::Estil::Tecla };
         Pom pomFreq { "Freqüència"_ca, 0.0, 1.0, 0.5, false, [this] (double v) { return focus >= 0 ? u8 (q->textParametre (indexParam (focus, PFreq), (float) v)) : juce::String(); } };
         Pom pomGuany { "Guany", 0.0, 1.0, 0.5, true, [this] (double v) { return focus >= 0 ? u8 (q->textParametre (indexParam (focus, PGuany), (float) v)) : juce::String(); } };
         Pom pomQ { "Q", 0.0, 1.0, 0.5, false, [this] (double v) { return focus >= 0 ? u8 (q->textParametre (indexParam (focus, PQ), (float) v)) : juce::String(); } };
@@ -409,17 +457,32 @@ namespace
 
         // graella
         g.setFont (dibuix::lletra (10.0f));
-        for (double f : { 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0,
-                          2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0, 9000.0, 10000.0 })
+        for (double f : { 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0,
+                          2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0, 9000.0, 10000.0, 15000.0, 20000.0 })
         {
+            if (f < fMin || f > fMax) continue;
             const bool gran = f == 100.0 || f == 1000.0 || f == 10000.0;
             g.setColour (juce::Colours::white.withAlpha (gran ? 0.10f : 0.045f));
             g.drawVerticalLine ((int) xDeFreq (f), a.getY(), a.getBottom());
         }
         g.setColour (tema::suau.withAlpha (0.8f));
-        for (double f : { 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0 })
-            g.drawText (f >= 1000.0 ? juce::String ((int) (f / 1000.0)) + "k" : juce::String ((int) f), (int) xDeFreq (f) - 20, (int) a.getBottom() + 1, 40, 13,
-                        juce::Justification::centred);
+        {
+            // les etiquetes més «rodones» primer; les altres només si hi caben (amb zoom en surten més)
+            std::vector<float> posades;
+            for (double f : { 100.0, 1000.0, 10000.0, 50.0, 500.0, 5000.0, 200.0, 2000.0, 20.0, 20000.0, 30.0, 300.0, 3000.0, 15000.0,
+                              40.0, 400.0, 4000.0, 70.0, 700.0, 7000.0, 60.0, 80.0, 600.0, 800.0, 6000.0, 8000.0, 90.0, 900.0, 9000.0, 150.0, 1500.0 })
+            {
+                if (f < fMin * 0.999 || f > fMax * 1.001) continue;
+                const float x = (float) xDeFreq (f);
+                bool cap = true;
+                for (float px : posades) cap = cap && std::abs (px - x) >= 34.0f;
+                if (! cap) continue;
+                posades.push_back (x);
+                const juce::String t = f >= 1000.0 ? (std::fmod (f, 1000.0) == 0.0 ? juce::String ((int) (f / 1000.0)) : coma (f / 1000.0, 1)) + "k"
+                                                   : juce::String ((int) f);
+                g.drawText (t, (int) x - 20, (int) a.getBottom() + 1, 40, 13, juce::Justification::centred);
+            }
+        }
         const float pas = rangDb <= 6.0f ? 2.0f : (rangDb <= 12.0f ? 3.0f : (rangDb <= 24.0f ? 6.0f : 10.0f));
         for (float d = -rangDb; d <= rangDb + 0.01f; d += pas)
         {
@@ -443,6 +506,53 @@ namespace
             }
             return pa;
         };
+
+        // 0.60: analitzador (darrere de les corbes)
+        const auto& aj = ajustAn();
+        if (aj.on)
+        {
+            auto camiEsp = [&] (const std::vector<float>& c, bool ple)
+            {
+                juce::Path pa;
+                for (size_t i = 0; i < n; ++i)
+                {
+                    const float y = (float) juce::jlimit ((double) a.getY(), (double) a.getBottom(), yEsp (c[i]));
+                    if (i == 0) pa.startNewSubPath (xs[i], y); else pa.lineTo (xs[i], y);
+                }
+                if (ple) { pa.lineTo (xs.back(), a.getBottom()); pa.lineTo (xs.front(), a.getBottom()); pa.closeSubPath(); }
+                return pa;
+            };
+            g.setFont (dibuix::lletra (9.0f));
+            for (float d : { -24.0f, -48.0f, -72.0f })
+            {
+                g.setColour (tema::veu.withAlpha (0.35f));
+                g.drawText (juce::String ((int) d), (int) a.getRight() - 30, (int) yEsp (d) - 12, 26, 11, juce::Justification::centredRight);
+            }
+            if (colIn.size() == n && n > 1)
+            {
+                g.setColour (tema::suau.withAlpha (aj.que == 0 ? 0.55f : 0.30f));
+                g.strokePath (camiEsp (colIn, false), juce::PathStrokeType (1.0f));
+            }
+            if (colOut.size() == n && n > 1)
+            {
+                g.setColour (tema::veu.withAlpha (0.10f));
+                g.fillPath (camiEsp (colOut, true));
+                g.setColour (tema::veu.withAlpha (0.45f));
+                g.strokePath (camiEsp (colOut, false), juce::PathStrokeType (1.0f));
+            }
+            if (aj.freeze)
+            {
+                g.setFont (dibuix::lletra (11.0f, true));
+                g.setColour (tema::veu.withAlpha (0.8f));
+                g.drawText ("FREEZE", a.reduced (8.0f).removeFromTop (16.0f), juce::Justification::centredRight);
+            }
+            const auto& c = colOut.size() == n ? colOut : colIn;
+            if (picSobre >= 0 && (size_t) picSobre < c.size())
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.9f));
+                g.drawEllipse (xs[(size_t) picSobre] - 5.0f, (float) yEsp (c[(size_t) picSobre]) - 5.0f, 10.0f, 10.0f, 1.5f);
+            }
+        }
 
         // corbes de cada banda (ombra plena fins a la línia del 0)
         const float y0 = (float) yDeDb (0.0);
@@ -537,6 +647,13 @@ namespace
             if (b.canal != Estereo) t << sep << u8 (nomCanal (b.canal));
             if (! b.activa) t << sep << "apagada";
         }
+        else if (picSobre >= 0 && (size_t) picSobre < freqCol.size())
+        {
+            const auto& c = colOut.size() == freqCol.size() ? colOut : colIn;
+            const double f = freqCol[(size_t) picSobre];
+            const double nivell = c[(size_t) picSobre] - (ajustAn().inclinacio ? mibase::espectre::inclinacio ((float) f, 4.5f) : 0.0f);
+            t << "Pic " << textFreq (f) << " (" << textNota (f) << ")" << sep << coma (nivell, 1) << " dB" << sep << "clic: banda aquí"_ca;
+        }
         else if (a.contains (hover))
         {
             const double f = freqDeX (hover.x);
@@ -551,6 +668,13 @@ namespace
             g.fillRoundedRectangle (r, 4.0f);
             g.setColour (nodeSobre >= 0 ? colorBanda (nodeSobre) : tema::textMig);
             g.drawText (t, r, juce::Justification::centred);
+        }
+        if (const int so = q.soloBanda(); so >= 0)
+        {
+            g.setFont (dibuix::lletra (13.0f, true));
+            g.setColour (colorBanda (so));
+            g.drawText ("ESCOLTANT LA BANDA "_ca + juce::String (so + 1), a.reduced (8.0f).removeFromBottom (20.0f).withTrimmedLeft (30.0f),
+                        juce::Justification::centredLeft);
         }
         if (q.bypass())
         {
@@ -572,7 +696,18 @@ namespace
     {
         hover = e.position;
         nodeSobre = nodeA (e.position);
-        setMouseCursor (nodeSobre >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::CrosshairCursor);
+        picSobre = -1;
+        if (nodeSobre < 0 && ajustAn().on && area().contains (hover))
+        {
+            const auto& c = colOut.size() == freqCol.size() ? colOut : colIn;
+            if (c.size() == freqCol.size() && ! c.empty())
+            {
+                const int k = mibase::espectre::picProper (c, freqCol, (float) freqDeX (hover.x), 1.0f / 6.0f);
+                if (k >= 0 && c[(size_t) k] > -100.0f && std::abs (yEsp (c[(size_t) k]) - hover.y) < 16.0) picSobre = k;
+            }
+        }
+        setMouseCursor (nodeSobre >= 0 ? juce::MouseCursor::DraggingHandCursor
+                                       : (picSobre >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::CrosshairCursor));
         repaint();
     }
 
@@ -588,6 +723,25 @@ namespace
             gest = Gest::Res;
             if (k >= 0) { if (! p.triades.count (k)) p.tria (k, false); p.menuBanda (k, this); }
             else p.menuBuit (freqDeX (e.position.x), dbDeY (e.position.y), this);
+            return;
+        }
+        if (k < 0 && picSobre >= 0 && (size_t) picSobre < freqCol.size())
+        {
+            // agafar un pic de l'analitzador: banda nova al pic, i arrossegant es baixa (o es puja)
+            Banda b;
+            b.tipus = Bell;
+            b.freq = juce::jlimit (freqMin, freqMax, freqCol[(size_t) picSobre]);
+            b.q = 4.0f;
+            const int nk = p.creaBanda (b);
+            picSobre = -1;
+            if (nk >= 0)
+            {
+                gest = Gest::Nodes;
+                abans.clear();
+                abans.push_back ({ nk, p.eq().banda (nk) });
+                mogut = true;   // el desfés ja l'ha guardat creaBanda
+                nodeSobre = nk;
+            }
             return;
         }
         if (k >= 0)
@@ -624,13 +778,13 @@ namespace
         double dx = (e.position.x - inici.x) * fi, dy = (e.position.y - inici.y) * fi;
         if (e.mods.isAltDown()) { if (std::abs (dx) > std::abs (dy)) dy = 0.0; else dx = 0.0; }   // Alt: només un eix
         const auto a = area();
-        const double dLogF = dx / std::max (1.0f, a.getWidth()) * std::log (fVistaMax / fVistaMin);
+        const double dLogF = dx / std::max (1.0f, a.getWidth()) * std::log (fMax / fMin);
         const double dDb = -dy / (a.getHeight() * 0.5) * rangDb;
         auto& q = p.eq();
         for (auto& [t, b0] : abans)
         {
             auto b = b0;
-            b.freq = (float) juce::jlimit (fVistaMin, fVistaMax, std::exp (std::log ((double) b0.freq) + dLogF));
+            b.freq = (float) juce::jlimit ((double) freqMin, (double) freqMax, std::exp (std::log ((double) b0.freq) + dLogF));
             const double fn = factorNode (b.tipus);
             if (fn > 0.0) b.guany = (float) juce::jlimit (-(double) guanyMax, (double) guanyMax, b0.guany + dDb / fn);
             else if (teQ (b.tipus, b.pendent)) b.q = (float) juce::jlimit ((double) qMin, (double) qMax, std::exp (std::log ((double) b0.q) + dDb / 12.0));
@@ -663,6 +817,7 @@ namespace
         const int k = nodeA (e.position);
         if (k >= 0) { p.editaValors (k, juce::Rectangle<int> ((int) e.position.x - 2, (int) e.position.y - 2, 4, 4)); return; }
         const auto a = area();
+        if (e.position.y > a.getBottom()) { vistaSencera(); return; }   // doble clic a les freqüències: vista sencera
         if (! a.contains (e.position)) return;
         Banda b;
         b.freq = (float) freqDeX (e.position.x);
@@ -672,10 +827,79 @@ namespace
         if (p.creaBanda (b) < 0) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "EQ Pro", "Ja hi ha les 24 bandes. Esborra'n alguna per fer-ne una de nova."_ca);
     }
 
+    void GraficaEq::actualitzaEspectre()
+    {
+        const auto& aj = ajustAn();
+        if (! aj.on || aj.freeze) return;
+        if (! calculat) calcula();
+        auto& q = p.eq();
+        const double fs = q.frequenciaMostreig() > 0.0 ? q.frequenciaMostreig() : 48000.0;
+        const int nf = mibase::espectre::midaPer (fs);
+        if (an == nullptr || an->mida() != nf) an = std::make_unique<mibase::espectre::Analitzador> (nf);
+        mostres.resize ((size_t) nf);
+        freqCol.resize (xs.size());
+        for (size_t i = 0; i < xs.size(); ++i) freqCol[i] = (float) freqDeX (xs[i]);
+        const double ara = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        const double dt = tAnterior > 0.0 ? ara - tAnterior : 1.0 / 30.0;
+        tAnterior = ara;
+        auto fes = [&] (const mibase::espectre::Anell& anell, std::uint32_t& pos, std::vector<float>& col)
+        {
+            const auto nova = anell.posicio();
+            if (nova == pos)
+                tmp.assign (freqCol.size(), mibase::espectre::pis);   // no arriba so (aturat): l'espectre s'apaga a poc a poc
+            else
+            {
+                anell.llegeix (mostres.data(), nf);
+                mibase::espectre::aColumnes (an->analitza (mostres.data()), fs, freqCol, tmp);
+                if (aj.inclinacio)
+                    for (size_t i = 0; i < tmp.size(); ++i)
+                        if (tmp[i] > mibase::espectre::pis) tmp[i] += mibase::espectre::inclinacio (freqCol[i], 4.5f);
+            }
+            pos = nova;
+            mibase::espectre::suavitza (col, tmp, aj.mode, aj.velocitat, dt);
+        };
+        if (aj.que != 1) fes (q.anellEntrada(), posIn, colIn); else colIn.clear();
+        if (aj.que != 0) fes (q.anellSortida(), posOut, colOut); else colOut.clear();
+        repaint();
+    }
+
+    void GraficaEq::zoom (double x, double factor)
+    {
+        const double lMin = std::log (fVistaMin), lMax = std::log (fVistaMax);
+        const double l0 = std::log (fMin), l1 = std::log (fMax);
+        const double t = juce::jlimit (0.0, 1.0, (x - area().getX()) / std::max (1.0f, area().getWidth()));
+        const double c = l0 + t * (l1 - l0);
+        const double ample = juce::jlimit (std::log (2.0), lMax - lMin, (l1 - l0) * factor);   // com a molt, una octava a la pantalla
+        double a = c - t * ample, b = a + ample;
+        if (a < lMin) { b += lMin - a; a = lMin; }
+        if (b > lMax) { a -= b - lMax; b = lMax; }
+        fMin = std::exp (std::max (lMin, a));
+        fMax = std::exp (std::min (lMax, b));
+        invalida();
+    }
+
     void GraficaEq::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
     {
+        if (e.mods.isCommandDown())   // Ctrl + roda: zoom de freqüències a partir del ratolí
+        {
+            zoom (e.position.x, w.deltaY > 0 ? 0.8 : 1.25);
+            return;
+        }
         int k = nodeA (e.position);
-        if (k < 0) return;
+        if (k < 0)
+        {
+            if (ampliada())   // sense banda a sota i amb zoom: la roda passeja la vista
+            {
+                const double d = (std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : -w.deltaY) * 0.25 * area().getWidth();
+                const double t = area().getX() + d;
+                const double nouMin = freqDeX (t);
+                const double r = fMax / fMin;
+                fMin = juce::jlimit (fVistaMin, fVistaMax / r, nouMin);
+                fMax = fMin * r;
+                invalida();
+            }
+            return;
+        }
         auto& q = p.eq();
         const auto ara = juce::Time::getMillisecondCounter();
         if (ara - ultimaRoda > 700) p.abansDeCanviar();
@@ -795,7 +1019,30 @@ namespace
         setWantsKeyboardFocus (true);
         addAndMakeVisible (grafica);
         addAndMakeVisible (llista);
-        for (auto* b : { &btDesfes, &btRefes, &btBypass, &btTipus, &btPendent, &btEncesa, &btDuplica, &btEsborra }) addAndMakeVisible (b);
+        for (auto* b : { &btDesfes, &btRefes, &btBypass, &btTipus, &btPendent, &btEncesa, &btDuplica, &btEsborra,
+                         &btAnalitzador, &btOpcionsAn, &btFreeze, &btEscolta }) addAndMakeVisible (b);
+
+        // 0.60: analitzador i escolta
+        btAnalitzador.setLlum (tema::veu);
+        btAnalitzador.setTooltip ("Mostra l'espectre del so que entra (gris) i del que surt (turquesa). "
+                                  "Clic sobre un pic: hi crea una banda (arrossega per baixar-lo)"_ca);
+        btAnalitzador.onClick = [this]
+        {
+            auto& aj = ajustAn();
+            aj.on = ! aj.on;
+            q->posaCaptura (aj.on);
+            if (! aj.on) grafica.esborraEspectre();
+            refresca();
+        };
+        btOpcionsAn.setTooltip ("Què mostra l'analitzador, com i a quina velocitat; vista sencera"_ca);
+        btOpcionsAn.onClick = [this] { menuAnalitzador(); };
+        btFreeze.setLlum (tema::veu);
+        btFreeze.setTooltip ("Deixa l'espectre quiet a la pantalla (per comparar)"_ca);
+        btFreeze.onClick = [this] { ajustAn().freeze = ! ajustAn().freeze; refresca(); grafica.repaint(); };
+        btEscolta.setLlum (tema::guitarra);
+        btEscolta.setTooltip ("Escolta només la zona del so que toca aquesta banda (per trobar ressonàncies). No es desa."_ca);
+        btEscolta.onClick = [this] { commutaSolo(); };
+        q->posaCaptura (ajustAn().on);
         addAndMakeVisible (segRang);
         addAndMakeVisible (pomSortida);
         addAndMakeVisible (segCanal);
@@ -939,7 +1186,12 @@ namespace
     void PanellEq::refresca()
     {
         netejaTriades();
+        if (const int so = q->soloBanda(); so >= 0 && so != focus) q->posaSolo (focus);   // l'escolta segueix la banda triada
         versioVista = q->versio();
+        btAnalitzador.setToggleState (ajustAn().on, juce::dontSendNotification);
+        btFreeze.setToggleState (ajustAn().freeze, juce::dontSendNotification);
+        btFreeze.setEnabled (ajustAn().on);
+        btOpcionsAn.setEnabled (true);
         btBypass.setToggleState (q->bypass(), juce::dontSendNotification);
         pomSortida.setValor (q->parametre (PSortida), true);
         btDesfes.setEnabled (! desfer.empty());
@@ -955,7 +1207,7 @@ namespace
         const bool hiHa = focus >= 0;
         for (juce::Component* c : { (juce::Component*) &btTipus, (juce::Component*) &btPendent, (juce::Component*) &segCanal, (juce::Component*) &btEncesa,
                                     (juce::Component*) &btDuplica, (juce::Component*) &btEsborra, (juce::Component*) &pomFreq, (juce::Component*) &pomGuany,
-                                    (juce::Component*) &pomQ })
+                                    (juce::Component*) &pomQ, (juce::Component*) &btEscolta })
             c->setVisible (hiHa);
         if (! hiHa) return;
         const auto b = q->banda (focus);
@@ -965,6 +1217,7 @@ namespace
         segCanal.setTriat (b.canal);
         btEncesa.setToggleState (b.activa, juce::dontSendNotification);
         btEncesa.setButtonText (b.activa ? "Encesa" : "Apagada");
+        btEscolta.setToggleState (q->soloBanda() == focus, juce::dontSendNotification);
         pomFreq.setValor (q->parametre (indexParam (focus, PFreq)), true);
         pomGuany.setValor (q->parametre (indexParam (focus, PGuany)), true);
         pomGuany.setVisible (teGuany (b.tipus));
@@ -976,6 +1229,7 @@ namespace
     void PanellEq::timerCallback()
     {
         if (q->versio() != versioVista) refresca();   // automatització o canvis de fora
+        grafica.actualitzaEspectre();
         const float i = q->picEntrada(), o = q->picSortida();
         vuIn = std::max (i, vuIn * 0.86f);
         vuOut = std::max (o, vuOut * 0.86f);
@@ -1048,6 +1302,12 @@ namespace
         dalt.removeFromLeft (16);
         segRang.setBounds (dalt.removeFromLeft (juce::jmin (230, segRang.ampladaIdeal() + 16)));
         btBypass.setBounds (dalt.removeFromRight (90));
+        dalt.removeFromLeft (14);
+        btAnalitzador.setBounds (dalt.removeFromLeft (104));
+        dalt.removeFromLeft (4);
+        btFreeze.setBounds (dalt.removeFromLeft (70));
+        dalt.removeFromLeft (4);
+        btOpcionsAn.setBounds (dalt.removeFromLeft (72));
 
         r.reduce (12, 8);
         zonaBanda = r.removeFromBottom (128);
@@ -1083,6 +1343,8 @@ namespace
             pm->setBounds (b.removeFromLeft (ample));
             b.removeFromLeft (8);
         }
+        b.removeFromLeft (8);
+        btEscolta.setBounds (b.removeFromLeft (104).removeFromTop (30));
     }
 
     bool PanellEq::keyPressed (const juce::KeyPress& k)
@@ -1116,10 +1378,12 @@ namespace
         m.addSubMenu ("Canal", canal);
         m.addItem (1, b.activa ? juce::String ("Apaga-la") : "Encén-la"_ca);
         m.addItem (2, "Edita els valors…"_ca);
+        m.addItem (7, q->soloBanda() == k ? "Deixa d'escoltar-la"_ca : "Escolta-la sola"_ca);
         m.addSeparator();
         m.addItem (3, "Duplica");
         m.addItem (4, "Copia els ajustos");
         m.addItem (5, "Enganxa els ajustos", portaBanda().has_value());
+        if (b.canal != Estereo) m.addItem (8, "Copia-la al "_ca + nomCanalUi (canalOposat (b.canal)));
         m.addSeparator();
         m.addItem (6, triades.size() > 1 ? "Esborra les triades" : "Esborra");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on).withMousePosition(),
@@ -1139,6 +1403,8 @@ namespace
                 aTotes ([c] (Banda& x) { const bool act = x.activa; x = c; x.usada = true; x.activa = act; });
             }
             else if (r == 6) esborraTriades();
+            else if (r == 7) { focus = k; commutaSolo(); }
+            else if (r == 8) copiaACanalOposat();
         });
     }
 
@@ -1153,6 +1419,7 @@ namespace
         bool hiHa = false;
         for (int k = 0; k < maxBandes; ++k) hiHa = hiHa || q->banda (k).usada;
         m.addItem (3, "Esborra-les totes", hiHa);
+        m.addItem (4, "Vista sencera (20 Hz – 20 kHz)"_ca, grafica.ampliada());
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on).withMousePosition(),
                          [this, f, db, sp = juce::Component::SafePointer<PanellEq> (this)] (int r)
         {
@@ -1170,12 +1437,46 @@ namespace
             }
             else if (r == 1 && portaBanda()) { auto b = *portaBanda(); b.freq = (float) f; creaBanda (b); }
             else if (r == 2) keyPressed (juce::KeyPress ('A', juce::ModifierKeys::commandModifier, 0));
+            else if (r == 4) grafica.vistaSencera();
             else if (r == 3)
             {
                 abansDeCanviar();
                 for (int k = 0; k < maxBandes; ++k) q->esborra (k);
                 tria (-1, false);
             }
+        });
+    }
+
+    void PanellEq::menuAnalitzador()
+    {
+        const auto& aj = ajustAn();
+        juce::PopupMenu m;
+        m.addSectionHeader ("Analitzador");
+        m.addItem (1, "Entrada", true, aj.que == 0);
+        m.addItem (2, "Sortida", true, aj.que == 1);
+        m.addItem (3, "Entrada i sortida", true, aj.que == 2);
+        m.addSeparator();
+        m.addItem (11, "Pics (baixen a poc a poc)", true, aj.mode == mibase::espectre::Pic);
+        m.addItem (12, "Mitjana", true, aj.mode == mibase::espectre::Mitjana);
+        m.addSeparator();
+        m.addItem (21, "Lent", true, aj.velocitat == mibase::espectre::Lenta);
+        m.addItem (22, "Normal", true, aj.velocitat == mibase::espectre::Normal);
+        m.addItem (23, "Ràpid"_ca, true, aj.velocitat == mibase::espectre::Rapida);
+        m.addSeparator();
+        m.addItem (31, "Inclinació de 4,5 dB/oct (el so es veu més pla, com l'oïda)"_ca, true, aj.inclinacio);
+        m.addSeparator();
+        m.addItem (41, "Vista sencera (20 Hz – 20 kHz) · Ctrl + roda fa zoom"_ca, grafica.ampliada());
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (btOpcionsAn), [this, sp = juce::Component::SafePointer<PanellEq> (this)] (int r)
+        {
+            if (sp == nullptr || r == 0) return;
+            auto& a = ajustAn();
+            if (r >= 1 && r <= 3) a.que = r - 1;
+            else if (r == 11 || r == 12) a.mode = r == 11 ? mibase::espectre::Pic : mibase::espectre::Mitjana;
+            else if (r >= 21 && r <= 23) a.velocitat = r - 21;
+            else if (r == 31) a.inclinacio = ! a.inclinacio;
+            else if (r == 41) grafica.vistaSencera();
+            if (r < 41) { a.on = true; q->posaCaptura (true); }
+            refresca();
         });
     }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mibase/Espectre.h"
 #include "mibase/Instrument.h"
 #include <array>
 #include <atomic>
@@ -63,6 +64,13 @@ namespace mibase::eq
     /** Resposta analògica de referència d'una banda (per a les proves). */
     double magnitudAnalogica (const Banda& b, double freqHz);
 
+    /** 0.60: el filtre amb què s'escolta una banda sola (la zona del so que toca la banda).
+        Bell, Notch, Band Pass i All Pass: passa-banda a la seva freqüència i Q (0 dB al centre).
+        Low Shelf i High Pass: passa-baixos (el que hi ha per sota). High Shelf i Low Pass: passa-alts. Tilt: passa-banda ample. */
+    Seccio dissenyaSolo (const Banda& b, double fs);
+    /** 0.60: el canal «germà» (Mid ↔ Side, L ↔ R); l'estèreo es queda igual. */
+    int canalOposat (int c);
+
     // ---- Paràmetres (automatització): Sortida, Bypass i, per banda, Encesa, Freqüència, Guany i Q ----
     constexpr int paramsPerBanda = 4;
     enum ParamGlobal : int { PSortida, PBypass, numGlobals };
@@ -104,6 +112,16 @@ namespace mibase::eq
         float picEntrada() noexcept { return picIn.exchange (0.0f, std::memory_order_relaxed); }
         float picSortida() noexcept { return picOut.exchange (0.0f, std::memory_order_relaxed); }
 
+        // ---- 0.60: analitzador i escolta d'una banda ----
+        /** Amb la captura encesa, el fil d'àudio copia l'entrada i la sortida (mitjana de L i R) als anells. */
+        void posaCaptura (bool b) noexcept { captura.store (b, std::memory_order_relaxed); }
+        bool capturant() const noexcept { return captura.load (std::memory_order_relaxed); }
+        const espectre::Anell& anellEntrada() const noexcept { return anellIn; }
+        const espectre::Anell& anellSortida() const noexcept { return anellOut; }
+        /** Escolta només la zona d'una banda (-1 = so normal). No es desa ni s'automatitza. */
+        void posaSolo (int k) noexcept { solo.store (k >= 0 && k < maxBandes ? k : -1, std::memory_order_relaxed); toca(); }
+        int soloBanda() const noexcept { return solo.load (std::memory_order_relaxed); }
+
     private:
         struct Atomica
         {
@@ -118,6 +136,9 @@ namespace mibase::eq
         std::atomic<unsigned> canvis { 0 };
         std::atomic<double> fsAtom { 48000.0 };
         std::atomic<float> picIn { 0.0f }, picOut { 0.0f };
+        std::atomic<bool> captura { false };
+        std::atomic<int> solo { -1 };
+        espectre::Anell anellIn, anellOut;
 
         // ---- Estat del fil d'àudio ----
         struct Viva
@@ -136,6 +157,11 @@ namespace mibase::eq
         double kSuau = 0.1, pasFosa = 0.01;
         double gSort = 1.0, wet = 1.0;    // sortida i bypass suavitzats
         bool apagatDelTot = false;
+        // escolta (solo): banda que sona, quant (0..1, amb fosa) i el filtre
+        int soloViu = -1;
+        double soloMix = 0.0;
+        Seccio soloS;
+        double soloZ[2][2] {};
 
         static constexpr int tros = 16;
         void actualitza() noexcept;
