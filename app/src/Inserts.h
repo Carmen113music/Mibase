@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ControlSidechain.h"
 #include "Controls.h"
 #include "EstatEstudi.h"
 #include "Plugins.h"
@@ -38,14 +39,269 @@ namespace inserts
         const auto x = (*v)[(size_t) k];
         if (mibase::esInsertVeu (x)) { if (obreVeu()) obreVeu() (pista); return; }
         if (plugins == nullptr) return;
-        if (x.plugin == mibase::reverb::idPlugin)
+        if (GestorPlugins::esIntern (x.plugin))
         {
             const auto* t = estat.pista (pista);
-            plugins->obreReverb (x, "Reverb · "_ca + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
+            const juce::String qui = x.plugin == mibase::reverb::idPlugin ? "Reverb · "_ca : "Dinàmica · "_ca;
+            plugins->obreIntern (x, qui + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
             return;
         }
         plugins->obreFinestra (x.id, titol (x));
     }
+
+    /** 0.56: qui obre l'editor d'automatització amb una línia per a un insert (el posa la pantalla de l'estudi). */
+    inline std::function<void (int pista, const std::string& idInsert)>& obreAutomatitzacio() { static std::function<void (int, const std::string&)> f; return f; }
+
+    /** 0.56: la finestra de les fonts de sidechain d'un insert. */
+    class PanellSidechain : public juce::Component
+    {
+    public:
+        PanellSidechain (EstatEstudi& e, GestorPlugins* g, int p, std::string id) : estat (e), plugins (g), pista (p), idInsert (std::move (id))
+        {
+            addAndMakeVisible (btAfegeix);
+            btAfegeix.onClick = [this] { menuFonts(); };
+            refes();
+        }
+
+        mibase::Insert* insert()
+        {
+            if (auto* v = llista (estat, pista))
+                for (auto& x : *v) if (x.id == idInsert) return &x;
+            return nullptr;
+        }
+
+        void refes()
+        {
+            files.clear();
+            auto* x = insert();
+            const int n = x != nullptr ? (int) x->sidechain.size() : 0;
+            for (int i = 0; i < n; ++i)
+            {
+                auto f = std::make_unique<Fila>();
+                const auto& font = x->sidechain[(size_t) i];
+                const int j = mibase::edicio::pistaPerId (estat.projecte, font.pista);
+                f->nom = j >= 0 ? juce::String::fromUTF8 (estat.projecte.pistes[(size_t) j].nom.c_str()) : "(pista esborrada)"_ca;
+                f->nivell.setSliderStyle (juce::Slider::LinearHorizontal);
+                f->nivell.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 20);
+                f->nivell.setRange (-60.0, 12.0, 0.1);
+                f->nivell.setTextValueSuffix (" dB");
+                f->nivell.setValue (font.nivellDb, juce::dontSendNotification);
+                f->nivell.setDoubleClickReturnValue (true, 0.0);
+                f->nivell.setTooltip ("Nivell de l'enviament de sidechain (no canvia el que se sent de la pista)."_ca);
+                f->nivell.onDragStart = [this] { estat.desfes.abans (estat.projecte); };
+                f->nivell.onValueChange = [this, i, s = &f->nivell]
+                {
+                    if (auto* y = insert(); y != nullptr && i < (int) y->sidechain.size()) y->sidechain[(size_t) i].nivellDb = s->getValue();
+                    estat.canviat();
+                };
+                f->punt.addItemList ({ "Abans dels efectes"_ca, "Després dels efectes (abans del fader)"_ca, "Després del fader"_ca }, 1);
+                f->punt.setSelectedItemIndex (font.punt, juce::dontSendNotification);
+                f->punt.setTooltip ("D'on es capta el so de la pista d'origen."_ca);
+                f->punt.onChange = [this, i, c = &f->punt] { canvia ([i, v = c->getSelectedItemIndex()] (mibase::Insert& y) { if (i < (int) y.sidechain.size()) y.sidechain[(size_t) i].punt = v; }); };
+                f->actiu.setLlum (tema::accent);
+                f->actiu.setToggleState (font.actiu, juce::dontSendNotification);
+                f->actiu.setTooltip ("Encén o apaga aquesta font."_ca);
+                f->actiu.onClick = [this, i] { canvia ([i] (mibase::Insert& y) { if (i < (int) y.sidechain.size()) y.sidechain[(size_t) i].actiu = ! y.sidechain[(size_t) i].actiu; }); };
+                f->treu.setTooltip ("Treu aquesta font."_ca);
+                f->treu.onClick = [this, i] { canvia ([i] (mibase::Insert& y) { if (i < (int) y.sidechain.size()) y.sidechain.erase (y.sidechain.begin() + i); }); };
+                for (juce::Component* c : { (juce::Component*) &f->nivell, (juce::Component*) &f->punt, (juce::Component*) &f->actiu, (juce::Component*) &f->treu })
+                    addAndMakeVisible (c);
+                files.push_back (std::move (f));
+            }
+            setSize (640, 78 + juce::jmax (1, n) * 34 + 34);
+            resized();
+            repaint();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (13.5f, true));
+            auto* x = insert();
+            g.drawText ("Sidechain · "_ca + (x != nullptr ? titol (*x) : juce::String()), getLocalBounds().reduced (12, 8).removeFromTop (20), juce::Justification::centredLeft);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f));
+            g.drawFittedText ("El so d'aquestes pistes controla l'efecte (ducking, compressió…) però no s'hi barreja. Si no n'hi ha cap, l'efecte escolta el seu propi so."_ca,
+                              getLocalBounds().reduced (12, 0).withTrimmedTop (30).withHeight (30), juce::Justification::centredLeft, 2, 0.85f);
+            if (files.empty())
+            {
+                g.drawText ("Encara no hi ha cap font."_ca, getLocalBounds().reduced (12, 0).withTrimmedTop (70).withHeight (30), juce::Justification::centredLeft);
+                return;
+            }
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.0f, true));
+            for (size_t i = 0; i < files.size(); ++i)
+                g.drawText (files[i]->nom, 12, 70 + (int) i * 34, 120, 28, juce::Justification::centredLeft);
+        }
+
+        void resized() override
+        {
+            for (size_t i = 0; i < files.size(); ++i)
+            {
+                auto r = juce::Rectangle<int> (136, 70 + (int) i * 34, getWidth() - 148, 28);
+                files[i]->treu.setBounds (r.removeFromRight (28));
+                r.removeFromRight (4);
+                files[i]->actiu.setBounds (r.removeFromRight (54));
+                r.removeFromRight (6);
+                files[i]->punt.setBounds (r.removeFromRight (200));
+                r.removeFromRight (6);
+                files[i]->nivell.setBounds (r);
+            }
+            btAfegeix.setBounds (12, getHeight() - 32, 190, 26);
+        }
+
+    private:
+        struct Fila
+        {
+            juce::String nom;
+            juce::Slider nivell;
+            juce::ComboBox punt;
+            Boto actiu { "On", std::nullopt, Boto::Estil::Tecla };
+            Boto treu { {}, dibuix::Icona::Tanca, Boto::Estil::Subtil };
+        };
+
+        void canvia (std::function<void (mibase::Insert&)> f)
+        {
+            const auto id = idInsert;
+            inserts::canvia (estat, plugins, pista, [f, id] (std::vector<mibase::Insert>& l) { for (auto& x : l) if (x.id == id) f (x); },
+                             "Sidechain"_ca);
+            juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<PanellSidechain> (this)] { if (sp != nullptr) sp->refes(); });
+        }
+
+        void menuFonts()
+        {
+            auto* x = insert();
+            if (x == nullptr) return;
+            const std::string desti = pista >= 0 && estat.pista (pista) != nullptr ? estat.pista (pista)->id : std::string();
+            juce::PopupMenu m;
+            for (int j = 0; j < estat.numPistes(); ++j)
+            {
+                const auto& t = estat.projecte.pistes[(size_t) j];
+                if (mibase::esAcords (t)) continue;
+                bool ja = false;
+                for (auto& f : x->sidechain) ja = ja || f.pista == t.id;
+                const bool pot = ! ja && mibase::edicio::potSidechain (estat.projecte, t.id, desti);
+                m.addItem (j + 1, juce::String::fromUTF8 (t.nom.c_str()) + (t.id == desti ? " (aquesta)"_ca : (! pot && ! ja ? " (faria un cercle)"_ca : juce::String())), pot, ja);
+            }
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btAfegeix), [this] (int r)
+            {
+                if (r <= 0 || r > estat.numPistes()) return;
+                const auto id = estat.projecte.pistes[(size_t) r - 1].id;
+                canvia ([id] (mibase::Insert& y) { y.sidechain.push_back ({ id, 0.0, 1, true }); });
+            });
+        }
+
+        EstatEstudi& estat;
+        GestorPlugins* plugins;
+        int pista;
+        std::string idInsert;
+        std::vector<std::unique_ptr<Fila>> files;
+        Boto btAfegeix { "+ Afegeix una font", std::nullopt, Boto::Estil::Secundari };
+    };
+
+    inline void obreSidechain (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k, juce::Component* on)
+    {
+        auto* v = llista (estat, pista);
+        if (v == nullptr || k < 0 || k >= (int) v->size() || on == nullptr) return;
+        auto p = std::make_unique<PanellSidechain> (estat, plugins, pista, (*v)[(size_t) k].id);
+        juce::CallOutBox::launchAsynchronously (std::move (p), on->getScreenBounds(), nullptr);
+    }
+
+    /** 0.57: el sidechain vist des de la finestra de l'efecte (botó SC i pista d'on escolta). */
+    class ServeiScEstudi : public ServeiSidechain
+    {
+    public:
+        ServeiScEstudi (EstatEstudi& e, GestorPlugins& g) : estat (e), plugins (g) {}
+
+        bool actiu (const std::string& id) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            if (x == nullptr) return false;
+            for (auto& f : x->sidechain) if (f.actiu) return true;
+            return false;
+        }
+
+        juce::String nomFonts (const std::string& id) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            juce::String t;
+            if (x == nullptr) return t;
+            for (auto& f : x->sidechain)
+            {
+                const int j = mibase::edicio::pistaPerId (estat.projecte, f.pista);
+                if (j < 0) continue;
+                if (t.isNotEmpty()) t << " + ";
+                t << juce::String::fromUTF8 (estat.projecte.pistes[(size_t) j].nom.c_str());
+            }
+            return t;
+        }
+
+        void commuta (const std::string& id, juce::Component* on) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            if (x == nullptr) return;
+            if (x->sidechain.empty()) { menu (id, on); return; }
+            const bool encendre = ! actiu (id);
+            inserts::canvia (estat, &plugins, p, [id, encendre] (std::vector<mibase::Insert>& l)
+            {
+                for (auto& y : l) if (y.id == id) for (auto& f : y.sidechain) f.actiu = encendre;
+            }, encendre ? "Sidechain encès"_ca : "Sidechain apagat"_ca);
+        }
+
+        void menu (const std::string& id, juce::Component* on) override
+        {
+            int p, k;
+            auto* x = busca (id, p, k);
+            if (x == nullptr) return;
+            const std::string desti = p >= 0 && estat.pista (p) != nullptr ? estat.pista (p)->id : std::string();
+            juce::PopupMenu m;
+            m.addSectionHeader ("D'on escolta (pots marcar-ne més d'una)"_ca);
+            for (int j = 0; j < estat.numPistes(); ++j)
+            {
+                const auto& t = estat.projecte.pistes[(size_t) j];
+                if (mibase::esAcords (t) || t.id == desti) continue;
+                bool ja = false;
+                for (auto& f : x->sidechain) ja = ja || f.pista == t.id;
+                const bool pot = ja || mibase::edicio::potSidechain (estat.projecte, t.id, desti);
+                m.addItem (j + 1, juce::String::fromUTF8 (t.nom.c_str()) + (pot ? juce::String() : " (faria un cercle)"_ca), pot, ja);
+            }
+            m.addSeparator();
+            m.addItem (100000, "Opcions: nivell i d'on es capta…"_ca, ! x->sidechain.empty());
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [this, id, sp = juce::Component::SafePointer<juce::Component> (on)] (int r)
+            {
+                int p2, k2;
+                if (busca (id, p2, k2) == nullptr) return;
+                if (r == 100000) { obreSidechain (estat, &plugins, p2, k2, sp.getComponent()); return; }
+                if (r <= 0 || r > estat.numPistes()) return;
+                const auto font = estat.projecte.pistes[(size_t) r - 1].id;
+                inserts::canvia (estat, &plugins, p2, [id, font] (std::vector<mibase::Insert>& l)
+                {
+                    for (auto& y : l)
+                        if (y.id == id)
+                        {
+                            auto it = std::find_if (y.sidechain.begin(), y.sidechain.end(), [&] (auto& f) { return f.pista == font; });
+                            if (it != y.sidechain.end()) y.sidechain.erase (it);
+                            else y.sidechain.push_back ({ font, 0.0, 1, true });
+                        }
+                }, "Sidechain"_ca);
+            });
+        }
+
+    private:
+        mibase::Insert* busca (const std::string& id, int& pista, int& k)
+        {
+            for (int p = -1; p < estat.numPistes(); ++p)
+                if (auto* v = llista (estat, p))
+                    for (size_t i = 0; i < v->size(); ++i)
+                        if ((*v)[i].id == id) { pista = p; k = (int) i; return &(*v)[i]; }
+            return nullptr;
+        }
+        EstatEstudi& estat;
+        GestorPlugins& plugins;
+    };
 
     inline void commuta (EstatEstudi& estat, GestorPlugins* plugins, int pista, int k)
     {
@@ -91,7 +347,9 @@ namespace inserts
             m.addSeparator();
         }
         // 0.55: la Reverb de Mibase (interna), a qualsevol pista, bus o al màster.
-        m.addItem (3, "Reverb (Mibase): espais, plates, shimmer, freeze…"_ca);
+        m.addItem (3, "Reverb (Mibase): espais, plates, convolució, shimmer…"_ca);
+        m.addItem (4, "Dinàmica (Mibase): compressor, gate, expander, de-esser"_ca);
+        m.addItem (5, "EQ Pro (Mibase): equalitzador de fins a 24 bandes"_ca);
         m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
@@ -116,18 +374,18 @@ namespace inserts
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
                 return;
             }
-            if (r == 3)
+            if (r == 3 || r == 4 || r == 5)
             {
                 std::string id;
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
                 {
                     mibase::Insert x;
                     x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                    x.plugin = mibase::reverb::idPlugin;
-                    x.nom = mibase::reverb::nomPlugin;
+                    x.plugin = r == 3 ? mibase::reverb::idPlugin : (r == 4 ? mibase::dinamica::idPlugin : mibase::eq::idPlugin);
+                    x.nom = r == 3 ? mibase::reverb::nomPlugin : (r == 4 ? mibase::dinamica::nomPlugin : mibase::eq::nomPlugin);
                     if (nou || k >= (int) l.size()) l.push_back (x);
                     else l[(size_t) k] = x;
-                }, "Efecte: Reverb (Mibase)"_ca);
+                }, r == 3 ? "Efecte: Reverb (Mibase)"_ca : (r == 4 ? "Efecte: Dinàmica (Mibase)"_ca : "Efecte: EQ Pro (Mibase)"_ca));
                 juce::MessageManager::callAsync ([&estat, plugins, pista, id]
                 {
                     if (auto* l = llista (estat, pista))
@@ -159,8 +417,16 @@ namespace inserts
         if (v == nullptr || k < 0 || k >= (int) v->size()) return;
         const auto x = (*v)[(size_t) k];
         juce::PopupMenu m;
-        m.addItem (1, mibase::esInsertVeu (x) ? "Obre el Vocal Editor"_ca : (x.plugin == mibase::reverb::idPlugin ? "Obre la Reverb"_ca : "Obre la finestra del plugin"_ca));
+        m.addItem (1, mibase::esInsertVeu (x) ? "Obre el Vocal Editor"_ca : (GestorPlugins::esIntern (x.plugin) ? "Obre l'efecte"_ca : "Obre la finestra del plugin"_ca));
         m.addItem (2, x.actiu ? "Apaga'l (el so hi passa de llarg)"_ca : "Encén-lo"_ca);
+        // 0.56
+        if (! mibase::esInsertVeu (x))
+        {
+            const bool sc = plugins != nullptr && plugins->admetSidechain (x);
+            m.addItem (7, sc ? "Sidechain…"_ca + (x.sidechain.empty() ? juce::String() : " (" + juce::String ((int) x.sidechain.size()) + ")")
+                             : "Sidechain (aquest plugin no té entrada lateral)"_ca, sc);
+            m.addItem (8, "Automatitza un paràmetre…"_ca, pista >= 0);
+        }
         m.addItem (6, "Canvia'l per un altre…"_ca);
         m.addSeparator();
         m.addItem (3, "Mou amunt"_ca, k > 0);
@@ -175,6 +441,12 @@ namespace inserts
             else if (r == 3) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k > 0 && k < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k - 1]); }, {});
             else if (r == 4) canvia (estat, plugins, pista, [k] (std::vector<mibase::Insert>& l) { if (k + 1 < (int) l.size()) std::swap (l[(size_t) k], l[(size_t) k + 1]); }, {});
             else if (r == 5) treu (estat, plugins, pista, k);
+            else if (r == 7) obreSidechain (estat, plugins, pista, k, on);
+            else if (r == 8)
+            {
+                auto* v2 = llista (estat, pista);
+                if (v2 != nullptr && k < (int) v2->size() && obreAutomatitzacio()) obreAutomatitzacio() (pista, (*v2)[(size_t) k].id);
+            }
         });
     }
 
@@ -211,7 +483,21 @@ namespace inserts
         // Nom.
         g.setColour (x->actiu ? tema::text : tema::suau);
         g.setFont (dibuix::lletra (petit ? 10.5f : 11.5f, x->actiu));
-        g.drawFittedText (titol (*x), z.nom, juce::Justification::centredLeft, 1, 0.8f);
+        auto zNom = z.nom;
+        bool scActiu = false;
+        for (auto& f : x->sidechain) scActiu = scActiu || f.actiu;
+        if (scActiu)   // 0.56: té sidechain
+        {
+            auto sc = zNom.removeFromRight (20).toFloat().reduced (1.0f, 4.0f);
+            g.setColour (tema::accent.withAlpha (0.25f));
+            g.fillRoundedRectangle (sc, 2.0f);
+            g.setColour (tema::accent);
+            g.setFont (dibuix::lletra (8.5f, true));
+            g.drawText ("SC", sc, juce::Justification::centred);
+            g.setColour (x->actiu ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (petit ? 10.5f : 11.5f, x->actiu));
+        }
+        g.drawFittedText (titol (*x), zNom, juce::Justification::centredLeft, 1, 0.8f);
         // Canviar.
         dibuix::pintaIcona (g, dibuix::Icona::Canvia, z.canvia.toFloat().reduced (z.canvia.getHeight() * 0.22f), tema::suau);
         g.setColour (juce::Colours::white.withAlpha (0.05f));
@@ -237,7 +523,7 @@ namespace inserts
         else obre (estat, plugins, pista, k);
     }
 
-    inline juce::String ajuda() { return "Llumeta: encén o apaga · nom: obre el plugin · fletxes: canvia'l o treu-lo · arrossega'l fora: el treus · botó dret: mou o treu"_ca; }
+    inline juce::String ajuda() { return "Llumeta: encén o apaga · nom: obre el plugin · fletxes: canvia'l o treu-lo · arrossega'l fora: el treus · botó dret: mou, treu, sidechain i automatització"_ca; }
 }
 
 /** Una fila d'insert com a component (columna esquerra). */

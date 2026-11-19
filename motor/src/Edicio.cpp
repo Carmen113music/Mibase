@@ -476,6 +476,14 @@ namespace mibase::edicio
     void insereixEspai (Projecte& p, double t, double durada)
     {
         if (durada <= 0.0) return;
+        {
+            // 0.56: l'automatització també s'aparta (en compassos)
+            const double c0 = compasDeSegons (p, t), c1 = compasDeSegons (p, t + durada);
+            for (auto& tp : p.pistes)
+                for (auto& a : tp.autos)
+                    for (auto& q : a.punts)
+                        if (q.compas >= c0 - 1e-9) q.compas += c1 - c0;
+        }
         for (int i = 0; i < (int) p.pistes.size(); ++i)
         {
             auto& clips = p.pistes[(size_t) i].clips;
@@ -694,6 +702,38 @@ namespace mibase::edicio
             };
             segueix (t.sortida);
             for (auto& e : t.enviaments) segueix (e.desti);
+        }
+        return true;
+    }
+
+    bool potSidechain (const Projecte& p, const std::string& origen, const std::string& desti)
+    {
+        if (origen == desti) return false;
+        const int o = pistaPerId (p, origen);
+        if (o < 0 || esAcords (p.pistes[(size_t) o])) return false;
+        if (desti.empty()) return true;   // un efecte del màster: el màster va després de totes les pistes
+        const int d = pistaPerId (p, desti);
+        if (d < 0) return false;
+        // Des de «desti», seguint sortides, enviaments i sidechains, no s'ha de poder arribar a «origen».
+        std::vector<char> vist (p.pistes.size(), 0);
+        std::vector<int> cua { d };
+        vist[(size_t) d] = 1;
+        while (! cua.empty())
+        {
+            const auto& t = p.pistes[(size_t) cua.back()];
+            cua.pop_back();
+            if (t.id == origen) return false;
+            auto segueix = [&] (const std::string& id)
+            {
+                const int j = pistaPerId (p, id);
+                if (j >= 0 && ! vist[(size_t) j]) { vist[(size_t) j] = 1; cua.push_back (j); }
+            };
+            segueix (t.sortida);
+            for (auto& e : t.enviaments) segueix (e.desti);
+            for (auto& u : p.pistes)
+                for (auto& x : u.inserts)
+                    for (auto& f : x.sidechain)
+                        if (f.pista == t.id) segueix (u.id);
         }
         return true;
     }

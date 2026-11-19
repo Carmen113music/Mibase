@@ -35,7 +35,24 @@ namespace mibase::piano
             int arrel = 60;              // la fonamental de la mà dreta
             int tercera = 4, quinta = 7, setena = 10;
             int baix = 36;               // la fonamental de la mà esquerra (o la nota de baix, si l'acord en té)
+            std::vector<int> fonamental, desplaca;   // 0.61: l'acord en posició fonamental i quant es mou cada nota amb la inversió
         };
+
+        /** 0.61: una nota de la mà dreta (calculada en posició fonamental) a la seva lloc a la inversió: es mou el mateix
+            que la nota de l'acord de la seva classe (o, si no és de l'acord, que la nota de l'acord més propera). */
+        int aInversio (const Acord& a, int n)
+        {
+            if (a.desplaca.empty()) return n;
+            int millor = 0, dist = 99;
+            for (size_t j = 0; j < a.fonamental.size(); ++j)
+            {
+                const int f = a.fonamental[j];
+                if (((n - f) % 12 + 12) % 12 == 0) return n + a.desplaca[j];
+                const int d = std::min (((n - f) % 12 + 12) % 12, ((f - n) % 12 + 12) % 12);
+                if (d < dist) { dist = d; millor = a.desplaca[j]; }
+            }
+            return n + millor;
+        }
 
         Acord prepara (const harmonia::AcordPad& a)
         {
@@ -52,6 +69,7 @@ namespace mibase::piano
             if (r.dreta.size() > 1) r.tercera = r.dreta[1] - r.arrel;
             if (r.dreta.size() > 2) r.quinta = r.dreta[2] - r.arrel;
             r.setena = r.dreta.size() > 3 ? r.dreta[3] - r.arrel : (r.tercera == 3 ? 10 : 11);
+            r.fonamental = r.dreta;
             const int pc = a.baix >= 0 ? a.baix : a.arrel;
             r.baix = 36 + ((pc % 12) + 12) % 12;
             if (r.baix > 43) r.baix -= 12;   // de Sol# en amunt, una octava avall (entre el Sol#1 i el Sol2)
@@ -88,15 +106,16 @@ namespace mibase::piano
                 if (w == "T8") for (auto& n : v) n += 12;
                 return v;
             }
-            if (w == "P") { tipus = 3; return { a.arrel }; }
+            if (w == "P") { tipus = 3; return { aInversio (a, a.arrel) }; }
             if (w == "Cs4" || w == "Cs2")
             {
-                auto v = a.dreta;
+                auto v = a.fonamental;
                 if (v.size() > 1) v[1] = a.arrel + (w == "Cs4" ? 5 : 2);
+                for (auto& n : v) n = aInversio (a, n);
                 std::sort (v.begin(), v.end());
                 return v;
             }
-            if (! w.empty() && std::isdigit ((unsigned char) w[0])) { tipus = 1; return { a.arrel + grau (a, std::atoi (w.c_str())) }; }
+            if (! w.empty() && std::isdigit ((unsigned char) w[0])) { tipus = 1; return { aInversio (a, a.arrel + grau (a, std::atoi (w.c_str()))) }; }
             return {};
         }
 
@@ -317,12 +336,33 @@ namespace mibase::piano
         return "D: " + net (p.dreta) + "   E: " + net (p.esquerra);
     }
 
+    std::vector<int> invertida (const std::vector<int>& fonamental, int inversio)
+    {
+        // 0.62.1 (demanat per en Roger): no és un cicle; cada pas amunt puja la nota més greu una octava i cada pas
+        // avall baixa la més aguda, de manera que es va pujant (o baixant) d'octava inversió a inversió.
+        auto v = fonamental;
+        std::sort (v.begin(), v.end());
+        if (v.size() < 2) return v;
+        for (int i = 0; i < inversio; ++i) { v.front() += 12; std::sort (v.begin(), v.end()); }
+        for (int i = 0; i > inversio; --i) { v.back() -= 12; std::sort (v.begin(), v.end()); }
+        return v;
+    }
+
     std::vector<Nota> toca (const harmonia::AcordPad& acord, const Patro& p, long long durada, const Opcions& o)
     {
         std::vector<Nota> r;
         if (acord.buit() || durada <= 0) return r;
-        const Acord a = prepara (acord);
+        Acord a = prepara (acord);
         if (a.dreta.empty()) return r;
+        if (o.inversio != 0 && a.dreta.size() > 1)   // 0.61: inversió de la mà dreta
+        {
+            a.dreta = invertida (a.fonamental, o.inversio);
+            // quant s'ha mogut cada nota de l'acord (per a les notes d'arpegi, el polze…)
+            a.desplaca.assign (a.fonamental.size(), 0);
+            for (size_t j = 0; j < a.fonamental.size(); ++j)
+                for (int n : a.dreta)
+                    if (((n - a.fonamental[j]) % 12 + 12) % 12 == 0) { a.desplaca[j] = n - a.fonamental[j]; break; }
+        }
         const int base = std::clamp (o.vel > 0 ? o.vel : p.vel, 20, 122);
         const double ticksPerMs = std::max (20.0, o.tempo) * (double) ticksPerNegra / 60000.0;
         const double var = std::clamp (o.variacio, 0.0, 1.0);

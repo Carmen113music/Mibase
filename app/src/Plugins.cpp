@@ -1,5 +1,7 @@
 #include "Plugins.h"
 #include "EscGlobal.h"
+#include "FinestraDinamica.h"
+#include "FinestraEq.h"
 #include "FinestraReverb.h"
 #include "Tema.h"
 #include "Text.h"
@@ -23,6 +25,16 @@ void AdaptadorPlugin::prepara (double fs, int nouMaxBloc)
     for (bool entrada : { true, false })
         if (auto* b = plugin->getBus (entrada, 0))
             b->setCurrentLayout (juce::AudioChannelSet::stereo());
+    // 0.56: si és un efecte amb entrada lateral (sidechain), s'encén (estèreo o, si no pot, mono).
+    canalSc = -1;
+    if (! plugin->getPluginDescription().isInstrument && plugin->getBusCount (true) > 1)
+        if (auto* b = plugin->getBus (true, 1))
+        {
+            if (b->setCurrentLayout (juce::AudioChannelSet::stereo()) || b->setCurrentLayout (juce::AudioChannelSet::mono()))
+                b->enable (true);
+            if (b->isEnabled() && b->getNumberOfChannels() > 0)
+                canalSc = plugin->getChannelIndexInProcessBlockBuffer (true, 1, 0);
+        }
     plugin->setRateAndBufferSizeDetails (fs, nouMaxBloc);
     plugin->prepareToPlay (fs, nouMaxBloc);
     maxBloc = nouMaxBloc;
@@ -50,6 +62,12 @@ void AdaptadorPlugin::processa (float* L, float* R, int n) noexcept
         buf.clear();
         std::copy (L + fet, L + fet + m, buf.getWritePointer (0));
         std::copy (R + fet, R + fet + m, buf.getWritePointer (1));
+        if (canalSc >= 2 && scL != nullptr && canalSc < canals)   // 0.56: sidechain a l'entrada lateral
+        {
+            std::copy (scL + fet, scL + fet + m, buf.getWritePointer (canalSc));
+            if (canalSc + 1 < canals && plugin->getChannelCountOfBus (true, 1) > 1)
+                std::copy (scR + fet, scR + fet + m, buf.getWritePointer (canalSc + 1));
+        }
         midi.clear();
         const bool passaDeLlarg = plugin->getTotalNumInputChannels() == 0;
         corre (m);
@@ -91,6 +109,45 @@ void AdaptadorPlugin::processa (const mibase::EventInstrument* ev, int num, floa
     const int sortides = plugin->getTotalNumOutputChannels();
     std::copy (buf.getReadPointer (0), buf.getReadPointer (0) + n, L);
     std::copy (buf.getReadPointer (sortides >= 2 ? 1 : 0), buf.getReadPointer (sortides >= 2 ? 1 : 0) + n, R);
+}
+
+// 0.56: paràmetres del plugin (automatització)
+int AdaptadorPlugin::numParametres() const { return plugin->getParameters().size(); }
+
+mibase::InfoParametre AdaptadorPlugin::infoParametre (int i) const
+{
+    mibase::InfoParametre r;
+    const auto& ps = plugin->getParameters();
+    if (i < 0 || i >= ps.size()) return r;
+    auto* p = ps[i];
+    if (auto* h = dynamic_cast<juce::HostedAudioProcessorParameter*> (p)) r.id = h->getParameterID().toStdString();
+    if (r.id.empty()) r.id = "#" + std::to_string (i);
+    r.nom = p->getName (80).toStdString();
+    r.automatitzable = p->isAutomatable();
+    r.passos = p->isDiscrete() ? juce::jmin (p->getNumSteps(), 1000) : 0;
+    return r;
+}
+
+void AdaptadorPlugin::posaParametre (int i, float v01) noexcept
+{
+    const auto& ps = plugin->getParameters();
+    if (i >= 0 && i < ps.size()) ps[i]->setValue (juce::jlimit (0.0f, 1.0f, v01));
+}
+
+float AdaptadorPlugin::parametre (int i) const noexcept
+{
+    const auto& ps = plugin->getParameters();
+    return i >= 0 && i < ps.size() ? ps[i]->getValue() : 0.0f;
+}
+
+std::string AdaptadorPlugin::textParametre (int i, float v01) const
+{
+    const auto& ps = plugin->getParameters();
+    if (i < 0 || i >= ps.size()) return {};
+    auto t = ps[i]->getText (v01, 40);
+    const auto u = ps[i]->getLabel();
+    if (u.isNotEmpty() && ! t.endsWith (u)) t << " " << u;
+    return t.toStdString();
 }
 
 std::string AdaptadorPlugin::estat() const
@@ -180,14 +237,14 @@ AdaptadorPlugin* GestorPlugins::viu (const std::string& clau)
 
 std::shared_ptr<mibase::Efecte> GestorPlugins::efecte (const mibase::Insert& x, double fs, int maxBloc)
 {
-    if (x.plugin == mibase::reverb::idPlugin)
+    ultimFs = fs;
+    ultimBloc = maxBloc;
+    if (esIntern (x.plugin))
     {
         auto& r = reverbs[x.id];
         if (r == nullptr)
         {
-            r = std::make_shared<mibase::reverb::Reverb>();
-            r->posaEstat (x.estat);
-            r->posaTempo (&RellotgePlugins::global().tempo);
+            r = creaIntern (x);
             r->prepara (fs, maxBloc);
         }
         else if (sensePreparar.erase (x.id) > 0) r->prepara (fs, maxBloc);   // encara no és a cap pla: es pot preparar
@@ -225,13 +282,14 @@ std::shared_ptr<mibase::Instrument> GestorPlugins::instrument (const mibase::Pis
 
 std::shared_ptr<mibase::Efecte> GestorPlugins::efecteNou (const mibase::Insert& x, double fs, int bloc)
 {
-    if (x.plugin == mibase::reverb::idPlugin)
+    if (esIntern (x.plugin))
     {
-        auto r = std::make_shared<mibase::reverb::Reverb>();
         auto it = reverbs.find (x.id);
-        r->posaEstat (it != reverbs.end() ? it->second->estat() : x.estat);
-        r->posa (mibase::reverb::FreezeOn, 0.0f);   // exportant no té sentit començar congelat
-        r->posaTempo (&RellotgePlugins::global().tempo);
+        mibase::Insert y = x;
+        if (it != reverbs.end()) y.estat = it->second->estat();
+        auto r = creaIntern (y);
+        if (auto* rv = dynamic_cast<mibase::reverb::Reverb*> (r.get()))
+            rv->posa (mibase::reverb::FreezeOn, 0.0f);   // exportant no té sentit començar congelat
         r->prepara (fs, bloc);
         return r;
     }
@@ -260,7 +318,7 @@ bool GestorPlugins::desaEstats (mibase::Projecte& p)
     auto desaReverb = [&] (mibase::Insert& x)
     {
         auto it = reverbs.find (x.id);
-        if (it == reverbs.end() || x.plugin != mibase::reverb::idPlugin) return false;
+        if (it == reverbs.end() || ! esIntern (x.plugin)) return false;
         auto e = it->second->estat();
         if (e != x.estat) { x.estat = std::move (e); canvi = true; }
         return true;
@@ -299,7 +357,7 @@ void GestorPlugins::neteja (const mibase::Projecte& p)
     for (auto it = reverbs.begin(); it != reverbs.end();)
     {
         auto h = hiSon.find (it->first);
-        if (h == hiSon.end() || h->second != mibase::reverb::idPlugin)
+        if (h == hiSon.end() || ! esIntern (h->second))
         {
             finestres.erase (it->first);
             adormides.erase (it->first);
@@ -332,7 +390,12 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
     }
     if (auto r = reverbs.find (clau); r != reverbs.end())
     {
-        finestres[clau] = creaFinestraReverb (r->second, titol, [this, clau] { finestres.erase (clau); });
+        if (auto rv = std::dynamic_pointer_cast<mibase::reverb::Reverb> (r->second))
+            finestres[clau] = creaFinestraReverb (rv, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
+        else if (auto d = std::dynamic_pointer_cast<mibase::dinamica::Dinamica> (r->second))
+            finestres[clau] = creaFinestraDinamica (d, titol, [this, clau] { finestres.erase (clau); }, sidechain, clau);
+        else if (auto q = std::dynamic_pointer_cast<mibase::eq::Equalitzador> (r->second))
+            finestres[clau] = creaFinestraEq (q, titol, [this, clau] { finestres.erase (clau); });
         return;
     }
     auto* a = viu (clau);
@@ -340,20 +403,57 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
     finestres[clau] = std::make_unique<FinestraPlugin> (titol, a->instancia(), [this, clau] { finestres.erase (clau); }, lateral ? lateral() : nullptr);
 }
 
-void GestorPlugins::obreReverb (const mibase::Insert& x, const juce::String& titol)
+std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::Insert& x)
 {
-    if (x.plugin != mibase::reverb::idPlugin) return;
+    std::shared_ptr<mibase::EfecteIntern> r;
+    if (x.plugin == mibase::dinamica::idPlugin) r = std::make_shared<mibase::dinamica::Dinamica>();
+    else if (x.plugin == mibase::eq::idPlugin) r = std::make_shared<mibase::eq::Equalitzador>();
+    else
+    {
+        auto rv = std::make_shared<mibase::reverb::Reverb>();
+        rv->posaTempo (&RellotgePlugins::global().tempo);
+        r = rv;
+    }
+    r->posaEstat (x.estat);
+    return r;
+}
+
+void GestorPlugins::obreIntern (const mibase::Insert& x, const juce::String& titol)
+{
+    if (! esIntern (x.plugin)) return;
     if (auto f = finestres.find (x.id); f != finestres.end()) { f->second->toFront (true); return; }
     auto& r = reverbs[x.id];
     if (r == nullptr)
     {
-        r = std::make_shared<mibase::reverb::Reverb>();
-        r->posaEstat (x.estat);
-        r->posaTempo (&RellotgePlugins::global().tempo);
+        r = creaIntern (x);
         sensePreparar.insert (x.id);
     }
-    const auto clau = x.id;
-    finestres[clau] = creaFinestraReverb (r, titol, [this, clau] { finestres.erase (clau); });
+    obreFinestra (x.id, titol);
+}
+
+mibase::Parametritzable* GestorPlugins::parametres (const mibase::Insert& x)
+{
+    if (esIntern (x.plugin))
+    {
+        auto& r = reverbs[x.id];
+        if (r == nullptr) { r = creaIntern (x); sensePreparar.insert (x.id); }
+        return r.get();
+    }
+    if (auto* a = viu (x.id)) return a;
+    if (! x.actiu) return nullptr;
+    return dynamic_cast<AdaptadorPlugin*> (efecte (x, ultimFs, ultimBloc).get());
+}
+
+mibase::Parametritzable* GestorPlugins::parametresInstrument (const std::string& idPista)
+{
+    return viu ("inst:" + idPista);
+}
+
+bool GestorPlugins::admetSidechain (const mibase::Insert& x)
+{
+    if (esIntern (x.plugin)) return true;
+    if (auto* a = viu (x.id)) return a->admetSidechain();
+    return false;
 }
 
 juce::PopupMenu GestorPlugins::menu (bool instruments, int base, juce::Array<juce::PluginDescription>& tipus) const
@@ -380,16 +480,39 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
     {
         t << "  " << on << " · " << juce::String::fromUTF8 (x.nom.c_str()) << (x.actiu ? " (encès)"_ca : " (apagat)"_ca) << ": ";
         if (mibase::esInsertVeu (x)) { t << "intern (Vocal Editor)\n"; return; }
+        if (x.plugin == mibase::dinamica::idPlugin)
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::dinamica::Dinamica*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Dinàmica), encara no creada\n"_ca; return; }
+            t << "intern (Dinàmica) · "_ca << mibase::dinamica::nomMode ((int) d->valor (mibase::dinamica::ModeP)) << " · reducció "_ca
+              << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
+            return;
+        }
+        if (x.plugin == mibase::eq::idPlugin)
+        {
+            auto r = reverbs.find (x.id);
+            auto* q = r != reverbs.end() ? dynamic_cast<mibase::eq::Equalitzador*> (r->second.get()) : nullptr;
+            if (q == nullptr) { t << "intern (EQ Pro), encara no creat\n"_ca; return; }
+            int n = 0;
+            for (int k = 0; k < mibase::eq::maxBandes; ++k) if (q->banda (k).usada) ++n;
+            t << "intern (EQ Pro) · "_ca << n << " bandes · sortida "_ca << juce::String (q->sortida(), 1) << " dB" << (q->bypass() ? " · bypass"_ca : juce::String())
+              << " · "_ca << juce::String (q->frequenciaMostreig(), 0) << " Hz\n";
+            return;
+        }
         if (x.plugin == mibase::reverb::idPlugin)
         {
             auto r = reverbs.find (x.id);
-            if (r == reverbs.end()) { t << "intern (Reverb), encara no creada\n"; return; }
-            const auto& m = r->second->mesures();
-            const auto p = r->second->params();
+            auto* rv = r != reverbs.end() ? dynamic_cast<mibase::reverb::Reverb*> (r->second.get()) : nullptr;
+            if (rv == nullptr) { t << "intern (Reverb), encara no creada\n"; return; }
+            const auto& m = rv->mesures();
+            const auto p = rv->params();
             t << "intern (Reverb) · " << mibase::reverb::nomAlgorisme ((int) p[mibase::reverb::Alg]) << " · qualitat "_ca
               << juce::String::fromUTF8 (mibase::reverb::textValor (mibase::reverb::Qualitat, p[mibase::reverb::Qualitat]).c_str())
               << " · blocs " << (juce::int64) m.blocs.load() << " · entra " << dB (m.entrada.load()) << " dB · surt " << dB (m.sortida.load()) << " dB"
-              << (adormides.count (x.id) ? " · apagada" : "") << "\n";
+              << (adormides.count (x.id) ? " · apagada" : "") << (m.sidechain.load() ? " · ducking amb sidechain" : "")
+              << (rv->referenciaIR().empty() ? juce::String() : " · IR " + juce::String::fromUTF8 (rv->referenciaIR().c_str()) + (rv->irFalta() ? " (NO ES TROBA)" : ""))
+              << "\n";
             return;
         }
         auto it = vius.find (x.id);

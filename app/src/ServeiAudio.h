@@ -97,6 +97,12 @@ private:
     juce::String clauConfiguracio();
 
     Historial& historial;
+public:
+    // 0.62.1: per al diagnòstic del so que es perd (els escriu el fil d'àudio)
+    std::atomic<unsigned long long> blocsAudio { 0 };
+    std::atomic<unsigned int> msUltimBloc { 0 };
+    std::atomic<float> picSortidaAudio { 0.0f };
+private:
     juce::AudioDeviceManager gestor;
     mibase::MotorDiagnostic motorDiag;
     mibase::MotorEstudi motorEstudi;

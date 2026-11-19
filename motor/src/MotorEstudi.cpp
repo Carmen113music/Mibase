@@ -117,10 +117,11 @@ namespace mibase
         pla->clicSo = p.clicSo;
         pla->master = guanyDb (p.masterDb);
         pla->sortidaMaster = std::clamp (p.sortidaMaster, 0, 31);
+        std::vector<const Insert*> viusMaster;   // 0.56
         if (efectes)
             for (const auto& x : p.insertsMaster)
                 if (x.actiu)
-                    if (auto e = efectes (x)) pla->insertsMaster.push_back (std::move (e));
+                    if (auto e = efectes (x)) { pla->insertsMaster.push_back (std::move (e)); viusMaster.push_back (&x); }
         if (const auto* es = edicio::estructuraActiva (p))
             for (auto& pc : es->peces)
                 for (auto& x : p.parts)
@@ -140,8 +141,10 @@ namespace mibase
         }
 
         const auto solo = edicio::estatSolo (p);
+        std::vector<std::vector<const Insert*>> vius;   // 0.56: quin insert del projecte és cada efecte del pla
         for (const auto& t : p.pistes)
         {
+            vius.emplace_back();
             Pla::Pista pp;
             pp.slot = slotDePista (t);
             pp.canals = t.canals == 2 ? 2 : 1;
@@ -220,7 +223,37 @@ namespace mibase
             if (efectes)
                 for (const auto& x : t.inserts)
                     if (x.actiu && ! esInsertVeu (x))
-                        if (auto e = efectes (x)) pp.inserts.push_back (std::move (e));
+                        if (auto e = efectes (x)) { pp.inserts.push_back (std::move (e)); vius.back().push_back (&x); }
+            // 0.56: automatització
+            for (const auto& a : t.autos)
+            {
+                if (! a.activa || a.punts.empty()) continue;
+                std::string ii, pid;
+                const int tipus = automatitzacio::llegeixObjectiu (a.objectiu, ii, pid);
+                if (tipus == 0) { pp.autoVolum = automatitzacio::corbaEnSegons (p, a); pp.lliureVolum = automatitzacio::bandera (a.id); }
+                else if (tipus == 1) { pp.autoPan = automatitzacio::corbaEnSegons (p, a); pp.lliurePan = automatitzacio::bandera (a.id); }
+                else if (tipus == 2)
+                {
+                    for (size_t k = 0; k < vius.back().size(); ++k)
+                        if (vius.back()[k]->id == ii)
+                        {
+                            Parametritzable* obj = pp.inserts[k].get();
+                            const int ix = obj->indexParametre (pid);
+                            if (ix >= 0)
+                            {
+                                pp.autoParams.push_back ({ obj, ix, false, automatitzacio::corbaEnSegons (p, a), -1.0f, automatitzacio::bandera (a.id) });
+                                pp.autoInserts = true;
+                            }
+                        }
+                }
+                else if (tipus == 3 && pp.instrument != nullptr)
+                {
+                    Parametritzable* obj = pp.instrument.get();
+                    const int ix = obj->indexParametre (pid);
+                    if (ix >= 0) pp.autoParams.push_back ({ obj, ix, true, automatitzacio::corbaEnSegons (p, a), -1.0f, automatitzacio::bandera (a.id) });
+                }
+            }
+            pp.scInserts.assign (pp.inserts.size(), -1);
             pla->pistes.push_back (std::move (pp));
         }
 
@@ -248,6 +281,34 @@ namespace mibase
                     if (const int j = busDe (e.desti); j >= 0 && j != i) cap[(size_t) i].push_back (j);
             for (int j : cap[(size_t) i]) ++entren[(size_t) j];
         }
+        // 0.56: sidechain. Cada efecte amb fonts té un buffer; la font s'ha de calcular abans que la pista de l'efecte.
+        struct Sc { int font, desti, buf; float guany; int punt; };
+        std::vector<Sc> scs;
+        auto fontsDe = [&] (const Insert& x, const std::shared_ptr<Efecte>& e, int desti) -> int
+        {
+            if (x.sidechain.empty() || e == nullptr || ! e->admetSidechain() || pla->numSidechain >= maxSidechain) return -1;
+            int buf = -1;
+            for (const auto& f : x.sidechain)
+            {
+                if (! f.actiu) continue;
+                const int j = edicio::pistaPerId (p, f.pista);
+                if (j < 0 || j == desti || esAcords (p.pistes[(size_t) j])) continue;
+                if (buf < 0) buf = pla->numSidechain++;
+                scs.push_back ({ j, desti, buf, guanyDb (f.nivellDb), std::clamp (f.punt, 0, 2) });
+            }
+            return buf;
+        };
+        for (int i = 0; i < n; ++i)
+            for (size_t k = 0; k < vius[(size_t) i].size(); ++k)
+                pla->pistes[(size_t) i].scInserts[k] = fontsDe (*vius[(size_t) i][k], pla->pistes[(size_t) i].inserts[k], i);
+        for (size_t k = 0; k < viusMaster.size(); ++k)
+            pla->scMaster.push_back (fontsDe (*viusMaster[k], pla->insertsMaster[k], -1));
+        for (const auto& x : scs)
+            if (x.desti >= 0)
+            {
+                cap[(size_t) x.font].push_back (x.desti);
+                ++entren[(size_t) x.desti];
+            }
         // Ordre de càlcul: cada pista abans dels busos on va.
         std::vector<char> posada ((size_t) n, 0);
         for (bool canvi = true; canvi;)
@@ -287,6 +348,17 @@ namespace mibase
                 pp.envia.push_back (x);
             }
         }
+        // 0.56: els enviaments de sidechain que han quedat ben ordenats (si hi hagués un cercle, no sonen).
+        std::vector<int> posOrdre ((size_t) n, -1);
+        for (size_t q = 0; q < pla->ordre.size(); ++q) posOrdre[(size_t) pla->ordre[q]] = (int) q;
+        for (const auto& x : scs)
+        {
+            if (x.desti >= 0 && (! posada[(size_t) x.font] || ! posada[(size_t) x.desti] || posOrdre[(size_t) x.font] >= posOrdre[(size_t) x.desti]))
+                continue;
+            auto& pf = pla->pistes[(size_t) x.font];
+            pf.scEnvia.push_back ({ x.buf, x.guany, x.punt });
+            if (x.punt < 2) pf.scSempre = true;
+        }
         return pla;
     }
 
@@ -299,6 +371,8 @@ namespace mibase
         maxN = (int) pL.size();
         busL.assign ((size_t) maxBusos * (size_t) maxN, 0.0f);
         busR.assign ((size_t) maxBusos * (size_t) maxN, 0.0f);
+        scL.assign ((size_t) maxSidechain * (size_t) maxN, 0.0f);   // 0.56
+        scR.assign ((size_t) maxSidechain * (size_t) maxN, 0.0f);
         gEnvia.assign ((size_t) maxSlots * maxEnviaSuau * 2, -1.0f);
         clic.prepara (fs);
         if (slots.size() != (size_t) maxSlots) slots.assign ((size_t) maxSlots, EstatSlot {});
@@ -532,6 +606,51 @@ namespace mibase
         }
     }
 
+    void Mesclador::enviaSc (const Pla::Pista& t, int punt, const float* xL, const float* xR, int n, int ns) noexcept
+    {
+        for (const auto& e : t.scEnvia)
+        {
+            if (e.punt != punt || e.buf < 0 || e.buf >= ns) continue;
+            float* const dL = scL.data() + (std::ptrdiff_t) e.buf * maxN;
+            float* const dR = scR.data() + (std::ptrdiff_t) e.buf * maxN;
+            for (int i = 0; i < n; ++i)
+            {
+                dL[i] += xL[i] * e.guany;
+                dR[i] += xR[i] * e.guany;
+            }
+        }
+    }
+
+    void Mesclador::efectes (const Pla::Pista& t, const std::vector<std::shared_ptr<Efecte>>& v, const std::vector<int>& sc, float* xL, float* xR,
+                             long long pos, int n, int ns) noexcept
+    {
+        // 0.56: amb paràmetres d'insert automatitzats, a trossos de 128 mostres (el valor canvia a cada tros).
+        const int tros = t.autoInserts ? 128 : n;
+        for (int ofs = 0; ofs < n; ofs += tros)
+        {
+            const int m = std::min (tros, n - ofs);
+            if (t.autoInserts)
+            {
+                const double seg = (double) (pos + ofs + m) / fs;
+                for (const auto& a : t.autoParams)
+                {
+                    if (a.instrument || (a.lliure != nullptr && a.lliure->load (std::memory_order_relaxed))) { a.ultim = -1.0f; continue; }
+                    const float x = a.corba.a (seg);
+                    if (std::abs (x - a.ultim) > 1.0e-6f) { a.obj->posaParametre (a.index, x); a.ultim = x; }
+                }
+            }
+            for (size_t k = 0; k < v.size(); ++k)
+            {
+                const int b = k < sc.size() ? sc[k] : -1;
+                if (b >= 0 && b < ns)
+                    v[k]->posaSidechain (scL.data() + (std::ptrdiff_t) b * maxN + ofs, scR.data() + (std::ptrdiff_t) b * maxN + ofs);
+                else
+                    v[k]->posaSidechain (nullptr, nullptr);
+                v[k]->processa (xL + ofs, xR + ofs, m);
+            }
+        }
+    }
+
     void Mesclador::processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus,
                               bool reproduint, const EventDirecte* directe, int numDirecte) noexcept
     {
@@ -544,6 +663,13 @@ namespace mibase
         {
             std::fill_n (busL.begin() + (std::ptrdiff_t) k * maxN, n, 0.0f);
             std::fill_n (busR.begin() + (std::ptrdiff_t) k * maxN, n, 0.0f);
+        }
+        // 0.56: i els de sidechain
+        const int ns = std::min (pla.numSidechain, maxSidechain);
+        for (int k = 0; k < ns; ++k)
+        {
+            std::fill_n (scL.begin() + (std::ptrdiff_t) k * maxN, n, 0.0f);
+            std::fill_n (scR.begin() + (std::ptrdiff_t) k * maxN, n, 0.0f);
         }
         auto rampa = [n] (float* a, float g0, float g1) noexcept
         {
@@ -564,6 +690,13 @@ namespace mibase
             if (esBus) {}   // un bus es calcula sempre (també aturat: les cues dels efectes no es tallen)
             else if (t.instrument != nullptr && ! slots.empty())
             {
+                // 0.56: paràmetres automatitzats de l'instrument (al començament del bloc)
+                for (const auto& a : t.autoParams)
+                    if (a.instrument && ! (a.lliure != nullptr && a.lliure->load (std::memory_order_relaxed)))
+                    {
+                        const float x = a.corba.a ((double) (pos + n / 2) / fs);
+                        if (std::abs (x - a.ultim) > 1.0e-6f) { a.obj->posaParametre (a.index, x); a.ultim = x; }
+                    }
                 // L'instrument sempre rep els seus missatges (també silenciat: així les notes s'apaguen).
                 instrumentPista (t, pos, n, reproduint, directe, numDirecte);
                 if (numEvs == 0 && ! t.instrument->fentSo())
@@ -575,9 +708,14 @@ namespace mibase
                 continue;   // aturat: només sonen els instruments
 
             const float porta = t.sona && ! silenciAra[(size_t) s] ? 1.0f : 0.0f;
-            const float fader = t.guany;
-            const float panL = t.pan <= 0.0f ? 1.0f : 1.0f - t.pan;
-            const float panR = t.pan >= 0.0f ? 1.0f : 1.0f + t.pan;
+            // 0.56: el volum i el panorama automatitzats manen sobre el fader i el pom
+            const double segAuto = (double) (pos + n) / fs;
+            const bool llegeixVol = ! t.autoVolum.buida() && ! (t.lliureVolum != nullptr && t.lliureVolum->load (std::memory_order_relaxed));
+            const bool llegeixPan = ! t.autoPan.buida() && ! (t.lliurePan != nullptr && t.lliurePan->load (std::memory_order_relaxed));
+            const float fader = ! llegeixVol ? t.guany : (float) automatitzacio::guanyDeVolum (t.autoVolum.a (segAuto));
+            const float panAra = ! llegeixPan ? t.pan : (float) automatitzacio::panDe (t.autoPan.a (segAuto));
+            const float panL = panAra <= 0.0f ? 1.0f : 1.0f - panAra;
+            const float panR = panAra >= 0.0f ? 1.0f : 1.0f + panAra;
             const float obert = t.obert ? 1.0f : 0.0f;
             if (! gFet[(size_t) s])
             {
@@ -588,9 +726,9 @@ namespace mibase
                         panR0 = gPanR[(size_t) s], obert0 = gObert[(size_t) s];
             gPorta[(size_t) s] = porta; gFader[(size_t) s] = fader; gPanL[(size_t) s] = panL; gPanR[(size_t) s] = panR;
             gObert[(size_t) s] = obert;
-            if (porta0 < 1.0e-6f && porta < 1.0e-6f)
-                continue;   // no sona: ni es calcula
-            bool hiHaPre = false;
+            if (porta0 < 1.0e-6f && porta < 1.0e-6f && ! t.scSempre)
+                continue;   // no sona: ni es calcula (0.56: tret que alimenti un sidechain)
+            bool hiHaPre = t.scSempre;
             for (const auto& e : t.envia) hiHaPre = hiHaPre || e.mode == 0;
             if (! hiHaPre && fader0 < 1.0e-6f && fader < 1.0e-6f)
                 continue;   // fader a baix i cap enviament pre-fader
@@ -606,8 +744,10 @@ namespace mibase
 
             // Una pista mono passa als dos costats (al mig): a partir d'aquí tot és estèreo.
             if (! (t.canals == 2 || instrumentFet || esBus)) std::copy (xL, xL + n, xR);
-            // 0.19: efectes de la pista (abans del fader).
-            for (const auto& e : t.inserts) e->processa (xL, xR, n);
+            // 0.19: efectes de la pista (abans del fader). 0.56: amb sidechain i automatització.
+            enviaSc (t, 0, xL, xR, n, ns);        // sidechain: abans dels efectes
+            if (! t.inserts.empty()) efectes (t, t.inserts, t.scInserts, xL, xR, pos, n, ns);
+            enviaSc (t, 1, xL, xR, n, ns);        // sidechain: després dels efectes (abans del fader)
 
             rampa (xL, porta0, porta);
             rampa (xR, porta0, porta);
@@ -615,6 +755,7 @@ namespace mibase
             rampa (xL, fader0, fader);
             rampa (xR, fader0, fader);
             envia (t, 1, xL, xR, n, nb);          // post-fader (abans del panorama)
+            enviaSc (t, 2, xL, xR, n, ns);        // sidechain: després del fader
             rampa (xL, panL0, panL);
             rampa (xR, panR0, panR);
             envia (t, 2, xL, xR, n, nb);          // post-pan
@@ -639,8 +780,11 @@ namespace mibase
             }
         }
 
-        // 0.19: cadena de màstering (abans del volum del màster).
-        for (const auto& e : pla.insertsMaster) e->processa (L, R, n);
+        // 0.19: cadena de màstering (abans del volum del màster). 0.56: amb sidechain.
+        if (! pla.insertsMaster.empty())
+        {
+            efectes (pistaBuida, pla.insertsMaster, pla.scMaster, L, R, pos, n, ns);
+        }
 
         // Volum de la sortida.
         if (! masterFet) { gMaster = pla.master; masterFet = true; }
@@ -887,6 +1031,7 @@ namespace mibase
         }
 
         auto ara = (Estat) estat.load (std::memory_order_relaxed);
+        ambPla.store (pla != nullptr, std::memory_order_relaxed);
         if (pla == nullptr)
             return;
         if (ara == Estat::Aturat)

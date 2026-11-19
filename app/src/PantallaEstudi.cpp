@@ -275,6 +275,17 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onVistaMoguda = [this] { actualitzaBarres(); estat.avisa(); };   // 0.54
     pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
     inserts::obreVeu() = [this] (int pista) { obreVeuDePista (pista); };
+    // 0.56: automatització i biblioteca d'IR
+    addChildComponent (editorAuto);
+    plugins.sidechain = &serveiSc;
+    editorAuto.onTanca = [this] { tancaAutomatitzacio(); };
+    editorAuto.onTeclaNoUsada = [this] (const juce::KeyPress& k) { return keyPressed (k); };
+    inserts::obreAutomatitzacio() = [this] (int pista, const std::string& idInsert)
+    {
+        obreAutomatitzacio (pista);
+        juce::MessageManager::callAsync ([this, idInsert] { editorAuto.menuLinia (&editorAuto, idInsert); });
+    };
+    mibase::conv::posaArrel (dibuix::cami (juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Mibase").getChildFile ("IR")));
     informePlugins() = [this] { return plugins.informe (estat.projecte); };
     addChildComponent (editorVeu);
     editorVeu.onTanca = [this] { tancaVeu(); };
@@ -435,6 +446,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     panellBateria.onObreKits = [this] { obreKits(); };
     panellHarmonia.onObreKits = [this] { obreKits(); };
+    capcaleres.onAutomatitzacio = [this] (int pista) { obreAutomatitzacio (pista); };
     capcaleres.onObreInstrument = [this] (int fila)
     {
         auto* t = estat.pista (fila);
@@ -486,7 +498,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (divPianoRoll);
     altPianoRoll = ajustos.getIntValue ("estudi.altPianoRoll", 430);
     divPianoRoll.setTooltip ("Arrossega per fer el Piano Roll més alt o més baix. Doble clic: mida inicial."_ca);
-    divPianoRoll.onComenca = [this] { altInici = estat.veu.obert ? editorVeu.getHeight() : estat.sampler.obert ? editorSampler.getHeight() : zonaEditors.getHeight(); };
+    divPianoRoll.onComenca = [this] { altInici = estat.veu.obert ? editorVeu.getHeight() : estat.sampler.obert ? editorSampler.getHeight()
+                                                 : editorAuto.isVisible() ? editorAuto.getHeight() : zonaEditors.getHeight(); };
     divPianoRoll.onArrossega = [this] (int dy)
     {
         altPianoRoll = juce::jmax (160, altInici - dy - (estat.veu.obert || estat.sampler.obert ? 0 : (juce::jmax (1, zonaEditors.quants()) - 1) * 250));
@@ -512,6 +525,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     inserts::obreVeu() = nullptr;
+    inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;
     teclaGlobal() = nullptr;
     informePlugins() = nullptr;
@@ -747,8 +761,18 @@ void PantallaEstudi::colocaSeccions()
 
     // Piano Roll a baix (si és obert i no és en una finestra a part).
     const bool veuBaix = estat.veu.obert && ! m;   // 0.22: o el Vocal Editor, al mateix lloc
-    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m && ! veuBaix && ! samplerBaix;
-    divPianoRoll.setVisible (prBaix || veuBaix || samplerBaix);
+    // 0.56: o l'editor d'automatització
+    const bool autoBaix = estat.automat.obert && ! m && ! veuBaix && ! samplerBaix && editorAuto.getParentComponent() != nullptr;
+    editorAuto.setVisible (autoBaix);
+    if (autoBaix)
+    {
+        const int alt = juce::jlimit (200, juce::jmax (200, r.getHeight() - 140), juce::jmax (altPianoRoll, 300));
+        auto zona = r.removeFromBottom (alt);
+        editorAuto.setBounds (zona.withTrimmedTop (4));
+        divPianoRoll.setBounds (zona.getX(), zona.getY() - 3, zona.getWidth(), 8);
+    }
+    const bool prBaix = estat.pianoRoll && finestraPianoRoll == nullptr && ! m && ! veuBaix && ! samplerBaix && ! autoBaix;
+    divPianoRoll.setVisible (prBaix || veuBaix || samplerBaix || autoBaix);
     if (finestraPianoRoll == nullptr) zonaEditors.setVisible (prBaix);
     editorVeu.setVisible (veuBaix);
     if (veuBaix)
@@ -1202,8 +1226,23 @@ void PantallaEstudi::acabaGravacio()
                        "El disc no ha anat prou de pressa i s'han perdut "_ca + juce::String (r.perdudes) + " mostres de la gravació.");
 }
 
+/** 0.62.1: el que fa el play abans de sonar (pla nou i plugins a zero), però sense fer sonar res. En Roger ha vist
+    que, tornant a Mibase des d'una altra finestra, a vegades els instruments no sonen fins que es fa play. */
+void PantallaEstudi::refrescaSo()
+{
+    if (estat.transport != 0 || ! servei.enMarxa()) return;
+    publicaPla();
+    plugins.buidaCues();
+    historial.afegeix ("So refrescat en tornar a Mibase"_ca);
+}
+
 void PantallaEstudi::tic()
 {
+    {
+        const bool davant = juce::Process::isForegroundProcess();
+        if (davant && ! eraDavant) refrescaSo();
+        eraDavant = davant;
+    }
     auto& motor = servei.estudi();
     motor.recull();
     if (ed::teCanvisTempo (estat.projecte))   // 0.28: els plugins (delays a tempo…) saben el tempo d'on sona
@@ -1280,6 +1319,8 @@ void PantallaEstudi::tic()
     recullVeu();
     if (editorVeu.isVisible()) editorVeu.tic();
     if (editorSampler.isVisible()) editorSampler.tic();
+    if (editorAuto.isVisible()) editorAuto.tic();
+    editorAuto.ticGravacio();   // 0.57: grava l'automatització encara que l'editor estigui tancat
 
 
     // Vúmetres: el pic de cada canal, amb caiguda suau.
@@ -2097,6 +2138,12 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (mods.isCommandDown() && lletra ('G')) { demanaNomCarpeta (estat.indexsTriades(), {}); return true; }
     if (cap && lletra ('L')) { commutaBucle(); return true; }
     if (cap && lletra ('P')) { mostraPianoRoll (! estat.pianoRoll); return true; }
+    if (cap && lletra ('A'))   // 0.56: l'editor d'automatització de la pista triada
+    {
+        if (estat.automat.obert) tancaAutomatitzacio();
+        else if (estat.pista (estat.pistaTriada) != nullptr) obreAutomatitzacio (estat.pistaTriada);
+        return true;
+    }
     if (! mods.isCommandDown() && ! mods.isAltDown() && lletra ('Z'))
     {
         // 0.12: si el ratolí és sobre un Piano Roll, el zoom és el del Piano Roll.
@@ -2188,6 +2235,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 {
     auto* c = estat.clip ({ pista, clip });
     if (c == nullptr || ! c->midi) return;
+    estat.automat.obert = false;   // 0.58: l'editor d'automatització deixa el lloc
     estat.focusEditor = true;
     estat.triaClip (pista, clip);
     int i = estat.editorDe ({ pista, clip });
@@ -2224,6 +2272,7 @@ void PantallaEstudi::obrePianoRoll (int pista, int clip)
 void PantallaEstudi::mostraPianoRoll (bool visible)
 {
     if (visible && estat.veu.obert) estat.veu.obert = false;   // 0.22: comparteixen el lloc de baix
+    if (visible) estat.automat.obert = false;                     // 0.58
     if (visible && estat.sampler.obert) estat.sampler.obert = false;   // 0.26
     // 0.31: el clip a obrir: el MIDI triat; si no n'hi ha, el de la pista triada (MIDI o bateria: així P obre també el Drumpad)
     // on és el capçal, o el primer.
@@ -2418,6 +2467,7 @@ void PantallaEstudi::obreVeu (int pista, int clip)
     auto* t = estat.pista (pista);
     auto* c = estat.clip ({ pista, clip });
     if (t == nullptr || c == nullptr || c->midi || c->presa.empty() || mibase::esMidi (*t)) return;
+    estat.automat.obert = false;   // 0.58
     if (audioPreses.find (c->presa) == audioPreses.end())
     {
         estat.info = "Aquest clip no té l'àudio carregat"_ca;
@@ -2594,6 +2644,7 @@ void PantallaEstudi::obreSampler (int pista)
 {
     auto* t = estat.pista (pista);
     if (t == nullptr || ! mibase::esSampler (*t)) return;
+    estat.automat.obert = false;   // 0.58
     if (estat.pianoRoll) mostraPianoRoll (false);
     estat.veu.obert = false;
     if (estat.sampler.pista != t->id) { estat.sampler.pxPerSeg = 0.0; estat.sampler.iniciVista = 0.0; estat.sampler.capcal = 0.0; }
@@ -2603,6 +2654,25 @@ void PantallaEstudi::obreSampler (int pista)
     colocaSeccions();
     estat.avisa();
     editorSampler.grabKeyboardFocus();
+}
+
+void PantallaEstudi::obreAutomatitzacio (int pista)
+{
+    if (estat.pista (pista) == nullptr) return;
+    if (estat.veu.obert) tancaVeu();            // 0.58: un sol editor a baix
+    if (estat.sampler.obert) tancaSampler();
+    editorAuto.obre (pista);
+    colocaSeccions();
+    estat.avisa();
+    editorAuto.grabKeyboardFocus();
+}
+
+void PantallaEstudi::tancaAutomatitzacio()
+{
+    estat.automat.obert = false;
+    colocaSeccions();
+    estat.avisa();
+    grabKeyboardFocus();
 }
 
 void PantallaEstudi::tancaSampler()

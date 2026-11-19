@@ -109,7 +109,7 @@ namespace
             comprova (iguals == 0, "no hi ha dos presets iguals");
             std::set<int> algs;
             for (const auto& p : v) algs.insert ((int) p.p[Alg]);
-            comprova ((int) algs.size() == numAlgorismes, "tots els algorismes tenen presets");
+            comprova ((int) algs.size() == numAlgorismes - 1, "tots els algorismes tenen presets (la convolució depèn de la IR)");
         });
 
         prova ("0.55 reverb: l'estat es desa i es recupera (i les claus que falten queden per defecte)", []
@@ -136,7 +136,7 @@ namespace
         {
             const double fs = 48000.0;
             std::vector<So> resp;
-            for (int a = 0; a < numAlgorismes; ++a)
+            for (int a = 0; a < Convolucio; ++a)
             {
                 Params p;
                 p.posa (Alg, (float) a);
@@ -150,8 +150,8 @@ namespace
             }
             // Correlació entre respostes (els 0,6 primers segons): han de ser clarament diferents.
             int massaSemblants = 0;
-            for (int a = 0; a < numAlgorismes; ++a)
-                for (int b = a + 1; b < numAlgorismes; ++b)
+            for (int a = 0; a < Convolucio; ++a)
+                for (int b = a + 1; b < Convolucio; ++b)
                 {
                     double ab = 0, aa = 0, bb = 0;
                     for (size_t i = 0; i < (size_t) (0.6 * fs); ++i)

@@ -169,6 +169,15 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
         r.segons.store (motorEstudi.getPosicio(), std::memory_order_relaxed);
     }
     motorEstudi.processa (entrades, numEntrades, sortides, numSortides, numMostres);
+    {
+        float pic = 0.0f;
+        for (int c = 0; c < juce::jmin (2, numSortides); ++c)
+            if (sortides[c] != nullptr)
+                for (int i = 0; i < numMostres; ++i) pic = juce::jmax (pic, std::abs (sortides[c][i]));
+        if (pic > picSortidaAudio.load (std::memory_order_relaxed)) picSortidaAudio.store (pic, std::memory_order_relaxed);
+        blocsAudio.fetch_add (1, std::memory_order_relaxed);
+        msUltimBloc.store (juce::Time::getMillisecondCounter(), std::memory_order_relaxed);
+    }
 
     // 0.20: el so que s'escolta (kits de bateria), sumat a les dues primeres sortides.
     if (const int gen = previaGen.load (std::memory_order_acquire); gen != previaVista) { previaVista = gen; previaPos = 0.0; }

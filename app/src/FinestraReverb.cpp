@@ -1,5 +1,7 @@
 #include "FinestraReverb.h"
 
+#include "ControlSidechain.h"
+#include "NavegadorPresets.h"
 #include "Controls.h"
 #include "DialegText.h"
 #include "Dibuix.h"
@@ -97,23 +99,6 @@ private:
 
 //==============================================================================
 /** Botó d'estrella (favorit), dibuixat (sense emojis). */
-class BotoEstrella : public juce::Button
-{
-public:
-    BotoEstrella() : juce::Button ("favorit") { setMouseCursor (juce::MouseCursor::PointingHandCursor); setWantsKeyboardFocus (false); }
-    void paintButton (juce::Graphics& g, bool sobre, bool) override
-    {
-        auto r = getLocalBounds().toFloat().reduced (3.0f);
-        const float s = juce::jmin (r.getWidth(), r.getHeight());
-        r = r.withSizeKeepingCentre (s, s);
-        juce::Path p;
-        p.addStar (r.getCentre(), 5, s * 0.22f, s * 0.5f, 0.0f);
-        if (getToggleState()) { g.setColour (tema::guitarra); g.fillPath (p); }
-        g.setColour (getToggleState() ? tema::guitarra : (sobre ? tema::text : tema::suau));
-        g.strokePath (p, juce::PathStrokeType (1.4f));
-    }
-};
-
 //==============================================================================
 /** La pantalla de dalt: la forma de la reverb (pre-delay, reflexions, cua i decay per bandes), el nivell real de la cua
     que passa, els nivells d'entrada i sortida i l'amplada estèreo. */
@@ -464,11 +449,190 @@ private:
 //==============================================================================
 class NavegadorPresets;
 
+//==============================================================================
+/** 0.56: la IR de la convolució: nom, forma d'ona, durada, freqüència i canals; biblioteca, carregar i treure. */
+class PanellIR : public juce::Component
+{
+public:
+    explicit PanellIR (Reverb& r) : rv (r)
+    {
+        for (auto* b : { &btBib, &btCarrega, &btTreu }) addAndMakeVisible (b);
+        btBib.setTooltip ("Tria una IR de la biblioteca (Documents\\Mibase\\IR): hi pots posar carpetes teves."_ca);
+        btCarrega.setTooltip ("Carrega un fitxer WAV de resposta impulsional (mono, estèreo o true stereo de 4 canals)."_ca);
+        btTreu.setTooltip ("Treu la IR (la convolució queda en silenci)."_ca);
+        btBib.onClick = [this] { menuBiblioteca(); };
+        btCarrega.onClick = [this] { triaFitxer(); };
+        btTreu.onClick = [this] { rv.treuIR(); error.clear(); if (onCanvi) onCanvi(); repaint(); };
+    }
+    std::function<void()> onCanvi;
+
+    void carrega (const std::string& ref)
+    {
+        std::string e;
+        if (! rv.carregaIR (ref, e)) error = u8 (e);
+        else error.clear();
+        if (onCanvi) onCanvi();
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (r, 5.0f);
+        auto zona = r.reduced (12.0f, 8.0f);
+        auto cap = zona.removeFromTop (18.0f);
+        g.setFont (dibuix::lletra (12.5f, true));
+        g.setColour (colCua);
+        g.drawText ("CONVOLUCIÓ"_ca, cap, juce::Justification::centredLeft);
+        const auto ir = rv.convolucio().ir();
+        auto info = zona.removeFromBottom (18.0f);
+        zona.removeFromBottom (4.0f);
+        g.setFont (dibuix::lletra (12.0f));
+        if (ir != nullptr)
+        {
+            if (ir.get() != irPintada) calculaOna (*ir);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.5f, true));
+            g.drawText (u8 (ir->nom), info.removeFromLeft (info.getWidth() * 0.5f), juce::Justification::centredLeft);
+            const juce::String canals = ir->canals() == 1 ? "Mono" : (ir->canals() == 2 ? "Estèreo"_ca : "True stereo");
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.5f));
+            g.drawText (juce::String (ir->durada(), 2).replaceCharacter ('.', ',') + " s  ·  " + juce::String (ir->fs / 1000.0, 1).replaceCharacter ('.', ',')
+                        + " kHz  ·  " + canals, info, juce::Justification::centredRight);
+            // Forma d'ona (dB): de dalt (0 dB) a baix (-72 dB); la part que s'escurça amb Length, més fosca.
+            g.setColour (juce::Colours::white.withAlpha (0.04f));
+            g.fillRect (zona);
+            const float llarg = (float) rv.valor (IrLong) / 100.0f;
+            juce::Path pth;
+            const int n = (int) ona.size();
+            for (int i = 0; i < n; ++i)
+            {
+                const float x = zona.getX() + zona.getWidth() * (float) i / (float) juce::jmax (1, n - 1);
+                const float db = ona[(size_t) i] > 1e-6f ? 20.0f * std::log10 (ona[(size_t) i]) : -72.0f;
+                const float y = zona.getBottom() - zona.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 72.0f) / 72.0f);
+                if (i == 0) pth.startNewSubPath (x, zona.getBottom());
+                pth.lineTo (x, y);
+            }
+            pth.lineTo (zona.getRight(), zona.getBottom());
+            pth.closeSubPath();
+            g.setColour (colCua.withAlpha (0.35f));
+            g.fillPath (pth);
+            g.setColour (colCua);
+            g.strokePath (pth, juce::PathStrokeType (1.0f));
+            if (llarg < 0.999f)
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.55f));
+                g.fillRect (zona.withTrimmedLeft (zona.getWidth() * llarg));
+            }
+        }
+        else
+        {
+            g.setColour (rv.irFalta() ? tema::error : tema::suau);
+            g.drawFittedText (rv.irFalta() ? "No es troba el fitxer de la IR: "_ca + u8 (rv.referenciaIR()) + ". Torna'l a posar al seu lloc o tria'n una altra."_ca
+                                           : "Cap IR carregada. Tria'n una de la biblioteca o carrega un fitxer WAV."_ca,
+                              zona.toNearestInt().reduced (8, 0), juce::Justification::centred, 3);
+        }
+        if (error.isNotEmpty())
+        {
+            g.setColour (tema::error);
+            g.drawText (error, cap.withTrimmedLeft (110.0f).withTrimmedRight (250.0f), juce::Justification::centredLeft);
+        }
+    }
+
+    void resized() override
+    {
+        auto cap = getLocalBounds().reduced (10, 6).removeFromTop (22);
+        btTreu.setBounds (cap.removeFromRight (64));
+        cap.removeFromRight (4);
+        btCarrega.setBounds (cap.removeFromRight (88));
+        cap.removeFromRight (4);
+        btBib.setBounds (cap.removeFromRight (100));
+    }
+
+private:
+    void calculaOna (const mibase::conv::IR& ir)
+    {
+        irPintada = &ir;
+        ona.assign (300, 0.0f);
+        const long long n = ir.frames();
+        for (long long i = 0; i < n; ++i)
+        {
+            float m = 0.0f;
+            for (auto& c : ir.c) m = std::max (m, std::abs (c[(size_t) i]));
+            auto& o = ona[(size_t) (i * 299 / std::max (1LL, n - 1))];
+            o = std::max (o, m);
+        }
+        const float pic = *std::max_element (ona.begin(), ona.end());
+        if (pic > 0.0f) for (auto& o : ona) o /= pic;
+    }
+
+    void menuBiblioteca()
+    {
+        namespace cv = mibase::conv;
+        auto llista = cv::llistaBiblioteca();
+        if (llista.empty() && ! cv::arrel().empty())
+        {
+            juce::MouseCursor::showWaitCursor();
+            cv::creaBibliotecaDemo (cv::arrel());
+            juce::MouseCursor::hideWaitCursor();
+            llista = cv::llistaBiblioteca();
+        }
+        auto entrades = std::make_shared<std::vector<cv::EntradaBiblioteca>> (std::move (llista));
+        juce::PopupMenu m;
+        std::map<std::string, juce::PopupMenu> cats;
+        std::vector<std::string> ordre;
+        const auto actual = rv.referenciaIR();
+        for (size_t i = 0; i < entrades->size(); ++i)
+        {
+            const auto& e = (*entrades)[i];
+            if (! cats.count (e.categoria)) ordre.push_back (e.categoria);
+            cats[e.categoria].addItem ((int) i + 1, u8 (e.nom), true, cv::referencia (e.cami) == actual);
+        }
+        for (auto& c : ordre) m.addSubMenu (u8 (c), cats[c]);
+        if (entrades->empty()) m.addItem (-1, "La biblioteca és buida"_ca, false);
+        m.addSeparator();
+        m.addItem (100000, "Obre la carpeta de la biblioteca"_ca);
+        m.addItem (100001, "Torna a crear les IR de demostració que faltin"_ca);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btBib), [this, entrades] (int r)
+        {
+            if (r == 100000)
+            {
+                const auto a = dibuix::fitxer (mibase::conv::arrel());
+                a.createDirectory();
+                a.startAsProcess();
+                return;
+            }
+            if (r == 100001) { mibase::conv::creaBibliotecaDemo (mibase::conv::arrel()); return; }
+            if (r >= 1 && r <= (int) entrades->size()) carrega (mibase::conv::referencia ((*entrades)[(size_t) r - 1].cami));
+        });
+    }
+
+    void triaFitxer()
+    {
+        selector = std::make_unique<juce::FileChooser> ("Tria una resposta impulsional (WAV)"_ca, dibuix::fitxer (mibase::conv::arrel()), "*.wav");
+        selector->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
+        {
+            const auto f = fc.getResult();
+            if (f.existsAsFile()) carrega (mibase::conv::referencia (dibuix::cami (f)));
+        });
+    }
+
+    Reverb& rv;
+    Boto btBib { "Biblioteca", dibuix::Icona::FletxaAvall, Boto::Estil::Secundari };
+    Boto btCarrega { "Carrega…"_ca, std::nullopt, Boto::Estil::Secundari };
+    Boto btTreu { "Treu", std::nullopt, Boto::Estil::Subtil };
+    std::vector<float> ona;
+    const void* irPintada = nullptr;
+    juce::String error;
+    std::unique_ptr<juce::FileChooser> selector;
+};
+
 /** Tot el contingut de la finestra. */
 class PanellReverb : public juce::Component, private juce::Timer
 {
 public:
-    PanellReverb (std::shared_ptr<Reverb> r);
+    PanellReverb (std::shared_ptr<Reverb> r, ServeiSidechain* sc = nullptr, const std::string& idInsert = {});
     ~PanellReverb() override;
 
     Reverb& reverb() { return *rv; }
@@ -516,6 +680,9 @@ private:
     Segmentat segVista { { "Simple", "Avançat"_ca } };
 
     VistaCua vista;
+    PanellIR panellIR;                       // 0.56: en lloc de la vista, amb la convolució
+    PomR pIrLong, pIrDamp;
+    Boto btIrNorm { "Normalitza", std::nullopt, Boto::Estil::Tecla }, btIrRev { "Reverse", std::nullopt, Boto::Estil::Tecla };
 
     // Poms principals.
     PomR pMix, pDecay, pPre, pSize, pWidth, pDamp, pDif, pEL;
@@ -530,6 +697,9 @@ private:
     PomR pDecGreus, pCreuGreu, pDecAguts, pCreuAgut, pDamp2;
     Boto btDuck { "Ducking", std::nullopt, Boto::Estil::Tecla }, btGate { "Gate", std::nullopt, Boto::Estil::Tecla };
     PomR pDThr, pDAtk, pDRel, pDAmt, pGThr, pGAtk, pGHold, pGRel;
+    PomR pDHpf, pDLpf;                                        // 0.56: filtre del detector del ducking
+    Segmentat segDet { { "Peak", "RMS" } };
+    ControlSidechain ctrlSc;                                  // 0.57: SC i pista d'on escolta el ducking
     Segmentat segMod { { "Chorus", "Aleatori", "Vintage" } };
     Boto btModSync { "Sync", std::nullopt, Boto::Estil::Tecla };
     PomR pRate, pDepth;
@@ -712,7 +882,7 @@ private:
         g.drawText (f.nom, 34, 0, w - 230, h, juce::Justification::centredLeft);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.5f));
-        g.drawText ((f.usuari ? "Meu · "_ca : juce::String()) + f.cat + " · " + u8 (nomAlgorisme ((int) f.pr->p[Alg])), w - 230, 0, 222, h, juce::Justification::centredRight);
+        g.drawText ((f.usuari ? "Meu · "_ca : juce::String()) + f.cat + " · "_ca + u8 (nomAlgorisme ((int) f.pr->p[Alg])), w - 230, 0, 222, h, juce::Justification::centredRight);
     }
     void listBoxItemClicked (int fila, const juce::MouseEvent& e) override
     {
@@ -1046,13 +1216,14 @@ void GraficDecay::mouseDoubleClick (const juce::MouseEvent& e)
 //==============================================================================
 // El panell
 //==============================================================================
-PanellReverb::PanellReverb (std::shared_ptr<Reverb> r)
-    : rv (std::move (r)), vista (*rv),
+PanellReverb::PanellReverb (std::shared_ptr<Reverb> r, ServeiSidechain* sc, const std::string& idInsert)
+    : rv (std::move (r)), vista (*rv), panellIR (*rv), pIrLong (*this, IrLong), pIrDamp (*this, IrDamp),
       pMix (*this, Mix), pDecay (*this, Decay), pPre (*this, PreDelay), pSize (*this, Size), pWidth (*this, Width),
       pDamp (*this, Damping), pDif (*this, Diffusion), pEL (*this, EarlyLate),
       pLowCut (*this, LowCut), pHighCut (*this, HighCut), pBandaF (*this, Eq1F, "Freq."), pBandaG (*this, Eq1G, "Guany"), pBandaQ (*this, Eq1Q, "Q"),
       pDecGreus (*this, DecGreus), pCreuGreu (*this, CreuGreu), pDecAguts (*this, DecAguts), pCreuAgut (*this, CreuAgut), pDamp2 (*this, Damping),
       pDThr (*this, DuckThr), pDAtk (*this, DuckAtk), pDRel (*this, DuckRel), pDAmt (*this, DuckAmt),
+      pDHpf (*this, DuckHpf, "Low Cut"), pDLpf (*this, DuckLpf, "High Cut"), ctrlSc (sc, idInsert),
       pGThr (*this, GateThr), pGAtk (*this, GateAtk), pGHold (*this, GateHold), pGRel (*this, GateRel),
       pRate (*this, ModRate), pDepth (*this, ModDepth), pShimAmt (*this, ShimAmt), pFreezeRel (*this, FreezeRel), pFb (*this, Feedback),
       pWidth2 (*this, Width), pSep (*this, Separacio), pOut (*this, Sortida)
@@ -1100,6 +1271,10 @@ PanellReverb::PanellReverb (std::shared_ptr<Reverb> r)
     };
 
     addAndMakeVisible (vista);
+    addChildComponent (panellIR);
+    panellIR.onCanvi = [this] { refresca(); };
+    for (auto* p : { &pIrLong, &pIrDamp }) { addChildComponent (p); poms.push_back (p); }
+    for (auto* b : { &btIrNorm, &btIrRev }) addChildComponent (b);
 
     // Poms principals.
     for (auto* p : { &pMix, &pDecay, &pPre, &pSize, &pWidth, &pDamp, &pDif, &pEL }) { addAndMakeVisible (p); poms.push_back (p); }
@@ -1129,6 +1304,9 @@ PanellReverb::PanellReverb (std::shared_ptr<Reverb> r)
     boto (btFreeze, FreezeOn, colCua);
     boto (btRev, RevOn, tema::bateria);
     boto (btMono, GreusMono, tema::sinte);
+    boto (btIrNorm, IrNorm, colCua);
+    boto (btIrRev, IrRev, colCua);
+    seg (segDet, DuckDet);
     seg (segMod, ModMode);
     seg (segPitch, ShimPitch);
     seg (segEntrada, EntradaMode);
@@ -1149,7 +1327,8 @@ PanellReverb::PanellReverb (std::shared_ptr<Reverb> r)
 
     comps[0] = { &grafEq, &pLowCut, &pHighCut, &pBandaF, &pBandaG, &pBandaQ };
     comps[1] = { &grafDecay, &pDecGreus, &pCreuGreu, &pDecAguts, &pCreuAgut, &pDamp2 };
-    comps[2] = { &btDuck, &pDThr, &pDAtk, &pDRel, &pDAmt, &btGate, &pGThr, &pGAtk, &pGHold, &pGRel };
+    if (sc != nullptr && ! idInsert.empty()) comps[2].push_back (&ctrlSc);
+    comps[2].insert (comps[2].end(), { &btDuck, &pDThr, &pDAtk, &pDRel, &pDAmt, &pDHpf, &pDLpf, &segDet, &btGate, &pGThr, &pGAtk, &pGHold, &pGRel });
     comps[3] = { &segMod, &pRate, &btModSync, &pDepth };
     comps[4] = { &btShim, &segPitch, &pShimAmt, &btFreeze, &pFreezeRel, &btRev, &pFb };
     comps[5] = { &pWidth2, &pSep, &btMono, &segEntrada, &segQual, &pOut };
@@ -1416,7 +1595,7 @@ void PanellReverb::refresca()
     btAlg.setButtonText (u8 (nomAlgorisme ((int) rv->valor (Alg))));
     btPreSync.setToggleState (rv->valor (PreSync) > 0.5f, juce::dontSendNotification);
     for (auto [b, p] : { std::pair<Boto*, int> { &btDuck, DuckOn }, { &btGate, GateOn }, { &btModSync, ModSync }, { &btShim, ShimOn },
-                          { &btFreeze, FreezeOn }, { &btRev, RevOn }, { &btMono, GreusMono } })
+                          { &btFreeze, FreezeOn }, { &btRev, RevOn }, { &btMono, GreusMono }, { &btIrNorm, IrNorm }, { &btIrRev, IrRev } })
         b->setToggleState (rv->valor (p) > 0.5f, juce::dontSendNotification);
     segMod.setTriat ((int) rv->valor (ModMode));
     segPitch.setTriat ((int) rv->valor (ShimPitch));
@@ -1429,11 +1608,28 @@ void PanellReverb::refresca()
     const bool shimOn = algShim || rv->valor (ShimOn) > 0.5f;
     segPitch.setEnabled (shimOn);
     pShimAmt.setEnabled (shimOn);
-    for (auto* p : { &pDThr, &pDAtk, &pDRel, &pDAmt }) p->setEnabled (rv->valor (DuckOn) > 0.5f);
+    for (auto* p : { &pDThr, &pDAtk, &pDRel, &pDAmt, &pDHpf, &pDLpf }) p->setEnabled (rv->valor (DuckOn) > 0.5f);
+    segDet.setEnabled (rv->valor (DuckOn) > 0.5f);
+    segDet.setTriat ((int) rv->valor (DuckDet));
+    // 0.56: amb la convolució, la IR fa l'espai (Decay, Size… no hi tenen res a veure)
+    const bool conv = (int) rv->valor (Alg) == Convolucio;
+    if (conv != panellIR.isVisible())
+    {
+        vista.setVisible (! conv);
+        for (juce::Component* c : { (juce::Component*) &panellIR, (juce::Component*) &pIrLong, (juce::Component*) &pIrDamp,
+                                    (juce::Component*) &btIrNorm, (juce::Component*) &btIrRev })
+            c->setVisible (conv);
+        resized();
+    }
+    for (auto* p : { &pDecay, &pSize, &pDif, &pEL, &pDamp }) p->setEnabled (! conv);
     for (auto* p : { &pGThr, &pGAtk, &pGHold, &pGRel }) p->setEnabled (rv->valor (GateOn) > 0.5f);
     const int a = (int) rv->valor (Alg);
-    pEL.setEnabled (a != Early && a != Reverse && a != Spring && a != Ambient && a != Shimmer && a != Plate);
-    pDecay.setEnabled (a != Early);
+    if (! conv)
+    {
+        pEL.setEnabled (a != Early && a != Reverse && a != Spring && a != Ambient && a != Shimmer && a != Plate);
+        pDecay.setEnabled (a != Early);
+    }
+    panellIR.repaint();
     btDesfes.setEnabled (! desfer.empty());
     btRefes.setEnabled (! refer.empty());
     segAB.setTriat (abActiu);
@@ -1495,6 +1691,7 @@ void PanellReverb::paint (juce::Graphics& g)
             const float red = juce::jlimit (0.0f, 1.0f, m.ducking.load() / 30.0f);
             g.setColour (tema::accent);
             g.fillRoundedRectangle (barra.toFloat().withWidth (barra.getWidth() * red), 3.0f);
+
             auto led = caixes[2][1].reduced (12, 0).removeFromBottom (14).translated (0, -8);
             g.setColour (juce::Colours::black.withAlpha (0.5f));
             g.fillRoundedRectangle (led.toFloat(), 3.0f);
@@ -1543,7 +1740,18 @@ void PanellReverb::resized()
     btPreset.setBounds (dalt.reduced (2, 0));
 
     r.reduce (14, 10);
-    vista.setBounds (r.removeFromTop (avancat ? 168 : 190));
+    {
+        auto zv = r.removeFromTop (avancat ? 168 : 190);
+        vista.setBounds (zv);
+        // 0.56: convolució: la IR a l'esquerra i els seus controls a la dreta
+        auto dreta = zv.removeFromRight (300);
+        panellIR.setBounds (zv.withTrimmedRight (8));
+        auto botons = dreta.removeFromBottom (30);
+        btIrNorm.setBounds (botons.removeFromLeft (botons.getWidth() / 2).reduced (6, 1));
+        btIrRev.setBounds (botons.reduced (6, 1));
+        pIrLong.setBounds (dreta.removeFromLeft (dreta.getWidth() / 2).reduced (8, 0));
+        pIrDamp.setBounds (dreta.reduced (8, 0));
+    }
     r.removeFromTop (8);
 
     // Poms principals: grans i ben separats.
@@ -1594,7 +1802,7 @@ void PanellReverb::resized()
         }
         case 2:
         {
-            caixes[2][0] = q.removeFromLeft (q.getWidth() / 2 - 5);
+            caixes[2][0] = q.removeFromLeft (q.getWidth() * 3 / 5 - 5);
             q.removeFromLeft (10);
             caixes[2][1] = q;
             for (int k = 0; k < 2; ++k)
@@ -1602,9 +1810,17 @@ void PanellReverb::resized()
                 auto z = caixes[2][k].reduced (12, 8);
                 auto cap = z.removeFromTop (24);
                 (k == 0 ? btDuck : btGate).setBounds (cap.removeFromRight (110));
+                if (k == 0)
+                {
+                    cap.removeFromRight (8);
+                    segDet.setBounds (cap.removeFromRight (100));
+                    cap.removeFromRight (8);
+                    cap.removeFromLeft (80);
+                    ctrlSc.setBounds (cap.removeFromRight (juce::jmin (210, cap.getWidth())));
+                }
                 z.removeFromBottom (22);
-                if (k == 0) posaPoms (z, { &pDThr, &pDAtk, &pDRel, &pDAmt });
-                else posaPoms (z, { &pGThr, &pGAtk, &pGHold, &pGRel });
+                if (k == 0) posaPoms (z, { &pDThr, &pDAtk, &pDRel, &pDAmt, &pDHpf, &pDLpf }, 90);
+                else posaPoms (z, { &pGThr, &pGAtk, &pGHold, &pGRel }, 90);
             }
             break;
         }
@@ -1683,12 +1899,12 @@ namespace
     class FinestraReverb : public juce::DocumentWindow
     {
     public:
-        FinestraReverb (std::shared_ptr<Reverb> r, const juce::String& titol, std::function<void()> enTancar)
+        FinestraReverb (std::shared_ptr<Reverb> r, const juce::String& titol, std::function<void()> enTancar, ServeiSidechain* sc, const std::string& id)
             : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
               tancar (std::move (enTancar))
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new PanellReverb (std::move (r)), true);
+            setContentOwned (new PanellReverb (std::move (r), sc, id), true);
             setResizable (true, true);
             setResizeLimits (820, 400, 1800, 1300);
             centreWithSize (getWidth(), getHeight());
@@ -1701,7 +1917,8 @@ namespace
     };
 }
 
-std::unique_ptr<juce::DocumentWindow> creaFinestraReverb (std::shared_ptr<Reverb> reverb, const juce::String& titol, std::function<void()> enTancar)
+std::unique_ptr<juce::DocumentWindow> creaFinestraReverb (std::shared_ptr<Reverb> reverb, const juce::String& titol, std::function<void()> enTancar,
+                                                          ServeiSidechain* sc, const std::string& idInsert)
 {
-    return std::make_unique<FinestraReverb> (std::move (reverb), titol, std::move (enTancar));
+    return std::make_unique<FinestraReverb> (std::move (reverb), titol, std::move (enTancar), sc, idInsert);
 }

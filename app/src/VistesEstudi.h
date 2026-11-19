@@ -220,6 +220,7 @@ public:
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;
     /** 0.20: el botonet de la pista d'instrument (obre el sinte o el VST) o de bateria (obre els kits). */
     std::function<void (int pista)> onObreInstrument;
+    std::function<void (int pista)> onAutomatitzacio;   // 0.56
     juce::Rectangle<int> rectEntradaCap (int fila) const;   // 0.34
     juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
     juce::Rectangle<int> zonaES (int fila) const;

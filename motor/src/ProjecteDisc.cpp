@@ -21,7 +21,17 @@ namespace
     {
         auto a = nlohmann::json::array();
         for (const auto& x : v)
-            a.push_back ({ { "id", x.id }, { "plugin", x.plugin }, { "nom", x.nom }, { "actiu", x.actiu }, { "estat", x.estat } });
+        {
+            nlohmann::json o = { { "id", x.id }, { "plugin", x.plugin }, { "nom", x.nom }, { "actiu", x.actiu }, { "estat", x.estat } };
+            if (! x.sidechain.empty())   // 0.56
+            {
+                auto sc = nlohmann::json::array();
+                for (const auto& f : x.sidechain)
+                    sc.push_back ({ { "pista", f.pista }, { "nivellDb", f.nivellDb }, { "punt", f.punt }, { "actiu", f.actiu } });
+                o["sidechain"] = sc;
+            }
+            a.push_back (o);
+        }
         return a;
     }
 
@@ -38,6 +48,17 @@ namespace
             x.nom = e.value ("nom", std::string());
             x.actiu = e.value ("actiu", true);
             x.estat = e.value ("estat", std::string());
+            if (e.contains ("sidechain") && e["sidechain"].is_array())   // 0.56
+                for (const auto& f : e["sidechain"])
+                {
+                    if (! f.is_object()) continue;
+                    mibase::FontSidechain fs;
+                    fs.pista = f.value ("pista", std::string());
+                    fs.nivellDb = std::clamp (f.value ("nivellDb", 0.0), -60.0, 12.0);
+                    fs.punt = std::clamp (f.value ("punt", 1), 0, 2);
+                    fs.actiu = f.value ("actiu", true);
+                    if (! fs.pista.empty()) x.sidechain.push_back (fs);
+                }
             if (! x.id.empty()) v.push_back (std::move (x));
         }
         return v;
@@ -375,6 +396,30 @@ namespace mibase::disc
                         x.mode = m == "pre" ? 0 : (m == "postpan" ? 2 : 1);
                         if (! x.desti.empty()) t.enviaments.push_back (x);
                     }
+                if (e.contains ("automatitzacions") && e["automatitzacions"].is_array())   // 0.56
+                    for (auto& v : e["automatitzacions"])
+                    {
+                        if (! v.is_object()) continue;
+                        Automatitzacio a;
+                        a.id = v.value ("id", std::string());
+                        a.objectiu = v.value ("objectiu", std::string());
+                        a.nom = v.value ("nom", std::string());
+                        a.activa = v.value ("activa", true);
+                        a.grava = std::clamp (v.value ("grava", 0), 0, 3);
+                        if (v.contains ("punts") && v["punts"].is_array())
+                            for (auto& q : v["punts"])
+                                if (q.is_array() && q.size() >= 2)
+                                {
+                                    PuntAuto pt;
+                                    pt.compas = q[0].get<double>();
+                                    pt.valor = std::clamp (q[1].get<double>(), 0.0, 1.0);
+                                    if (q.size() > 2) pt.forma = std::clamp (q[2].get<int>(), 0, 2);
+                                    if (q.size() > 3) pt.tensio = std::clamp (q[3].get<double>(), -1.0, 1.0);
+                                    a.punts.push_back (pt);
+                                }
+                        std::stable_sort (a.punts.begin(), a.punts.end(), [] (const PuntAuto& x, const PuntAuto& y) { return x.compas < y.compas; });
+                        if (! a.objectiu.empty()) t.autos.push_back (std::move (a));
+                    }
                 t.escalaTeclat = e.value ("escalaTeclat", true);
                 t.modeEscala = std::clamp (e.value ("modeEscala", -1), -1, 2);
                 t.kit = e.value ("kit", std::string());
@@ -500,6 +545,10 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                 if (const std::string ac = b.value ("acord", std::string()); ! ac.empty()) c.acords.push_back ({ x.ini, x.dur, ac });
                             }
                         c.acordsPropis = k.value ("acordsPropis", false);   // 0.46
+                        if (k.contains ("veus") && k["veus"].is_array())   // 0.61: [ini, dur, pas]
+                            for (auto& v : k["veus"])
+                                if (v.is_array() && v.size() >= 3 && v[1].get<long long>() > 0 && v[2].get<int>() != 0)
+                                    c.veus.push_back ({ v[0].get<long long>(), v[1].get<long long>(), v[2].get<int>() });
                         if (k.contains ("acordsFixos") && k["acordsFixos"].is_array())   // 0.48
                             for (auto& a : k["acordsFixos"])
                                 if (a.is_object() && a.value ("dur", 0LL) > 0)
@@ -745,6 +794,12 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                     k["blocs"] = bl;
                 }
                 if (c.acordsPropis) k["acordsPropis"] = true;   // 0.46
+                if (! c.veus.empty())   // 0.61
+                {
+                    json vv = json::array();
+                    for (auto& v : c.veus) vv.push_back ({ v.ini, v.dur, v.pas });
+                    k["veus"] = vv;
+                }
                 if (! c.acordsFixos.empty())   // 0.48
                 {
                     json af = json::array();
@@ -787,6 +842,17 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                     ev.push_back ({ { "id", x.id }, { "desti", x.desti }, { "nivellDb", x.nivellDb }, { "pan", x.pan }, { "actiu", x.actiu },
                                     { "mut", x.mut }, { "mode", x.mode == 0 ? "pre" : (x.mode == 2 ? "postpan" : "post") } });
                 pista["enviaments"] = ev;
+            }
+            if (! t.autos.empty())   // 0.56
+            {
+                json av = json::array();
+                for (auto& a : t.autos)
+                {
+                    json pts = json::array();
+                    for (auto& q : a.punts) pts.push_back ({ q.compas, q.valor, q.forma, q.tensio });
+                    av.push_back ({ { "id", a.id }, { "objectiu", a.objectiu }, { "nom", a.nom }, { "activa", a.activa }, { "grava", a.grava }, { "punts", pts } });
+                }
+                pista["automatitzacions"] = av;
             }
             if (! t.pads.empty()) { pista["pads"] = t.pads; pista["presetPads"] = t.presetPads; }
             if (! t.escalaTeclat) pista["escalaTeclat"] = false;

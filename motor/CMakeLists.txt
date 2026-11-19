@@ -21,7 +21,14 @@ add_library(mibase_motor STATIC
     src/Biblioteca.cpp
     src/GeneralMidi.cpp
     src/Reverb.cpp
-    src/ReverbPresets.cpp)
+    src/ReverbPresets.cpp
+    src/Automatitzacio.cpp
+    src/Dinamica.cpp
+    src/DinamicaPresets.cpp
+    src/Convolucio.cpp
+    src/Equalitzador.cpp
+    src/Espectre.cpp
+    src/EqPresets.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

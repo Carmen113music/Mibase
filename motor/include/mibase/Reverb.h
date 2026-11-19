@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mibase/Convolucio.h"
 #include "mibase/Instrument.h"
 
 #include <array>
@@ -23,7 +24,7 @@ namespace mibase::reverb
     inline constexpr const char* idPlugin = "intern:reverb";
     inline constexpr const char* nomPlugin = "Reverb (Mibase)";
 
-    enum Algorisme : int { Room, Hall, Chamber, Plate, Spring, Digital, Ambient, Shimmer, Gated, Reverse, Early, numAlgorismes };
+    enum Algorisme : int { Room, Hall, Chamber, Plate, Spring, Digital, Ambient, Shimmer, Gated, Reverse, Early, Convolucio, numAlgorismes };
     const char* nomAlgorisme (int a);
     const char* descripcioAlgorisme (int a);
 
@@ -42,6 +43,9 @@ namespace mibase::reverb
         RevOn, Feedback,
         Separacio, GreusMono, EntradaMode, Sortida, Qualitat,
         ModeVista,      // només de la finestra (Simple / Avançat): no toca el so
+        // 0.56: detector del ducking (sidechain) i convolució
+        DuckDet, DuckHpf, DuckLpf,
+        IrLong, IrDamp, IrNorm, IrRev,
         numParams
     };
 
@@ -105,10 +109,11 @@ namespace mibase::reverb
         std::atomic<float> gate { 1.0f };                         // 0 tancat … 1 obert
         std::atomic<float> freeze { 0.0f };                       // 0 … 1
         std::atomic<std::uint32_t> blocs { 0 };
+        std::atomic<bool> sidechain { false };                    // 0.56: el ducking escolta una altra pista
     };
 
     /** El processador. */
-    class Reverb : public Efecte
+    class Reverb : public EfecteIntern
     {
     public:
         Reverb();
@@ -116,17 +121,42 @@ namespace mibase::reverb
 
         void prepara (double fs, int maxBloc) override;
         void processa (float* L, float* R, int n) noexcept override;
+        int latencia() const noexcept override { return 0; }
+
+        // ---- 0.56: paràmetres comuns (automatització) ----
+        int numParametres() const override;
+        InfoParametre infoParametre (int i) const override;
+        void posaParametre (int i, float v01) noexcept override;
+        float parametre (int i) const noexcept override;
+        std::string textParametre (int i, float v01) const override;
+        /** Normalitzat 0..1 ↔ valor del paràmetre (escala logarítmica on toca). */
+        static float normal (int p, float v) noexcept;
+        static float deNormal (int p, float v01) noexcept;
+
+        // ---- 0.56: sidechain (el ducking pot escoltar una altra pista) ----
+        bool admetSidechain() const noexcept override { return true; }
+        void posaSidechain (const float* l, const float* r) noexcept override { scL = l; scR = r; }
+
+        // ---- 0.56: convolució ----
+        /** Carrega una IR (fil de la interfície). Buida = cap. Torna false (i diu per què) si no s'ha pogut llegir. */
+        bool carregaIR (const std::string& referencia, std::string& error);
+        void treuIR();
+        /** La referència desada (encara que el fitxer no hi sigui) i si falta. */
+        const std::string& referenciaIR() const noexcept { return refIR; }
+        bool irFalta() const noexcept { return ! refIR.empty() && conv.ir() == nullptr; }
+        conv::Convolucio& convolucio() noexcept { return conv; }
 
         // ---- Paràmetres (qualsevol fil) ----
         void posa (int p, float v) noexcept;
         float valor (int p) const noexcept;
         Params params() const;
         void posaParams (const Params& p) noexcept;
-        std::string estat() const { return params().text(); }
-        void posaEstat (const std::string& s) { Params p; if (p.llegeix (s)) posaParams (p); }
+        /** Els ajustos en text (inclou la IR de la convolució, si n'hi ha). */
+        std::string estat() const override;
+        void posaEstat (const std::string& s) override;
 
         /** Demana oblidar la cua (es fa al pròxim bloc, al fil d'àudio). */
-        void buida() noexcept { demanaBuidar.store (true, std::memory_order_release); }
+        void buida() noexcept override { demanaBuidar.store (true, std::memory_order_release); conv.buida(); }
         /** D'on llegeix el tempo (bpm) per a les sincronitzacions. nullptr = 120. */
         void posaTempo (const std::atomic<double>* t) noexcept { tempo = t; }
         double bpm() const noexcept { const double b = tempo != nullptr ? tempo->load (std::memory_order_relaxed) : 120.0; return b > 1.0 ? b : 120.0; }
@@ -144,6 +174,11 @@ namespace mibase::reverb
         const std::atomic<double>* tempo = nullptr;
         Mesures mes;
         std::unique_ptr<Nucli> nucli;
+        const float* scL = nullptr;
+        const float* scR = nullptr;
+        conv::Convolucio conv;
+        std::string refIR;
+        void opcionsConv() noexcept;
     };
 
     // ---- Presets ----

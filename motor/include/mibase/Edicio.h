@@ -120,6 +120,9 @@ namespace mibase::edicio
     int pistaPerId (const Projecte& p, const std::string& id) noexcept;
     /** Es pot connectar «origen» (sortida o enviament) a «desti»? «desti» ha de ser un bus i no pot tancar un cercle. */
     bool potConnectar (const Projecte& p, const std::string& origen, const std::string& desti);
+    /** 0.56: la pista «origen» pot ser font de sidechain d'un efecte de la pista «desti» (buit = màster)?
+        No pot ser la mateixa ni tancar un cercle (sortides, enviaments i altres sidechains). */
+    bool potSidechain (const Projecte& p, const std::string& origen, const std::string& desti);
     /** Sortida d'una pista: id d'un bus, o buit per a la sortida. Si no es pot (cercle), no canvia res i torna false. */
     bool posaSortida (Projecte& p, int pista, const std::string& bus);
     /** Enviament nou (post-fader, 0 dB, al mig). Torna'n l'índex, o -1 si no es pot. */

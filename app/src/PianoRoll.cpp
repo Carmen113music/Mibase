@@ -1057,6 +1057,19 @@ void PianoRoll::mouseMove (const juce::MouseEvent& e)
     const int tecla = (z == Zona::Teclat || z == Zona::Graella) ? toY (e.position.y) : -1;
     const int ps = z == Zona::Pads ? padA (e.getPosition()) : -1;
     if (ps != padSobre) { padSobre = ps; repaint (zonaCarril()); }
+    // 0.61: (−) i (+) dels compassos
+    {
+        juce::String tt;
+        if (z == Zona::Blocs)
+            for (const auto& cv : controlsVeu())
+            {
+                if (cv.menys.contains (e.position)) tt = modePiano() ? "Inversió anterior, baixant (Ctrl + clic: l'original)"_ca : "Posició anterior, més greu (Ctrl + clic: l'original)"_ca;
+                else if (cv.mes.contains (e.position)) tt = modePiano() ? "Inversió següent, pujant (Ctrl + clic: l'original)"_ca : "Posició següent, més aguda (Ctrl + clic: l'original)"_ca;
+                else continue;
+                break;
+            }
+        if (tt != tooltipVeu || z == Zona::Blocs) { tooltipVeu = tt; repaint (zonaBlocs()); }
+    }
     if (t.nota != sobre.nota || t.part != sobre.part || c != sobreCarril || tecla != sobreTecla)
     {
         sobre = t;
@@ -1176,6 +1189,29 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     }
     if (z == Zona::Blocs)
     {
+        // 0.61: (−) i (+) d'un compàs
+        for (const auto& cv : controlsVeu())
+        {
+            const bool mes = cv.mes.contains (e.position), menys = cv.menys.contains (e.position);
+            if (! mes && ! menys) continue;
+            const bool original = e.mods.isCommandDown();   // Ctrl + clic: torna a l'original
+            const int delta = mes ? 1 : -1;
+            const long long ini = cv.ini, dur = cv.dur;
+            bool bloquejat = false;
+            if (const auto* k = clip())
+                for (const auto& bl : k->blocs) if (bl.fix && ini < bl.ini + bl.dur && bl.ini < ini + dur) bloquejat = true;
+            int maxAbs = 0;   // 0.62.1: el piano puja i baixa d'octava (com a molt dues octaves); la guitarra fa cicle
+            if (modePiano())
+            {
+                auto b = harmonia::llegeixAcord (cv.acord); b.inversio = 0; b.baix = -1;
+                maxAbs = 2 * juce::jmax (1, (int) harmonia::notesPad (b).size());
+            }
+            canviaBlocs ([&] (Clip& k) { if (original) guitarra::treuVeu (k, ini); else guitarra::mouVeu (k, ini, dur, delta, maxAbs); },
+                         original ? "Compàs a la disposició original"_ca
+                                  : (modePiano() ? (mes ? "Inversió següent"_ca : "Inversió anterior"_ca) : (mes ? "Posició següent"_ca : "Posició anterior"_ca)));
+            if (bloquejat) info = "El patró d'aquest compàs està bloquejat (retocat a mà): desbloqueja'l perquè se senti el canvi"_ca;
+            return;
+        }
         // la línia dels acords
         if (segueixAcords())
         {
@@ -2654,6 +2690,7 @@ void PianoRoll::pintaBlocs (juce::Graphics& g)
                     z.withTrimmedLeft (8), juce::Justification::centredLeft, true);
         return;
     }
+    const auto cvs = controlsVeu();
     for (int i = 0; i < (int) trams.size(); ++i)
     {
         const float x0 = xTick (posTicks() + (double) trams[(size_t) i].ini), x1 = xTick (posTicks() + (double) trams[(size_t) i].fi);
@@ -2667,8 +2704,93 @@ void PianoRoll::pintaBlocs (juce::Graphics& g)
             dibuix::pintaIcona (g, dibuix::Icona::Cadenat, r.removeFromRight (20.0f).reduced (3.0f, 3.0f), juce::Colours::black);
         g.setColour (juce::Colours::black);
         g.setFont (dibuix::lletra (11.5f, true));
-        g.drawText (juce::String::fromUTF8 (trams[(size_t) i].acord.c_str()), r.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
+        bool ambControls = false;   // 0.61: si cap compàs d'aquest acord té lloc per als controls, només el nom
+        for (const auto& cv : cvs) ambControls = ambControls || cv.seg.intersects (r0);
+        if (! ambControls)
+            g.drawText (juce::String::fromUTF8 (trams[(size_t) i].acord.c_str()), r.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
     }
+    // 0.61: a cada compàs, (−) nom (+) i, si no és l'original, la inversió o la forma CAGED
+    for (const auto& cv : cvs)
+    {
+        auto boto = [&] (juce::Rectangle<float> b, bool mes)
+        {
+            const bool sobreB = b.contains (ratoli);
+            g.setColour (juce::Colours::black.withAlpha (sobreB ? 0.45f : 0.22f));
+            g.fillRoundedRectangle (b, 2.5f);
+            g.setColour (juce::Colours::white.withAlpha (sobreB ? 1.0f : 0.8f));
+            const auto c0 = b.getCentre();
+            g.fillRect (c0.x - 3.0f, c0.y - 0.6f, 6.0f, 1.2f);
+            if (mes) g.fillRect (c0.x - 0.6f, c0.y - 3.0f, 1.2f, 6.0f);
+        };
+        boto (cv.menys, false);
+        boto (cv.mes, true);
+        g.setColour (juce::Colours::black);
+        g.setFont (dibuix::lletra (11.5f, true));
+        g.drawText (juce::String::fromUTF8 (cv.acord.c_str()), juce::Rectangle<float> (cv.seg.getX() + 5.0f, cv.seg.getY(), cv.menys.getX() - cv.seg.getX(), cv.seg.getHeight()),
+                    juce::Justification::centredLeft, false);
+        if (cv.pas != 0)
+        {
+            // canviat: un punt taronja i la disposició després dels botons
+            g.setFont (dibuix::lletra (9.5f, true));
+            g.setColour (juce::Colours::black.withAlpha (0.75f));
+            g.drawText (textVeu (cv.acord, cv.pas, cv.ini),
+                        juce::Rectangle<float> (cv.mes.getRight() + 4.0f, cv.seg.getY(), cv.seg.getRight() - cv.mes.getRight() - 10.0f, cv.seg.getHeight()),
+                        juce::Justification::centredLeft, true);
+            g.setColour (tema::accent);
+            g.fillEllipse (cv.seg.getRight() - 6.0f, cv.seg.getY() + 1.0f, 4.0f, 4.0f);
+        }
+    }
+}
+
+std::vector<PianoRoll::ControlVeu> PianoRoll::controlsVeu() const
+{
+    std::vector<ControlVeu> v;
+    const auto* c = clip();
+    const auto* pt = const_cast<PianoRoll*> (this)->pista();
+    if (c == nullptr || pt == nullptr || ! modeGuitarra()) return v;
+    const auto z = zonaBlocs();
+    for (const auto& tr : guitarra::acordsDe (estat.projecte, *pt, *c))
+    {
+        long long t = tr.ini;
+        for (int volta = 0; t < tr.fi && volta < 512; ++volta)
+        {
+            long long ini = 0, dur = 0;
+            if (! compasDeTick ((double) (posTicks() + t + 1), ini, dur) || ini + dur <= t) break;
+            const long long fi = juce::jmin (tr.fi, ini + dur);
+            const float x0 = xTick (posTicks() + (double) t), x1 = xTick (posTicks() + (double) fi);
+            t = fi;
+            // 0.62.1: nom, i just al costat (−)(+) junts
+            const float wNom = (float) juce::GlyphArrangement::getStringWidth (dibuix::lletra (11.5f, true), juce::String::fromUTF8 (tr.acord.c_str()));
+            if (x1 < (float) z.getX() || x0 > (float) z.getRight() || x1 - x0 < wNom + 42.0f) continue;
+            ControlVeu cv;
+            cv.seg = { x0 + 1.0f, (float) z.getY() + 2.0f, x1 - x0 - 2.0f, (float) z.getHeight() - 5.0f };
+            cv.menys = { cv.seg.getX() + 5.0f + wNom + 5.0f, cv.seg.getCentreY() - 6.0f, 13.0f, 12.0f };
+            cv.mes = cv.menys.translated (15.0f, 0.0f);
+            cv.ini = ini; cv.dur = dur; cv.pas = tr.pas; cv.acord = tr.acord;
+            v.push_back (cv);
+        }
+    }
+    return v;
+}
+
+juce::String PianoRoll::textVeu (const std::string& acord, int pas, long long tick) const
+{
+    const auto a = harmonia::llegeixAcord (acord);
+    if (modePiano())
+    {
+        auto b = a; b.inversio = 0; b.baix = -1;
+        const int n = juce::jmax (1, (int) harmonia::notesPad (b).size());
+        const int k = ((pas % n) + n) % n, oct = (pas - k) / n;
+        juce::String t = k == 0 ? "fonamental"_ca : juce::String (k) + "a inv."_ca;
+        if (oct != 0) t << " " << (oct > 0 ? "+" : "−"_ca) << juce::String (std::abs (oct)) << " oct";
+        return t;
+    }
+    guitarra::Forma f = formaGuitarra;
+    if (const auto* c = clip())
+        for (const auto& bl : c->blocs) if (tick >= bl.ini && tick < bl.ini + bl.dur) { f = guitarra::llegeixForma (bl.forma); break; }
+    const auto pc = guitarra::posicioCaged (a, f, pas);
+    if (pc.forma >= '3' && pc.forma <= '6') return juce::String::charToString ((juce::juce_wchar) pc.forma) + "a corda"_ca;
+    return pc.forma != 0 ? "forma "_ca + juce::String::charToString ((juce::juce_wchar) pc.forma) : "posició "_ca + juce::String (pas);
 }
 
 void PianoRoll::pintaPatrons (juce::Graphics& g)
@@ -2733,10 +2855,15 @@ bool PianoRoll::compasA (int x, long long& ini, long long& dur) const
 {
     const auto* c = clip();
     if (c == nullptr || x < ampleTeclat()) return false;
+    return compasDeTick (juce::jmax (0.0, tickX ((float) x)), ini, dur);
+}
+
+bool PianoRoll::compasDeTick (double t, long long& ini, long long& dur) const
+{
+    if (clip() == nullptr) return false;
     // 0.41.1: els compassos, exactament on els pinta la regla (amb canvis de tempo no són múltiples fixos de ticks)
     const auto& p = estat.projecte;
     const double tpc = (double) juce::jmax (1LL, midi::ticksPerCompas (p));
-    const double t = juce::jmax (0.0, tickX ((float) x));
     double a = std::floor (t / tpc) * tpc, b = a + tpc;
     if (ed::teCanvisTempo (p))
     {

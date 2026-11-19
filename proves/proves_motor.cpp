@@ -24,6 +24,7 @@
 #include "mibase/PatronsBateria.h"
 #include "mibase/SeguimentCapcal.h"
 #include "mibase/Reverb.h"
+#include "mibase/Equalitzador.h"
 
 #include <algorithm>
 #include <map>
@@ -165,6 +166,13 @@ namespace
 #include "proves_053.inc"
 #include "proves_054.inc"
 #include "proves_055.inc"
+#include "proves_056.inc"
+#include "proves_057.inc"
+#include "proves_059.inc"
+#include "proves_060.inc"
+#include "proves_061.inc"
+#include "proves_062.inc"
+#include "proves_063.inc"
 
 int main()
 {
@@ -2306,6 +2314,13 @@ int main()
     proves053();
     proves054();
     proves055();
+    proves056();
+    proves057();
+    proves059();
+    proves060();
+    proves061();
+    proves062();
+    proves063();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
