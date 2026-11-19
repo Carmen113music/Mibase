@@ -23,6 +23,8 @@ target_sources(Mibase PRIVATE
     src/FinestraSaturacio.cpp
     src/FinestraDrive.cpp
     src/FinestraLimitador.cpp
+    src/FinestraVocalStudio.cpp
+    src/FinestraFlotant.cpp
     src/FinestraEq.cpp
     src/EditorAutomatitzacio.cpp
     src/EditorVeu.cpp

@@ -1,4 +1,5 @@
 #include "PantallaEstudi.h"
+#include "FinestraFlotant.h"
 #include "BancGM.h"
 #include "EscGlobal.h"
 #include "Inserts.h"
@@ -1462,6 +1463,7 @@ void PantallaEstudi::obreKits()
 {
     if (finestraKits != nullptr) { finestraKits->toFront (true); return; }
     finestraKits = std::make_unique<FinestraKits> (estat, servei, [this] { finestraKits.reset(); });
+    quedaSobreMibase (*finestraKits);   // 0.70
 }
 
 void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
