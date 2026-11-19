@@ -10,6 +10,7 @@
 #include <mibase/Reverb.h>
 #include <mibase/Equalitzador.h>
 #include <mibase/Delay.h>
+#include <mibase/Saturacio.h>
 
 /** 0.19: el temps de la cançó per als plugins (tempo, posició, sonant), perquè els delays i similars vagin a tempo.
     El fil d'àudio el posa al dia a cada bloc (ServeiAudio); els plugins el llegeixen. */
@@ -157,7 +158,7 @@ public:
         per exemple si està apagat). */
     void obreIntern (const mibase::Insert& x, const juce::String& titol);
     static bool esIntern (const std::string& plugin) { return plugin == mibase::reverb::idPlugin || plugin == mibase::dinamica::idPlugin || plugin == mibase::eq::idPlugin
-                                                                  || plugin == mibase::delay::idPlugin; }
+                                                                  || plugin == mibase::delay::idPlugin || plugin == mibase::saturacio::idPlugin; }
     /** 0.56: els paràmetres d'un insert (clau = id) o d'un instrument VST3 («inst:» + id de pista). Si l'insert és intern i
         encara no és viu, el crea (sense sonar). nullptr si no n'hi ha. */
     mibase::Parametritzable* parametres (const mibase::Insert& x);

@@ -20,6 +20,7 @@ target_sources(Mibase PRIVATE
     src/FinestraReverb.cpp
     src/FinestraDinamica.cpp
     src/FinestraDelay.cpp
+    src/FinestraSaturacio.cpp
     src/FinestraEq.cpp
     src/EditorAutomatitzacio.cpp
     src/EditorVeu.cpp

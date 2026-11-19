@@ -27,6 +27,8 @@ add_library(mibase_motor STATIC
     src/DinamicaPresets.cpp
     src/Delay.cpp
     src/DelayPresets.cpp
+    src/Saturacio.cpp
+    src/SaturacioPresets.cpp
     src/Convolucio.cpp
     src/Equalitzador.cpp
     src/Espectre.cpp

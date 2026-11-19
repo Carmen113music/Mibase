@@ -533,6 +533,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                 x.vel = std::clamp (b.value ("vel", 88), 1, 127);
                                 x.fix = b.value ("fix", false);
                                 x.forma = b.value ("forma", std::string());   // 0.49
+                                x.octava = std::clamp (b.value ("octava", 0), -2, 2);   // 0.66
                                 x.tipus = b.value ("tipus", std::string());   // 0.47
                                 x.passosEsq = b.value ("passosEsq", std::string());
                                 x.pasTicksEsq = b.value ("pasTicksEsq", 480LL);
@@ -792,6 +793,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                                         { "crescendo", b.crescendo }, { "variacio", b.variacio }, { "llavor", b.llavor }, { "vel", b.vel },
                                         { "fix", b.fix } });
                         if (! b.forma.empty()) bl.back()["forma"] = b.forma;   // 0.49: powerchords i octaves
+                        if (b.octava != 0) bl.back()["octava"] = b.octava;     // 0.66
                         if (! b.tipus.empty())   // 0.47: patrons de piano
                         {
                             auto& u = bl.back();
