@@ -477,7 +477,7 @@ namespace inserts
     }
 
     /** x == nullptr: ranura buida («+ Efecte» si és la primera buida). */
-    inline void pinta (juce::Graphics& g, juce::Rectangle<int> r, const mibase::Insert* x, bool primeraBuida, bool petit)
+    inline void pinta (juce::Graphics& g, juce::Rectangle<int> r, const mibase::Insert* x, bool primeraBuida, bool petit, double retardMs = 0.0)
     {
         const auto rf = r.toFloat();
         g.setColour (juce::Colours::black.withAlpha (0.45f));
@@ -508,6 +508,18 @@ namespace inserts
             g.setColour (tema::accent);
             g.setFont (dibuix::lletra (8.5f, true));
             g.drawText ("SC", sc, juce::Justification::centred);
+            g.setColour (x->actiu ? tema::text : tema::suau);
+            g.setFont (dibuix::lletra (petit ? 10.5f : 11.5f, x->actiu));
+        }
+        if (retardMs >= 0.5 && ! petit)   // 0.68: aquest efecte retarda el so (Mibase ho compensa)
+        {
+            const auto txt = juce::String (juce::roundToInt (retardMs)) + " ms";
+            auto rr = zNom.removeFromRight (juce::jmin (zNom.getWidth() / 2, 36)).toFloat().reduced (1.0f, 4.0f);
+            g.setColour (vintage::ledGroc.withAlpha (0.18f));
+            g.fillRoundedRectangle (rr, 2.0f);
+            g.setColour (vintage::ledGroc);
+            g.setFont (dibuix::lletra (8.5f, true));
+            g.drawText (txt, rr, juce::Justification::centred);
             g.setColour (x->actiu ? tema::text : tema::suau);
             g.setFont (dibuix::lletra (petit ? 10.5f : 11.5f, x->actiu));
         }
@@ -551,7 +563,8 @@ public:
     {
         auto* v = inserts::llista (estat, pista ? pista() : -1);
         const mibase::Insert* x = (v != nullptr && index < (int) v->size()) ? &(*v)[(size_t) index] : nullptr;
-        inserts::pinta (g, getLocalBounds(), x, v != nullptr && index == (int) v->size(), false);
+        const double ms = x != nullptr && x->actiu && plugins != nullptr ? plugins->latenciaMs (x->id) : 0.0;
+        inserts::pinta (g, getLocalBounds(), x, v != nullptr && index == (int) v->size(), false, ms);
         if (fora && x != nullptr)
         {
             // 0.31: s'està arrossegant fora: si es deixa anar, es treu

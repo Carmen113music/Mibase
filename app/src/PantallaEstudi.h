@@ -61,6 +61,10 @@ public:
     void commutaBucle();
     void fesCrossfade();
     bool bucleActiu() const noexcept { return estat.projecte.bucle.marcat && estat.projecte.bucle.actiu; }
+    /** 0.68: «Retard mínim» (el botó RM, o sol mentre es grava). */
+    void commutaRetardMinim();
+    bool retardMinimActiu() const noexcept { return retardMinimBoto || estatTransport() >= 2; }
+    bool retardMinimBoto = false;
     std::pair<juce::String, juce::String> textPosicio() const;
 
     void paint (juce::Graphics& g) override;

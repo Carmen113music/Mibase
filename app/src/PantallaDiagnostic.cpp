@@ -929,7 +929,10 @@ juce::String PantallaDiagnostic::textDiagnostic()
         t << "Notes rebudes pels instruments (aturat): " << (int) so.evsAturat.load() << "\n"
           << "Ara: instruments " << db (so.picInstrument.load()) << " · després dels efectes " << db (so.picEfectes.load())
           << " · màster "_ca << db (so.picMaster.load()) << "\n"
-          << "Trossos silenciats per valors no vàlids: "_ca << (int) so.noValids.load() << "\n";
+          << "Trossos silenciats per valors no vàlids: "_ca << (int) so.noValids.load() << "\n"
+          << "Compensació del retard (PDC): la pista que s'avança més, "_ca << so.pdcMaxim.load() << " mostres ("
+          << juce::String (so.pdcMaxim.load() * 1000.0 / juce::jmax (8000.0, e.getFs()), 1).replaceCharacter ('.', ',') << " ms)"
+          << (e.mesclador.getRetardMinim() ? " · Retard mínim encès: "_ca + juce::String (so.pdcSaltats.load()) + " plugins apagats"_ca : juce::String()) << "\n";
     }
 
     t << "\n-- MIDI --\n";

@@ -580,3 +580,11 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
     if (ultimError.isNotEmpty()) t << "  Últim error: "_ca << ultimError << "\n";
     return t;
 }
+
+int GestorPlugins::latencia (const std::string& idInsert) const
+{
+    // 0.68: per mostrar el retard de cada efecte (els VST3 el diuen; els interns de Mibase no en tenen)
+    if (auto r = reverbs.find (idInsert); r != reverbs.end() && r->second != nullptr) return std::max (0, r->second->latencia());
+    if (auto v = vius.find (idInsert); v != vius.end() && v->second.a != nullptr) return std::max (0, v->second.a->latencia());
+    return 0;
+}

@@ -176,6 +176,9 @@ public:
     juce::String getUltimError() const { return ultimError; }
     /** 0.25: com estan els efectes i instruments VST3 del projecte (per al diagnòstic). */
     juce::String informe (const mibase::Projecte& p) const;
+    /** 0.68: quantes mostres retarda aquest insert (0 si no en retarda o encara no és viu). */
+    int latencia (const std::string& idInsert) const;
+    double latenciaMs (const std::string& idInsert) const { return latencia (idInsert) * 1000.0 / (ultimFs > 1000.0 ? ultimFs : 48000.0); }
 
 private:
     std::shared_ptr<AdaptadorPlugin> crea (const std::string& id, const std::string& estat, double fs, int maxBloc);

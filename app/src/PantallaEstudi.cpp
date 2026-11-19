@@ -1236,8 +1236,18 @@ void PantallaEstudi::refrescaSo()
     historial.afegeix ("So refrescat en tornar a Mibase"_ca);
 }
 
+void PantallaEstudi::commutaRetardMinim()
+{
+    retardMinimBoto = ! retardMinimBoto;
+    servei.estudi().mesclador.setRetardMinim (retardMinimActiu());
+    estat.info = retardMinimBoto ? "Retard mínim encès: els plugins que retarden s'apaguen a la pista que toques o graves, als busos i al màster"_ca
+                                 : "Retard mínim apagat: tots els plugins sonen i el retard es compensa"_ca;
+    estat.avisa();
+}
+
 void PantallaEstudi::tic()
 {
+    servei.estudi().mesclador.setRetardMinim (retardMinimActiu());   // 0.68: s'encén sol mentre es grava
     {
         const bool davant = juce::Process::isForegroundProcess();
         if (davant && ! eraDavant) refrescaSo();
