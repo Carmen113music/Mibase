@@ -262,6 +262,8 @@ public:
     // ---- Transport (la pantalla ho copia del motor unes 30 vegades per segon) ----
     int transport = 0;               // 0 aturat, 1 sonant, 2 comptant, 3 gravant
     double cursorGravacio = 0.0;     // on s'ha premut gravar
+    /** 0.72: el darrer clip buit fet amb Ctrl + arrossegar (on anirà la propera gravació si la seva pista està armada). */
+    struct ClipPreparat { std::string pista; double ini = 0.0, fi = 0.0; } clipPreparat;
     /** El capçal s'ha mogut a mà (per fer saltar el que sona). */
     std::function<void (double)> onCapcalMogut;
 
@@ -537,6 +539,7 @@ public:
     bool panellCarpetes = false;
 
     mibase::Pista* pista (int i) { return (i >= 0 && i < numPistes()) ? &projecte.pistes[(size_t) i] : nullptr; }
+    const mibase::Pista* pista (int i) const { return (i >= 0 && i < numPistes()) ? &projecte.pistes[(size_t) i] : nullptr; }
 
     bool clipTriat (int p, int c) const
     {

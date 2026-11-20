@@ -310,6 +310,25 @@ namespace mibase
             (la claqueta sona encara que estigui apagada). La gravadora ja ha d'estar engegada. */
         void grava (double desDe, double cursor, int entrada, int canals);
         Gravadora& gravadora() noexcept { return grav; }
+        /** 0.72 (Punch In): si està sonant, comença a gravar ara mateix, sense aturar ni tornar enrere. «entrada» < 0:
+            sense àudio (pista MIDI). Si la pregravació és de la mateixa entrada, el que ha entrat just abans (fins a
+            «segonsPregravacio», sense salts del capçal) va al davant del fitxer: és marge per recuperar, fora del clip.
+            La gravadora ja ha d'estar engegada (si és d'àudio). */
+        void entra (int entrada, int canals);
+        /** 0.72 (Punch Out): deixa de gravar (o de comptar) i continua sonant. */
+        void surt();
+        /** 0.72: l'entrada de la pista armada, que es va guardant mentre sona per a la pregravació del Punch In (-1: cap). */
+        void setPregravacio (int entrada, int canals) noexcept
+        {
+            preEntrada.store (entrada, std::memory_order_relaxed);
+            preCanals.store (canals == 2 ? 2 : 1, std::memory_order_relaxed);
+        }
+        static constexpr double segonsPregravacio = 4.0;
+        /** 0.72: de la darrera gravació: on comença el fitxer, on es va començar a gravar de debò (el punch in o el final
+            del pre-roll) i on es va deixar de gravar (punch out), en segons de la línia de temps. Els escriu el fil d'àudio. */
+        double getIniciFitxer() const noexcept { return iniciFitxer.load (std::memory_order_acquire); }
+        double getPuntGravacio() const noexcept { return puntGravacio.load (std::memory_order_acquire); }
+        double getFiGravacio() const noexcept { return fiGravacio.load (std::memory_order_acquire); }
 
         // ---- MIDI en directe ----
         /** Fil de la interfície: una nota (o un altre missatge) per a l'instrument d'una pista, ara (piano roll, teclat de pantalla). */
@@ -352,7 +371,7 @@ namespace mibase
     private:
         struct Ordre
         {
-            enum class Tipus { Reprodueix, Atura, Situa, Grava } tipus = Tipus::Atura;
+            enum class Tipus { Reprodueix, Atura, Situa, Grava, Entra, Surt } tipus = Tipus::Atura;
             double t = 0.0, t2 = 0.0;
             int a = 0, b = 0;
         };
@@ -385,6 +404,15 @@ namespace mibase
         int entradaGrava = 0, canalsGrava = 1;
 
         Gravadora grav;
+
+        // 0.72: pregravació (anell amb l'entrada de la pista armada mentre sona)
+        void guardaPregravacio (const float* const* entrades, int numEntrades, int fet, int m) noexcept;
+        void escriuPregravacio (long long frames) noexcept;
+        std::vector<float> preL, preR;
+        long long preMida = 0, preEscriu = 0, preContinus = 0;
+        int preEntradaVista = -1, preCanalsVists = 1;
+        std::atomic<int> preEntrada { -1 }, preCanals { 1 };
+        std::atomic<double> iniciFitxer { 0.0 }, puntGravacio { 0.0 }, fiGravacio { 0.0 };
 
         CuaSenseBloqueig<EventDirecte, 512> directeUI, directeTeclat;
         std::array<EventDirecte, 512> directeBloc {};

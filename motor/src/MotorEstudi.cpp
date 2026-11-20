@@ -1018,6 +1018,10 @@ namespace mibase
         mesclador.prepara (fs, maxBloc);
         mixL.assign ((size_t) maxBloc, 0.0f);
         mixR.assign ((size_t) maxBloc, 0.0f);
+        preMida = (long long) std::ceil (segonsPregravacio * fs);   // 0.72
+        preL.assign ((size_t) preMida, 0.0f);
+        preR.assign ((size_t) preMida, 0.0f);
+        preEscriu = preContinus = 0;
         // Els instruments del pla que sona, a la freqüència nova (el fil d'àudio no corre ara).
         if (pla != nullptr)
             for (auto& t : pla->pistes)
@@ -1089,6 +1093,46 @@ namespace mibase
     {
         cuaOrdres.posa ({ Ordre::Tipus::Grava, desDe, cursor, entrada, canals });
     }
+    void MotorEstudi::entra (int entrada, int canals) { cuaOrdres.posa ({ Ordre::Tipus::Entra, 0.0, 0.0, entrada, canals }); }
+    void MotorEstudi::surt()                          { cuaOrdres.posa ({ Ordre::Tipus::Surt, 0.0, 0.0, 0, 0 }); }
+
+    void MotorEstudi::guardaPregravacio (const float* const* entrades, int numEntrades, int fet, int m) noexcept
+    {
+        const int e = preEntrada.load (std::memory_order_relaxed);
+        const int c = preCanals.load (std::memory_order_relaxed);
+        if (e != preEntradaVista || c != preCanalsVists) { preEntradaVista = e; preCanalsVists = c; preContinus = 0; }
+        if (e < 0 || preMida <= 0) return;
+        auto canal = [&] (int k) -> const float*
+        {
+            const int x = mapaEntrades[(size_t) std::clamp (k, 0, maxEntrades - 1)];
+            return (x >= 0 && x < numEntrades && entrades[x] != nullptr) ? entrades[x] + fet : nullptr;
+        };
+        const float* a = canal (e);
+        const float* b = c == 2 ? canal (e + 1) : a;
+        if (b == nullptr) b = a;
+        for (int i = 0; i < m; ++i)
+        {
+            preL[(size_t) preEscriu] = a != nullptr ? a[i] : 0.0f;
+            preR[(size_t) preEscriu] = b != nullptr ? b[i] : 0.0f;
+            if (++preEscriu >= preMida) preEscriu = 0;
+        }
+        preContinus += m;
+    }
+
+    void MotorEstudi::escriuPregravacio (long long frames) noexcept
+    {
+        // Els «frames» darrers de l'anell, del més vell al més nou (en dos trossos si dona la volta).
+        long long ini = preEscriu - frames;
+        if (ini < 0) ini += preMida;
+        while (frames > 0)
+        {
+            const long long tros = std::min (frames, preMida - ini);
+            const float* canals[2] { preL.data() + ini, preR.data() + ini };
+            grav.escriu (canals, (int) tros);
+            frames -= tros;
+            ini = 0;
+        }
+    }
 
     void MotorEstudi::ordres() noexcept
     {
@@ -1124,10 +1168,13 @@ namespace mibase
                     pos = (long long) std::llround (o.t * fs);
                     entraARuta();
                     compteFins = pos;
+                    preContinus = 0;
                     mesclador.reinicia();
                     estat.store ((int) Estat::Sonant, std::memory_order_release);
                     break;
                 case Ordre::Tipus::Atura:
+                    if ((Estat) estat.load() == Estat::Gravant) fiGravacio.store ((double) pos / fs, std::memory_order_release);
+                    preContinus = 0;
                     estat.store ((int) Estat::Aturat, std::memory_order_release);
                     mesclador.apagaNotes();
                     break;
@@ -1137,6 +1184,7 @@ namespace mibase
                         pos = (long long) std::llround (o.t * fs);
                         entraARuta();
                         compteFins = std::min (compteFins, pos);
+                        preContinus = 0;
                         mesclador.reinicia();
                     }
                     break;
@@ -1146,10 +1194,41 @@ namespace mibase
                     entradaGrava = std::clamp (o.a, 0, maxEntrades - 1);
                     canalsGrava = o.b == 2 ? 2 : 1;
                     tramRuta = -1;   // gravant, sempre lineal
+                    preContinus = 0;
+                    iniciFitxer.store (o.t, std::memory_order_release);
+                    puntGravacio.store (o.t2, std::memory_order_release);
                     mesclador.setSilenci ({});
                     mesclador.reinicia();
                     estat.store ((int) (pos < compteFins ? Estat::Comptant : Estat::Gravant), std::memory_order_release);
                     break;
+                case Ordre::Tipus::Entra:
+                {
+                    // 0.72 Punch In: només si està sonant. No es mou el capçal ni es reinicia res (no es talla el so).
+                    if ((Estat) estat.load() != Estat::Sonant) break;
+                    const bool audio = o.a >= 0;
+                    entradaGrava = std::clamp (o.a, 0, maxEntrades - 1);
+                    canalsGrava = o.b == 2 ? 2 : 1;
+                    long long previ = 0;
+                    if (audio && grav.activa() && preEntradaVista == o.a && preCanalsVists == canalsGrava)
+                        previ = std::min (preContinus, preMida);
+                    if (previ > 0) escriuPregravacio (previ);
+                    if (tramRuta >= 0) { tramRuta = -1; mesclador.setSilenci ({}); }   // gravant, sempre lineal
+                    compteFins = pos;
+                    iniciFitxer.store ((double) (pos - previ) / fs, std::memory_order_release);
+                    puntGravacio.store ((double) pos / fs, std::memory_order_release);
+                    estat.store ((int) Estat::Gravant, std::memory_order_release);
+                    break;
+                }
+                case Ordre::Tipus::Surt:
+                {
+                    // 0.72 Punch Out: deixa de gravar i continua sonant (el bucle torna a valer si encara no s'ha passat).
+                    const auto e = (Estat) estat.load();
+                    if (e != Estat::Gravant && e != Estat::Comptant) break;
+                    fiGravacio.store ((double) pos / fs, std::memory_order_release);
+                    compteFins = std::min (compteFins, pos);   // sense claqueta forçada
+                    estat.store ((int) Estat::Sonant, std::memory_order_release);
+                    break;
+                }
             }
         }
         posicio.store ((double) pos / fs, std::memory_order_relaxed);
@@ -1216,6 +1295,7 @@ namespace mibase
             mesclador.processa (*pla, pos, m, mixL.data(), mixR.data(), ambClic, vus.data(), true,
                                 fet == 0 ? directeBloc.data() : nullptr, fet == 0 ? numDirecte : 0);
 
+            guardaPregravacio (entrades, numEntrades, fet, m);   // 0.72
             if (gravant)
             {
                 const float* canals[2] { nullptr, nullptr };
@@ -1245,6 +1325,7 @@ namespace mibase
                 }
                 pos = (long long) std::llround (pla->ruta[(size_t) tramRuta].ini * fs);
                 compteFins = std::min (compteFins, pos);   // sense compte d'entrada (si no, sonaria la claqueta)
+                preContinus = 0;
                 mesclador.setSilenci (pla->ruta[(size_t) tramRuta].silenci);
                 mesclador.reiniciaBucle();
                 continue;
@@ -1252,6 +1333,7 @@ namespace mibase
             if (potTornar && pos >= fiBucle)
             {
                 pos = (long long) std::llround (pla->bucleIni * fs);
+                preContinus = 0;
                 mesclador.reiniciaBucle();
             }
             if (ara == Estat::Comptant && pos >= compteFins)
