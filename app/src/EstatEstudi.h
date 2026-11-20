@@ -301,6 +301,8 @@ public:
         if (noms.isEmpty())
         {
             m.addItem (base - 1, "La targeta no té entrades (o està aturada)"_ca, false);
+            m.addSeparator();
+            m.addItem (base + 300, "Escolta't per Mibase amb gravar encès"_ca, true, t.escolta);   // 0.71
             return m;
         }
         auto nom = [&] (int e) { return noms[e].isNotEmpty() ? noms[e] : "apagada a les Preferències"_ca; };
@@ -314,6 +316,10 @@ public:
                 m.addItem (base + 100 + e, juce::String (e + 1) + "+" + juce::String (e + 2) + "   " + nom (e) + " / " + nom (e + 1),
                            noms[e].isNotEmpty() && noms[e + 1].isNotEmpty(), t.canals == 2 && t.entrada == e);
         }
+        // 0.71: amb el botó de gravar encès, el que entra se sent per Mibase (amb els efectes de la pista). Apaga-ho si
+        // t'escoltes pel monitor directe de la targeta (si no, et sentiries dues vegades).
+        m.addSeparator();
+        m.addItem (base + 300, "Escolta't per Mibase amb gravar encès"_ca, true, t.escolta);
         return m;
     }
     /** 0.36: la part OUT del botó E/S (i de la sortida de la taula de mescles): MASTER L+R destacat, FX ▸ i Grups ▸.
@@ -444,6 +450,7 @@ public:
     /** Aplica el que s'ha triat a menuEntrades. Retorna false si «r» no n'és. */
     static bool aplicaEntrada (mibase::Pista& t, int r, int base)
     {
+        if (r == base + 300) { t.escolta = ! t.escolta; return true; }   // 0.71
         if (r >= base + 100 && r < base + 200) { t.entrada = r - base - 100; t.canals = 2; return true; }
         if (r >= base && r < base + 100) { t.entrada = r - base; t.canals = 1; return true; }
         return false;

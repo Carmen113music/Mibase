@@ -138,6 +138,13 @@ Efecte intern per a qualsevol pista, bus, retorn d'efectes o el màster: **+ Efe
 - **Presets**: 100 de fàbrica en 9 categories, cercador (sense accents ni majúscules), filtres Tots / Favorits / Fàbrica / Meus. Un clic l'escolta, doble clic el posa i tanca. Els teus presets es poden reanomenar, moure de carpeta i esborrar; es desen a `Documents\Mibase\Reverb\presets.json`.
 - Els ajustos es desen amb el projecte (com els d'un VST3).
 
+### Vocal Studio de Mibase (0.70)
+- **+ Efecte → Vocal Studio (Mibase)**: un rack de veu sencer en un sol insert. Neix amb el preset «Veu neta» (EQ, compressor, de-esser i plate): mai comença buit.
+- **Mòduls** (fins a 12), un rere l'altre de dalt a baix: EQ Pro, Compressor, De-esser, Porta, Decapitor, Drive, **Doubler** (nou: dues còpies desafinades als costats, com una veu doblada), Delay, Reverb i Limitador. Cada mòdul: botó d'encès, **Mix** (en paral·lel amb el que li arriba), fletxes per canviar l'ordre, ✕ per treure'l i **Obre** (o doble clic) per veure la seva finestra de sempre. El Limitador sona sempre al 100 % (retarda 5 ms i Mibase ho compensa).
+- **8 macros** (Cos, Presència, Aire, Compressió, Escalfor, Doble, Espai, Eco): cada un mou alhora diversos paràmetres de diversos mòduls. Clica el nom d'un macro per canviar-li el nom, **enllaçar-hi un paràmetre** (mòdul → paràmetre) o ajustar el **rang** (on va el paràmetre amb el macro a 0 i a 10; també al revés). Els macros es poden automatitzar.
+- **Entrada i Sortida** (dB) amb vúmetres.
+- **Presets**: 20 de fàbrica en 6 carpetes (Bàsics, Íntim, Pop, Urbà, Rock i indie, Efectes), basats en cadenes de veu conegudes; desen el rack sencer. Els teus es desen a `Documents\Mibase\Vocal Studio\presets.json`. L'afinador, l'harmonitzador i el vocoder arribaran en fases següents.
+
 ### Limitador de Mibase (0.69)
 - **+ Efecte → Limitador (Mibase)**, sobretot per al màster i els busos. Puja el volum (**Gain**) i no deixa que cap pic passi del sostre (**Ceiling**, normalment -1 dB). Mira 5 ms endavant per baixar el volum just a temps; aquest retard el compensa Mibase sol (a l'efecte hi surt «5 ms»).
 - **Estils**: *Transparent* (el que menys es nota), *Modern* (el de cada dia), *Punch* (deixa passar el cop de la bateria) i *Agressiu* (per sonar molt fort).
@@ -374,6 +381,8 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.71.0** — **Escoltar-se mentre es grava**: amb el botó de gravar encès, el que entra per la targeta (guitarra, veu) se sent per Mibase, amb els efectes i el fader de la pista (també aturat). Es pot apagar per pista al menú d'entrades (E/S → «Escolta't per Mibase amb gravar encès») si fas servir el monitor directe de la targeta. **Bucle**: les notes que cauen just a l'inici del bucle ja sonen a cada volta (per un arrodoniment quedaven una mostra abans i no sonaven; i en tornar a l'inici les notes s'apaguen una a una en lloc d'«apaga-ho tot», que alguns VST3 aplicaven després de les notes noves).
+- **0.70.0** — **Vocal Studio de Mibase**: motor de rack modular (fins a 12 mòduls amb encès, Mix, ordre i la seva finestra), mòdul nou **Doubler**, 8 macros enllaçables amb rang, entrada/sortida i 20 presets. Les finestres dels efectes, plugins, sintes i kits **ja no s'amaguen darrere de Mibase** en clicar l'estudi: es tanquen amb la X (o Esc), i l'Espai fa play.
 - **0.69.0** — **Limitador de Mibase**: limitador / maximitzador amb 4 estils, Gain, Ceiling, Release i Auto, Link, True Peak, Escolta igualat, gràfic de reducció, LUFS i 20 presets; mira 5 ms endavant i el PDC ho compensa. **RM**: només apaga els plugins de més de 5 ms (botó dret sobre RM per canviar-ho) i cada efecte pot quedar **sempre encès amb RM** (botó dret sobre l'efecte).
 - **0.68.0** — **Compensació del retard dels plugins**: les pistes amb plugins que retarden (i els busos i el màster) arriben al seu lloc; etiqueta amb els ms a cada efecte que retarda; botó **RM (Retard mínim)** al transport, que s'encén sol en gravar. Patrons de guitarra: botó **+1 oct** al costat de «Acords: …» (també mou els blocs retocats a mà); treta l'opció del menú. La Saturació es diu **Decapitor (Mibase)**.
 - **0.67.0** — **Drive de Mibase**, efecte nou amb aspecte de pedal: Crunch, Overdrive, Distorsió i Fuzz, amb Gain, Tone, Level, Bass, Mix, Gate i Tight, i 24 presets. La **Saturació** queda per a la mescla: els estils Overdrive i Fuzz passen al Drive i hi ha un estil nou, **Suau** (si en algun projecte de la 0.66 hi havies posat Overdrive, ara sona Suau).
