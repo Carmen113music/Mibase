@@ -87,6 +87,7 @@ namespace mibase
             int bus = -1;            // és un bus: quin buffer d'entrada té (0..maxBusos-1); -1 = pista normal
             int desti = -1;          // buffer del bus on va el so; -1 = a la sortida
             bool armada = false;     // 0.68: té el botó de gravar encès (amb «Retard mínim», sense plugins que retarden)
+            int escoltaEntrada = -1; // 0.71: armada i amb «escolta»: la primera entrada de la targeta que se sent (-1 = cap)
             bool obert = true;       // false: només sonen els seus enviaments (alimenta un retorn en solo)
             struct Envia { int desti = 0; float guanyL = 1.0f, guanyR = 1.0f; int mode = 1; };
             std::vector<Envia> envia;   // els encesos, per ordre
@@ -194,6 +195,12 @@ namespace mibase
         bool getRetardMinim() const noexcept { return retardMinim.load (std::memory_order_relaxed); }
         /** 0.68: la pista (slot) que toca el teclat ara (-1: cap); la posa el motor. */
         void setSlotDirecte (int s) noexcept { slotDirecte = s; }
+        /** 0.71: les entrades de la targeta d'aquest tros (per escoltar-se mentre es grava). «mapa»: entrada lògica →
+            canal de la targeta; «offset»: on comença el tros dins dels buffers. */
+        void setEntrades (const float* const* e, int num, const int* mapa, int numMapa, int offset) noexcept
+        {
+            entrades = e; numEntrades = num; mapaEnt = mapa; numMapaEnt = numMapa; offsetEnt = offset;
+        }
         /** 0.68: quantes mostres s'avança una pista: el retard dels seus plugins, del bus (o busos) on va i del màster. */
         static int retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats = nullptr,
                              const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
@@ -208,6 +215,10 @@ namespace mibase
         /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc) i apaga les notes que sonen
             (play, situar el capçal, tornar a l'inici del bucle). */
         void reinicia() noexcept;
+        /** 0.71: tornar a l'inici del bucle (o saltar de tram): com reinicia(), però les notes que sonen s'apaguen una a
+            una (note-off) en lloc d'«apaga-ho tot». Alguns VST3 apliquen l'«apaga-ho tot» després de les notes del mateix
+            instant i es menjaven les notes del començament del bucle. */
+        void reiniciaBucle() noexcept;
         /** Pistes (slots) que no sonen al tram de l'estructura que sona ara (0.15). */
         void setSilenci (const std::bitset<128>& s) noexcept { silenciAra = s; }
         /** Apaga les notes MIDI que sonen (en aturar). */
@@ -230,7 +241,12 @@ namespace mibase
             std::array<NotaActiva, maxNotesActives> act {};
             int n = 0;
             bool apagar = false;
+            bool apagarTou = false;   // 0.71
         };
+        bool margeInici = false, margeAra = false;
+        const float* const* entrades = nullptr;   // 0.71
+        int numEntrades = 0, numMapaEnt = 0, offsetEnt = 0;
+        const int* mapaEnt = nullptr;   // 0.71: després d'un salt, les notes que cauen una mica abans també
         void instrumentPista (const Pla::Pista& t, long long pos, int n, bool reproduint, const EventDirecte* directe, int numDirecte) noexcept;
         void afegeixEvent (int offset, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
 
