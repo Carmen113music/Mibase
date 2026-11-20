@@ -201,6 +201,7 @@ private:
     Lloc lloc0, sobre;
     juce::Point<int> inici;
     double t0 = 0.0, punt0 = 0.0, bandera0 = 0.0, guany0 = 0.0, tLlapis = 0.0, tTisores = -1.0;
+    bool llapisPerCtrl = false;   // 0.72: Ctrl + arrossegar amb la fletxa fa un clip buit (preparat per gravar)
     int filaDeixar = -2;
     std::unique_ptr<DialegText> dialegAcord;   // 0.36
     std::vector<mibase::edicio::RefClip> triatsOriginals;

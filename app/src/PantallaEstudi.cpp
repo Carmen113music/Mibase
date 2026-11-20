@@ -1,4 +1,5 @@
 #include "PantallaEstudi.h"
+#include "FinestraFlotant.h"
 #include "BancGM.h"
 #include "EscGlobal.h"
 #include "Inserts.h"
@@ -125,6 +126,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     estat.pxPerSegon = ajustos.getDoubleValue ("estudi.zoom", 48.0);
     estat.altPista = juce::jmax (VistaPistes::alcadaMinima, ajustos.getIntValue ("estudi.altPista", 80));
     if (! estat.projecte.pistes.empty()) estat.pistaTriada = 0;
+    if (auto* t = estat.pista (estat.pistaTriada)) idTriadaAbans = t->id;   // 0.72
     estat.addChangeListener (this);
     estat.onCanviat = [this] (const juce::String& evolucio)
     {
@@ -349,7 +351,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     {
         if (k.getModifiers().isAnyModifierKeyDown()) return false;
         const int c = k.getKeyCode();
-        const bool transport = c == juce::KeyPress::spaceKey || c == 'R' || c == 'r' || c == 'L' || c == 'l'
+        const bool transport = c == juce::KeyPress::spaceKey || c == 'L' || c == 'l' || esNumpad0 (k)
                             || c == juce::KeyPress::homeKey || c == juce::KeyPress::returnKey;
         return transport && keyPressed (k);
     };
@@ -589,6 +591,7 @@ void PantallaEstudi::desaAra()
 
 void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    revisaArmament();   // 0.72
     // Els editors només canvien de clip amb doble clic (obrePianoRoll), no en triar un clip (0.10).
     // El teclat MIDI de fora toca la pista triada (si és MIDI) o la que grava.
     {
@@ -708,7 +711,7 @@ void PantallaEstudi::paint (juce::Graphics& g)
         g.setFont (dibuix::lletra (13.0f));
         const auto text = estat.info.isNotEmpty() ? estat.info
                         : juce::String (estat.numPistes()) + (estat.numPistes() == 1 ? " pista" : " pistes")
-                          + " · Espai: play/atura · R: grava · Ctrl+roda: zoom · Alt+roda: alçada"_ca;
+                          + " · Espai: play/atura · 0 (teclat numèric): grava · Ctrl+roda: zoom · Alt+roda: alçada"_ca;
         g.drawFittedText (text, zonaInfo, juce::Justification::centredLeft, 1, 0.8f);
     }
 
@@ -972,7 +975,7 @@ void PantallaEstudi::transport (int accio)
 {
     if (accio == 3) { atura(); return; }
     if (accio == 4) { if (estat.transport == 0) reprodueix(); return; }
-    if (accio == 5) { if (estat.transport == 0) grava(); return; }
+    if (accio == 5) { gravaContextual(); return; }   // 0.72: el botó fa el mateix que el 0 del teclat numèric
     if (estat.transport >= 2) return;   // mentre es grava, el capçal no es toca
 
     double t = estat.capcal;
@@ -1048,6 +1051,7 @@ void PantallaEstudi::reprodueix()
     estat.transport = 1;
     estatEsperat = 1;
     esperantMotor = true;
+    esperaExacte = false;
     tempsOrdre = juce::Time::currentTimeMillis();
     estat.avisa();
 }
@@ -1067,17 +1071,17 @@ void PantallaEstudi::atura()
     estat.transport = 0;
     estatEsperat = 0;
     esperantMotor = true;
+    esperaExacte = false;
     tempsOrdre = juce::Time::currentTimeMillis();
     // Torna on havies començat (per tornar-ho a escoltar o a gravar).
-    estat.capcal = abans >= 2 ? gravacio.cursor : iniciPlay;
+    estat.capcal = iniciPlay;   // 0.72: gravant des d'aturat, iniciPlay és el punt de gravació; amb Punch In, on es va fer play
+    (void) abans;
     estat.avisa();
 }
 
-void PantallaEstudi::grava()
+void PantallaEstudi::grava (double cursor)
 {
-    int pista = -1;
-    for (int i = 0; i < estat.numPistes(); ++i)
-        if (estat.projecte.pistes[(size_t) i].grava) pista = i;
+    const int pista = pistaArmada();
     if (pista < 0)
     {
         estat.info = "Per gravar, encén el botó vermell d'una pista"_ca;
@@ -1100,8 +1104,9 @@ void PantallaEstudi::grava()
         gravacio.pista = pista;
         gravacio.midi = true;
         gravacio.missatges.clear();
-        gravacio.cursor = estat.capcal;
-        gravacio.desDe = estat.capcal - ed::segonsPerCompasA (estat.projecte, juce::jmax (0.0, estat.capcal - 1e-6));
+        gravacio.punch = false;
+        gravacio.cursor = cursor;
+        gravacio.desDe = iniciPreroll (cursor);   // 0.72: dos compassos de pre-roll
         gravacio.retard = 0.0;
         gravacio.fitxer = juce::File();
         MotorEstudi::MidiGravat buit;
@@ -1115,8 +1120,10 @@ void PantallaEstudi::grava()
         estat.transport = 2;
         estatEsperat = 2;
         esperantMotor = true;
+        esperaExacte = false;
+        iniciPlay = cursor;
         tempsOrdre = juce::Time::currentTimeMillis();
-        estat.info = "Compte d'entrada… (toca el teclat MIDI)"_ca;
+        estat.info = "Pre-roll de 2 compassos… (toca el teclat MIDI)"_ca;
         estat.avisa();
         return;
     }
@@ -1144,8 +1151,9 @@ void PantallaEstudi::grava()
 
     publicaPla();
     gravacio.pista = pista;
-    gravacio.cursor = estat.capcal;
-    gravacio.desDe = estat.capcal - ed::segonsPerCompasA (estat.projecte, juce::jmax (0.0, estat.capcal - 1e-6));   // un compàs de compte
+    gravacio.punch = false;
+    gravacio.cursor = cursor;
+    gravacio.desDe = iniciPreroll (cursor);   // 0.72: dos compassos de pre-roll (també es graven: marge per recuperar)
     gravacio.retard = servei.retardGravacio (gravacio.retardMesurat);
     plugins.buidaCues();
     motor.grava (gravacio.desDe, gravacio.cursor, t.entrada, t.canals);
@@ -1153,9 +1161,176 @@ void PantallaEstudi::grava()
     estat.transport = 2;
     estatEsperat = 2;
     esperantMotor = true;
+    esperaExacte = false;
+    iniciPlay = cursor;
     tempsOrdre = juce::Time::currentTimeMillis();
-    estat.info = "Compte d'entrada…"_ca;
+    estat.info = "Pre-roll de 2 compassos…"_ca;
     estat.avisa();
+}
+
+//==============================================================================
+// 0.72: gravació intuïtiva (Smart Record). Una sola tecla: el 0 del teclat numèric.
+//   Aturat + pista armada          → 2 compassos de pre-roll i grava des del capçal (o des del clip buit preparat)
+//   Sonant + pista armada          → Punch In ara mateix (sense aturar), amb pregravació al davant del fitxer
+//   Gravant (o en el pre-roll)     → Punch Out: deixa de gravar i continua sonant; la pista continua armada
+//   Sense pista armada             → no fa res (no arma mai cap pista)
+//==============================================================================
+bool PantallaEstudi::esNumpad0 (const juce::KeyPress& k) const
+{
+    if (k.getModifiers().isCommandDown() || k.getModifiers().isAltDown()) return false;
+    const int c = k.getKeyCode();
+    if (c == juce::KeyPress::numberPad0) return true;
+    // Per si el sistema dona el codi del «0» normal: només val si la tecla de baix és la del teclat numèric.
+    return c == '0' && juce::KeyPress::isKeyCurrentlyDown (juce::KeyPress::numberPad0) && ! juce::KeyPress::isKeyCurrentlyDown ('0');
+}
+
+int PantallaEstudi::pistaArmada() const
+{
+    for (int i = 0; i < estat.numPistes(); ++i)
+        if (estat.projecte.pistes[(size_t) i].grava && ! mibase::esBus (estat.projecte.pistes[(size_t) i])) return i;
+    return -1;
+}
+
+double PantallaEstudi::iniciPreroll (double cursor) const
+{
+    // Dos compassos enrere (amb el mapa de tempo); pot quedar abans del zero (compàs de compte).
+    double t = cursor;
+    for (int i = 0; i < 2; ++i)
+        t -= ed::segonsPerCompasA (estat.projecte, juce::jmax (0.0, t - 1e-6));
+    return t;
+}
+
+int PantallaEstudi::clipPerGravar (int pista) const
+{
+    const auto* t = estat.pista (pista);
+    if (t == nullptr) return -1;
+    auto buit = [] (const Clip& c) { return c.presa.empty() && (! c.midi || (c.notes.empty() && c.events.empty())); };
+    // 1) Un clip buit triat d'aquesta pista.
+    for (auto& r : estat.triats)
+        if (r.pista == pista && r.clip >= 0 && r.clip < (int) t->clips.size() && buit (t->clips[(size_t) r.clip])) return r.clip;
+    // 2) El darrer clip buit fet amb Ctrl + arrossegar, si encara hi és (al mateix lloc).
+    const auto& cp = estat.clipPreparat;
+    if (cp.pista == t->id)
+        for (int k = (int) t->clips.size() - 1; k >= 0; --k)
+        {
+            const auto& c = t->clips[(size_t) k];
+            if (buit (c) && std::abs (c.iniciVisible() - cp.ini) < 1e-6 && std::abs (c.fiVisible() - cp.fi) < 1e-6) return k;
+        }
+    return -1;
+}
+
+void PantallaEstudi::gravaContextual()
+{
+    if (esperantMotor) return;   // l'ordre anterior encara no s'ha fet: una pulsació, una acció
+    if (estat.transport >= 2) { punchOut(); return; }
+    const int pista = pistaArmada();
+    if (pista < 0)
+    {
+        estat.info = "Per gravar, arma una pista amb el seu botó vermell i prem 0 (teclat numèric)"_ca;
+        estat.avisa();
+        return;
+    }
+    if (estat.transport == 1) { punchIn (pista); return; }
+
+    // Aturat: des del clip buit preparat (si n'hi ha) o des del capçal.
+    double cursor = estat.capcal;
+    const int c = clipPerGravar (pista);
+    if (c >= 0)
+        cursor = estat.projecte.pistes[(size_t) pista].clips[(size_t) c].iniciVisible();
+    grava (cursor);
+    if (c >= 0 && estat.transport == 2) estat.clipPreparat = {};   // ja s'hi grava (si no ha pogut començar, es queda preparat)
+}
+
+void PantallaEstudi::punchIn (int pista)
+{
+    if (! servei.enMarxa()) return;
+    const auto& t = estat.projecte.pistes[(size_t) pista];
+    auto& motor = servei.estudi();
+    if (mibase::esMidi (t))
+    {
+        gravacio = {};
+        gravacio.pista = pista;
+        gravacio.midi = true;
+        gravacio.punch = true;
+        gravacio.cursor = estat.capcal;
+        MotorEstudi::MidiGravat buit;
+        while (motor.treuMidiGravat (buit)) {}
+        const int slot = slotDePista (t);
+        motor.setSlotTeclat (slot);
+        motor.setSlotGravaMidi (slot);
+        motor.entra (-1, 1);
+    }
+    else
+    {
+        estat.nomsEntrades = servei.getNomsEntrades();
+        const auto& noms = estat.nomsEntrades;
+        const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
+        if (darrera >= noms.size() || noms[t.entrada].isEmpty() || noms[darrera].isEmpty())
+        {
+            estat.info = "La pista grava d'una entrada que no està activa (botó dret al nom → Entrada per gravar)"_ca;
+            estat.avisa();
+            return;
+        }
+        auto carpetaAudios = audios();
+        carpetaAudios.createDirectory();
+        const auto fitxer = carpetaAudios.getChildFile (dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), t.nom)));
+        if (! motor.gravadora().comenca (dibuix::cami (fitxer), t.canals, motor.getFs()))
+        {
+            avisDeTargeta ("No es pot gravar", "No s'ha pogut crear el fitxer:\n"_ca + fitxer.getFullPathName());
+            return;
+        }
+        gravacio = {};
+        gravacio.pista = pista;
+        gravacio.punch = true;
+        gravacio.fitxer = fitxer;
+        gravacio.cursor = estat.capcal;
+        gravacio.desDe = estat.capcal;
+        gravacio.retard = servei.retardGravacio (gravacio.retardMesurat);
+        motor.entra (t.entrada, t.canals);
+    }
+    estat.cursorGravacio = estat.capcal;
+    estatEsperat = 3;
+    esperaExacte = true;
+    esperantMotor = true;
+    tempsOrdre = juce::Time::currentTimeMillis();
+}
+
+void PantallaEstudi::punchOut()
+{
+    servei.estudi().surt();
+    estatEsperat = 1;
+    esperaExacte = true;
+    esperantMotor = true;
+    tempsOrdre = juce::Time::currentTimeMillis();
+    estat.info = "Punch Out: continua sonant (la pista continua armada)"_ca;
+    estat.avisa();
+}
+
+void PantallaEstudi::revisaArmament()
+{
+    // Canviar de pista desarma l'anterior i no arma la nova. Mentre es grava, s'espera a acabar (no es talla la presa).
+    auto& motor = servei.estudi();
+    {
+        // La pregravació del Punch In: l'entrada de la pista d'àudio armada.
+        const int a = pistaArmada();
+        const auto* t = estat.pista (a);
+        if (t != nullptr && ! mibase::esMidi (*t)) motor.setPregravacio (t->entrada, t->canals);
+        else motor.setPregravacio (-1, 1);
+    }
+    const auto* tri = estat.pista (estat.pistaTriada);
+    const std::string id = tri != nullptr ? tri->id : std::string();
+    if (id == idTriadaAbans) return;
+    if (estat.transport >= 2 || esperantMotor || motor.gravadora().activa() || (gravacio.midi && gravacio.pista >= 0)) return;
+    idTriadaAbans = id;
+    bool canvi = false;
+    for (auto& t : estat.projecte.pistes)
+        if (t.grava && t.id != id) { t.grava = false; canvi = true; }
+    if (canvi)
+    {
+        calDesar = true;
+        startTimer (700);
+        revisaArmament();   // la pregravació ja no és d'aquella pista
+    }
 }
 
 void PantallaEstudi::acabaGravacio()
@@ -1302,12 +1477,29 @@ void PantallaEstudi::tic()
     const int ara = (int) motor.getEstat();
     if (esperantMotor)
     {
-        const bool fet = estatEsperat == 0 ? ara == 0 : ara != 0;
-        if (fet) esperantMotor = false;
+        const bool fet = esperaExacte ? ara == estatEsperat : (estatEsperat == 0 ? ara == 0 : ara != 0);
+        if (fet)
+        {
+            esperantMotor = false;
+            if (esperaExacte)
+            {
+                // 0.72: el fil d'àudio ha fet el Punch In / Punch Out
+                esperaExacte = false;
+                estat.transport = ara;
+                if (ara == 3)
+                {
+                    gravacio.desDe = motor.getIniciFitxer();
+                    gravacio.cursor = estat.cursorGravacio = motor.getPuntGravacio();
+                    estat.info = "Gravant (Punch In)… Torna a prémer 0 per sortir"_ca;
+                }
+                estat.avisa();
+            }
+        }
         else if (juce::Time::currentTimeMillis() - tempsOrdre > 1500)
         {
             esperantMotor = false;
-            if (estatEsperat != 0)
+            if (esperaExacte) { esperaExacte = false; estat.transport = ara; }   // 0.72: no s'ha pogut (ja no sonava…)
+            else if (estatEsperat != 0)
             {
                 estat.transport = 0;
                 avisDeTargeta ("La targeta no respon", "S'ha demanat sonar però la targeta d'àudio no ha respost. Mira Fitxer → Preferències."_ca);
@@ -1322,12 +1514,17 @@ void PantallaEstudi::tic()
         estat.transport = ara;
         estat.avisa();
     }
-    if (estat.transport == 0 && ! esperantMotor && motor.gravadora().activa())
+    // 0.72: aturat, o sonant després d'un Punch Out: la presa es tanca i queda a la pista (la pista continua armada)
+    if (estat.transport <= 1 && ! esperantMotor && motor.gravadora().activa())
         acabaGravacio();
     if (gravacio.midi && gravacio.pista >= 0)
     {
         recullMidiGravat();
-        if (estat.transport == 0 && ! esperantMotor) acabaGravacioMidi();
+        if (estat.transport <= 1 && ! esperantMotor)
+        {
+            if (estat.transport == 1) gravacio.fins = juce::jmax (gravacio.cursor, motor.getFiGravacio());
+            acabaGravacioMidi();
+        }
     }
 
     // Capçal: mentre sona, el del motor (i la vista el segueix).
@@ -1462,6 +1659,7 @@ void PantallaEstudi::obreKits()
 {
     if (finestraKits != nullptr) { finestraKits->toFront (true); return; }
     finestraKits = std::make_unique<FinestraKits> (estat, servei, [this] { finestraKits.reset(); });
+    quedaSobreMibase (*finestraKits);   // 0.70
 }
 
 void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
@@ -2229,7 +2427,15 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (codi == juce::KeyPress::escapeKey) { estat.triantFantasma = -1; estat.capTriat(); triaEina (Eina::Fletxa); tancaTot(); return true; }
     if (codi == juce::KeyPress::homeKey) { transport (0); return true; }
     if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
-    if (! mods.isAnyModifierKeyDown() && (codi == 'R' || codi == 'r')) { if (estat.transport == 0) grava(); else atura(); return true; }
+    // 0.72: l'única tecla de gravar és el 0 del teclat numèric (la R ja no grava)
+    if (esNumpad0 (k))
+    {
+        const auto ara = juce::Time::currentTimeMillis();
+        const bool repeticio = ara - darrerNumpad0 < 350;   // tecla mantinguda o la mateixa pulsació repetida
+        darrerNumpad0 = ara;
+        if (! repeticio) gravaContextual();
+        return true;
+    }
     return false;
 }
 

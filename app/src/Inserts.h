@@ -51,7 +51,8 @@ namespace inserts
                                    : x.plugin == mibase::delay::idPlugin ? "Delay · "_ca
                                    : x.plugin == mibase::saturacio::idPlugin ? "Decapitor · "_ca
                                    : x.plugin == mibase::drive::idPlugin ? "Drive · "_ca
-                                   : x.plugin == mibase::limitador::idPlugin ? "Limitador · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
+                                   : x.plugin == mibase::limitador::idPlugin ? "Limitador · "_ca
+                                   : x.plugin == mibase::rack::idPlugin ? "Vocal Studio · "_ca : "EQ Pro · "_ca;   // 0.65: abans l'EQ deia «Dinàmica»
             plugins->obreIntern (x, qui + (t != nullptr ? juce::String::fromUTF8 (t->nom.c_str()) : "Màster"_ca));
             return;
         }
@@ -363,6 +364,7 @@ namespace inserts
         m.addItem (7, "Decapitor (Mibase): saturació de cinta, consola, vàlvules o suau (per a la mescla)"_ca);
         m.addItem (8, "Drive (Mibase): pedal de crunch, overdrive, distorsió i fuzz"_ca);
         m.addItem (9, "Limitador (Mibase): per al màster i els busos, amb LUFS"_ca);
+        m.addItem (10, "Vocal Studio (Mibase): rack de veu amb mòduls, 8 macros i presets"_ca);   // 0.70
         m.addSeparator();
         for (juce::PopupMenu::MenuItemIterator it (efectes); it.next();)
         {
@@ -387,21 +389,22 @@ namespace inserts
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
                 return;
             }
-            if (r >= 3 && r <= 9)
+            if (r >= 3 && r <= 10)
             {
                 std::string id;
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
                 {
                     mibase::Insert x;
                     x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin, mibase::limitador::idPlugin };
-                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin, mibase::limitador::nomPlugin };
+                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin, mibase::limitador::idPlugin, mibase::rack::idPlugin };
+                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin, mibase::limitador::nomPlugin, mibase::rack::nomPlugin };
                     x.plugin = ids[r - 3];
                     x.nom = noms[r - 3];
                     if (nou || k >= (int) l.size()) l.push_back (x);
                     else l[(size_t) k] = x;
                 }, "Efecte: "_ca + juce::String::fromUTF8 (r == 3 ? mibase::reverb::nomPlugin : r == 4 ? mibase::dinamica::nomPlugin : r == 5 ? mibase::eq::nomPlugin
-                                                     : r == 6 ? mibase::delay::nomPlugin : r == 7 ? mibase::saturacio::nomPlugin : r == 8 ? mibase::drive::nomPlugin : mibase::limitador::nomPlugin));
+                                                     : r == 6 ? mibase::delay::nomPlugin : r == 7 ? mibase::saturacio::nomPlugin : r == 8 ? mibase::drive::nomPlugin
+                                                     : r == 9 ? mibase::limitador::nomPlugin : mibase::rack::nomPlugin));
                 juce::MessageManager::callAsync ([&estat, plugins, pista, id]
                 {
                     if (auto* l = llista (estat, pista))

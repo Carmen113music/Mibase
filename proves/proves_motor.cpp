@@ -178,6 +178,8 @@ namespace
 #include "proves_067.inc"
 #include "proves_068.inc"
 #include "proves_069.inc"
+#include "proves_070.inc"
+#include "proves_071.inc"
 
 int main()
 {
@@ -1075,6 +1077,82 @@ int main()
         for (long long i = 0; igual && i < 48000; ++i)
             igual = std::abs (w.mostres[(size_t) i] - ((float) (i % 1000) / 1000.0f - 0.5f)) < 1.0e-5f;
         comprova (igual, "el fitxer té exactament el que entrava per l'entrada 2");
+    });
+
+    prova ("0.72: Punch In / Punch Out sonant, amb pregravació", [&]
+    {
+        Projecte q;
+        MotorEstudi motor;
+        motor.prepara (48000.0, 480);
+        motor.setMapaEntrades ({ 0, 1 });
+        motor.publica (construeixPla (q, {}));
+        motor.setPregravacio (1, 1);   // la pista armada grava de l'entrada 2
+
+        std::vector<float> e0 (480), e1 (480), o0 (480), o1 (480);
+        const float* ent[2] { e0.data(), e1.data() };
+        float* sort[2] { o0.data(), o1.data() };
+        long long n = 0;   // mostra de la línia de temps (comença a 0)
+        auto bloc = [&]
+        {
+            for (int i = 0; i < 480; ++i) e1[(size_t) i] = (float) ((n + i) % 997) / 997.0f - 0.5f;
+            motor.processa (ent, 2, sort, 2, 480);
+            n += 480;
+        };
+        motor.reprodueix (0.0);
+        for (int b = 0; b < 600; ++b) bloc();   // 6 s sonant
+        comprova (motor.getEstat() == MotorEstudi::Estat::Sonant, "sona");
+
+        const auto f = arrel5 / mibase::disc::cami ("Punch - presa 01.wav");
+        comprova (motor.gravadora().comenca (f, 1, 48000.0), "la gravadora s'engega");
+        motor.entra (1, 1);
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Gravant, "Punch In: grava sense aturar");
+        comprova (std::abs (motor.getPuntGravacio() - 6.0) < 1e-9, "el punt d'entrada és on era el capçal (6 s)");
+        comprova (std::abs (motor.getIniciFitxer() - 2.0) < 1e-9, "el fitxer comença 4 s abans (pregravació)");
+        for (int b = 0; b < 99; ++b) bloc();   // 1 s gravant
+        motor.surt();
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Sonant, "Punch Out: continua sonant");
+        comprova (std::abs (motor.getFiGravacio() - 7.0) < 1e-9, "on s'ha deixat de gravar (7 s)");
+        for (int b = 0; b < 10; ++b) bloc();
+        const auto r = motor.gravadora().acaba();
+        comprova (r.correcte && r.frames == 5 * 48000 && r.perdudes == 0, "4 s de pregravació + 1 s gravat (" + std::to_string (r.frames) + ")");
+        auto w = llegeixWav (f);
+        bool igual = w.correcte && w.frames() == 5 * 48000;
+        const long long ini = 2 * 48000;
+        for (long long i = 0; igual && i < w.frames(); ++i)
+            igual = std::abs (w.mostres[(size_t) i] - ((float) ((ini + i) % 997) / 997.0f - 0.5f)) < 1.0e-5f;
+        comprova (igual, "el fitxer és continu i al seu lloc de la línia de temps");
+
+        // Un salt del capçal: la pregravació torna a començar (no es barreja àudio d'un altre lloc).
+        motor.situa (20.0);
+        n = 20 * 48000;
+        for (int b = 0; b < 50; ++b) bloc();   // 0,5 s des del salt
+        const auto f2 = arrel5 / mibase::disc::cami ("Punch - presa 02.wav");
+        comprova (motor.gravadora().comenca (f2, 1, 48000.0), "la gravadora s'engega (2)");
+        motor.entra (1, 1);
+        bloc();
+        comprova (std::abs (motor.getIniciFitxer() - 20.0) < 1e-9, "després d'un salt, la pregravació només és el que hi ha des del salt");
+        motor.surt();
+        bloc();
+        motor.gravadora().acaba();
+
+        // Punch In aturat: no fa res.
+        motor.atura();
+        bloc();
+        motor.entra (1, 1);
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Aturat, "aturat, el Punch In no fa res");
+        // Gravar des d'aturat (pre-roll): el punt de gravació és el cursor.
+        motor.grava (1.0, 3.0, 1, 1);
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Comptant && std::abs (motor.getPuntGravacio() - 3.0) < 1e-9
+                  && std::abs (motor.getIniciFitxer() - 1.0) < 1e-9, "pre-roll: el fitxer comença al pre-roll i la gravació al cursor");
+        motor.surt();
+        bloc();
+        comprova (motor.getEstat() == MotorEstudi::Estat::Sonant, "Punch Out durant el pre-roll: continua sonant");
+        motor.atura();
+        bloc();
     });
 
     prova ("Gravació a la pista: bandera, finestra i retard", [&]
@@ -2331,6 +2409,9 @@ int main()
     proves067();
     proves068();
     proves069();
+    proves070();
+    proves071();
+    proves071b();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

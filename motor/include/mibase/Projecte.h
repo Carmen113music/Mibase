@@ -293,6 +293,7 @@ namespace mibase
         double faderDb = 0.0;    // de -60 (silenci) a +6
         double pan = 0.0;        // de -1 (tot a l'esquerra) a +1 (tot a la dreta)
         int entrada = 0;         // primera entrada de la targeta per gravar (0 = entrada 1); estèreo: aquesta i la següent
+        bool escolta = true;     // 0.71: amb el botó de gravar encès, l'entrada se sent per Mibase (amb els efectes de la pista)
         std::string carpeta;     // 0.11: id de la carpeta on és (buit: cap)
         std::vector<Insert> inserts;           // 0.19: efectes, per ordre
         std::string nomInstrument, estatInstrument;   // 0.19: instrument VST3 («vst3:…»): nom i ajustos (base64)
