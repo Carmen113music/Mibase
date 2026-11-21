@@ -20,7 +20,7 @@ namespace mibase::doubler
     inline constexpr const char* idPlugin = "intern:doubler";
     inline constexpr const char* nomPlugin = "Doubler (Mibase)";
 
-    enum Param : int { Quantitat, Desafina, Retard, Amplada, Color, Variacio, numParams };   // 0.75: Variació
+    enum Param : int { Quantitat, Desafina, Retard, Amplada, Color, Variacio, Veu, numParams };   // 0.75: Variació; 0.76: Veu (0 = només les còpies, per als retorns)
 
     struct InfoParam
     {

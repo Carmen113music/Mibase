@@ -66,8 +66,8 @@ namespace
             comprova (r.modul (0)->clau == "limitador" && r.modul (1)->clau == "eq" && r.modul (2)->clau == "compressor", "mou a dalt");
             r.treu (0);
             comprova (r.numModuls() == 2 && r.latencia() == 0, "treu");
-            for (int k = 0; k < 20; ++k) r.afegeix ("doubler");
-            comprova (r.numModuls() == rack::maxModuls, "com a molt 12 mòduls");
+            for (int k = 0; k < 40; ++k) r.afegeix ("doubler");
+            comprova (r.numModuls() == rack::maxModuls, "com a molt " + std::to_string (rack::maxModuls) + " mòduls");
         });
 
         prova ("0.70 Rack: el Mix fa compressió en paral·lel (sense clics) i apagar fa una fosa", [&]

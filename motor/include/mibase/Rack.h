@@ -27,7 +27,8 @@ namespace mibase::rack
     inline constexpr const char* idPlugin = "intern:vocalstudio";
     inline constexpr const char* nomPlugin = "Vocal Studio (Mibase)";
 
-    constexpr int maxModuls = 12;
+    constexpr int maxModuls = 24;     // 0.76: 24 entre la cadena principal i els retorns
+    constexpr int maxRetorns = 4;     // 0.76: camins en paral·lel (reverb, delay, compressió paral·lela, dobles…)
     constexpr int numMacros = 8;
     constexpr int maxEnllacos = 64;
 
@@ -63,18 +64,32 @@ namespace mibase::rack
         mn > mx = al revés). */
     struct Enllac
     {
-        int macro = 0, modul = 0, param = 0;
+        int macro = 0, modul = 0, param = 0;   // 0.76: modul = -1 → un paràmetre del mateix rack (enviament, retorn…)
         float mn = 0.0f, mx = 1.0f;
         bool operator== (const Enllac&) const = default;
     };
 
+    /** 0.76: un retorn és un camí en paral·lel: rep la sortida de la cadena principal (amb el seu enviament), la passa
+        pels seus mòduls i la torna a sumar (amb el seu volum, pan i ducking: baixa mentre la veu sona). */
+    struct InfoRetorn { bool actiu = false; std::string nom; bool operator== (const InfoRetorn&) const = default; };
+
     struct Cadena
     {
         std::vector<std::shared_ptr<Modul>> moduls;
+        std::vector<int> camins;                          // 0.76: per mòdul: 0 = principal, 1..4 = retorn
+        std::array<InfoRetorn, maxRetorns> retorns {};    // 0.76
         std::vector<Enllac> enllacos;
     };
 
-    enum ParamRack : int { Entrada, Sortida, Macro1, numParams = Macro1 + numMacros };
+    enum ParamRack : int { Entrada, Sortida, Macro1,
+                           Envia1 = Macro1 + numMacros,           // 0.76: dB que s'envien a cada retorn (-60 = res)
+                           Retorn1 = Envia1 + maxRetorns,         // dB amb què torna cada retorn
+                           PanRetorn1 = Retorn1 + maxRetorns,     // -100..100
+                           Ducking1 = PanRetorn1 + maxRetorns,    // 0..24 dB que baixa mentre la veu sona
+                           numParams = Ducking1 + maxRetorns };
+    constexpr float minDbRetorn = -60.0f;
+    /** 0.76: rang i valor per defecte dels paràmetres dels retorns (en les seves unitats). */
+    void rangParam (int p, float& mn, float& mx, float& def);
 
     struct Mesures
     {
@@ -115,9 +130,17 @@ namespace mibase::rack
         int numModuls() const { return (int) ui->moduls.size(); }
         Modul* modul (int i) const { return i >= 0 && i < numModuls() ? ui->moduls[(size_t) i].get() : nullptr; }
         /** Afegeix un mòdul (clau de tipus()) a la posició «pos» (-1 = al final). Torna on ha quedat (-1 si no cap). */
-        int afegeix (const std::string& clau, int pos = -1);
+        int afegeix (const std::string& clau, int pos = -1, int cami = 0);
         /** Afegeix un mòdul ja fet (per als presets i les proves). */
-        int afegeix (const std::string& clau, std::shared_ptr<EfecteIntern> fx, int pos = -1);
+        int afegeix (const std::string& clau, std::shared_ptr<EfecteIntern> fx, int pos = -1, int cami = 0);
+        /** 0.76: a quin camí és el mòdul (0 = principal, 1..4 = retorn). */
+        int cami (int i) const { return i >= 0 && i < (int) ui->camins.size() ? ui->camins[(size_t) i] : 0; }
+        void posaCami (int i, int cami);
+        const InfoRetorn& retorn (int k) const { static const InfoRetorn buit; return k >= 0 && k < maxRetorns ? ui->retorns[(size_t) k] : buit; }
+        void activaRetorn (int k, bool actiu, const std::string& nom = {});
+        /** 0.76: els paràmetres dels retorns en les seves unitats (dB, %). */
+        float valor (int p) const noexcept { return p >= 0 && p < numParams ? par[(size_t) p].load (std::memory_order_relaxed) : 0.0f; }
+        void posaValor (int p, float v) noexcept;
         void treu (int i);
         void mou (int de, int a);
         void posaOn (int i, bool on);
@@ -146,6 +169,21 @@ namespace mibase::rack
         void publica (std::shared_ptr<Cadena> c);
         std::shared_ptr<Cadena> copia() const;
         void preparaModul (Modul& m);
+        void aplica (Modul& m, float* L, float* R, int n) noexcept;
+        void processaBloc (float* L, float* R, int n) noexcept;
+        struct Linia   // retard per alinear els camins
+        {
+            std::vector<float> l, r;
+            int w = 0, mascara = 0;
+            void prepara (int minim);
+            void passa (float* L, float* R, int n, int retard) noexcept;
+            void buida() noexcept { std::fill (l.begin(), l.end(), 0.0f); std::fill (r.begin(), r.end(), 0.0f); }
+        };
+        Linia liniaPrincipal;
+        std::array<Linia, maxRetorns> liniesRetorn;
+        std::array<std::vector<float>, maxRetorns> retL, retR;
+        std::array<float, maxRetorns> gEnvia {}, gRetorn {}, gDuck {};
+        float envClau = 0.0f;
         void aplicaMacro (const Cadena& c, int m, float v) noexcept;
 
         std::array<std::atomic<float>, numParams> par;

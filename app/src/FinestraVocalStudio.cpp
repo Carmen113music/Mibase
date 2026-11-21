@@ -297,10 +297,15 @@ namespace
                 auto f = std::make_unique<Fila>();
                 const auto e = en[(size_t) k];
                 auto* mod = rk->modul (e.modul);
-                if (mod == nullptr) continue;
+                if (mod == nullptr && e.modul != -1) continue;
                 f->k = k;
-                f->nom = nomDe (*mod) + " · "_ca + nomParam (*mod, e.param);
-                auto text = [this, e] (double v) { auto* md = rk->modul (e.modul); return md != nullptr ? u8 (md->fx->textParametre (e.param, (float) v)) : juce::String(); };
+                f->nom = mod != nullptr ? nomDe (*mod) + " · "_ca + nomParam (*mod, e.param) : "Rack · "_ca + u8 (rk->infoParametre (e.param).nom);   // 0.76
+                auto text = [this, e] (double v)
+                {
+                    if (e.modul == -1) return u8 (rk->textParametre (e.param, (float) v));
+                    auto* md = rk->modul (e.modul);
+                    return md != nullptr ? u8 (md->fx->textParametre (e.param, (float) v)) : juce::String();
+                };
                 f->mn = std::make_unique<Pom> ("A 0", 0.0, 1.0, (double) e.mn, false, text);
                 f->mx = std::make_unique<Pom> ("A 10", 0.0, 1.0, (double) e.mx, false, text);
                 f->mn->setTooltip ("On va el paràmetre amb el macro a 0"_ca);
@@ -394,6 +399,7 @@ namespace
         void resized() override;
         void refresca();
         void mouseDoubleClick (const juce::MouseEvent&) override;
+        void mouseDown (const juce::MouseEvent& e) override;
         int index;
     private:
         PanellVocalStudio& pare;
@@ -404,6 +410,24 @@ namespace
         BotoFletxa btAmunt { true }, btAvall { false };
         std::unique_ptr<Pom> pomMix;
         juce::Rectangle<int> zonaNom;
+    };
+
+    /** 0.76: la capçalera d'un camí: «Cadena principal» o un retorn (nom, Envia, Retorn, Pan, Ducking, + mòdul, treu). */
+    class CapCami : public juce::Component
+    {
+    public:
+        CapCami (PanellVocalStudio& p, std::shared_ptr<Rack> r, int c);
+        void paint (juce::Graphics& g) override;
+        void resized() override;
+        void refresca();
+        int cami;
+    private:
+        PanellVocalStudio& pare;
+        std::shared_ptr<Rack> rk;
+        Boto btNom { {}, std::nullopt, Boto::Estil::Subtil };
+        Boto btMes { "Mòdul"_ca, dibuix::Icona::Mes, Boto::Estil::Subtil };
+        Boto btTreu { {}, dibuix::Icona::Tanca, Boto::Estil::Subtil };
+        std::array<std::unique_ptr<Pom>, 4> poms;
     };
 
     class PanellVocalStudio : public juce::Component, private juce::Timer, public OrigenPresets
@@ -451,8 +475,11 @@ namespace
             vista.setViewedComponent (&contingut, false);
             vista.setScrollBarsShown (true, false);
             addAndMakeVisible (btAfegeix);
-            btAfegeix.setTooltip ("Afegeix un mòdul al final del rack"_ca);
-            btAfegeix.onClick = [this] { menuAfegeix(); };
+            btAfegeix.setTooltip ("Afegeix un mòdul al final de la cadena principal"_ca);
+            btAfegeix.onClick = [this] { menuAfegeix (0, &btAfegeix); };
+            addAndMakeVisible (btRetorn);   // 0.76
+            btRetorn.setTooltip ("Un camí en paral·lel: reverb, delay, compressió paral·lela, dobles o harmonies, amb el seu volum i ducking"_ca);
+            btRetorn.onClick = [this] { menuRetorn(); };
             setSize (900, 700);
             if (nomsPreset()[rk.get()].isEmpty() && ! presetsFabrica().empty())
             {
@@ -496,7 +523,122 @@ namespace
             rk->treu (i);
             haCanviat();
         }
-        void mouModul (int i, int d) { rk->mou (i, i + d); haCanviat(); }
+        void mouModul (int i, int d)
+        {
+            // 0.76: dins del mateix camí (salta els mòduls dels altres camins)
+            const int c = rk->cami (i);
+            for (int j = i + d; j >= 0 && j < rk->numModuls(); j += d)
+                if (rk->cami (j) == c) { rk->mou (i, j); haCanviat(); return; }
+        }
+        int veiDelCami (int i, int d) const
+        {
+            const int c = rk->cami (i);
+            for (int j = i + d; j >= 0 && j < rk->numModuls(); j += d) if (rk->cami (j) == c) return j;
+            return -1;
+        }
+        int ordreDinsCami (int i) const
+        {
+            int n = 0;
+            for (int j = 0; j <= i; ++j) if (rk->cami (j) == rk->cami (i)) ++n;
+            return n;
+        }
+        void menuMouACami (int i)
+        {
+            juce::PopupMenu m;
+            m.addSectionHeader ("Mou el mòdul a…"_ca);
+            m.addItem (1, "Cadena principal"_ca, rk->cami (i) != 0, rk->cami (i) == 0);
+            for (int k = 0; k < maxRetorns; ++k)
+                if (rk->retorn (k).actiu) m.addItem (2 + k, "Retorn "_ca + juce::String (k + 1) + " · " + u8 (rk->retorn (k).nom), rk->cami (i) != k + 1, rk->cami (i) == k + 1);
+            m.showMenuAsync ({}, [sp = juce::Component::SafePointer<PanellVocalStudio> (this), i] (int r)
+            {
+                if (sp == nullptr || r <= 0) return;
+                sp->rk->posaCami (i, r - 1);
+                sp->haCanviat(); sp->refesFiles(); sp->refresca();
+            });
+        }
+        void treuRetorn (int k)
+        {
+            for (int i = rk->numModuls() - 1; i >= 0; --i)
+                if (rk->cami (i) == k + 1) { if (auto* m = rk->modul (i)) finestresModuls.erase (m); rk->treu (i); }
+            rk->activaRetorn (k, false);
+            haCanviat(); refesFiles(); refresca();
+        }
+        void canviaNomRetorn (int k)
+        {
+            dialeg = std::make_unique<DialegText> ("Nom del retorn"_ca, "Un nom curt (per exemple: Reverb, Delay, Dobles)."_ca, "D'acord"_ca,
+                [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom."_ca : juce::String(); },
+                [this, k] (const juce::String& t) { rk->activaRetorn (k, true, t.trim().substring (0, 24).toStdString()); haCanviat(); refesFiles(); refresca(); },
+                u8 (rk->retorn (k).nom));
+            DialegText::mostra (*this, dialeg);
+        }
+        void menuAfegeix (int cami, juce::Component* on)
+        {
+            juce::PopupMenu m;
+            int id = 1;
+            for (const auto& t : tipus())
+                m.addItem (id++, u8 (t.nom) + "  ·  "_ca + u8 (t.descripcio));
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [sp = juce::Component::SafePointer<PanellVocalStudio> (this), cami] (int r)
+            {
+                if (sp == nullptr || r <= 0 || r > (int) tipus().size()) return;
+                const int nou = sp->rk->afegeix (tipus()[(size_t) r - 1].clau, -1, cami);
+                if (nou < 0) return;
+                if (cami > 0) sp->al100 (nou);
+                sp->haCanviat(); sp->refesFiles(); sp->refresca();
+            });
+        }
+        /** En un retorn, la reverb, el delay, el Doubler i l'harmonitzador sonen només amb el seu so (sense la veu). */
+        void al100 (int i)
+        {
+            auto* m = rk->modul (i);
+            if (m == nullptr) return;
+            if (auto rv = std::dynamic_pointer_cast<mibase::reverb::Reverb> (m->fx)) rv->posa (mibase::reverb::Mix, 100);
+            else if (auto dl = std::dynamic_pointer_cast<mibase::delay::Delay> (m->fx)) dl->posa (mibase::delay::Mix, 100);
+            else if (auto d = std::dynamic_pointer_cast<mibase::doubler::Doubler> (m->fx)) { d->posa (mibase::doubler::Veu, 0); d->posa (mibase::doubler::Quantitat, 100); }
+            else if (auto h = std::dynamic_pointer_cast<mibase::harmonitzador::Harmonitzador> (m->fx)) h->posa (mibase::harmonitzador::Sec, 0);
+            else if (auto o = std::dynamic_pointer_cast<mibase::octava::Octava> (m->fx)) o->posa (mibase::octava::Mescla, 100);
+        }
+        void menuRetorn()
+        {
+            int k = -1;
+            for (int q = 0; q < maxRetorns && k < 0; ++q) if (! rk->retorn (q).actiu) k = q;
+            if (k < 0) return;
+            juce::PopupMenu m;
+            m.addSectionHeader ("Retorn nou"_ca);
+            m.addItem (1, "Reverb (plate)"_ca);
+            m.addItem (2, "Delay (negra, amb ducking)"_ca);
+            m.addItem (3, "Compressió paral·lela"_ca);
+            m.addItem (4, "Dobles (Doubler)"_ca);
+            m.addItem (5, "Harmonies (Harmonitzador)"_ca);
+            m.addItem (6, "Buit"_ca);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (btRetorn), [sp = juce::Component::SafePointer<PanellVocalStudio> (this), k] (int r)
+            {
+                if (sp == nullptr || r <= 0) return;
+                auto& rk = *sp->rk;
+                static const char* const noms[] = { "", "Reverb", "Delay", "Comp. paral·lela", "Dobles", "Harmonies", "Retorn" };
+                rk.activaRetorn (k, true, r == 6 ? ("Retorn " + std::to_string (k + 1)) : noms[r]);
+                rk.posaValor (Envia1 + k, 0.0f);
+                rk.posaValor (Retorn1 + k, r == 1 ? -14.0f : r == 2 ? -16.0f : r == 3 ? -18.0f : -10.0f);
+                rk.posaValor (PanRetorn1 + k, 0.0f);
+                rk.posaValor (Ducking1 + k, r == 2 ? 8.0f : 0.0f);
+                int nou = -1;
+                if (r == 1) nou = rk.afegeix ("reverb", -1, k + 1);
+                else if (r == 2) nou = rk.afegeix ("delay", -1, k + 1);
+                else if (r == 3)
+                {
+                    nou = rk.afegeix ("compressor", -1, k + 1);
+                    if (auto* md = rk.modul (nou))
+                        if (auto d = std::dynamic_pointer_cast<mibase::dinamica::Dinamica> (md->fx))
+                        {
+                            using namespace mibase::dinamica;
+                            d->posa (Llindar, -40); d->posa (Ratio, 20); d->posa (Atac, 0.5f); d->posa (Alliberament, 50); d->posa (Guany, 14);
+                        }
+                }
+                else if (r == 4) nou = rk.afegeix ("doubler", -1, k + 1);
+                else if (r == 5) nou = rk.afegeix ("harmonitzador", -1, k + 1);
+                if (nou >= 0) sp->al100 (nou);
+                sp->haCanviat(); sp->refesFiles(); sp->refresca();
+            });
+        }
         void haCanviat() { nomsPreset()[rk.get()] = {}; }   // ja no és el preset tal qual
 
         void refresca()
@@ -518,7 +660,13 @@ namespace
                 mc.nom.setButtonText (u8 (rk->nomMacro (m)));
             }
             for (auto& f : files) f->refresca();
+            for (auto& c : caps) c->refresca();
             btAfegeix.setEnabled (rk->numModuls() < maxModuls);
+            {
+                bool lliure = false;
+                for (int k = 0; k < maxRetorns; ++k) lliure = lliure || ! rk->retorn (k).actiu;
+                btRetorn.setEnabled (lliure && rk->numModuls() < maxModuls);
+            }
             repaint();
         }
 
@@ -604,7 +752,12 @@ namespace
             }
             r.removeFromTop (26);
             zonaText = r.removeFromBottom (24);
-            btAfegeix.setBounds (r.removeFromBottom (34).removeFromLeft (220));
+            {
+                auto b = r.removeFromBottom (34);
+                btAfegeix.setBounds (b.removeFromLeft (220));
+                b.removeFromLeft (10);
+                btRetorn.setBounds (b.removeFromLeft (220));
+            }
             r.removeFromBottom (8);
             zonaRack = r;
             vista.setBounds (r);
@@ -637,39 +790,40 @@ namespace
 
         void refesFiles()
         {
+            // 0.76: per camins: la cadena principal i, a sota, cada retorn actiu amb els seus mòduls
             versioVista = rk->versio();
             files.clear();
-            for (int i = 0; i < rk->numModuls(); ++i)
+            caps.clear();
+            ordre.clear();
+            for (int c = 0; c <= maxRetorns; ++c)
             {
-                files.push_back (std::make_unique<FilaModul> (*this, rk, i));
-                contingut.addAndMakeVisible (*files.back());
+                if (c > 0 && ! rk->retorn (c - 1).actiu) continue;
+                bool hiHaRetorns = false;
+                for (int k = 0; k < maxRetorns; ++k) hiHaRetorns = hiHaRetorns || rk->retorn (k).actiu;
+                if (c > 0 || hiHaRetorns)
+                {
+                    caps.push_back (std::make_unique<CapCami> (*this, rk, c));
+                    contingut.addAndMakeVisible (*caps.back());
+                    ordre.push_back ({ caps.back().get(), c == 0 ? 30 : 74 });
+                }
+                for (int i = 0; i < rk->numModuls(); ++i)
+                {
+                    if (rk->cami (i) != c) continue;
+                    files.push_back (std::make_unique<FilaModul> (*this, rk, i));
+                    contingut.addAndMakeVisible (*files.back());
+                    ordre.push_back ({ files.back().get(), 64 });
+                }
             }
             posaFiles();
         }
         void posaFiles()
         {
-            constexpr int alt = 64;
-            const int w = juce::jmax (100, vista.getWidth() - (rk->numModuls() * alt > vista.getHeight() ? vista.getScrollBarThickness() : 0));
-            contingut.setSize (w, juce::jmax (1, (int) files.size() * alt));
-            for (int i = 0; i < (int) files.size(); ++i) files[(size_t) i]->setBounds (0, i * alt, w, alt - 4);
-        }
-
-        void menuAfegeix()
-        {
-            juce::PopupMenu m;
-            int id = 1;
-            for (const auto& t : tipus())
-                m.addItem (id++, u8 (t.nom) + "  ·  "_ca + u8 (t.descripcio));
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (btAfegeix), [sp = juce::Component::SafePointer<PanellVocalStudio> (this)] (int r)
-            {
-                if (sp == nullptr || r <= 0 || r > (int) tipus().size()) return;
-                const int on = sp->rk->afegeix (tipus()[(size_t) r - 1].clau);
-                if (on < 0) return;
-                sp->haCanviat();
-                sp->refesFiles();
-                sp->refresca();
-                sp->vista.setViewPosition (0, sp->contingut.getHeight());
-            });
+            int total = 0;
+            for (auto& [c, a] : ordre) total += a;
+            const int w = juce::jmax (100, vista.getWidth() - (total > vista.getHeight() ? vista.getScrollBarThickness() : 0));
+            contingut.setSize (w, juce::jmax (1, total));
+            int y = 0;
+            for (auto& [c, a] : ordre) { c->setBounds (0, y, w, a - 4); y += a; }
         }
 
         void menuMacro (int m)
@@ -694,6 +848,21 @@ namespace
                 }
                 enllaca.addSubMenu (juce::String (i + 1) + ". " + nomDe (mod), sub);
             }
+            {   // 0.76: els volums dels retorns
+                juce::PopupMenu sub;
+                for (int k = 0; k < maxRetorns; ++k)
+                {
+                    if (! rk->retorn (k).actiu) continue;
+                    for (int p : { (int) Envia1 + k, (int) Retorn1 + k, (int) PanRetorn1 + k, (int) Ducking1 + k })
+                    {
+                        bool ja = false;
+                        for (const auto& e : rk->enllacos()) if (e.macro == m && e.modul == -1 && e.param == p) ja = true;
+                        opcions.push_back ({ -1, p });
+                        sub.addItem (1000 + (int) opcions.size() - 1, u8 (rk->infoParametre (p).nom), ! ja, ja);
+                    }
+                }
+                if (sub.getNumItems() > 0) enllaca.addSubMenu ("Retorns"_ca, sub);
+            }
             menu.addSubMenu ("Enllaça-hi un paràmetre"_ca, enllaca, rk->numModuls() > 0);
             bool te = false;
             for (const auto& e : rk->enllacos()) if (e.macro == m) te = true;
@@ -715,9 +884,9 @@ namespace
                 {
                     const auto [i, p] = opcions[(size_t) (r - 1000)];
                     auto* mod = sp->rk->modul (i);
-                    if (mod == nullptr) return;
+                    if (mod == nullptr && i != -1) return;
                     // el rang comença on és el paràmetre ara; amb el macro a 10, mig recorregut més enllà
-                    const float ara = mod->fx->parametre (p);
+                    const float ara = mod != nullptr ? mod->fx->parametre (p) : sp->rk->parametre (p);
                     const float fi = ara < 0.5f ? juce::jmin (1.0f, ara + 0.5f) : juce::jmax (0.0f, ara - 0.5f);
                     // perquè no salti, el macro es queda on és i el rang es calcula al seu voltant
                     // (mn + (fi - mn) · v = ara)
@@ -874,6 +1043,10 @@ namespace
         juce::Component contingut;
         std::vector<std::unique_ptr<FilaModul>> files;
         Boto btAfegeix { "Afegeix un mòdul"_ca, dibuix::Icona::Mes, Boto::Estil::Discontinu };
+        Boto btRetorn { "Afegeix un retorn"_ca, dibuix::Icona::Mes, Boto::Estil::Discontinu };   // 0.76
+        std::vector<std::unique_ptr<CapCami>> caps;
+        std::vector<std::pair<juce::Component*, int>> ordre;
+        friend class CapCami;
         std::map<const Modul*, std::unique_ptr<juce::DocumentWindow>> finestresModuls;
         juce::Rectangle<int> zonaMacros, zonaRack, zonaText, zonaVuIn, zonaVuOut;
         float vuIn = 0.0f, vuOut = 0.0f;
@@ -915,8 +1088,8 @@ namespace
         const bool ambLatencia = m->fx->latencia() > 0;
         pomMix->setEnabled (! ambLatencia);
         pomMix->setValor (ambLatencia ? 1.0 : (double) m->mix.load(), true);
-        btAmunt.setEnabled (index > 0);
-        btAvall.setEnabled (index < rk->numModuls() - 1);
+        btAmunt.setEnabled (pare.veiDelCami (index, -1) >= 0);   // 0.76: dins del seu camí
+        btAvall.setEnabled (pare.veiDelCami (index, 1) >= 0);
         repaint();
     }
 
@@ -940,7 +1113,7 @@ namespace
         auto z = zonaNom.toFloat();
         g.setColour (on ? tema::text : tema::suau);
         g.setFont (dibuix::lletra (14.5f, true));
-        g.drawText (juce::String (index + 1) + "  " + dibuix::majuscules (nomDe (*m)), z.removeFromTop (z.getHeight() * 0.5f), juce::Justification::bottomLeft);
+        g.drawText (juce::String (pare.ordreDinsCami (index)) + "  " + dibuix::majuscules (nomDe (*m)), z.removeFromTop (z.getHeight() * 0.5f), juce::Justification::bottomLeft);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (11.0f));
         juce::String desc;
@@ -969,6 +1142,73 @@ namespace
     }
 
     void FilaModul::mouseDoubleClick (const juce::MouseEvent&) { pare.obreModul (index); }
+    void FilaModul::mouseDown (const juce::MouseEvent& e) { if (e.mods.isPopupMenu()) pare.menuMouACami (index); }   // 0.76
+
+    // ---- CapCami (0.76) ----
+    CapCami::CapCami (PanellVocalStudio& p, std::shared_ptr<Rack> r, int c) : cami (c), pare (p), rk (std::move (r))
+    {
+        if (cami == 0) return;
+        const int k = cami - 1;
+        for (auto* b : { &btNom, &btMes, &btTreu }) addAndMakeVisible (b);
+        btNom.setTooltip ("Clica per canviar el nom del retorn"_ca);
+        btMes.setTooltip ("Afegeix un mòdul a aquest retorn"_ca);
+        btTreu.setTooltip ("Treu el retorn i els seus mòduls"_ca);
+        btNom.onClick = [this, k] { pare.canviaNomRetorn (k); };
+        btMes.onClick = [this] { pare.menuAfegeix (cami, &btMes); };
+        btTreu.onClick = [this, k] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<PanellVocalStudio> (&pare), k] { if (sp != nullptr) sp->treuRetorn (k); }); };
+        const int ps[4] { Envia1 + k, Retorn1 + k, PanRetorn1 + k, Ducking1 + k };
+        const char* const noms[4] { "Envia", "Retorn", "Pan", "Ducking" };
+        const char* const ajudes[4] { "Quant de la veu (després de la cadena principal) entra al retorn", "Quant se sent el retorn",
+                                      "On sona el retorn (esquerra / dreta)", "Quant baixa el retorn mentre la veu sona (perquè la veu quedi clara)" };
+        for (int q = 0; q < 4; ++q)
+        {
+            const int pp = ps[q];
+            poms[(size_t) q] = std::make_unique<Pom> (u8 (noms[q]), 0.0, 1.0, (double) rk->parametre (pp), q == 2,
+                                                      [this, pp] (double v) { return u8 (rk->textParametre (pp, (float) v)); });
+            poms[(size_t) q]->setTooltip (u8 (ajudes[q]));
+            poms[(size_t) q]->onCanvi = [this, pp] (double v) { rk->posaParametre (pp, (float) v); pare.haCanviat(); };
+            poms[(size_t) q]->onReinicia = [this, pp] { float mn, mx, def; rangParam (pp, mn, mx, def); rk->posaValor (pp, def); refresca(); };
+            addAndMakeVisible (*poms[(size_t) q]);
+        }
+        refresca();
+    }
+    void CapCami::refresca()
+    {
+        if (cami == 0) return;
+        const int k = cami - 1;
+        btNom.setButtonText ("RETORN "_ca + juce::String (cami) + " · " + dibuix::majuscules (u8 (rk->retorn (k).nom)));
+        const int ps[4] { Envia1 + k, Retorn1 + k, PanRetorn1 + k, Ducking1 + k };
+        for (int q = 0; q < 4; ++q) poms[(size_t) q]->setValor (rk->parametre (ps[q]), true);
+        btMes.setEnabled (rk->numModuls() < maxModuls);
+    }
+    void CapCami::paint (juce::Graphics& g)
+    {
+        auto r = getLocalBounds().toFloat();
+        if (cami == 0)
+        {
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f, true));
+            g.drawText ("CADENA PRINCIPAL"_ca, r.reduced (4.0f, 0.0f), juce::Justification::bottomLeft);
+            return;
+        }
+        g.setColour (turquesa.withAlpha (0.10f));
+        g.fillRoundedRectangle (r, 6.0f);
+        g.setColour (turquesa.withAlpha (0.55f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
+        g.fillRect (r.getX() + 8.0f, r.getBottom() - 3.0f, r.getWidth() - 16.0f, 1.0f);
+    }
+    void CapCami::resized()
+    {
+        if (cami == 0) return;
+        auto r = getLocalBounds().reduced (10, 4);
+        btTreu.setBounds (r.removeFromRight (28).withSizeKeepingCentre (26, 26));
+        r.removeFromRight (4);
+        btMes.setBounds (r.removeFromRight (90).withSizeKeepingCentre (90, 28));
+        r.removeFromRight (8);
+        for (int q = 3; q >= 0; --q) poms[(size_t) q]->setBounds (r.removeFromRight (64));
+        r.removeFromRight (8);
+        btNom.setBounds (r.withSizeKeepingCentre (r.getWidth(), 30));
+    }
 
     class FinestraVocalStudio : public juce::DocumentWindow
     {

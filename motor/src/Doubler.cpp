@@ -15,6 +15,7 @@ namespace mibase::doubler
             { "amplada", "Amplada", 0, 100, 100, "0 %: les còpies al mig. 100 %: una a cada costat." },
             { "color", "Color", 0, 100, 15, "Enfosqueix les còpies perquè no competeixin amb la veu." },
             { "variacio", "Variació", 0, 100, 60, "Com de diferent de la veu va cada còpia: s'avança i s'endarrereix uns mil·lisegons a l'atzar, com una segona presa de debò." },
+            { "veu", "Veu", 0, 100, 100, "La veu original. A 0 %, només sonen les còpies (per fer servir el Doubler en un retorn)." },
         };
         constexpr double finestraMs = 30.0;
         inline float lim (float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
@@ -55,7 +56,8 @@ namespace mibase::doubler
         if (quant < 1.0e-5f && sQuant < 1.0e-5f)
         {
             // no se sent: només omple la línia (perquè en pujar-ho no surti res vell)
-            for (int i = 0; i < n; ++i) { linia[(size_t) w] = 0.5f * (L[i] + R[i]); w = (w + 1) & mascara; }
+            const float gv = valor (Veu) / 100.0f;
+            for (int i = 0; i < n; ++i) { linia[(size_t) w] = 0.5f * (L[i] + R[i]); w = (w + 1) & mascara; L[i] *= gv; R[i] *= gv; }
             return;
         }
         const double cents = valor (Desafina);
@@ -70,6 +72,7 @@ namespace mibase::doubler
         const float k = (float) (1.0 - std::exp (-2.0 * 3.141592653589793 * std::min (tall, fs * 0.45) / fs));
         const float dq = (quant - sQuant) / (float) std::max (1, n);
         const double variacio = valor (Variacio) / 100.0 * 4.0 * fs / 1000.0;   // fins a ±4 ms
+        const float gVeu = valor (Veu) / 100.0f;   // 0.76
         auto llegeix = [this] (double ret) noexcept
         {
             double p = (double) w - ret;
@@ -107,8 +110,8 @@ namespace mibase::doubler
                 veu[v] = lpEstat[v];
             }
             sQuant += dq;
-            L[i] += sQuant * (a * veu[0] + b * veu[1]);
-            R[i] += sQuant * (b * veu[0] + a * veu[1]);
+            L[i] = gVeu * L[i] + sQuant * (a * veu[0] + b * veu[1]);
+            R[i] = gVeu * R[i] + sQuant * (b * veu[0] + a * veu[1]);
             w = (w + 1) & mascara;
         }
         sQuant = quant;

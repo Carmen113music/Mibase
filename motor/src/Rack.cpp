@@ -103,7 +103,7 @@ namespace mibase::rack
 
     Rack::Rack()
     {
-        for (int i = 0; i < numParams; ++i) par[(size_t) i].store (0.0f);
+        for (int i = 0; i < numParams; ++i) { float mn, mx, def; rangParam (i, mn, mx, def); par[(size_t) i].store (def); }
         static const char* const nomsDefecte[numMacros] = { "Cos", "Presència", "Aire", "Compressió", "Escalfor", "Doble", "Espai", "Eco" };
         for (int m = 0; m < numMacros; ++m) noms[(size_t) m] = nomsDefecte[m];
         publica (std::make_shared<Cadena>());
@@ -111,12 +111,63 @@ namespace mibase::rack
 
     Rack::~Rack() { actual.store (nullptr); }
 
+    void rangParam (int p, float& mn, float& mx, float& def)
+    {
+        if (p >= Envia1 && p < Retorn1) { mn = minDbRetorn; mx = 6.0f; def = 0.0f; }
+        else if (p >= Retorn1 && p < PanRetorn1) { mn = minDbRetorn; mx = 6.0f; def = -12.0f; }
+        else if (p >= PanRetorn1 && p < Ducking1) { mn = -100.0f; mx = 100.0f; def = 0.0f; }
+        else if (p >= Ducking1 && p < numParams) { mn = 0.0f; mx = 24.0f; def = 0.0f; }
+        else if (p == Entrada || p == Sortida) { mn = -maxDb; mx = maxDb; def = 0.0f; }
+        else { mn = 0.0f; mx = 1.0f; def = 0.0f; }
+    }
+
+    void Rack::Linia::prepara (int minim)
+    {
+        int m = 1;
+        while (m < minim) m <<= 1;
+        l.assign ((size_t) m, 0.0f);
+        r.assign ((size_t) m, 0.0f);
+        mascara = m - 1;
+        w = 0;
+    }
+
+    void Rack::Linia::passa (float* L, float* R, int n, int retard) noexcept
+    {
+        if (l.empty()) return;
+        retard = std::clamp (retard, 0, mascara);
+        for (int i = 0; i < n; ++i)
+        {
+            l[(size_t) w] = L[i];
+            r[(size_t) w] = R[i];
+            const int j = (w - retard) & mascara;
+            L[i] = l[(size_t) j];
+            R[i] = r[(size_t) j];
+            w = (w + 1) & mascara;
+        }
+    }
+
+    void Rack::posaValor (int p, float v) noexcept
+    {
+        if (p < Envia1 || p >= numParams || ! std::isfinite (v)) return;
+        float mn, mx, def;
+        rangParam (p, mn, mx, def);
+        par[(size_t) p].store (std::clamp (v, mn, mx), std::memory_order_relaxed);
+    }
+
     void Rack::prepara (double f, int bloc)
     {
         fs = f > 1000.0 ? f : 48000.0;
         maxBloc = std::max (16, bloc);
         preparat = true;
         for (auto& m : ui->moduls) preparaModul (*m);
+        const int lin = (int) (0.25 * fs) + maxBloc;   // 0.76: fins a 250 ms d'alineació entre camins
+        liniaPrincipal.prepara (lin);
+        for (int k = 0; k < maxRetorns; ++k)
+        {
+            liniesRetorn[(size_t) k].prepara (lin);
+            retL[(size_t) k].assign ((size_t) maxBloc, 0.0f);
+            retR[(size_t) k].assign ((size_t) maxBloc, 0.0f);
+        }
         primerBloc = true;
     }
 
@@ -132,13 +183,61 @@ namespace mibase::rack
     {
         const Cadena* c = actual.load (std::memory_order_acquire);
         if (c == nullptr) return 0;
-        int r = 0;
-        for (const auto& m : c->moduls)
-            if (m->on.load (std::memory_order_relaxed)) r += std::max (0, m->fx->latencia());
-        return r;
+        int r = 0, ret[maxRetorns] {};
+        for (size_t i = 0; i < c->moduls.size(); ++i)
+        {
+            const auto& m = c->moduls[i];
+            if (! m->on.load (std::memory_order_relaxed)) continue;
+            const int k = i < c->camins.size() ? c->camins[i] : 0;
+            (k == 0 ? r : ret[k - 1]) += std::max (0, m->fx->latencia());
+        }
+        int mx = 0;
+        for (int k = 0; k < maxRetorns; ++k) if (c->retorns[(size_t) k].actiu) mx = std::max (mx, ret[k]);
+        return r + mx;   // 0.76: el camí més lent mana (els altres s'hi alineen)
     }
 
     void Rack::processa (float* L, float* R, int n) noexcept
+    {
+        // 0.76: els retorns fan servir buffers de «maxBloc»: un bloc més gran es fa a trossos
+        for (int o = 0; o < n; o += maxBloc) processaBloc (L + o, R + o, std::min (maxBloc, n - o));
+        if (n <= 0) epoca.fetch_add (1, std::memory_order_release);
+    }
+
+    void Rack::aplica (Modul& m, float* L, float* R, int n) noexcept
+    {
+        const bool on = m.on.load (std::memory_order_relaxed);
+        float objectiu = on ? std::clamp (m.mix.load (std::memory_order_relaxed), 0.0f, 1.0f) : 0.0f;
+        if (on && m.fx->latencia() > 0) objectiu = 1.0f;   // desfasat: sense barreja
+        if (objectiu <= 0.0f && m.mixAnt <= 0.0f)
+        {
+            if (m.estavaOn) { m.fx->buida(); m.estavaOn = false; }   // apagat del tot: la cua vella, fora
+            return;
+        }
+        m.estavaOn = true;
+        const int cap = (int) m.secL.size();
+        if (objectiu >= 0.9999f && m.mixAnt >= 0.9999f) { m.fx->processa (L, R, n); m.mixAnt = 1.0f; return; }
+        for (int ofs = 0; ofs < n; ofs += std::max (1, cap))
+        {
+            const int k = std::min (n - ofs, cap);
+            if (k <= 0) { m.fx->processa (L + ofs, R + ofs, n - ofs); break; }
+            std::copy_n (L + ofs, k, m.secL.data());
+            std::copy_n (R + ofs, k, m.secR.data());
+            m.fx->processa (L + ofs, R + ofs, k);
+            const float g0 = m.mixAnt + (objectiu - m.mixAnt) * (float) ofs / (float) n;
+            const float g1 = m.mixAnt + (objectiu - m.mixAnt) * (float) (ofs + k) / (float) n;
+            const float dg = (g1 - g0) / (float) k;
+            float g = g0;
+            for (int i = 0; i < k; ++i)
+            {
+                g += dg;
+                L[ofs + i] = m.secL[(size_t) i] + (L[ofs + i] - m.secL[(size_t) i]) * g;
+                R[ofs + i] = m.secR[(size_t) i] + (R[ofs + i] - m.secR[(size_t) i]) * g;
+            }
+        }
+        m.mixAnt = objectiu;
+    }
+
+    void Rack::processaBloc (float* L, float* R, int n) noexcept
     {
         Cadena* c = actual.load (std::memory_order_acquire);
         const float tIn = dbALin (par[Entrada].load (std::memory_order_relaxed));
@@ -159,39 +258,74 @@ namespace mibase::rack
         }
         if (c != nullptr)
         {
-            for (auto& mp : c->moduls)
+            const size_t nm = c->moduls.size();
+            auto camiDe = [c] (size_t i) { return i < c->camins.size() ? c->camins[i] : 0; };
+            for (size_t i = 0; i < nm; ++i)
+                if (camiDe (i) == 0) aplica (*c->moduls[i], L, R, n);
+
+            // ---- 0.76: retorns en paral·lel ----
+            bool hiHa = false;
+            int latRet[maxRetorns] {}, maxLat = 0;
+            for (size_t i = 0; i < nm; ++i)
+                if (camiDe (i) > 0 && c->moduls[i]->on.load (std::memory_order_relaxed))
+                    latRet[camiDe (i) - 1] += std::max (0, c->moduls[i]->fx->latencia());
+            for (int k = 0; k < maxRetorns; ++k)
+                if (c->retorns[(size_t) k].actiu && ! retL[(size_t) k].empty()) { hiHa = true; maxLat = std::max (maxLat, latRet[k]); }
+            if (hiHa)
             {
-                Modul& m = *mp;
-                const bool on = m.on.load (std::memory_order_relaxed);
-                float objectiu = on ? std::clamp (m.mix.load (std::memory_order_relaxed), 0.0f, 1.0f) : 0.0f;
-                if (on && m.fx->latencia() > 0) objectiu = 1.0f;   // desfasat: sense barreja
-                if (objectiu <= 0.0f && m.mixAnt <= 0.0f)
+                const float inv = 1.0f / (float) std::max (1, n);
+                for (int k = 0; k < maxRetorns; ++k)
                 {
-                    if (m.estavaOn) { m.fx->buida(); m.estavaOn = false; }   // apagat del tot: la cua vella, fora
-                    continue;
+                    if (! c->retorns[(size_t) k].actiu || retL[(size_t) k].empty()) continue;
+                    const float dbE = par[(size_t) (Envia1 + k)].load (std::memory_order_relaxed);
+                    const float tE = dbE <= minDbRetorn + 0.05f ? 0.0f : dbALin (dbE);
+                    const float dE = (tE - gEnvia[(size_t) k]) * inv;
+                    float* rl = retL[(size_t) k].data();
+                    float* rr = retR[(size_t) k].data();
+                    float g = gEnvia[(size_t) k];
+                    for (int i = 0; i < n; ++i) { g += dE; rl[i] = L[i] * g; rr[i] = R[i] * g; }
+                    gEnvia[(size_t) k] = tE;
+                    for (size_t i = 0; i < nm; ++i)
+                        if (camiDe (i) == k + 1) aplica (*c->moduls[i], rl, rr, n);
+                    liniesRetorn[(size_t) k].passa (rl, rr, n, maxLat - latRet[k]);
                 }
-                m.estavaOn = true;
-                const int cap = (int) m.secL.size();
-                if (objectiu >= 0.9999f && m.mixAnt >= 0.9999f) { m.fx->processa (L, R, n); m.mixAnt = 1.0f; continue; }
-                for (int ofs = 0; ofs < n; ofs += std::max (1, cap))
+                liniaPrincipal.passa (L, R, n, maxLat);
+                // ducking: la clau és la veu principal (ja alineada); atac 5 ms, retorn 250 ms
+                const float kA = 1.0f - std::exp (-1.0f / (0.005f * (float) fs)), kR = 1.0f - std::exp (-1.0f / (0.25f * (float) fs));
+                float tR[maxRetorns], dR[maxRetorns], duck[maxRetorns], pl[maxRetorns], pr[maxRetorns];
+                for (int k = 0; k < maxRetorns; ++k)
                 {
-                    const int k = std::min (n - ofs, cap);
-                    if (k <= 0) { m.fx->processa (L + ofs, R + ofs, n - ofs); break; }
-                    std::copy_n (L + ofs, k, m.secL.data());
-                    std::copy_n (R + ofs, k, m.secR.data());
-                    m.fx->processa (L + ofs, R + ofs, k);
-                    const float g0 = m.mixAnt + (objectiu - m.mixAnt) * (float) ofs / (float) n;
-                    const float g1 = m.mixAnt + (objectiu - m.mixAnt) * (float) (ofs + k) / (float) n;
-                    const float dg = (g1 - g0) / (float) k;
-                    float g = g0;
-                    for (int i = 0; i < k; ++i)
+                    const float dbR = par[(size_t) (Retorn1 + k)].load (std::memory_order_relaxed);
+                    tR[k] = (! c->retorns[(size_t) k].actiu || dbR <= minDbRetorn + 0.05f) ? 0.0f : dbALin (dbR);
+                    dR[k] = (tR[k] - gRetorn[(size_t) k]) * inv;
+                    duck[k] = par[(size_t) (Ducking1 + k)].load (std::memory_order_relaxed);
+                    const float p = std::clamp (par[(size_t) (PanRetorn1 + k)].load (std::memory_order_relaxed) / 100.0f, -1.0f, 1.0f);
+                    pl[k] = p > 0.0f ? 1.0f - p : 1.0f;
+                    pr[k] = p < 0.0f ? 1.0f + p : 1.0f;
+                }
+                for (int i = 0; i < n; ++i)
+                {
+                    const float clau = std::max (std::abs (L[i]), std::abs (R[i]));
+                    envClau += (clau - envClau) * (clau > envClau ? kA : kR);
+                    if ((i & 15) == 0)
                     {
-                        g += dg;
-                        L[ofs + i] = m.secL[(size_t) i] + (L[ofs + i] - m.secL[(size_t) i]) * g;
-                        R[ofs + i] = m.secR[(size_t) i] + (R[ofs + i] - m.secR[(size_t) i]) * g;
+                        // la veu a -45 dB o menys: res; a -10 dB o més: tot el ducking
+                        const float nivell = std::clamp ((20.0f * std::log10 (envClau + 1e-9f) + 45.0f) / 35.0f, 0.0f, 1.0f);
+                        for (int k = 0; k < maxRetorns; ++k) gDuck[(size_t) k] = duck[k] > 0.01f ? dbALin (-duck[k] * nivell) : 1.0f;
                     }
+                    float sl = L[i], sr = R[i];
+                    for (int k = 0; k < maxRetorns; ++k)
+                    {
+                        gRetorn[(size_t) k] += dR[k];
+                        if (! c->retorns[(size_t) k].actiu || retL[(size_t) k].empty()) continue;
+                        const float g = gRetorn[(size_t) k] * gDuck[(size_t) k];
+                        sl += g * pl[k] * retL[(size_t) k][(size_t) i];
+                        sr += g * pr[k] * retR[(size_t) k][(size_t) i];
+                    }
+                    L[i] = sl;
+                    R[i] = sr;
                 }
-                m.mixAnt = objectiu;
+                for (int k = 0; k < maxRetorns; ++k) gRetorn[(size_t) k] = tR[k];
             }
         }
         // sortida
@@ -216,6 +350,14 @@ namespace mibase::rack
         InfoParametre r;
         if (i == Entrada) { r.id = "entrada"; r.nom = "Entrada"; }
         else if (i == Sortida) { r.id = "sortida"; r.nom = "Sortida"; }
+        else if (i >= Envia1 && i < numParams)   // 0.76
+        {
+            const int k = (i - Envia1) % maxRetorns + 1;
+            const char* q = i < Retorn1 ? "envia" : i < PanRetorn1 ? "retorn" : i < Ducking1 ? "panretorn" : "ducking";
+            const char* nq = i < Retorn1 ? "Envia" : i < PanRetorn1 ? "Retorn" : i < Ducking1 ? "Pan retorn" : "Ducking";
+            r.id = std::string (q) + std::to_string (k);
+            r.nom = std::string (nq) + " " + std::to_string (k) + (ui->retorns[(size_t) k - 1].nom.empty() ? "" : " (" + ui->retorns[(size_t) k - 1].nom + ")");
+        }
         else if (i >= Macro1 && i < numParams)
         {
             r.id = "macro" + std::to_string (i - Macro1 + 1);
@@ -229,6 +371,7 @@ namespace mibase::rack
         if (i < 0 || i >= numParams || ! std::isfinite (v01)) return;
         v01 = std::clamp (v01, 0.0f, 1.0f);
         if (i == Entrada || i == Sortida) { par[(size_t) i].store (-maxDb + 2.0f * maxDb * v01, std::memory_order_relaxed); return; }
+        if (i >= Envia1) { float mn, mx, def; rangParam (i, mn, mx, def); par[(size_t) i].store (mn + (mx - mn) * v01, std::memory_order_relaxed); return; }
         const float vell = par[(size_t) i].exchange (v01, std::memory_order_relaxed);
         if (std::abs (vell - v01) < 1.0e-7f) return;
         if (const Cadena* c = actual.load (std::memory_order_acquire)) aplicaMacro (*c, i - Macro1, v01);
@@ -238,6 +381,7 @@ namespace mibase::rack
     {
         if (i < 0 || i >= numParams) return 0.0f;
         const float v = par[(size_t) i].load (std::memory_order_relaxed);
+        if (i >= Envia1) { float mn, mx, def; rangParam (i, mn, mx, def); return (v - mn) / (mx - mn); }
         return (i == Entrada || i == Sortida) ? (v + maxDb) / (2.0f * maxDb) : v;
     }
 
@@ -245,6 +389,15 @@ namespace mibase::rack
     {
         char b[40];
         if (i == Entrada || i == Sortida) std::snprintf (b, sizeof b, "%+.1f dB", (double) (-maxDb + 2.0f * maxDb * v01));
+        else if (i >= Envia1)
+        {
+            float mn, mx, def;
+            rangParam (i, mn, mx, def);
+            const float v = mn + (mx - mn) * v01;
+            if (i < PanRetorn1) { if (v <= minDbRetorn + 0.05f) return "-inf"; std::snprintf (b, sizeof b, "%+.1f dB", (double) v); }
+            else if (i < Ducking1) { const int p = (int) std::lround (v); if (p == 0) return "C"; std::snprintf (b, sizeof b, "%d %s", std::abs (p), p < 0 ? "E" : "D"); }
+            else std::snprintf (b, sizeof b, "-%.1f dB", (double) v);
+        }
         else std::snprintf (b, sizeof b, "%.1f", (double) (v01 * 10.0f));
         std::string s (b);
         for (auto& ch : s) if (ch == '.') ch = ',';
@@ -255,7 +408,9 @@ namespace mibase::rack
     {
         for (const auto& e : c.enllacos)
         {
-            if (e.macro != m || e.modul < 0 || e.modul >= (int) c.moduls.size()) continue;
+            if (e.macro != m) continue;
+            if (e.modul == -1) { if (e.param >= Envia1 && e.param < numParams) posaParametre (e.param, e.mn + (e.mx - e.mn) * v); continue; }   // 0.76
+            if (e.modul < 0 || e.modul >= (int) c.moduls.size()) continue;
             auto& fx = *c.moduls[(size_t) e.modul]->fx;
             if (e.param < 0 || e.param >= fx.numParametres()) continue;
             fx.posaParametre (e.param, e.mn + (e.mx - e.mn) * v);
@@ -272,6 +427,9 @@ namespace mibase::rack
     {
         auto c = std::make_shared<Cadena>();
         c->moduls = ui->moduls;
+        c->camins = ui->camins;
+        c->camins.resize (c->moduls.size(), 0);
+        c->retorns = ui->retorns;
         c->enllacos = ui->enllacos;
         return c;
     }
@@ -292,12 +450,12 @@ namespace mibase::rack
         guardades.erase (std::remove_if (guardades.begin(), guardades.end(), [e] (const Guardada& g) { return e >= g.retirada + 2; }), guardades.end());
     }
 
-    int Rack::afegeix (const std::string& clau, int pos)
+    int Rack::afegeix (const std::string& clau, int pos, int cami)
     {
-        return afegeix (clau, creaModul (clau, tempo), pos);
+        return afegeix (clau, creaModul (clau, tempo), pos, cami);
     }
 
-    int Rack::afegeix (const std::string& clau, std::shared_ptr<EfecteIntern> fx, int pos)
+    int Rack::afegeix (const std::string& clau, std::shared_ptr<EfecteIntern> fx, int pos, int cami)
     {
         if (fx == nullptr || numModuls() >= maxModuls) return -1;
         auto m = std::make_shared<Modul>();
@@ -309,6 +467,8 @@ namespace mibase::rack
         const int n = (int) c->moduls.size();
         if (pos < 0 || pos > n) pos = n;
         c->moduls.insert (c->moduls.begin() + pos, m);
+        c->camins.insert (c->camins.begin() + pos, std::clamp (cami, 0, maxRetorns));
+        if (cami > 0) c->retorns[(size_t) (std::clamp (cami, 1, maxRetorns) - 1)].actiu = true;
         for (auto& e : c->enllacos) if (e.modul >= pos) ++e.modul;
         publica (c);
         return pos;
@@ -319,9 +479,11 @@ namespace mibase::rack
         if (i < 0 || i >= numModuls()) return;
         auto c = copia();
         c->moduls.erase (c->moduls.begin() + i);
+        c->camins.erase (c->camins.begin() + i);
         std::vector<Enllac> v;
         for (auto e : c->enllacos)
         {
+            if (e.modul == -1) { v.push_back (e); continue; }
             if (e.modul == i) continue;
             if (e.modul > i) --e.modul;
             v.push_back (e);
@@ -336,15 +498,37 @@ namespace mibase::rack
         if (de < 0 || de >= n || a < 0 || a >= n || de == a) return;
         auto c = copia();
         auto m = c->moduls[(size_t) de];
+        const int cm = c->camins[(size_t) de];
         c->moduls.erase (c->moduls.begin() + de);
         c->moduls.insert (c->moduls.begin() + a, m);
+        c->camins.erase (c->camins.begin() + de);
+        c->camins.insert (c->camins.begin() + a, cm);
         // on va a parar cada índex vell
         for (auto& e : c->enllacos)
         {
+            if (e.modul == -1) continue;
             if (e.modul == de) e.modul = a;
             else if (de < a && e.modul > de && e.modul <= a) --e.modul;
             else if (a < de && e.modul >= a && e.modul < de) ++e.modul;
         }
+        publica (c);
+    }
+
+    void Rack::posaCami (int i, int cm)
+    {
+        if (i < 0 || i >= numModuls()) return;
+        auto c = copia();
+        c->camins[(size_t) i] = std::clamp (cm, 0, maxRetorns);
+        if (cm > 0) c->retorns[(size_t) (std::clamp (cm, 1, maxRetorns) - 1)].actiu = true;
+        publica (c);
+    }
+
+    void Rack::activaRetorn (int k, bool actiu, const std::string& nom)
+    {
+        if (k < 0 || k >= maxRetorns) return;
+        auto c = copia();
+        c->retorns[(size_t) k].actiu = actiu;
+        if (! nom.empty()) c->retorns[(size_t) k].nom = nom;
         publica (c);
     }
 
@@ -353,8 +537,13 @@ namespace mibase::rack
 
     bool Rack::enllaca (const Enllac& e)
     {
-        if (e.macro < 0 || e.macro >= numMacros || modul (e.modul) == nullptr) return false;
-        if (e.param < 0 || e.param >= modul (e.modul)->fx->numParametres()) return false;
+        if (e.macro < 0 || e.macro >= numMacros) return false;
+        if (e.modul == -1) { if (e.param < Envia1 || e.param >= numParams) return false; }   // 0.76: un paràmetre del rack
+        else
+        {
+            if (modul (e.modul) == nullptr) return false;
+            if (e.param < 0 || e.param >= modul (e.modul)->fx->numParametres()) return false;
+        }
         if ((int) ui->enllacos.size() >= maxEnllacos) return false;
         auto c = copia();
         for (auto& x : c->enllacos)
@@ -383,6 +572,9 @@ namespace mibase::rack
     void Rack::buida() noexcept
     {
         for (auto& m : ui->moduls) m->fx->buida();
+        liniaPrincipal.buida();
+        for (auto& l : liniesRetorn) l.buida();
+        envClau = 0.0f;
     }
 
     // ---- estat (JSON) ----
@@ -396,9 +588,20 @@ namespace mibase::rack
         for (int m = 0; m < numMacros; ++m) mac.push_back ({ { "nom", noms[(size_t) m] }, { "valor", par[(size_t) (Macro1 + m)].load() } });
         j["macros"] = mac;
         auto mods = nlohmann::ordered_json::array();
-        for (const auto& m : ui->moduls)
-            mods.push_back ({ { "clau", m->clau }, { "on", m->on.load() }, { "mix", m->mix.load() }, { "estat", m->fx->estat() } });
+        for (size_t i = 0; i < ui->moduls.size(); ++i)
+        {
+            const auto& m = ui->moduls[i];
+            nlohmann::ordered_json x { { "clau", m->clau }, { "on", m->on.load() }, { "mix", m->mix.load() }, { "estat", m->fx->estat() } };
+            if (cami ((int) i) > 0) x["cami"] = cami ((int) i);   // 0.76
+            mods.push_back (x);
+        }
         j["moduls"] = mods;
+        auto rets = nlohmann::ordered_json::array();   // 0.76
+        for (int k = 0; k < maxRetorns; ++k)
+            rets.push_back ({ { "nom", ui->retorns[(size_t) k].nom }, { "actiu", ui->retorns[(size_t) k].actiu },
+                              { "envia", par[(size_t) (Envia1 + k)].load() }, { "retorn", par[(size_t) (Retorn1 + k)].load() },
+                              { "pan", par[(size_t) (PanRetorn1 + k)].load() }, { "ducking", par[(size_t) (Ducking1 + k)].load() } });
+        j["retorns"] = rets;
         auto en = nlohmann::ordered_json::array();
         for (const auto& e : ui->enllacos) en.push_back ({ e.macro, e.modul, e.param, e.mn, e.mx });
         j["enllacos"] = en;
@@ -431,13 +634,33 @@ namespace mibase::rack
                 m->estavaOn = m->on.load();
                 preparaModul (*m);
                 c->moduls.push_back (m);
+                c->camins.push_back (std::clamp (x.value ("cami", 0), 0, maxRetorns));
+            }
+            const auto rets = j.value ("retorns", nlohmann::json::array());   // 0.76
+            for (int k = 0; k < maxRetorns; ++k)
+            {
+                float mn, mx, def;
+                for (int q = 0; q < 4; ++q) { const int p = Envia1 + q * maxRetorns + k; rangParam (p, mn, mx, def); par[(size_t) p].store (def); }
+                if (k >= (int) rets.size() || ! rets[(size_t) k].is_object()) continue;
+                const auto& x = rets[(size_t) k];
+                c->retorns[(size_t) k].nom = x.value ("nom", std::string());
+                c->retorns[(size_t) k].actiu = x.value ("actiu", false);
+                posaValor (Envia1 + k, x.value ("envia", 0.0f));
+                posaValor (Retorn1 + k, x.value ("retorn", -12.0f));
+                posaValor (PanRetorn1 + k, x.value ("pan", 0.0f));
+                posaValor (Ducking1 + k, x.value ("ducking", 0.0f));
             }
             for (const auto& x : j.value ("enllacos", nlohmann::json::array()))
             {
                 if (! x.is_array() || x.size() < 5 || (int) c->enllacos.size() >= maxEnllacos) continue;
                 Enllac e { x[0].get<int>(), x[1].get<int>(), x[2].get<int>(), x[3].get<float>(), x[4].get<float>() };
-                if (e.macro < 0 || e.macro >= numMacros || e.modul < 0 || e.modul >= (int) c->moduls.size()) continue;
-                if (e.param < 0 || e.param >= c->moduls[(size_t) e.modul]->fx->numParametres()) continue;
+                if (e.macro < 0 || e.macro >= numMacros) continue;
+                if (e.modul == -1) { if (e.param < Envia1 || e.param >= numParams) continue; }   // 0.76
+                else
+                {
+                    if (e.modul < 0 || e.modul >= (int) c->moduls.size()) continue;
+                    if (e.param < 0 || e.param >= c->moduls[(size_t) e.modul]->fx->numParametres()) continue;
+                }
                 e.mn = std::clamp (e.mn, 0.0f, 1.0f); e.mx = std::clamp (e.mx, 0.0f, 1.0f);
                 c->enllacos.push_back (e);
             }

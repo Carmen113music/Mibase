@@ -1,8 +1,10 @@
+#include <chrono>
 // 0.73: canvi de to en temps real (Harmonitzador, Octava i formant) i context musical.
 #include "mibase/Harmonitzador.h"
 #include "mibase/Veu.h"
 #include "mibase/Rack.h"
 #include "mibase/Doubler.h"
+#include "mibase/Reverb.h"
 namespace
 {
     void proves073()
@@ -229,6 +231,114 @@ namespace
                       "sense variació la còpia no es mou (" + std::to_string (marge (quiet)) + " ms); amb variació es mou " + std::to_string (marge (viu)) + " ms");
             doubler::Doubler d;
             comprova (d.valor (doubler::Quantitat) == 60 && d.valor (doubler::Retard) == 22 && d.valor (doubler::Variacio) == 60, "valors per defecte nous");
+        });
+
+        prova ("0.76 Rack: retorns en paral·lel (enviament, retorn, pan, ducking, alineació, estat, macros)", [&]
+        {
+            // Un retorn amb l'Octava (36 ms): la veu principal s'ha de retardar igual perquè quadrin, i el rack ho declara.
+            rack::Rack r;
+            r.posaEstat (R"({"mibase-rack":1,"moduls":[]})");
+            r.prepara (fs, 256);
+            auto o = std::make_shared<octava::Octava>();
+            o->posa (octava::To, 0); o->posa (octava::Mescla, 0);   // mescla 0: el retorn és la veu retardada (exacte)
+            r.afegeix ("octava", o, -1, 1);
+            r.activaRetorn (0, true, "Prova");
+            r.posaValor (rack::Envia1, 0.0f); r.posaValor (rack::Retorn1, 0.0f); r.posaValor (rack::PanRetorn1, 0.0f);
+            const int lat = o->latencia();
+            comprova (r.cami (0) == 1 && r.retorn (0).actiu && r.latencia() == lat, "el retorn és al camí 1 i el rack declara la seva latència (" + std::to_string (r.latencia()) + ")");
+            const int n = 20000;
+            std::vector<float> L ((size_t) n), R ((size_t) n);
+            for (int i = 0; i < n; ++i) L[(size_t) i] = R[(size_t) i] = (float) std::sin (0.01 * i) * 0.3f;
+            const auto x = L;
+            for (int i = 0; i < n; i += 300) r.processa (L.data() + i, R.data() + i, std::min (300, n - i));
+            bool doble = true;   // principal (retardada) + retorn (retardat igual) = el doble, alineat
+            for (int i = lat + 2000; i < n && doble; ++i) doble = std::abs (L[(size_t) i] - 2.0f * x[(size_t) (i - lat)]) < 2e-3f;
+            comprova (doble, "principal i retorn surten alineats (la suma és exactament el doble)");
+
+            // pan i retorn a -inf
+            rack::Rack r2;
+            r2.posaEstat (R"({"mibase-rack":1,"moduls":[]})");
+            r2.prepara (fs, 256);
+            r2.activaRetorn (1, true, "Esquerra");
+            r2.posaValor (rack::Retorn1 + 1, 0.0f); r2.posaValor (rack::PanRetorn1 + 1, -100.0f);
+            std::vector<float> a (512, 0.5f), b (512, 0.5f);
+            for (int k = 0; k < 4; ++k) { std::fill (a.begin(), a.end(), 0.5f); std::fill (b.begin(), b.end(), 0.5f); r2.processa (a.data(), b.data(), 512); }
+            comprova (std::abs (a[500] - 1.0f) < 1e-3f && std::abs (b[500] - 0.5f) < 1e-3f, "pan del retorn tot a l'esquerra");
+            r2.posaValor (rack::Retorn1 + 1, rack::minDbRetorn);
+            for (int k = 0; k < 4; ++k) { std::fill (a.begin(), a.end(), 0.5f); std::fill (b.begin(), b.end(), 0.5f); r2.processa (a.data(), b.data(), 512); }
+            comprova (std::abs (a[500] - 0.5f) < 1e-4f, "retorn a -inf: no suma res");
+
+            // ducking: amb veu forta el retorn baixa; sense veu, no
+            rack::Rack r3;
+            r3.posaEstat (R"({"mibase-rack":1,"moduls":[]})");
+            r3.prepara (fs, 256);
+            auto rv = std::make_shared<reverb::Reverb>();
+            rv->posa (reverb::Mix, 100); rv->posa (reverb::Decay, 3.0f);
+            r3.afegeix ("reverb", rv, -1, 1);
+            r3.activaRetorn (0, true, "Reverb");
+            r3.posaValor (rack::Retorn1, 0.0f);
+            auto cua = [&] (float duck)
+            {
+                r3.posaValor (rack::Ducking1, duck);
+                r3.buida();
+                std::vector<float> l ((size_t) fs), rr ((size_t) fs);
+                for (int i = 0; i < (int) fs; ++i) l[(size_t) i] = rr[(size_t) i] = i < (int) (0.5 * fs) ? (float) (0.5 * std::sin (0.05 * i)) : 0.0f;
+                double mentre = 0.0;
+                for (int i = 0; i < (int) fs; i += 256) r3.processa (l.data() + i, rr.data() + i, std::min (256, (int) fs - i));
+                for (int i = (int) (0.3 * fs); i < (int) (0.45 * fs); ++i) mentre += std::abs (l[(size_t) i] - (float) (0.5 * std::sin (0.05 * i)));
+                return mentre;
+            };
+            const double sense = cua (0), amb = cua (18);
+            comprova (amb < 0.3 * sense, "ducking: mentre la veu sona, el retorn baixa (" + std::to_string (amb / sense) + ")");
+
+            // estat i macros sobre paràmetres del rack
+            rack::Rack r4;
+            r4.posaEstat (r3.estat());
+            comprova (r4.numModuls() == 1 && r4.cami (0) == 1 && r4.retorn (0).nom == "Reverb" && std::abs (r4.valor (rack::Ducking1) - 18.0f) < 1e-4f, "es desen els camins i els retorns");
+            comprova (r4.enllaca ({ 6, -1, rack::Retorn1, 0.0f, 1.0f }), "un macro pot moure el volum d'un retorn");
+            r4.posaMacro (6, 0.5f);
+            comprova (std::abs (r4.parametre (rack::Retorn1) - 0.5f) < 1e-4f, "el macro el mou");
+            rack::Rack r5;
+            r5.posaEstat (r4.estat());
+            comprova (r5.enllacos().size() == 1 && r5.enllacos()[0].modul == -1, "l'enllaç al retorn es desa");
+        });
+
+        prova ("0.76 Les 30 cadenes de la guia: hi són, amb retorns, i sonen", [&]
+        {
+            const char* guia[] = { "When the Party's Over", "Bad Guy", "White Ferrari", "Vampire", "Drivers License", "715 - CRΣΣKS", "Woods",
+                                   "Saoko", "Hide and Seek", "Retrograde", "Don't Start Now", "Levitating", "Blinding Lights", "Chandelier",
+                                   "Espresso", "Fix You", "Believer", "As It Was", "Rolling in the Deep", "Supermassive Black Hole",
+                                   "What You Know", "The Less I Know the Better", "Somebody Else", "1901", "Do I Wanna Know?", "Kill Bill",
+                                   "Circles", "HUMBLE.", "Royals", "Sicko Mode" };
+            int trobades = 0, ambRetorns = 0, repetits = 0;
+            double pitjorCpu = 0.0;
+            std::string pitjorNom;
+            const auto& ps = rack::presetsFabrica();
+            for (size_t i = 0; i < ps.size(); ++i) for (size_t j = i + 1; j < ps.size(); ++j) if (ps[i].nom == ps[j].nom) ++repetits;
+            bool sonen = true;
+            for (const char* g : guia)
+                for (const auto& p : ps)
+                {
+                    if (p.nom.find (g) == std::string::npos) continue;
+                    ++trobades;
+                    rack::Rack r;
+                    r.posaEstat (p.estat);
+                    r.prepara (fs, 256);
+                    bool ret = false;
+                    for (int k = 0; k < rack::maxRetorns; ++k) ret = ret || r.retorn (k).actiu;
+                    for (int i = 0; i < r.numModuls(); ++i) ret = ret || r.cami (i) > 0;
+                    if (ret) ++ambRetorns;
+                    auto L = veuSintetica (196.0, (int) fs), R = L;
+                    const auto t0 = std::chrono::steady_clock::now();
+                    passa (r, L, R);
+                    const double cpu = 100.0 * std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+                    if (cpu > pitjorCpu) { pitjorCpu = cpu; pitjorNom = p.nom; }
+                    sonen = sonen && finit (L) && finit (R);
+                    break;
+                }
+            comprova (trobades == 30 && ambRetorns >= 27 && repetits == 0 && sonen,
+                      std::to_string (trobades) + " de la guia, " + std::to_string (ambRetorns) + " amb retorns, " + std::to_string (ps.size()) + " presets en total, sense repetits; tots sonen");
+            std::printf ("        el que gasta més: «%s», %.1f %% d'un nucli\n", pitjorNom.c_str(), pitjorCpu);
         });
 
         prova ("0.73 Context i escales", [&]
