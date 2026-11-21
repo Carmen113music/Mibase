@@ -341,6 +341,76 @@ namespace
             std::printf ("        el que gasta més: «%s», %.1f %% d'un nucli\n", pitjorNom.c_str(), pitjorCpu);
         });
 
+        prova ("0.77 Detector: sense errors d'octava amb un 2n harmònic fort, i l'Humanitza no tremola", [&]
+        {
+            // una veu amb el 2n i el 3r harmònics més forts que la fonamental (com moltes veus reals): YIN tendeix a saltar d'octava
+            std::vector<float> v ((size_t) (3 * fs));
+            double fase = 0.0;
+            for (size_t i = 0; i < v.size(); ++i)
+            {
+                const double f = 196.0 * (1.0 + 0.006 * std::sin (2.0 * 3.141592653589793 * 5.0 * (double) i / fs));
+                fase += 2.0 * 3.141592653589793 * f / fs;
+                v[i] = (float) (0.1 * std::sin (fase) + 0.35 * std::sin (2 * fase + 0.3) + 0.25 * std::sin (3 * fase + 1.1) + 0.08 * std::sin (4 * fase));
+            }
+            canvito::Analitzador an;
+            an.prepara (fs);
+            int salts = 0;
+            float ant = 0.0f;
+            for (size_t i = 0; i < v.size(); ++i)
+            {
+                an.entra (v[i]);
+                if (i % 240 == 0 && i > (size_t) (0.2 * fs))
+                {
+                    const float f = an.f0();
+                    if (f > 0.0f && ant > 0.0f && std::abs (12.0 * std::log2 (f / ant)) > 7.0) ++salts;
+                    if (f > 0.0f) ant = f;
+                }
+            }
+            comprova (salts == 0 && std::abs (12.0 * std::log2 (ant / 196.0)) < 0.5, "cap salt d'octava (" + std::to_string (salts) + "), es queda a 196 Hz");
+            // un salt d'octava curt (60 ms, com els errors del detector amb una veu real) no s'accepta; un de llarg (400 ms) sí
+            {
+                std::vector<float> w ((size_t) (1.6 * fs));
+                double fa = 0.0;
+                for (size_t i = 0; i < w.size(); ++i)
+                {
+                    const double t = (double) i / fs;
+                    const bool amunt = (t >= 0.5 && t < 0.56) || t >= 1.1;
+                    fa += 2.0 * 3.141592653589793 * (amunt ? 392.0 : 196.0) / fs;
+                    double x = 0.0;
+                    for (int k = 1; k <= 8; ++k) x += std::sin (k * fa) / (k * k * 0.6);
+                    w[i] = (float) (0.3 * x);
+                }
+                canvito::Analitzador b;
+                b.prepara (fs);
+                float maxCurt = 0.0f, finalLlarg = 0.0f;
+                for (size_t i = 0; i < w.size(); ++i)
+                {
+                    b.entra (w[i]);
+                    const double t = (double) i / fs;
+                    if (t > 0.5 && t < 0.65) maxCurt = std::max (maxCurt, b.f0());
+                    if (t > 1.55) finalLlarg = b.f0();
+                }
+                comprova (maxCurt < 260.0f && std::abs (finalLlarg - 392.0f) < 10.0f,
+                          "salt curt ignorat (com a molt " + std::to_string (maxCurt) + " Hz); salt llarg acceptat (" + std::to_string (finalLlarg) + " Hz)");
+            }
+            // Humanitza al 100 %: la desafinació és lenta (a 5 ms, la nota de la veu nova canvia molt poc)
+            ContextMusical ctx;
+            harmonitzador::Harmonitzador h;
+            h.posaContext (&ctx);
+            h.prepara (fs, 256);
+            h.posa (harmonitzador::Sec, 0); h.posa (harmonitzador::Harmonies, 100); h.posa (harmonitzador::Humanitza, 100);
+            h.posa (harmonitzador::Interval1, 2); h.posa (harmonitzador::Interval1 + 1, 0); h.posa (harmonitzador::Pan1, 0);
+            auto L = veuSintetica (220.0, (int) (3 * fs)), R = L;
+            passa (h, L, R);
+            auto a = veu::analitza (L.data() + (int) fs, (long long) L.size() - (int) fs, fs);
+            double tremolor = 0.0;
+            int n = 0;
+            for (int i = 1; i < a.punts(); ++i)
+                if (a.f0[(size_t) i] > 0.0f && a.f0[(size_t) i - 1] > 0.0f) { tremolor += std::abs (1200.0 * std::log2 (a.f0[(size_t) i] / a.f0[(size_t) i - 1])); ++n; }
+            tremolor = n > 0 ? tremolor / n : 99.0;
+            comprova (finit (L) && tremolor < 4.0, "Humanitza 100 %: canvia " + std::to_string (tremolor) + " cèntims cada 5 ms (lent)");
+        });
+
         prova ("0.73 Context i escales", [&]
         {
             using namespace harmonitzador;

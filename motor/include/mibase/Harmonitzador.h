@@ -63,6 +63,11 @@ namespace mibase::canvito
         long long dn = 0, dMascara = 0;
         float hist[3] {};
         float f0Ara = 0.0f;
+        // 0.77: continuïtat (contra els errors d'octava i els talls a mitja nota)
+        float fEstable = 0.0f;      // el darrer to bo
+        int edat = 1000;            // passos (5 ms) des del darrer to bo
+        int passosSalt = 0;         // quants passos seguits demana un salt d'octava
+        float fSalt = 0.0f;
         // marques
         std::vector<Marca> marques;
         long long nMarques = 0;
@@ -157,6 +162,7 @@ namespace mibase::harmonitzador
         std::vector<float> secL, secR;
         long long secMascara = 0, secW = 0;
         std::array<float, numVeus> semi {}, guany {}, deriva {}, desti {};
+        std::array<float, numVeus> derivaDe {}, derivaA {}, derivaFase {}, derivaPas {};   // 0.77: deriva lenta
         std::array<std::atomic<int>, numVeus> notesVeus;
         std::atomic<float> detectada { -1.0f };
         int notaLead = -1;

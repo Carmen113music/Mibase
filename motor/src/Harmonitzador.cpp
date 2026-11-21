@@ -134,6 +134,7 @@ namespace mibase::canvito
         lp1 = lp2 = d1 = d2 = acum = 0.0f;
         comptaDec = comptaHop = 0;
         hist[0] = hist[1] = hist[2] = 0.0f;
+        fEstable = fSalt = 0.0f; edat = 1000; passosSalt = 0;
         f0Ara = 0.0f;
         ultima = 0.0;
         ultimaSonor = false;
@@ -171,7 +172,8 @@ namespace mibase::canvito
         for (int j = 0; j < total; ++j) lin[(size_t) j] = dAnell[(size_t) ((s + j) & dMascara)];
         for (int j = 0; j < w; ++j) energia += (double) lin[(size_t) j] * lin[(size_t) j];
         float f = 0.0f;
-        if (std::sqrt (energia / w) > 0.003)   // sota uns -50 dB: silenci
+        const bool ambVeu = std::sqrt (energia / w) > 0.003;   // sota uns -50 dB: silenci
+        if (ambVeu)
         {
             const float* x = lin.data();
             for (int tau = 1; tau <= tauMax; ++tau)
@@ -188,6 +190,12 @@ namespace mibase::canvito
                 suma += dif[(size_t) tau];
                 cmnd[(size_t) tau] = suma > 0.0 ? (float) (dif[(size_t) tau] * tau / suma) : 1.0f;
             }
+            auto refina = [this] (int t)
+            {
+                const double a = cmnd[(size_t) t - 1], b = cmnd[(size_t) t], c = cmnd[(size_t) t + 1];
+                const double den = a - 2.0 * b + c;
+                return fd / (t + (std::abs (den) > 1e-12 ? 0.5 * (a - c) / den : 0.0));
+            };
             int t = -1;
             for (int tau = tauMin; tau < tauMax; ++tau)
                 if (cmnd[(size_t) tau] < 0.18f)
@@ -198,13 +206,36 @@ namespace mibase::canvito
                 }
             if (t > 0)
             {
-                const double a = cmnd[(size_t) t - 1], b = cmnd[(size_t) t], c = cmnd[(size_t) t + 1];
-                const double den = a - 2.0 * b + c;
-                const double tf = t + (std::abs (den) > 1e-12 ? 0.5 * (a - c) / den : 0.0);
-                const double hz = fd / tf;
+                const double hz = refina (t);
                 if (hz >= fMin && hz <= fMax) f = (float) hz;
             }
+            // 0.77: continuïtat. Si el to d'ara és un salt d'octava (o d'octava i 5a) del darrer to bo i el període
+            // d'abans encara hi és (un mínim prou bo a prop), ens hi quedem; el salt només val si dura 120 ms.
+            if (fEstable > 0.0f && edat < 20)
+            {
+                const double tPrev = fd / fEstable;
+                int tc = -1;
+                float vc = 1.0f;
+                for (int tau = std::max (tauMin, (int) (tPrev * 0.85)); tau <= std::min (tauMax - 1, (int) (tPrev * 1.15) + 1); ++tau)
+                    if (cmnd[(size_t) tau] < vc && cmnd[(size_t) tau] <= cmnd[(size_t) tau - 1] && cmnd[(size_t) tau] <= cmnd[(size_t) tau + 1])
+                    { vc = cmnd[(size_t) tau]; tc = tau; }
+                const double salt = f > 0.0f ? std::abs (12.0 * std::log2 (f / fEstable)) : 0.0;
+                if (tc > 0 && vc < 0.4f && (f <= 0.0f || salt > 7.0))
+                {
+                    const double hzc = refina (tc);
+                    if (f > 0.0f && salt > 7.0)
+                    {
+                        if (fSalt > 0.0f && std::abs (12.0 * std::log2 (f / fSalt)) < 1.0) ++passosSalt;
+                        else { passosSalt = 1; fSalt = f; }
+                        if (passosSalt * 5 < 120) f = (float) hzc;   // encara no: es queda on era
+                    }
+                    else if (f <= 0.0f && edat < 8) f = (float) hzc;   // un tall a mitja nota (< 40 ms): el període d'abans hi és
+                }
+                else if (salt <= 7.0) passosSalt = 0;
+            }
         }
+        if (f > 0.0f) { fEstable = f; edat = 0; }
+        else if (edat < 1000) ++edat;
         hist[0] = hist[1]; hist[1] = hist[2]; hist[2] = f;
         // mitjana de les tres darreres (amb zeros = sense to): no salta per una lectura dolenta
         const float a = hist[0], b = hist[1], c = hist[2];
@@ -554,10 +585,20 @@ namespace mibase::harmonitzador
             for (int v = 0; v < numVeus; ++v)
             {
                 semi[(size_t) v] += (desti[(size_t) v] - semi[(size_t) v]) * kS;
-                // humanitza: una deriva lenta de pocs cèntims, diferent per a cada veu
-                llavor = llavor * 1664525u + 1013904223u;
-                const float rnd = (float) ((llavor >> 8) & 0xFFFF) / 65535.0f - 0.5f;
-                deriva[(size_t) v] = lim (deriva[(size_t) v] * 0.995f + rnd * hum * 0.8f, -14.0f * hum, 14.0f * hum);
+                // humanitza (0.77): una deriva lenta i suau (corba entre punts a l'atzar cada 0,3–0,8 s), fins a ±12 cèntims.
+                // Abans era un passeig a l'atzar a cada tros de 64 mostres: tremolava i com més alt, més rar sonava.
+                derivaFase[(size_t) v] += derivaPas[(size_t) v] * (float) m;
+                if (derivaFase[(size_t) v] >= 1.0f || derivaPas[(size_t) v] <= 0.0f)
+                {
+                    derivaFase[(size_t) v] = 0.0f;
+                    derivaDe[(size_t) v] = derivaA[(size_t) v];
+                    llavor = llavor * 1664525u + 1013904223u;
+                    derivaA[(size_t) v] = (float) ((llavor >> 8) & 0xFFFF) / 32767.5f - 1.0f;
+                    llavor = llavor * 1664525u + 1013904223u;
+                    derivaPas[(size_t) v] = 1.0f / (float) ((0.3 + 0.5 * ((llavor >> 8) & 0xFFFF) / 65535.0) * fs);
+                }
+                const float c = 0.5f - 0.5f * std::cos (3.14159265f * derivaFase[(size_t) v]);
+                deriva[(size_t) v] = 12.0f * hum * (derivaDe[(size_t) v] + (derivaA[(size_t) v] - derivaDe[(size_t) v]) * c);
             }
 
             for (int i = base; i < base + m; ++i)
