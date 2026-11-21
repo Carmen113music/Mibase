@@ -262,6 +262,8 @@ public:
     // ---- Transport (la pantalla ho copia del motor unes 30 vegades per segon) ----
     int transport = 0;               // 0 aturat, 1 sonant, 2 comptant, 3 gravant
     double cursorGravacio = 0.0;     // on s'ha premut gravar
+    /** 0.72: el darrer clip buit fet amb Ctrl + arrossegar (on anirà la propera gravació si la seva pista està armada). */
+    struct ClipPreparat { std::string pista; double ini = 0.0, fi = 0.0; } clipPreparat;
     /** El capçal s'ha mogut a mà (per fer saltar el que sona). */
     std::function<void (double)> onCapcalMogut;
 
@@ -301,6 +303,8 @@ public:
         if (noms.isEmpty())
         {
             m.addItem (base - 1, "La targeta no té entrades (o està aturada)"_ca, false);
+            m.addSeparator();
+            m.addItem (base + 300, "Escolta't per Mibase amb gravar encès"_ca, true, t.escolta);   // 0.71
             return m;
         }
         auto nom = [&] (int e) { return noms[e].isNotEmpty() ? noms[e] : "apagada a les Preferències"_ca; };
@@ -314,6 +318,10 @@ public:
                 m.addItem (base + 100 + e, juce::String (e + 1) + "+" + juce::String (e + 2) + "   " + nom (e) + " / " + nom (e + 1),
                            noms[e].isNotEmpty() && noms[e + 1].isNotEmpty(), t.canals == 2 && t.entrada == e);
         }
+        // 0.71: amb el botó de gravar encès, el que entra se sent per Mibase (amb els efectes de la pista). Apaga-ho si
+        // t'escoltes pel monitor directe de la targeta (si no, et sentiries dues vegades).
+        m.addSeparator();
+        m.addItem (base + 300, "Escolta't per Mibase amb gravar encès"_ca, true, t.escolta);
         return m;
     }
     /** 0.36: la part OUT del botó E/S (i de la sortida de la taula de mescles): MASTER L+R destacat, FX ▸ i Grups ▸.
@@ -444,6 +452,7 @@ public:
     /** Aplica el que s'ha triat a menuEntrades. Retorna false si «r» no n'és. */
     static bool aplicaEntrada (mibase::Pista& t, int r, int base)
     {
+        if (r == base + 300) { t.escolta = ! t.escolta; return true; }   // 0.71
         if (r >= base + 100 && r < base + 200) { t.entrada = r - base - 100; t.canals = 2; return true; }
         if (r >= base && r < base + 100) { t.entrada = r - base; t.canals = 1; return true; }
         return false;
@@ -530,6 +539,7 @@ public:
     bool panellCarpetes = false;
 
     mibase::Pista* pista (int i) { return (i >= 0 && i < numPistes()) ? &projecte.pistes[(size_t) i] : nullptr; }
+    const mibase::Pista* pista (int i) const { return (i >= 0 && i < numPistes()) ? &projecte.pistes[(size_t) i] : nullptr; }
 
     bool clipTriat (int p, int c) const
     {

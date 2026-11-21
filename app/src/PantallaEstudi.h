@@ -91,8 +91,20 @@ private:
     void publicaPla();
     void reprodueix();
     void atura();
-    void grava();
+    void grava (double cursor);
     void acabaGravacio();
+    // 0.72: gravació intuïtiva amb el 0 del teclat numèric
+    void gravaContextual();               // el 0 i el botó de gravar del transport
+    void punchIn (int pista);
+    void punchOut();
+    int pistaArmada() const;
+    int clipPerGravar (int pista) const;   // el clip buit on anirà la gravació (o -1)
+    double iniciPreroll (double cursor) const;
+    void revisaArmament();               // canviar de pista desarma l'anterior (i no arma la nova)
+    bool esNumpad0 (const juce::KeyPress& k) const;
+    juce::int64 darrerNumpad0 = 0;
+    std::string idTriadaAbans;
+    bool esperaExacte = false;            // s'espera exactament «estatEsperat» (punch in/out)
     void avisDeTargeta (const juce::String& titol, const juce::String& text);
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void scrollBarMoved (juce::ScrollBar* barra, double inici) override;
@@ -253,6 +265,7 @@ private:
         double desDe = 0.0, cursor = 0.0, retard = 0.0;
         bool retardMesurat = false;
         bool midi = false;                                   // grava el teclat MIDI (no la targeta)
+        bool punch = false;                                  // 0.72: començada amb Punch In (sonant)
         bool perSampler = false;                             // 0.28: grava dins el samplejador (un sample nou, no un clip)
         double fins = 0.0;                                   // MIDI: on s'ha aturat
         std::vector<mibase::MotorEstudi::MidiGravat> missatges;
