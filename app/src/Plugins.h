@@ -160,6 +160,10 @@ public:
     /** 0.55: obre la finestra d'un efecte intern de Mibase (Reverb, 0.56 Dinàmica) d'un insert (el crea si encara no sona,
         per exemple si està apagat). */
     void obreIntern (const mibase::Insert& x, const juce::String& titol);
+    /** 0.78: «Implementa a pistes reals» des de la finestra del Vocal Studio (id de l'insert; 0 = quants busos, 1 = implementa, 2 = treu). */
+    std::function<int (const std::string& idInsert, int accio)> onAccioRack;
+    /** 0.78: després de desfer/refer, els Vocal Studio vius agafen els ajustos del projecte (si han canviat). */
+    void restauraRacks (const mibase::Projecte& p);
     static bool esIntern (const std::string& plugin) { return plugin == mibase::reverb::idPlugin || plugin == mibase::dinamica::idPlugin || plugin == mibase::eq::idPlugin
                                                                   || plugin == mibase::delay::idPlugin || plugin == mibase::saturacio::idPlugin
                                                                   || plugin == mibase::drive::idPlugin

@@ -411,7 +411,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
         else if (auto lm = std::dynamic_pointer_cast<mibase::limitador::Limitador> (r->second))   // 0.69
             finestres[clau] = creaFinestraLimitador (lm, titol, [this, clau] { finestres.erase (clau); });
         else if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (r->second))   // 0.70
-            finestres[clau] = creaFinestraVocalStudio (rk, titol, [this, clau] { finestres.erase (clau); });
+            finestres[clau] = creaFinestraVocalStudio (rk, titol, [this, clau] { finestres.erase (clau); },
+                                                       [this, clau] (int a) { return onAccioRack ? onAccioRack (clau, a) : 0; });
         if (auto f = finestres.find (clau); f != finestres.end() && f->second != nullptr) quedaSobreMibase (*f->second);   // 0.70
         return;
     }
@@ -462,6 +463,20 @@ void GestorPlugins::obreIntern (const mibase::Insert& x, const juce::String& tit
         sensePreparar.insert (x.id);
     }
     obreFinestra (x.id, titol);
+}
+
+void GestorPlugins::restauraRacks (const mibase::Projecte& p)
+{
+    auto fes = [this] (const mibase::Insert& x)
+    {
+        if (x.plugin != mibase::rack::idPlugin) return;
+        auto it = reverbs.find (x.id);
+        if (it == reverbs.end() || it->second == nullptr) return;
+        if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (it->second))
+            if (rk->estat() != x.estat) rk->posaEstat (x.estat);
+    };
+    for (const auto& x : p.insertsMaster) fes (x);
+    for (const auto& t : p.pistes) for (const auto& x : t.inserts) fes (x);
 }
 
 mibase::Parametritzable* GestorPlugins::parametres (const mibase::Insert& x)

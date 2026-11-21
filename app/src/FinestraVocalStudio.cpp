@@ -477,6 +477,12 @@ namespace
             addAndMakeVisible (btAfegeix);
             btAfegeix.setTooltip ("Afegeix un mòdul al final de la cadena principal"_ca);
             btAfegeix.onClick = [this] { menuAfegeix (0, &btAfegeix); };
+            addAndMakeVisible (btPistes);   // 0.78
+            btPistes.setTooltip ("Converteix els retorns en busos d'efectes de debò (carpeta «VS · …»), amb els enviaments i el ducking. Al Vocal Studio hi queda la cadena principal."_ca);
+            btPistes.onClick = [this] { if (accioPistes) { accioPistes (1); refesFiles(); refresca(); } };
+            addAndMakeVisible (btTreuCadena);
+            btTreuCadena.setTooltip ("Esborra els busos «VS · …» que reben aquesta pista (i la seva carpeta). Es pot desfer."_ca);
+            btTreuCadena.onClick = [this] { if (accioPistes) { accioPistes (2); refresca(); } };
             addAndMakeVisible (btRetorn);   // 0.76
             btRetorn.setTooltip ("Un camí en paral·lel: reverb, delay, compressió paral·lela, dobles o harmonies, amb el seu volum i ducking"_ca);
             btRetorn.onClick = [this] { menuRetorn(); };
@@ -666,6 +672,10 @@ namespace
                 bool lliure = false;
                 for (int k = 0; k < maxRetorns; ++k) lliure = lliure || ! rk->retorn (k).actiu;
                 btRetorn.setEnabled (lliure && rk->numModuls() < maxModuls);
+                bool hiHa = false;
+                for (int k = 0; k < maxRetorns; ++k) hiHa = hiHa || rk->retorn (k).actiu;
+                btPistes.setEnabled (hiHa && accioPistes != nullptr);   // 0.78
+                btTreuCadena.setEnabled (accioPistes != nullptr && accioPistes (0) > 0);
             }
             repaint();
         }
@@ -757,6 +767,9 @@ namespace
                 btAfegeix.setBounds (b.removeFromLeft (220));
                 b.removeFromLeft (10);
                 btRetorn.setBounds (b.removeFromLeft (220));
+                btTreuCadena.setBounds (b.removeFromRight (170));   // 0.78
+                b.removeFromRight (10);
+                btPistes.setBounds (b.removeFromRight (190));
             }
             r.removeFromBottom (8);
             zonaRack = r;
@@ -1044,6 +1057,11 @@ namespace
         std::vector<std::unique_ptr<FilaModul>> files;
         Boto btAfegeix { "Afegeix un mòdul"_ca, dibuix::Icona::Mes, Boto::Estil::Discontinu };
         Boto btRetorn { "Afegeix un retorn"_ca, dibuix::Icona::Mes, Boto::Estil::Discontinu };   // 0.76
+        Boto btPistes { "A pistes reals"_ca, std::nullopt, Boto::Estil::Primari };              // 0.78
+        Boto btTreuCadena { "Treu la cadena"_ca, std::nullopt, Boto::Estil::Secundari };
+    public:
+        std::function<int (int)> accioPistes;
+    private:
         std::vector<std::unique_ptr<CapCami>> caps;
         std::vector<std::pair<juce::Component*, int>> ordre;
         friend class CapCami;
@@ -1213,12 +1231,14 @@ namespace
     class FinestraVocalStudio : public juce::DocumentWindow
     {
     public:
-        FinestraVocalStudio (std::shared_ptr<Rack> r, const juce::String& titol, std::function<void()> enTancar)
+        FinestraVocalStudio (std::shared_ptr<Rack> r, const juce::String& titol, std::function<void()> enTancar, std::function<int (int)> accioPistes)
             : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
               tancar (std::move (enTancar))
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new PanellVocalStudio (std::move (r), titol), true);
+            auto* p = new PanellVocalStudio (std::move (r), titol);
+            p->accioPistes = std::move (accioPistes);
+            setContentOwned (p, true);
             setResizable (true, true);
             setResizeLimits (760, 560, 1600, 1200);
             centreWithSize (getWidth(), getHeight());
@@ -1231,7 +1251,8 @@ namespace
     };
 }
 
-std::unique_ptr<juce::DocumentWindow> creaFinestraVocalStudio (std::shared_ptr<Rack> r, const juce::String& titol, std::function<void()> enTancar)
+std::unique_ptr<juce::DocumentWindow> creaFinestraVocalStudio (std::shared_ptr<Rack> r, const juce::String& titol, std::function<void()> enTancar,
+                                                               std::function<int (int)> accioPistes)
 {
-    return std::make_unique<FinestraVocalStudio> (std::move (r), titol, std::move (enTancar));
+    return std::make_unique<FinestraVocalStudio> (std::move (r), titol, std::move (enTancar), std::move (accioPistes));
 }

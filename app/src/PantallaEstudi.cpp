@@ -129,6 +129,37 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     estat.altPista = juce::jmax (VistaPistes::alcadaMinima, ajustos.getIntValue ("estudi.altPista", 80));
     if (! estat.projecte.pistes.empty()) estat.pistaTriada = 0;
     if (auto* t = estat.pista (estat.pistaTriada)) idTriadaAbans = t->id;   // 0.72
+    // 0.78: «Implementa a pistes reals» / «Treu la cadena» des de la finestra del Vocal Studio
+    plugins.onAccioRack = [this] (const std::string& idInsert, int accio) -> int
+    {
+        int pista = -1;
+        const mibase::Insert* in = nullptr;
+        for (int i = 0; i < estat.numPistes() && pista < 0; ++i)
+            for (const auto& x : estat.projecte.pistes[(size_t) i].inserts)
+                if (x.id == idInsert) { pista = i; in = &x; }
+        if (pista < 0 || in == nullptr) return 0;
+        if (accio == 0) return (int) rack::busosDesplegats (estat.projecte, pista).size();
+        plugins.desaEstats (estat.projecte);   // el que hi ha ara al Vocal Studio viu
+        estat.desfes.abans (estat.projecte);
+        const juce::String nom = dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom);
+        if (accio == 1)
+        {
+            const auto r = rack::desplega (estat.projecte, pista, idInsert);
+            if (! r.correcte) { estat.info = dibuix::utf8 (r.error); estat.avisa(); return 0; }
+            // el Vocal Studio viu: ara només amb la cadena principal
+            for (const auto& t : estat.projecte.pistes)
+                for (const auto& x : t.inserts)
+                    if (x.id == idInsert)
+                        if (auto* rk = dynamic_cast<rack::Rack*> (plugins.parametres (x))) rk->posaEstat (x.estat);
+            estat.canviat ("Vocal Studio de «"_ca + nom + "» a pistes reals: "_ca + juce::String (r.busos) + " busos"_ca);
+            estat.info = "Fet: "_ca + juce::String (r.busos) + " busos «VS · "_ca + nom + " · …» a la carpeta «VS · "_ca + nom + "». Per treure-ho: «Treu la cadena» o Desfés."_ca;
+            estat.avisa();
+            return r.busos;
+        }
+        const int n = rack::treuDesplegament (estat.projecte, pista);
+        estat.canviat ("Treta la cadena «VS · "_ca + nom + "» ("_ca + juce::String (n) + " busos)"_ca);
+        return n;
+    };
     estat.addChangeListener (this);
     estat.onCanviat = [this] (const juce::String& evolucio)
     {
@@ -2383,6 +2414,7 @@ void PantallaEstudi::desfes (bool refer)
 {
     const bool fet = refer ? estat.desfes.refes (estat.projecte) : estat.desfes.desfes (estat.projecte);
     if (! fet) return;
+    plugins.restauraRacks (estat.projecte);   // 0.78: el Vocal Studio viu, com el del projecte
     for (auto& s : estat.projecte.preses)
         if (estat.ones.find (s.id) == estat.ones.end())
             carregaOna (s);

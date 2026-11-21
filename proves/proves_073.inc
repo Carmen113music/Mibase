@@ -5,6 +5,8 @@
 #include "mibase/Rack.h"
 #include "mibase/Doubler.h"
 #include "mibase/Reverb.h"
+#include "mibase/Edicio.h"
+#include "mibase/Projecte.h"
 namespace
 {
     void proves073()
@@ -409,6 +411,56 @@ namespace
                 if (a.f0[(size_t) i] > 0.0f && a.f0[(size_t) i - 1] > 0.0f) { tremolor += std::abs (1200.0 * std::log2 (a.f0[(size_t) i] / a.f0[(size_t) i - 1])); ++n; }
             tremolor = n > 0 ? tremolor / n : 99.0;
             comprova (finit (L) && tremolor < 4.0, "Humanitza 100 %: canvia " + std::to_string (tremolor) + " cèntims cada 5 ms (lent)");
+        });
+
+        prova ("0.78 Implementa a pistes reals: busos d'efectes, enviaments, ducking amb sidechain, i treure-ho", [&]
+        {
+            Projecte p;
+            edicio::afegeixPista (p, "Guitarra", "audio");
+            edicio::afegeixPista (p, "Veu", "audio");
+            std::string est;
+            for (const auto& x : rack::presetsFabrica()) if (x.nom == "Dua Lipa · Don't Start Now") est = x.estat;
+            Insert in;
+            in.id = "i" + std::to_string (++p.comptador);
+            in.plugin = rack::idPlugin;
+            in.nom = rack::nomPlugin;
+            in.estat = est;
+            p.pistes[1].inserts.push_back (in);
+            const auto r = rack::desplega (p, 1, in.id);
+            comprova (r.correcte && r.busos == 4 && p.pistes.size() == 6, "4 retorns → 4 busos (" + std::to_string (r.busos) + ")");
+            const int veu = edicio::pistaPerId (p, p.pistes[1].id);
+            const auto bs = rack::busosDesplegats (p, veu);
+            bool noms = bs.size() == 4, carpeta = true, ducking = false, petit = false;
+            for (int b : bs)
+            {
+                const auto& t = p.pistes[(size_t) b];
+                noms = noms && t.nom.rfind ("VS · Veu · ", 0) == 0 && t.tipus == "fx" && ! t.inserts.empty();
+                carpeta = carpeta && t.carpeta == r.carpeta;
+                for (const auto& x : t.inserts)
+                {
+                    if (x.plugin == dinamica::idPlugin && ! x.sidechain.empty() && x.sidechain[0].pista == p.pistes[(size_t) veu].id) ducking = true;
+                    if (x.plugin == rack::idPlugin) petit = true;   // el Doubler, dins d'un Vocal Studio petit
+                }
+            }
+            comprova (noms && carpeta && edicio::carpeta (p, r.carpeta) != nullptr && edicio::carpeta (p, r.carpeta)->nom == "VS · Veu",
+                      "busos «VS · Veu · …» dins de la carpeta «VS · Veu»");
+            comprova (ducking && petit, "el delay porta el ducking amb la veu de sidechain; el Doubler va dins d'un Vocal Studio petit");
+            comprova (p.pistes[(size_t) veu].enviaments.size() == 4, "la veu envia a cada bus");
+            rack::Rack queda;
+            queda.posaEstat (p.pistes[(size_t) veu].inserts[0].estat);
+            bool nomesPrincipal = queda.numModuls() > 0;
+            for (int i = 0; i < queda.numModuls(); ++i) nomesPrincipal = nomesPrincipal && queda.cami (i) == 0;
+            for (int k = 0; k < rack::maxRetorns; ++k) nomesPrincipal = nomesPrincipal && ! queda.retorn (k).actiu;
+            comprova (nomesPrincipal, "al Vocal Studio de la veu només hi queda la cadena principal");
+            // el fader del bus de la plate = el retorn d'abans
+            rack::Rack abans;
+            abans.posaEstat (est);
+            bool fader = false;
+            for (int b : bs) if (p.pistes[(size_t) b].nom.find ("Plate") != std::string::npos) fader = std::abs (p.pistes[(size_t) b].faderDb - abans.valor (rack::Retorn1 + 1)) < 1e-3;
+            comprova (fader, "el fader del bus és el volum del retorn");
+            const int tretes = rack::treuDesplegament (p, veu);
+            comprova (tretes == 4 && p.pistes.size() == 2 && p.pistes[1].enviaments.empty() && p.carpetes.empty(), "«Treu la cadena» ho esborra tot (busos, enviaments, carpeta)");
+            comprova (! rack::desplega (p, 1, in.id).correcte, "sense retorns, no es pot desplegar");
         });
 
         prova ("0.73 Context i escales", [&]

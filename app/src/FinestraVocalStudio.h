@@ -8,4 +8,5 @@
 /** 0.70: la finestra del «Vocal Studio (Mibase)»: presets, 8 macros, entrada i sortida, i el rack de mòduls (encès, Mix,
     ordre, treure, afegir) amb la finestra de sempre de cada mòdul. */
 std::unique_ptr<juce::DocumentWindow> creaFinestraVocalStudio (std::shared_ptr<mibase::rack::Rack> rack, const juce::String& titol,
-                                                               std::function<void()> enTancar);
+                                                               std::function<void()> enTancar,
+                                                               std::function<int (int)> accioPistes = {});   // 0.78: 0 = quants busos «VS ·», 1 = implementa, 2 = treu
