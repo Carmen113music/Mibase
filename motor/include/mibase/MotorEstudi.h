@@ -87,6 +87,7 @@ namespace mibase
             int bus = -1;            // és un bus: quin buffer d'entrada té (0..maxBusos-1); -1 = pista normal
             int desti = -1;          // buffer del bus on va el so; -1 = a la sortida
             bool armada = false;     // 0.68: té el botó de gravar encès (amb «Retard mínim», sense plugins que retarden)
+            int escoltaEntrada = -1; // 0.71: armada i amb «escolta»: la primera entrada de la targeta que se sent (-1 = cap)
             bool obert = true;       // false: només sonen els seus enviaments (alimenta un retorn en solo)
             struct Envia { int desti = 0; float guanyL = 1.0f, guanyR = 1.0f; int mode = 1; };
             std::vector<Envia> envia;   // els encesos, per ordre
@@ -194,6 +195,12 @@ namespace mibase
         bool getRetardMinim() const noexcept { return retardMinim.load (std::memory_order_relaxed); }
         /** 0.68: la pista (slot) que toca el teclat ara (-1: cap); la posa el motor. */
         void setSlotDirecte (int s) noexcept { slotDirecte = s; }
+        /** 0.71: les entrades de la targeta d'aquest tros (per escoltar-se mentre es grava). «mapa»: entrada lògica →
+            canal de la targeta; «offset»: on comença el tros dins dels buffers. */
+        void setEntrades (const float* const* e, int num, const int* mapa, int numMapa, int offset) noexcept
+        {
+            entrades = e; numEntrades = num; mapaEnt = mapa; numMapaEnt = numMapa; offsetEnt = offset;
+        }
         /** 0.68: quantes mostres s'avança una pista: el retard dels seus plugins, del bus (o busos) on va i del màster. */
         static int retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats = nullptr,
                              const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
@@ -208,6 +215,10 @@ namespace mibase
         /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc) i apaga les notes que sonen
             (play, situar el capçal, tornar a l'inici del bucle). */
         void reinicia() noexcept;
+        /** 0.71: tornar a l'inici del bucle (o saltar de tram): com reinicia(), però les notes que sonen s'apaguen una a
+            una (note-off) en lloc d'«apaga-ho tot». Alguns VST3 apliquen l'«apaga-ho tot» després de les notes del mateix
+            instant i es menjaven les notes del començament del bucle. */
+        void reiniciaBucle() noexcept;
         /** Pistes (slots) que no sonen al tram de l'estructura que sona ara (0.15). */
         void setSilenci (const std::bitset<128>& s) noexcept { silenciAra = s; }
         /** Apaga les notes MIDI que sonen (en aturar). */
@@ -230,7 +241,12 @@ namespace mibase
             std::array<NotaActiva, maxNotesActives> act {};
             int n = 0;
             bool apagar = false;
+            bool apagarTou = false;   // 0.71
         };
+        bool margeInici = false, margeAra = false;
+        const float* const* entrades = nullptr;   // 0.71
+        int numEntrades = 0, numMapaEnt = 0, offsetEnt = 0;
+        const int* mapaEnt = nullptr;   // 0.71: després d'un salt, les notes que cauen una mica abans també
         void instrumentPista (const Pla::Pista& t, long long pos, int n, bool reproduint, const EventDirecte* directe, int numDirecte) noexcept;
         void afegeixEvent (int offset, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
 
@@ -294,6 +310,25 @@ namespace mibase
             (la claqueta sona encara que estigui apagada). La gravadora ja ha d'estar engegada. */
         void grava (double desDe, double cursor, int entrada, int canals);
         Gravadora& gravadora() noexcept { return grav; }
+        /** 0.72 (Punch In): si està sonant, comença a gravar ara mateix, sense aturar ni tornar enrere. «entrada» < 0:
+            sense àudio (pista MIDI). Si la pregravació és de la mateixa entrada, el que ha entrat just abans (fins a
+            «segonsPregravacio», sense salts del capçal) va al davant del fitxer: és marge per recuperar, fora del clip.
+            La gravadora ja ha d'estar engegada (si és d'àudio). */
+        void entra (int entrada, int canals);
+        /** 0.72 (Punch Out): deixa de gravar (o de comptar) i continua sonant. */
+        void surt();
+        /** 0.72: l'entrada de la pista armada, que es va guardant mentre sona per a la pregravació del Punch In (-1: cap). */
+        void setPregravacio (int entrada, int canals) noexcept
+        {
+            preEntrada.store (entrada, std::memory_order_relaxed);
+            preCanals.store (canals == 2 ? 2 : 1, std::memory_order_relaxed);
+        }
+        static constexpr double segonsPregravacio = 4.0;
+        /** 0.72: de la darrera gravació: on comença el fitxer, on es va començar a gravar de debò (el punch in o el final
+            del pre-roll) i on es va deixar de gravar (punch out), en segons de la línia de temps. Els escriu el fil d'àudio. */
+        double getIniciFitxer() const noexcept { return iniciFitxer.load (std::memory_order_acquire); }
+        double getPuntGravacio() const noexcept { return puntGravacio.load (std::memory_order_acquire); }
+        double getFiGravacio() const noexcept { return fiGravacio.load (std::memory_order_acquire); }
 
         // ---- MIDI en directe ----
         /** Fil de la interfície: una nota (o un altre missatge) per a l'instrument d'una pista, ara (piano roll, teclat de pantalla). */
@@ -336,7 +371,7 @@ namespace mibase
     private:
         struct Ordre
         {
-            enum class Tipus { Reprodueix, Atura, Situa, Grava } tipus = Tipus::Atura;
+            enum class Tipus { Reprodueix, Atura, Situa, Grava, Entra, Surt } tipus = Tipus::Atura;
             double t = 0.0, t2 = 0.0;
             int a = 0, b = 0;
         };
@@ -369,6 +404,15 @@ namespace mibase
         int entradaGrava = 0, canalsGrava = 1;
 
         Gravadora grav;
+
+        // 0.72: pregravació (anell amb l'entrada de la pista armada mentre sona)
+        void guardaPregravacio (const float* const* entrades, int numEntrades, int fet, int m) noexcept;
+        void escriuPregravacio (long long frames) noexcept;
+        std::vector<float> preL, preR;
+        long long preMida = 0, preEscriu = 0, preContinus = 0;
+        int preEntradaVista = -1, preCanalsVists = 1;
+        std::atomic<int> preEntrada { -1 }, preCanals { 1 };
+        std::atomic<double> iniciFitxer { 0.0 }, puntGravacio { 0.0 }, fiGravacio { 0.0 };
 
         CuaSenseBloqueig<EventDirecte, 512> directeUI, directeTeclat;
         std::array<EventDirecte, 512> directeBloc {};

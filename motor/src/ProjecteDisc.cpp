@@ -362,6 +362,7 @@ namespace mibase::disc
                 t.mut = e.value ("mut", false);
                 t.solo = e.value ("solo", false);
                 t.grava = e.value ("grava", false);
+                t.escolta = e.value ("escolta", true);   // 0.71
                 t.faderDb = e.value ("faderDb", 0.0);
                 t.canals = std::clamp (e.value ("canals", 1), 1, 2);
                 t.color = std::clamp (e.value ("color", (int) p.pistes.size() % 8), 0, 7);
@@ -838,7 +839,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             }
             json pista = { { "id", t.id }, { "nom", t.nom }, { "tipus", t.tipus }, { "canals", t.canals }, { "color", t.color },
                            { "mut", t.mut }, { "solo", t.solo },
-                           { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "rgb", t.rgb },
+                           { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "escolta", t.escolta }, { "rgb", t.rgb },
                            { "clips", clips } };
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
             if (! t.nomInstrument.empty()) { pista["nomInstrument"] = t.nomInstrument; pista["estatInstrument"] = t.estatInstrument; }

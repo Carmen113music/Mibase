@@ -4,6 +4,8 @@
 #include "FinestraSaturacio.h"
 #include "FinestraDrive.h"
 #include "FinestraLimitador.h"
+#include "FinestraVocalStudio.h"
+#include "FinestraFlotant.h"
 #include "FinestraDinamica.h"
 #include "FinestraEq.h"
 #include "FinestraReverb.h"
@@ -408,11 +410,15 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraDrive (dv, titol, [this, clau] { finestres.erase (clau); });
         else if (auto lm = std::dynamic_pointer_cast<mibase::limitador::Limitador> (r->second))   // 0.69
             finestres[clau] = creaFinestraLimitador (lm, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (r->second))   // 0.70
+            finestres[clau] = creaFinestraVocalStudio (rk, titol, [this, clau] { finestres.erase (clau); });
+        if (auto f = finestres.find (clau); f != finestres.end() && f->second != nullptr) quedaSobreMibase (*f->second);   // 0.70
         return;
     }
     auto* a = viu (clau);
     if (a == nullptr) return;
     finestres[clau] = std::make_unique<FinestraPlugin> (titol, a->instancia(), [this, clau] { finestres.erase (clau); }, lateral ? lateral() : nullptr);
+    quedaSobreMibase (*finestres[clau]);   // 0.70: no s'amaga darrere de Mibase en clicar-hi
 }
 
 std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::Insert& x)
@@ -423,6 +429,12 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
     else if (x.plugin == mibase::saturacio::idPlugin) r = std::make_shared<mibase::saturacio::Saturacio>();   // 0.66
     else if (x.plugin == mibase::drive::idPlugin) r = std::make_shared<mibase::drive::Drive>();               // 0.67
     else if (x.plugin == mibase::limitador::idPlugin) r = std::make_shared<mibase::limitador::Limitador>();   // 0.69
+    else if (x.plugin == mibase::rack::idPlugin)   // 0.70
+    {
+        auto rk = std::make_shared<mibase::rack::Rack>();
+        rk->posaTempo (&RellotgePlugins::global().tempo);
+        r = rk;
+    }
     else if (x.plugin == mibase::delay::idPlugin)   // 0.65
     {
         auto dl = std::make_shared<mibase::delay::Delay>();
@@ -508,6 +520,17 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
             if (d == nullptr) { t << "intern (Dinàmica), encara no creada\n"_ca; return; }
             t << "intern (Dinàmica) · "_ca << mibase::dinamica::nomMode ((int) d->valor (mibase::dinamica::ModeP)) << " · reducció "_ca
               << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
+            return;
+        }
+        if (x.plugin == mibase::rack::idPlugin)   // 0.70
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::rack::Rack*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Vocal Studio), encara no creat\n"_ca; return; }
+            t << "intern (Vocal Studio) · "_ca << d->numModuls() << " mòduls:"_ca;
+            for (int i = 0; i < d->numModuls(); ++i)
+                t << " " << juce::String::fromUTF8 (mibase::rack::nomModul (d->modul (i)->clau, d->modul (i)->fx.get()).c_str()) << (d->modul (i)->on.load() ? "" : " (apagat)"_ca);
+            t << " · latència "_ca << d->latencia() << " mostres\n";
             return;
         }
         if (x.plugin == mibase::limitador::idPlugin)   // 0.69
