@@ -2,6 +2,7 @@
 #include "mibase/Harmonitzador.h"
 #include "mibase/Veu.h"
 #include "mibase/Rack.h"
+#include "mibase/Doubler.h"
 namespace
 {
     void proves073()
@@ -198,6 +199,36 @@ namespace
                 comprova (finit (L) && p < 6.0, std::string ("mode ") + harmonitzador::nomMode (mode) + ": cap clic (pitjor " + std::to_string (p) + "x)");
             }
             ctx.totesOff();
+        });
+
+        prova ("0.75 Doubler: la variació mou cada còpia uns mil·lisegons, i sona més", [&]
+        {
+            auto retards = [] (float variacio)
+            {
+                doubler::Doubler d;
+                d.prepara (fs, 256);
+                d.posa (doubler::Quantitat, 100); d.posa (doubler::Desafina, 0); d.posa (doubler::Amplada, 100);
+                d.posa (doubler::Color, 0); d.posa (doubler::Variacio, variacio);
+                const int per = (int) (0.25 * fs), n = 40 * per;
+                std::vector<float> L ((size_t) n, 0.0f), R ((size_t) n, 0.0f);
+                for (int i = 0; i < n; i += per) L[(size_t) i] = R[(size_t) i] = 1.0f;
+                const auto sec = L;
+                for (int i = 0; i < n; i += 256) d.processa (L.data() + i, R.data() + i, std::min (256, n - i));
+                std::vector<double> r;   // on cau el pic de la còpia (L - sec) després de cada cop, en ms
+                for (int k = 2; k < 40; ++k)
+                {
+                    int mx = 0; float v = 0.0f;
+                    for (int j = 1; j < per; ++j) { const float c = std::abs (L[(size_t) (k * per + j)] - sec[(size_t) (k * per + j)]); if (c > v) { v = c; mx = j; } }
+                    r.push_back (1000.0 * mx / fs);
+                }
+                return r;
+            };
+            auto marge = [] (const std::vector<double>& r) { return *std::max_element (r.begin(), r.end()) - *std::min_element (r.begin(), r.end()); };
+            const auto quiet = retards (0), viu = retards (100);
+            comprova (marge (quiet) < 0.5 && marge (viu) > 2.5,
+                      "sense variació la còpia no es mou (" + std::to_string (marge (quiet)) + " ms); amb variació es mou " + std::to_string (marge (viu)) + " ms");
+            doubler::Doubler d;
+            comprova (d.valor (doubler::Quantitat) == 60 && d.valor (doubler::Retard) == 22 && d.valor (doubler::Variacio) == 60, "valors per defecte nous");
         });
 
         prova ("0.73 Context i escales", [&]

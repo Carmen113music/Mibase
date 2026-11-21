@@ -9,11 +9,12 @@ namespace mibase::doubler
     namespace
     {
         const InfoParam infos[numParams] = {
-            { "quantitat", "Quantitat", 0, 100, 40, "Com de fort sonen les dues còpies al costat de la veu (la veu no es toca)." },
-            { "desafina", "Desafina", 0, 30, 9, "Quants cèntims puja una còpia i baixa l'altra: 5–12 és el doblat natural." },
-            { "retard", "Retard", 3, 40, 14, "Quant arriben tard les còpies (ms): més, més separades de la veu." },
-            { "amplada", "Amplada", 0, 100, 80, "0 %: les còpies al mig. 100 %: una a cada costat." },
-            { "color", "Color", 0, 100, 25, "Enfosqueix les còpies perquè no competeixin amb la veu." },
+            { "quantitat", "Quantitat", 0, 100, 60, "Com de fort sonen les dues còpies al costat de la veu (100 %: tan fort com la veu; la veu no es toca)." },
+            { "desafina", "Desafina", 0, 30, 12, "Quants cèntims puja una còpia i baixa l'altra: 5–12 és el doblat natural; més, més ample." },
+            { "retard", "Retard", 3, 60, 22, "Quant arriben tard les còpies (ms): 20–30 és el doblat clàssic; més, més separades de la veu." },
+            { "amplada", "Amplada", 0, 100, 100, "0 %: les còpies al mig. 100 %: una a cada costat." },
+            { "color", "Color", 0, 100, 15, "Enfosqueix les còpies perquè no competeixin amb la veu." },
+            { "variacio", "Variació", 0, 100, 60, "Com de diferent de la veu va cada còpia: s'avança i s'endarrereix uns mil·lisegons a l'atzar, com una segona presa de debò." },
         };
         constexpr double finestraMs = 30.0;
         inline float lim (float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
@@ -30,7 +31,7 @@ namespace mibase::doubler
     void Doubler::prepara (double f, int)
     {
         fs = f > 1000.0 ? f : 48000.0;
-        const int cal = (int) std::ceil ((40.0 + finestraMs + 4.0) * fs / 1000.0) + 4;
+        const int cal = (int) std::ceil ((60.0 + 5.0 + finestraMs + 4.0) * fs / 1000.0) + 4;   // 0.75: fins a 60 ms + la variació
         mida = 1;
         while (mida < cal) mida <<= 1;
         mascara = mida - 1;
@@ -38,6 +39,7 @@ namespace mibase::doubler
         w = 0;
         fase[0] = 0.0; fase[1] = 0.5;
         lpEstat[0] = lpEstat[1] = 0.0f;
+        for (int v = 0; v < 2; ++v) { derivaDe[v] = 0.0; derivaA[v] = 2.0 * atzar() - 1.0; derivaFase[v] = 0.0; derivaPas[v] = 1.0 / ((0.4 + 0.5 * atzar()) * fs); }
         primer = true;
     }
 
@@ -48,7 +50,7 @@ namespace mibase::doubler
             std::fill (linia.begin(), linia.end(), 0.0f);
             lpEstat[0] = lpEstat[1] = 0.0f;
         }
-        const float quant = valor (Quantitat) / 100.0f * 0.75f;
+        const float quant = valor (Quantitat) / 100.0f;   // 0.75: fins a tan fort com la veu (abans 0,75)
         if (primer) { sQuant = quant; primer = false; }
         if (quant < 1.0e-5f && sQuant < 1.0e-5f)
         {
@@ -67,6 +69,7 @@ namespace mibase::doubler
         const double tall = 18000.0 * std::pow (3000.0 / 18000.0, valor (Color) / 100.0);
         const float k = (float) (1.0 - std::exp (-2.0 * 3.141592653589793 * std::min (tall, fs * 0.45) / fs));
         const float dq = (quant - sQuant) / (float) std::max (1, n);
+        const double variacio = valor (Variacio) / 100.0 * 4.0 * fs / 1000.0;   // fins a ±4 ms
         auto llegeix = [this] (double ret) noexcept
         {
             double p = (double) w - ret;
@@ -88,7 +91,18 @@ namespace mibase::doubler
                 double f1 = f0 + 0.5;
                 if (f1 >= 1.0) f1 -= 1.0;
                 const float g0 = (float) (1.0 - std::abs (2.0 * f0 - 1.0)), g1 = (float) (1.0 - std::abs (2.0 * f1 - 1.0));
-                const float x = g0 * llegeix (base + f0 * fin + 1.0) + g1 * llegeix (base + f1 * fin + 1.0);
+                // 0.75: la deriva lenta (corba suau entre punts a l'atzar cada 0,4–0,9 s)
+                derivaFase[v] += derivaPas[v];
+                if (derivaFase[v] >= 1.0)
+                {
+                    derivaFase[v] -= 1.0;
+                    derivaDe[v] = derivaA[v];
+                    derivaA[v] = 2.0 * atzar() - 1.0;
+                    derivaPas[v] = 1.0 / ((0.4 + 0.5 * atzar()) * fs);
+                }
+                const double c = 0.5 - 0.5 * std::cos (3.141592653589793 * derivaFase[v]);
+                const double ret = base + variacio * (derivaDe[v] + (derivaA[v] - derivaDe[v]) * c);
+                const float x = g0 * llegeix (ret + f0 * fin + 1.0) + g1 * llegeix (ret + f1 * fin + 1.0);
                 lpEstat[v] += k * (x - lpEstat[v]);
                 veu[v] = lpEstat[v];
             }

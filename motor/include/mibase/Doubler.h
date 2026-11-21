@@ -20,7 +20,7 @@ namespace mibase::doubler
     inline constexpr const char* idPlugin = "intern:doubler";
     inline constexpr const char* nomPlugin = "Doubler (Mibase)";
 
-    enum Param : int { Quantitat, Desafina, Retard, Amplada, Color, numParams };
+    enum Param : int { Quantitat, Desafina, Retard, Amplada, Color, Variacio, numParams };   // 0.75: Variació
 
     struct InfoParam
     {
@@ -60,6 +60,10 @@ namespace mibase::doubler
         std::vector<float> linia;     // la veu (mono) que llegeixen les dues còpies
         double fase[2] { 0.0, 0.5 };  // on és cada còpia dins de la finestra (0..1)
         float lpEstat[2] {};          // «Color»: un filtre suau a les còpies
+        // 0.75: «Variació»: cada còpia s'avança i s'endarrereix lentament i a l'atzar (com una segona presa de debò)
+        double derivaDe[2] {}, derivaA[2] {}, derivaFase[2] {}, derivaPas[2] {};
+        unsigned llavor = 2463534242u;
+        double atzar() noexcept { llavor ^= llavor << 13; llavor ^= llavor >> 17; llavor ^= llavor << 5; return (double) llavor / 4294967295.0; }
         float sQuant = 0.0f;
         bool primer = true;
     };

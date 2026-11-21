@@ -216,7 +216,7 @@ namespace mibase::rack
             if (k.iSat >= 0) k.macro (4, { { k.iSat, saturacio::Drive, 0.0f, 7.0f }, { k.iSat, saturacio::Sortida, 0.0f, -4.0f } });
             else if (k.iDrive >= 0) k.macro (4, { { k.iDrive, drive::Gain, 0.0f, 9.0f }, { k.iDrive, drive::Level, 0.0f, -6.0f } });
             // 0.73: el macro 6 és el Doble; si el preset no en té i té harmonies o octava, les mou (i se'n diu així)
-            if (k.iDbl >= 0) k.macro (5, { { k.iDbl, doubler::Quantitat, 0.0f, 80.0f } });
+            if (k.iDbl >= 0) k.macro (5, { { k.iDbl, doubler::Quantitat, 0.0f, 100.0f } });
             else if (k.iHarm >= 0) { k.macro (5, { { k.iHarm, harmonitzador::Harmonies, 0.0f, 100.0f } }); k.r.posaNomMacro (5, "Harmonies"); }
             else if (k.iOct >= 0) { k.macro (5, { { k.iOct, octava::Mescla, 0.0f, 100.0f } }); k.r.posaNomMacro (5, "Octava"); }
             k.macro (6, { { k.iRev, reverb::Mix, 0.0f, 40.0f }, { k.iRev, reverb::PreDelay, 15.0f, 80.0f } });
@@ -241,7 +241,7 @@ namespace mibase::rack
               c.rev = { true, Room, 0.8f, 15, 10, 8000 }; c.lim = { true, 0, -3 }; afegeix (c); }
             { Conf c { "Bàsics", "Cors i segones veus", "Més fines i amples que la principal, una mica enrere." };
               c.eq = { 150, 300, -3, 3000, -1, 3 }; c.comp = { true, -24, 5, 10, 150, 4 }; c.deess = { true, 6500, -32 };
-              c.dbl = { true, 45, 11, 18 }; c.rev = { true, Hall, 2.2f, 40, 25, 7000 }; afegeix (c); }
+              c.dbl = { true, 75, 12, 24 }; c.rev = { true, Hall, 2.2f, 40, 25, 7000 }; afegeix (c); }
             { Conf c { "Bàsics", "Veu parlada", "Per a locucions i vídeos: clara, constant i sense pics." };
               c.eq = { 80, 200, 1, 3000, 2, 1.5f }; c.comp = { true, -20, 3, 10, 200, 4 }; c.deess = { true, 6000, -28 };
               c.lim = { true, 2, -1 }; afegeix (c); }
@@ -252,7 +252,7 @@ namespace mibase::rack
             { Conf c { "Íntim", "Bon Iver · Holocene", "Veu fina i càlida amb preamp i una sala fosca. Grava 2–3 preses per doblar-la de debò." };
               c.satAbans = true; c.sat = { true, saturacio::E, 4, 50, 0 };
               c.eq = { 90, 300, 2, 3200, -2, 0 }; c.comp = { true, -18, 3, 15, 200, 3 };
-              c.dbl = { true, 25, 6, 20 }; c.rev = { true, Chamber, 3.2f, 80, 22, 5000 }; afegeix (c); }
+              c.dbl = { true, 55, 8, 26 }; c.rev = { true, Chamber, 3.2f, 80, 22, 5000 }; afegeix (c); }
             { Conf c { "Íntim", "Frank Ocean · Ivy", "Cinta saturada, aguts apagats i un racó petit." };
               c.satAbans = true; c.sat = { true, saturacio::A, 3, 70, -3 };
               c.eq = { 80, 1500, 2, 3500, 0, -3 }; c.comp = { true, -20, 3, 15, 200, 3 };
@@ -261,16 +261,16 @@ namespace mibase::rack
             { Conf c { "Pop", "Dua Lipa · Don't Start Now", "Polida i brillant, amb doblat subtil, plate i eco a corxeres." };
               c.deessAbans = { true, 6000, -26 };
               c.eq = { 100, 280, -3, 5000, 2, 3 }; c.comp = { true, -22, 4, 3, 80, 3 }; c.comp2 = { true, -18, 2.5f, 20, 250, 2 };
-              c.deess = { true, 7000, -30 }; c.dbl = { true, 15, 9, 12 };
+              c.deess = { true, 7000, -30 }; c.dbl = { true, 40, 10, 20 };
               c.dly = { true, true, 5, 120, 20, 10, 400, 5000 }; c.rev = { true, Plate, 1.4f, 30, 14, 9000 }; afegeix (c); }
             { Conf c { "Pop", "Dua Lipa · Houdini", "Consola, una mica de doble i eco ping-pong a negres, filtrat." };
               c.eq = { 95, 250, 0, 2500, 3, 1 }; c.comp = { true, -22, 4, 2, 100, 4 };
-              c.deess = { true, 6500, -28 }; c.dbl = { true, 18, 12, 16 };
+              c.deess = { true, 6500, -28 }; c.dbl = { true, 45, 12, 22 };
               c.dly = { true, true, 8, 120, 25, 16, 500, 3500, delay::PingPong }; c.rev = { true, Plate, 1.2f, 25, 10, 8000 }; afegeix (c); }
             { Conf c { "Pop", "Coldplay · Fix You", "Gran i emotiva: preamp britànic, eco a negres i una sala llarga." };
               c.satAbans = true; c.sat = { true, saturacio::E, 3, 40, 0 };
               c.eq = { 80, 200, 2, 3500, 0, 2.5f }; c.comp = { true, -20, 3, 20, 200, 3 }; c.deess = { true, 6500, -28 };
-              c.dbl = { true, 12, 8, 14 }; c.dly = { true, true, 8, 120, 25, 15, 300, 4000 };
+              c.dbl = { true, 35, 9, 20 }; c.dly = { true, true, 8, 120, 25, 15, 300, 4000 };
               c.rev = { true, Hall, 3.5f, 60, 22, 7000 }; afegeix (c); }
             { Conf c { "Pop", "The Weeknd · Blinding Lights", "Harmònics brillants, eco a corxera amb punt i plate vintage." };
               c.satAbans = true; c.sat = { true, saturacio::P, 3, 40, 1 };
@@ -287,7 +287,7 @@ namespace mibase::rack
               c.dly = { true, true, 8, 120, 30, 2, 400, 4000 }; c.rev = { true, Hall, 3.0f, 40, 4, 7000 }; afegeix (c); }
             { Conf c { "Urbà", "Travis Scott · Sicko Mode", "Greu i fosca, amb doble ample i una sala llarga. L'afinador arribarà més endavant." };
               c.eq = { 90, 180, 2, 3500, 0, -3 }; c.comp = { true, -26, 6, 3, 80, 4 }; c.deess = { true, 6000, -28 };
-              c.dbl = { true, 20, 14, 10 }; c.rev = { true, Hall, 4.0f, 40, 25, 6000 }; afegeix (c); }
+              c.dbl = { true, 50, 14, 24 }; c.rev = { true, Hall, 4.0f, 40, 25, 6000 }; afegeix (c); }
             { Conf c { "Urbà", "James Blake · Retrograde", "Veu seca al davant i una sala enorme i fosca al darrere." };
               c.eq = { 60, 250, 0, 4000, -3, 0 }; c.comp = { true, -22, 3, 15, 200, 4 };
               c.rev = { true, Hall, 4.5f, 90, 28, 2500 }; afegeix (c); }
