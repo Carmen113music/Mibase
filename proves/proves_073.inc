@@ -128,6 +128,78 @@ namespace
                       + std::to_string (ambVeusNoves) + " amb harmonies o octava; tots sonen i declaren la latència");
         });
 
+        prova ("0.74 Harmonitzador sense clics: canvis de nota, d'acord al teclat i en arrencar", [&]
+        {
+            // melodia legato (300 ms per nota, lliscant 8 ms), forma d'ona suau perquè només es vegin els clics de debò
+            auto melodia = []
+            {
+                const double notes[] = { 57, 59, 60, 64, 62, 60, 57, 64, 55, 60 };
+                const int per = (int) (0.3 * fs);
+                std::vector<float> v ((size_t) (10 * per));
+                double fase = 0.0, m = notes[0];
+                for (int i = 0; i < (int) v.size(); ++i)
+                {
+                    m += (notes[i / per] - m) * (1.0 - std::exp (-1.0 / (0.008 * fs)));
+                    const double f = 440.0 * std::pow (2.0, (m - 69.0) / 12.0) * (1.0 + 0.004 * std::sin (2.0 * 3.141592653589793 * 5.5 * i / fs));
+                    fase += 2.0 * 3.141592653589793 * f / fs;
+                    double x = 0.0;
+                    for (int h = 1; h <= 14; ++h) x += std::sin (h * fase) / (h * h * 0.6);
+                    v[(size_t) i] = (float) (0.3 * x);
+                }
+                return v;
+            };
+            // el pitjor salt: energia de la 2a diferència en finestres de 5 ms comparada amb les 20 veïnes
+            auto pitjorClic = [] (const std::vector<float>& x)
+            {
+                std::vector<double> e;
+                for (size_t i = (size_t) (0.1 * fs); i + 240 < x.size(); i += 240)
+                {
+                    double q = 0.0;
+                    for (int j = 0; j < 240; ++j) { const double d = x[i + (size_t) j] - 2.0 * x[i + (size_t) j - 1] + x[i + (size_t) j - 2]; q += d * d; }
+                    e.push_back (q);
+                }
+                double pitjor = 0.0;
+                for (size_t i = 10; i + 10 < e.size(); ++i)
+                {
+                    std::vector<double> w;
+                    for (int j = -10; j <= 10; ++j) if (j != 0) w.push_back (e[i + (size_t) j]);
+                    std::nth_element (w.begin(), w.begin() + 10, w.end());
+                    pitjor = std::max (pitjor, e[i] / (w[10] + 1e-12));
+                }
+                return pitjor;
+            };
+            ContextMusical ctx;
+            ctx.publicaAcords ({ { 0.0, 100.0, 1 | 16 | 128, 0 } });
+            ctx.segons.store (1.0);
+            for (int mode = 0; mode < 3; ++mode)
+            {
+                harmonitzador::Harmonitzador h;
+                h.posaContext (&ctx);
+                h.prepara (fs, 256);
+                h.posa (harmonitzador::ModeP, (float) mode);
+                h.posa (harmonitzador::Sec, 0);
+                h.posa (harmonitzador::Harmonies, 100);
+                h.posa (harmonitzador::Pan1, 0);
+                h.posa (harmonitzador::Interval1 + 1, 0);
+                h.posa (harmonitzador::Lliscament, 0);
+                auto L = melodia(), R = L;
+                const int per = (int) (0.3 * fs);
+                for (int i = 0; i < (int) L.size(); i += 256)
+                {
+                    if (mode == harmonitzador::Teclat)   // acords que canvien cada 300 ms, amb 30 ms sense cap tecla
+                    {
+                        const int k = i / per, dins = i % per;
+                        ctx.totesOff();
+                        if (dins > (int) (0.03 * fs)) ctx.notaOn (k % 2 == 0 ? 67 : 69);
+                    }
+                    h.processa (L.data() + i, R.data() + i, std::min (256, (int) L.size() - i));
+                }
+                const double p = pitjorClic (L);
+                comprova (finit (L) && p < 6.0, std::string ("mode ") + harmonitzador::nomMode (mode) + ": cap clic (pitjor " + std::to_string (p) + "x)");
+            }
+            ctx.totesOff();
+        });
+
         prova ("0.73 Context i escales", [&]
         {
             using namespace harmonitzador;

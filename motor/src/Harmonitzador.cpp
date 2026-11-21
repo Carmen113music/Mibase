@@ -294,7 +294,14 @@ namespace mibase::canvito
             float g;
             if (mk.sonor)
             {
-                const double P = mk.periode;
+                // 0.74: el període de debò és la distància entre polsos veïns (la detecció va uns 20 ms endarrerida
+                // i, en un canvi de nota, uns grans massa amples es trepitjaven i el so feia un forat)
+                double P = mk.periode;
+                const bool abans = k > a.primeraMarca() && a.marca (k - 1).sonor, despres = k < ultimaK && a.marca (k + 1).sonor;
+                if (abans && despres) P = 0.5 * (a.marca (k + 1).pos - a.marca (k - 1).pos);
+                else if (despres) P = a.marca (k + 1).pos - mk.pos;
+                else if (abans) P = mk.pos - a.marca (k - 1).pos;
+                P = std::clamp (P, 0.5 * mk.periode, 2.0 * mk.periode);
                 H = std::min (P, a.hMax());   // grans de dos períodes (PSOLA clàssic): baixant, queden separats
                 pasS = std::max (1.0, P / r);
                 centre = mk.pos;
@@ -309,9 +316,12 @@ namespace mibase::canvito
                 g = guanySord;
             }
             if ((double) (n - 1) < centre + H * std::max (1.0, kk) + 1.0) break;
-            if (tS - H <= (double) o)   // s'ha quedat enrere (silenci, salt): no s'escriu mai el que ja ha sortit
+            // s'ha quedat enrere (o és l'inici): no s'escriu mai el que ja ha sortit ni abans de la mostra 0
+            // (0.74: abans, el primer gra queia a posicions negatives de l'anell i sortia com un clic 0,34 s més tard)
+            if (tS - H <= (double) std::max (o, -1LL))
             {
                 tS = (double) o + 1.0 + H;
+                ++salts;
                 continue;
             }
             const long long i0 = (long long) std::ceil (tS - H), i1 = (long long) std::floor (tS + H);
@@ -455,9 +465,9 @@ namespace mibase::harmonitzador
         const float harm = valor (Harmonies) / 100.0f;
         const double formant = valor (Formant);
         const float hum = valor (Humanitza) / 100.0f;
-        const double glide = valor (Lliscament) * 0.001;
+        const double glide = std::max (0.012, valor (Lliscament) * 0.001);   // 0.74: sempre una mica (sense salts secs)
         const int lat = an.latencia();
-        const float kG = (float) (1.0 - std::exp (-1.0 / (0.012 * fs)));
+        const float kG = (float) (1.0 - std::exp (-1.0 / (0.02 * fs)));   // volums: 20 ms
         float gL[numVeus], gR[numVeus], gDesti[numVeus];
         for (int v = 0; v < numVeus; ++v)
         {
@@ -476,9 +486,25 @@ namespace mibase::harmonitzador
             {
                 const double det = 69.0 + 12.0 * std::log2 (f / 440.0);
                 detectada.store ((float) det, std::memory_order_relaxed);
-                if (notaLead < 0 || std::abs (det - notaLead) > 0.7) notaLead = (int) std::lround (det);
+                // 0.74: la nota que cantes canvia només si la nova dura 40 ms (en lliscar d'una nota a l'altra, les veus
+                // no salten per les del mig)
+                const int cand = (int) std::lround (det);
+                if (notaLead < 0) notaLead = cand;
+                else if (std::abs (det - notaLead) > 0.7)
+                {
+                    if (cand == pendent) pendentMostres += m;
+                    else { pendent = cand; pendentMostres = m; }
+                    if (pendentMostres >= (long long) (0.04 * fs)) { notaLead = cand; pendent = -1; }
+                }
+                else pendent = -1;
                 int premudes[numVeus] {};
-                const int nPrem = mode == Teclat ? ctx->notesPremudes (premudes, numVeus) : 0;
+                int nPrem = mode == Teclat ? ctx->notesPremudes (premudes, numVeus) : 0;
+                if (mode == Teclat)   // 0.74: en canviar d'acord, les notes es mantenen 120 ms (no hi ha forat entre deixar i prémer)
+                {
+                    if (nPrem > 0) { nUltimes = nPrem; for (int v = 0; v < nPrem; ++v) ultimesNotes[v] = premudes[v]; senseNotes = 0; }
+                    else if ((senseNotes += m) < (long long) (0.12 * fs)) { nPrem = nUltimes; for (int v = 0; v < nPrem; ++v) premudes[v] = ultimesNotes[v]; }
+                    else nUltimes = 0;
+                }
                 ContextMusical::Tram tr;
                 const bool hiHaAcord = mode == Acords && ctx->acordA (ctx->segons.load (std::memory_order_relaxed), tr) && (tr.mascara & 0xFFF) != 0;
                 const int escala = absoluta (ctx->mascaraEscala.load (std::memory_order_relaxed), ctx->tonica.load (std::memory_order_relaxed));
@@ -516,13 +542,15 @@ namespace mibase::harmonitzador
                     const bool activa = notesVeus[(size_t) v].load (std::memory_order_relaxed) >= 0;
                     gDesti[v] = activa ? harm * std::pow (10.0f, valor (Nivell1 + v) / 20.0f) : 0.0f;
                 }
-                if (mode == Teclat)   // sense notes premudes, cap veu (encara que no canti)
+                if (mode == Teclat)   // sense notes premudes (més de 120 ms), cap veu (encara que no canti)
                 {
                     int p[1];
-                    if (ctx->notesPremudes (p, 1) == 0) for (int v = 0; v < numVeus; ++v) { gDesti[v] = 0.0f; notesVeus[(size_t) v].store (-1); }
+                    if (ctx->notesPremudes (p, 1) == 0 && (senseNotes += m) >= (long long) (0.12 * fs))
+                        for (int v = 0; v < numVeus; ++v) { gDesti[v] = 0.0f; notesVeus[(size_t) v].store (-1); }
+                    else if (ctx->notesPremudes (p, 1) > 0) senseNotes = 0;
                 }
             }
-            const float kS = glide < 1e-4 ? 1.0f : (float) (1.0 - std::exp (-(double) m / (glide * fs)));
+            const float kS = (float) (1.0 - std::exp (-(double) m / (glide * fs)));
             for (int v = 0; v < numVeus; ++v)
             {
                 semi[(size_t) v] += (desti[(size_t) v] - semi[(size_t) v]) * kS;

@@ -80,6 +80,7 @@ namespace mibase::canvito
             (retardada «latencia()» mostres). «semitons» i «formant» (semitons) s'apliquen als trossos amb to;
             «guanySord» als que no en tenen. */
         float processa (const Analitzador& a, double semitons, double formant, float guanySord) noexcept;
+        int salts = 0;   // per a les proves: quants cops s'ha hagut de saltar endavant (forat a la sortida)
 
     private:
         std::vector<float> acc, pes;
@@ -159,6 +160,11 @@ namespace mibase::harmonitzador
         std::array<std::atomic<int>, numVeus> notesVeus;
         std::atomic<float> detectada { -1.0f };
         int notaLead = -1;
+        int pendent = -1;                    // 0.74: nota nova que encara no ha durat prou (40 ms)
+        long long pendentMostres = 0;
+        int ultimesNotes[numVeus] { -1, -1, -1, -1 };   // 0.74: teclat: les darreres notes (es mantenen 120 ms)
+        int nUltimes = 0;
+        long long senseNotes = 0;
         float sSec = 1.0f;
         unsigned llavor = 12345u;
         double fs = 48000.0;
