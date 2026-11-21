@@ -3,6 +3,7 @@
 #include "mibase/Doubler.h"
 #include "mibase/Drive.h"
 #include "mibase/Equalitzador.h"
+#include "mibase/Harmonitzador.h"
 #include "mibase/Limitador.h"
 #include "mibase/Reverb.h"
 #include "mibase/Saturacio.h"
@@ -29,6 +30,8 @@ namespace mibase::rack
             { "decapitor", saturacio::idPlugin, "Decapitor", "Saturació analògica: escalfor, cos o brutícia." },
             { "drive", drive::idPlugin, "Drive", "Distorsió de pedal: per a veus trencades o d'efecte." },
             { "doubler", doubler::idPlugin, "Doubler", "Dues còpies desafinades als costats: sembla una veu doblada." },
+            { "harmonitzador", harmonitzador::idPlugin, "Harmonitzador", "Fins a 4 veus noves: per tonalitat, amb els acords de la cançó o amb el teclat MIDI." },
+            { "octava", octava::idPlugin, "Octava i formant", "La veu més greu o més aguda, o més fosca o més prima." },
             { "delay", delay::idPlugin, "Delay", "Ecos al tempo de la cançó." },
             { "reverb", reverb::idPlugin, "Reverb", "L'espai: habitació, plate, sala…" },
             { "limitador", limitador::idPlugin, "Limitador", "Al final de tot: cap pic passa del sostre (5 ms de retard)." },
@@ -64,6 +67,8 @@ namespace mibase::rack
         if (clau == "decapitor") { auto s = std::make_shared<saturacio::Saturacio>(); s->posa (saturacio::Drive, 2.0f); s->posa (saturacio::Mix, 60.0f); return s; }
         if (clau == "drive") { auto d = std::make_shared<drive::Drive>(); d->posa (drive::ModeP, drive::Crunch); d->posa (drive::Gain, 3.0f); d->posa (drive::Mix, 50.0f); return d; }
         if (clau == "doubler") return std::make_shared<doubler::Doubler>();
+        if (clau == "harmonitzador") return std::make_shared<harmonitzador::Harmonitzador>();   // 0.73
+        if (clau == "octava") return std::make_shared<octava::Octava>();                        // 0.73
         if (clau == "delay")
         {
             auto d = std::make_shared<delay::Delay>();

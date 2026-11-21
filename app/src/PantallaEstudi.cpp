@@ -1,4 +1,6 @@
 #include "PantallaEstudi.h"
+#include <mibase/ContextMusical.h>
+#include <array>
 #include "FinestraFlotant.h"
 #include "BancGM.h"
 #include "EscGlobal.h"
@@ -589,9 +591,39 @@ void PantallaEstudi::desaAra()
     }
 }
 
+namespace
+{
+    /** 0.73: la tonalitat i els acords de la pista d'Acords, per a l'Harmonitzador del Vocal Studio. */
+    void publicaContextMusical (const Projecte& p)
+    {
+        auto& cm = ContextMusical::global();
+        const auto t = harmonia::tonalitatEfectiva (p);
+        int mascara = 0;
+        for (int pc : harmonia::notesEscala (t)) mascara |= 1 << (((pc - t.to) % 12 + 12) % 12);
+        cm.tonica.store (t.to);
+        if (mascara != 0) cm.mascaraEscala.store (mascara);
+        std::vector<ContextMusical::Tram> trams;
+        for (const auto& pista : p.pistes)
+            if (esAcords (pista))
+                for (const auto& c : pista.clips)
+                {
+                    if (! c.esAcord() || c.mut) continue;
+                    int m = 0;
+                    for (int n : harmonia::notesPad (harmonia::llegeixAcord (c.acord))) m |= 1 << (((n % 12) + 12) % 12);
+                    if (m != 0) trams.push_back ({ c.iniciVisible(), c.fiVisible(), m, -1 });
+                }
+        std::sort (trams.begin(), trams.end(), [] (const auto& a, const auto& b) { return a.de < b.de; });
+        static std::vector<std::array<double, 3>> abans;
+        std::vector<std::array<double, 3>> ara;
+        for (const auto& x : trams) ara.push_back ({ x.de, x.a, (double) x.mascara });
+        if (ara != abans) { cm.publicaAcords (trams); abans = std::move (ara); }
+    }
+}
+
 void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     revisaArmament();   // 0.72
+    publicaContextMusical (estat.projecte);   // 0.73
     // Els editors només canvien de clip amb doble clic (obrePianoRoll), no en triar un clip (0.10).
     // El teclat MIDI de fora toca la pista triada (si és MIDI) o la que grava.
     {

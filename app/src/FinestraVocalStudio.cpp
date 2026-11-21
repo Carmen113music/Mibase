@@ -22,6 +22,8 @@
 #include <mibase/Doubler.h>
 #include <mibase/Drive.h>
 #include <mibase/Equalitzador.h>
+#include <mibase/Harmonia.h>
+#include <mibase/Harmonitzador.h>
 #include <mibase/Limitador.h>
 #include <mibase/Reverb.h>
 #include <mibase/Saturacio.h>
@@ -106,6 +108,11 @@ namespace
                     pom->setTooltip (u8 (mibase::doubler::info (p).ajuda));
                     pom->onReinicia = [this, d, p] { d->posa (p, mibase::doubler::info (p).def); };
                 }
+                if (auto* o = dynamic_cast<mibase::octava::Octava*> (fx.get()))   // 0.73
+                {
+                    pom->setTooltip (u8 (mibase::octava::info (p).ajuda));
+                    pom->onReinicia = [this, o, p] { o->posa (p, mibase::octava::info (p).def); };
+                }
                 addAndMakeVisible (*pom);
                 poms.push_back (std::move (pom));
             }
@@ -124,6 +131,134 @@ namespace
         void timerCallback() override { for (int p = 0; p < (int) poms.size(); ++p) poms[(size_t) p]->setValor (fx->parametre (p), true); }
         std::shared_ptr<mibase::EfecteIntern> fx;
         std::vector<std::unique_ptr<Pom>> poms;
+    };
+
+    /** 0.73: l'Harmonitzador: el mode, què canta i on van les veus, els controls de totes les veus i els de cada veu. */
+    class PanellHarmonitzador : public juce::Component, private juce::Timer
+    {
+    public:
+        explicit PanellHarmonitzador (std::shared_ptr<mibase::harmonitzador::Harmonitzador> e)
+            : fx (std::move (e)), selMode (juce::StringArray { "Tonalitat", "Acords", "Teclat MIDI" })
+        {
+            namespace H = mibase::harmonitzador;
+            selMode.setTriat ((int) fx->valor (H::ModeP));
+            selMode.onCanvi = [this] (int m) { fx->posa (mibase::harmonitzador::ModeP, (float) m); actualitza(); };
+            selMode.setTooltip (u8 (H::info (H::ModeP).ajuda));
+            addAndMakeVisible (selMode);
+            auto fesPom = [this] (int p)
+            {
+                namespace H = mibase::harmonitzador;
+                const juce::String nom = p >= H::Interval1 && p < H::Nivell1 ? "On va"_ca
+                                       : p >= H::Nivell1 && p < H::Pan1 ? "Nivell"_ca
+                                       : p >= H::Pan1 ? "Pan"_ca : u8 (H::info (p).nom);
+                auto pom = std::make_unique<Pom> (nom, 0.0, 1.0, (double) fx->parametre (p),
+                                                  p == mibase::harmonitzador::Formant || (p >= mibase::harmonitzador::Pan1 && p < mibase::harmonitzador::Pan1 + 4),
+                                                  [this, p] (double v) { return u8 (fx->textParametre (p, (float) v)); });
+                pom->onCanvi = [this, p] (double v) { fx->posaParametre (p, (float) v); };
+                pom->onReinicia = [this, p] { fx->posa (p, mibase::harmonitzador::info (p).def); };
+                pom->setTooltip (u8 (mibase::harmonitzador::info (p).ajuda));
+                addAndMakeVisible (*pom);
+                poms[p] = std::move (pom);
+            };
+            for (int p = H::Sec; p < H::numParams; ++p) fesPom (p);
+            setSize (700, 560);
+            actualitza();
+            startTimerHz (15);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            namespace H = mibase::harmonitzador;
+            g.fillAll (tema::fons);
+            vintage::panell (g, getLocalBounds().toFloat().reduced (6.0f), 6.0f);
+            // pantalla: què cantes i on van les veus
+            g.setColour (juce::Colour (0xff0d1214));
+            g.fillRoundedRectangle (lcd.toFloat(), 5.0f);
+            g.setColour (tema::linia);
+            g.drawRoundedRectangle (lcd.toFloat().reduced (0.5f), 5.0f, 1.0f);
+            g.setColour (turquesa);
+            g.setFont (dibuix::lletra (15.0f, true));
+            g.drawText (textLcd, lcd.reduced (10, 0), juce::Justification::centredLeft, true);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (12.5f));
+            g.drawFittedText (ajuda, ajudaR, juce::Justification::centredLeft, 2);
+            g.setFont (dibuix::lletra (12.0f, true));
+            g.setColour (tema::text);
+            g.drawText ("TOTES LES VEUS"_ca, titolGlobal, juce::Justification::centredLeft, false);
+            for (int v = 0; v < H::numVeus; ++v)
+            {
+                auto r = columnes[(size_t) v].toFloat();
+                g.setColour (tema::superficie.withAlpha (0.6f));
+                g.fillRoundedRectangle (r, 6.0f);
+                const int nota = fx->notaVeu (v);
+                g.setColour (nota >= 0 ? turquesa : tema::linia);
+                g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.2f);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (13.0f, true));
+                g.drawText ("Veu "_ca + juce::String (v + 1), r.removeFromTop (24.0f).reduced (8.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, false);
+                g.setColour (nota >= 0 ? turquesa : tema::suau);
+                g.setFont (dibuix::lletra (13.0f, true));
+                g.drawText (nota >= 0 ? nomNota (nota) : juce::String ("—"_ca), columnes[(size_t) v].withHeight (24).reduced (8, 0), juce::Justification::centredRight, false);
+            }
+        }
+        void resized() override
+        {
+            namespace H = mibase::harmonitzador;
+            auto r = getLocalBounds().reduced (18, 16);
+            auto dalt = r.removeFromTop (34);
+            selMode.setBounds (dalt.removeFromLeft (300));
+            dalt.removeFromLeft (12);
+            lcd = dalt;
+            r.removeFromTop (6);
+            ajudaR = r.removeFromTop (34);
+            r.removeFromTop (6);
+            titolGlobal = r.removeFromTop (18);
+            auto fila = r.removeFromTop (120);
+            const int a = fila.getWidth() / 5;
+            for (int p = H::Sec; p <= H::Lliscament; ++p) poms[p]->setBounds (fila.removeFromLeft (a).reduced (6, 0));
+            r.removeFromTop (12);
+            const int ac = r.getWidth() / H::numVeus;
+            for (int v = 0; v < H::numVeus; ++v)
+            {
+                auto c = r.removeFromLeft (ac).reduced (5, 0);
+                columnes[(size_t) v] = c;
+                c.removeFromTop (26);
+                poms[H::Interval1 + v]->setBounds (c.removeFromTop (c.getHeight() / 2).reduced (18, 2));
+                auto baix = c.reduced (2, 2);
+                poms[H::Nivell1 + v]->setBounds (baix.removeFromLeft (baix.getWidth() / 2));
+                poms[H::Pan1 + v]->setBounds (baix);
+            }
+        }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+    private:
+        static juce::String nomNota (int n) { return u8 (mibase::harmonia::nomTo (((n % 12) + 12) % 12)) + juce::String (n / 12 - 1); }
+        void actualitza()
+        {
+            namespace H = mibase::harmonitzador;
+            const int mode = (int) fx->valor (H::ModeP);
+            ajuda = mode == H::Tonalitat ? "Cada veu va uns graus amunt o avall dins de la tonalitat de la cançó (la que surt al panell d'Harmonia). Gira «On va» de cada veu; 0 = apagada."_ca
+                  : mode == H::Acords ? "Cada veu va a una nota de l'acord que sona a la pista d'Acords (1a per sobre, 2a per sobre…). On no hi ha acord, fa servir la tonalitat."_ca
+                  : "Toca notes al teclat MIDI (amb aquesta pista triada): cada nota és una veu, de greu a agut (fins a 4). Baixa «Veu» si vols sentir només les del teclat."_ca;
+            for (int v = 0; v < H::numVeus; ++v) poms[H::Interval1 + v]->setEnabled (mode != H::Teclat);
+            repaint();
+        }
+        void timerCallback() override
+        {
+            namespace H = mibase::harmonitzador;
+            for (auto& [p, pom] : poms) pom->setValor (fx->parametre (p), true);
+            if (selMode.getTriat() != (int) fx->valor (H::ModeP)) { selMode.setTriat ((int) fx->valor (H::ModeP)); actualitza(); }
+            const float d = fx->notaDetectada();
+            juce::String t = d >= 0.0f ? "Cantes: "_ca + nomNota ((int) std::lround (d)) : juce::String ("Cantes: —"_ca);
+            juce::String veus;
+            for (int v = 0; v < H::numVeus; ++v) if (fx->notaVeu (v) >= 0) veus << "  " << nomNota (fx->notaVeu (v));
+            if (veus.isNotEmpty()) t << "   Veus:" << veus;
+            if (t != textLcd) { textLcd = t; repaint(); }
+        }
+        std::shared_ptr<mibase::harmonitzador::Harmonitzador> fx;
+        Segmentat selMode;
+        std::map<int, std::unique_ptr<Pom>> poms;
+        std::array<juce::Rectangle<int>, mibase::harmonitzador::numVeus> columnes;
+        juce::Rectangle<int> lcd, ajudaR, titolGlobal;
+        juce::String textLcd, ajuda;
     };
 
     class FinestraSimple : public juce::DocumentWindow
@@ -348,6 +483,8 @@ namespace
             else if (auto dl = std::dynamic_pointer_cast<mibase::delay::Delay> (fx)) w = creaFinestraDelay (dl, t, tanca);
             else if (auto rv = std::dynamic_pointer_cast<mibase::reverb::Reverb> (fx)) w = creaFinestraReverb (rv, t, tanca);
             else if (auto lm = std::dynamic_pointer_cast<mibase::limitador::Limitador> (fx)) w = creaFinestraLimitador (lm, t, tanca);
+            else if (auto h = std::dynamic_pointer_cast<mibase::harmonitzador::Harmonitzador> (fx))   // 0.73
+                w = std::make_unique<FinestraSimple> (t, new PanellHarmonitzador (h), tanca);
             else w = std::make_unique<FinestraSimple> (t, new PanellParametres (fx), tanca);
             if (w == nullptr) return;
             quedaSobreMibase (*w);
@@ -808,7 +945,8 @@ namespace
         g.setFont (dibuix::lletra (11.0f));
         juce::String desc;
         if (auto* t = busca (m->clau)) desc = u8 (t->descripcio);
-        if (m->fx->latencia() > 0) desc = "Sempre al 100 % (retarda 5 ms, Mibase ho compensa)."_ca;
+        if (m->fx->latencia() > 0)   // 0.73: el retard de debò de cada mòdul (Limitador 5 ms, Harmonitzador i Octava uns 36 ms)
+            desc = "Sempre al 100 % (retarda "_ca + juce::String (juce::roundToInt (1000.0 * m->fx->latencia() / 48000.0)) + " ms, Mibase ho compensa)."_ca;
         g.drawFittedText (desc, z.toNearestInt(), juce::Justification::topLeft, 1, 0.85f);
     }
 
