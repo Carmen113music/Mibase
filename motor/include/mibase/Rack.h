@@ -155,6 +155,11 @@ namespace mibase::rack
         void posaCami (int i, int cami);
         const InfoRetorn& retorn (int k) const { static const InfoRetorn buit; return k >= 0 && k < maxRetorns ? ui->retorns[(size_t) k] : buit; }
         void activaRetorn (int k, bool actiu, const std::string& nom = {});
+        /** 0.79: el preset d'on ve (es desa amb el projecte) i si s'ha tocat des que es va carregar o desar. Fil de la interfície. */
+        const std::string& nomPreset() const noexcept { return presetNom; }
+        bool presetModificat() const noexcept { return presetMod; }
+        void posaNomPreset (const std::string& n, bool modificat = false) { presetNom = n; presetMod = modificat; }
+        void marcaModificat() noexcept { if (! presetNom.empty()) presetMod = true; }
         /** 0.76: els paràmetres dels retorns en les seves unitats (dB, %). */
         float valor (int p) const noexcept { return p >= 0 && p < numParams ? par[(size_t) p].load (std::memory_order_relaxed) : 0.0f; }
         void posaValor (int p, float v) noexcept;
@@ -185,6 +190,8 @@ namespace mibase::rack
     private:
         void publica (std::shared_ptr<Cadena> c);
         std::shared_ptr<Cadena> copia() const;
+        std::string presetNom;   // 0.79
+        bool presetMod = false;
         void preparaModul (Modul& m);
         void aplica (Modul& m, float* L, float* R, int n) noexcept;
         void processaBloc (float* L, float* R, int n) noexcept;

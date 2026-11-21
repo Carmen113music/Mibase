@@ -75,6 +75,10 @@ namespace mibase::canvito
         bool ultimaSonor = false;
     };
 
+    /** 0.79: per a l'afinador: a cada pols amb to, la nota que hi ha (MIDI amb decimals, del període real del pols) i el
+        temps des del pols anterior; torna els semitons que s'hi han de moure. */
+    struct Afinacio { virtual double desplacament (double nota, double dt) noexcept = 0; virtual ~Afinacio() = default; };
+
     /** Una veu nova: el mateix que entra, amb una altra afinació i (si es vol) uns altres formants. */
     class Veu
     {
@@ -84,7 +88,7 @@ namespace mibase::canvito
         /** Fil d'àudio, just després d'Analitzador::entra: genera els grans que ja es poden fer i torna la mostra de sortida
             (retardada «latencia()» mostres). «semitons» i «formant» (semitons) s'apliquen als trossos amb to;
             «guanySord» als que no en tenen. */
-        float processa (const Analitzador& a, double semitons, double formant, float guanySord) noexcept;
+        float processa (const Analitzador& a, double semitons, double formant, float guanySord, Afinacio* af = nullptr) noexcept;
         int salts = 0;   // per a les proves: quants cops s'ha hagut de saltar endavant (forat a la sortida)
 
     private:
@@ -215,5 +219,70 @@ namespace mibase::octava
         long long secMascara = 0, secW = 0;
         float sMescla = 0.0f;
         bool primer = true;
+    };
+}
+
+/** 0.79: «Tune» (estil Auto-Tune, «intern:tune»): porta la veu a la nota més propera de l'escala, en temps real.
+    - Escala: la de la cançó (la tonalitat del projecte), una de triada (tònica + escala) o cromàtica (totes les notes).
+    - Velocitat: quant triga a arribar a la nota (0 ms = l'efecte robòtic; 20–50 ms = natural).
+    - Humanitza: a les notes llargues corregeix més a poc a poc, perquè es conservi el vibrato.
+    - Correcció: quina part de la desafinació es corregeix. Mescla: amb la veu original.
+    Mateix motor que l'Harmonitzador (uns 36 ms de retard, que el PDC compensa). */
+namespace mibase::tune
+{
+    inline constexpr const char* idPlugin = "intern:tune";
+    inline constexpr const char* nomPlugin = "Tune (Mibase)";
+    enum ModeEscala : int { Canco, Triada, Cromatica, numModesEscala };
+    enum Param : int { ModeP, Tonica, Escala, Velocitat, Humanitza, Correccio, Mescla, numParams };
+    struct InfoParam { const char* clau; const char* nom; float mn, mx, def; const char* ajuda; };
+    const InfoParam& info (int p);
+    constexpr int numEscales = 7;
+    const char* nomEscala (int e);
+    int mascaraEscala (int e);   // intervals des de la tònica (12 bits)
+
+    class Tune : public EfecteIntern
+    {
+    public:
+        Tune();
+        void prepara (double fs, int maxBloc) override;
+        void processa (float* L, float* R, int n) noexcept override;
+        int latencia() const noexcept override { return an.latencia(); }
+        int numParametres() const override { return numParams; }
+        InfoParametre infoParametre (int i) const override;
+        void posaParametre (int i, float v01) noexcept override;
+        float parametre (int i) const noexcept override;
+        std::string textParametre (int i, float v01) const override;
+        static float normal (int p, float v) noexcept;
+        static float deNormal (int p, float v01) noexcept;
+        void posa (int p, float v) noexcept;
+        float valor (int p) const noexcept;
+        std::string estat() const override;
+        void posaEstat (const std::string& s) override;
+        void buida() noexcept override { demanaBuidar.store (true); }
+        void posaContext (ContextMusical* c) noexcept { ctx = c; }
+        /** Per a la finestra: la nota que canta (MIDI amb decimals; < 0 sense to), la nota on la porta (-1) i la correcció
+            que s'hi aplica ara (cèntims). */
+        float notaDetectada() const noexcept { return detectada.load (std::memory_order_relaxed); }
+        int notaDesti() const noexcept { return desti.load (std::memory_order_relaxed); }
+        float correccioAra() const noexcept { return correccio.load (std::memory_order_relaxed); }
+    private:
+        std::array<std::atomic<float>, numParams> par;
+        std::atomic<bool> demanaBuidar { false };
+        ContextMusical* ctx;
+        canvito::Analitzador an;
+        canvito::Veu veu;
+        std::vector<float> secL, secR;
+        long long secMascara = 0, secW = 0;
+        std::atomic<float> detectada { -1.0f }, correccio { 0.0f };
+        std::atomic<int> desti { -1 };
+        /** La correcció de cada pols (0.79). */
+        struct Calcul : canvito::Afinacio
+        {
+            double desplacament (double nota, double dt) noexcept override;
+            int escala = 0xFFF, notaObj = -1;
+            double vel = 0.025, hum = 0.3, corr = 1.0, temps = 0.0, s = 0.0, ultimaNota = -1.0, suau = -1.0;
+        } calcul;
+        float sMescla = 1.0f;
+        double fs = 48000.0;
     };
 }

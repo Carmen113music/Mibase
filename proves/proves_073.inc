@@ -463,6 +463,67 @@ namespace
             comprova (! rack::desplega (p, 1, in.id).correcte, "sense retorns, no es pot desplegar");
         });
 
+        prova ("0.79 Tune: porta la veu a la nota, respecta la velocitat i la mescla", [&]
+        {
+            auto afina = [&] (double hz, int mode, float vel, float corr, float vibrato = 0.0f)
+            {
+                ContextMusical ctx;
+                ctx.tonica.store (9); ctx.mascaraEscala.store (0x5AD);   // La menor (per a «Cançó»)
+                tune::Tune t;
+                t.posaContext (&ctx);
+                t.prepara (fs, 256);
+                t.posa (tune::ModeP, (float) mode); t.posa (tune::Velocitat, vel); t.posa (tune::Correccio, corr); t.posa (tune::Humanitza, 0);
+                std::vector<float> v ((size_t) (2.5 * fs));
+                double fase = 0.0;
+                for (size_t i = 0; i < v.size(); ++i)
+                {
+                    const double f = hz * std::pow (2.0, vibrato / 1200.0 * std::sin (2.0 * 3.141592653589793 * 5.5 * (double) i / fs));
+                    fase += 2.0 * 3.141592653589793 * f / fs;
+                    double x = 0.0;
+                    for (int k = 1; k <= 12; ++k) x += std::sin (k * fase) / (k * 1.2);
+                    v[i] = (float) (0.25 * x);
+                }
+                auto R = v;
+                passa (t, v, R);
+                return std::pair { afinacio (v), t.notaDesti() };
+            };
+            auto cents = [] (float hz, double ref) { return 1200.0 * std::log2 (hz / ref); };
+            const auto [f1, n1] = afina (225.0, tune::Cromatica, 0, 100);   // La3 + 39 cèntims
+            comprova (std::abs (cents (f1, 220.0)) < 8.0 && n1 == 57, "cromàtica, 0 ms: 225 Hz → La3 (" + std::to_string (cents (f1, 220.0)) + " cèntims)");
+            const auto [f2, n2] = afina (238.0, tune::Canco, 0, 100);       // entre La# i Si: en La menor, cap a Si (246,9)
+            comprova (std::abs (cents (f2, 246.94)) < 8.0 && n2 == 59, "La menor de la cançó: 238 Hz → Si3 (" + std::to_string (cents (f2, 246.94)) + " cèntims)");
+            const auto [f3, n3] = afina (225.0, tune::Cromatica, 0, 0);
+            comprova (std::abs (cents (f3, 225.0)) < 8.0, "Correcció 0 %: no la toca");
+            (void) n3;
+            // amb velocitat lenta, el vibrato es conserva; a 0 ms, desapareix
+            auto vibrat = [&] (float vel)
+            {
+                ContextMusical ctx;
+                tune::Tune t;
+                t.posaContext (&ctx);
+                t.prepara (fs, 256);
+                t.posa (tune::ModeP, tune::Cromatica); t.posa (tune::Velocitat, vel); t.posa (tune::Humanitza, 0);
+                std::vector<float> v ((size_t) (2.5 * fs));
+                double fase = 0.0;
+                for (size_t i = 0; i < v.size(); ++i)
+                {
+                    const double f = 220.0 * std::pow (2.0, 40.0 / 1200.0 * std::sin (2.0 * 3.141592653589793 * 5.5 * (double) i / fs));
+                    fase += 2.0 * 3.141592653589793 * f / fs;
+                    double x = 0.0;
+                    for (int k = 1; k <= 12; ++k) x += std::sin (k * fase) / (k * 1.2);
+                    v[i] = (float) (0.25 * x);
+                }
+                auto R = v;
+                passa (t, v, R);
+                auto a = veu::analitza (v.data() + (int) fs, (long long) v.size() - (int) fs, fs);
+                double mn = 1e9, mx = -1e9;
+                for (int i = 0; i < a.punts(); ++i) if (a.f0[(size_t) i] > 0.0f) { const double c = cents (a.f0[(size_t) i], 220.0); mn = std::min (mn, c); mx = std::max (mx, c); }
+                return mx - mn;
+            };
+            const double robot = vibrat (0), natural = vibrat (300);
+            comprova (robot < 25.0 && natural > 45.0, "vibrato de ±40 cèntims: a 0 ms en queden " + std::to_string (robot) + "; a 300 ms, " + std::to_string (natural));
+        });
+
         prova ("0.73 Context i escales", [&]
         {
             using namespace harmonitzador;

@@ -17,7 +17,7 @@ namespace mibase::rack
         /** Els que es poden posar sols com a insert d'una pista (els altres van dins d'un Vocal Studio petit). */
         bool potAnarSol (const std::string& clau)
         {
-            return clau != "doubler" && clau != "harmonitzador" && clau != "octava";
+            return clau != "doubler" && clau != "harmonitzador" && clau != "octava" && clau != "tune";
         }
         bool comencaPer (const std::string& s, const std::string& p) { return s.rfind (p, 0) == 0; }
     }

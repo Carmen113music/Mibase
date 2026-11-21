@@ -9,4 +9,4 @@
     ordre, treure, afegir) amb la finestra de sempre de cada mòdul. */
 std::unique_ptr<juce::DocumentWindow> creaFinestraVocalStudio (std::shared_ptr<mibase::rack::Rack> rack, const juce::String& titol,
                                                                std::function<void()> enTancar,
-                                                               std::function<int (int)> accioPistes = {});   // 0.78: 0 = quants busos «VS ·», 1 = implementa, 2 = treu
+                                                               std::function<int (int)> accioPistes = {});   // 0.78: 0 = quants busos «VS ·», 1 = implementa, 2 = treu; 0.79: 3 = la pista és en solo?, 4 = commuta el solo

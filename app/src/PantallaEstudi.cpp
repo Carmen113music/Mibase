@@ -139,6 +139,15 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
                 if (x.id == idInsert) { pista = i; in = &x; }
         if (pista < 0 || in == nullptr) return 0;
         if (accio == 0) return (int) rack::busosDesplegats (estat.projecte, pista).size();
+        if (accio == 3) return estat.projecte.pistes[(size_t) pista].solo ? 1 : 0;   // 0.79: el botó S del Vocal Studio
+        if (accio == 4)
+        {
+            estat.desfes.abans (estat.projecte);
+            auto& t = estat.projecte.pistes[(size_t) pista];
+            t.solo = ! t.solo;
+            estat.canviat();
+            return t.solo ? 1 : 0;
+        }
         plugins.desaEstats (estat.projecte);   // el que hi ha ara al Vocal Studio viu
         estat.desfes.abans (estat.projecte);
         const juce::String nom = dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom);

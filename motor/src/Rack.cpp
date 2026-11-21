@@ -31,6 +31,7 @@ namespace mibase::rack
             { "drive", drive::idPlugin, "Drive", "Distorsió de pedal: per a veus trencades o d'efecte." },
             { "doubler", doubler::idPlugin, "Doubler", "Dues còpies desafinades als costats: sembla una veu doblada." },
             { "harmonitzador", harmonitzador::idPlugin, "Harmonitzador", "Fins a 4 veus noves: per tonalitat, amb els acords de la cançó o amb el teclat MIDI." },
+            { "tune", tune::idPlugin, "Tune", "Afina la veu a la nota de l'escala: natural o robòtic (0.79)." },
             { "octava", octava::idPlugin, "Octava i formant", "La veu més greu o més aguda, o més fosca o més prima." },
             { "delay", delay::idPlugin, "Delay", "Ecos al tempo de la cançó." },
             { "reverb", reverb::idPlugin, "Reverb", "L'espai: habitació, plate, sala…" },
@@ -69,6 +70,7 @@ namespace mibase::rack
         if (clau == "doubler") return std::make_shared<doubler::Doubler>();
         if (clau == "harmonitzador") return std::make_shared<harmonitzador::Harmonitzador>();   // 0.73
         if (clau == "octava") return std::make_shared<octava::Octava>();                        // 0.73
+        if (clau == "tune") return std::make_shared<tune::Tune>();                              // 0.79
         if (clau == "delay")
         {
             auto d = std::make_shared<delay::Delay>();
@@ -602,6 +604,7 @@ namespace mibase::rack
                               { "envia", par[(size_t) (Envia1 + k)].load() }, { "retorn", par[(size_t) (Retorn1 + k)].load() },
                               { "pan", par[(size_t) (PanRetorn1 + k)].load() }, { "ducking", par[(size_t) (Ducking1 + k)].load() } });
         j["retorns"] = rets;
+        if (! presetNom.empty()) { j["preset"] = presetNom; j["presetModificat"] = presetMod; }   // 0.79
         auto en = nlohmann::ordered_json::array();
         for (const auto& e : ui->enllacos) en.push_back ({ e.macro, e.modul, e.param, e.mn, e.mx });
         j["enllacos"] = en;
@@ -636,6 +639,8 @@ namespace mibase::rack
                 c->moduls.push_back (m);
                 c->camins.push_back (std::clamp (x.value ("cami", 0), 0, maxRetorns));
             }
+            presetNom = j.value ("preset", std::string());   // 0.79
+            presetMod = j.value ("presetModificat", false);
             const auto rets = j.value ("retorns", nlohmann::json::array());   // 0.76
             for (int k = 0; k < maxRetorns; ++k)
             {
