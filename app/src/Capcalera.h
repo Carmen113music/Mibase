@@ -168,7 +168,7 @@ private:
         ++comptador;
         // Llums del play i del gravar (durant el compte d'entrada, el gravar fa pampallugues).
         const int t = onEstatTransport ? onEstatTransport() : 0;
-        btPlay.setToggleState (t == 1, juce::dontSendNotification);
+        btPlay.setToggleState (t >= 1, juce::dontSendNotification);   // 0.72: gravant, el transport també sona
         btGrava.setToggleState (t == 3 || (t == 2 && (comptador / 4) % 2 == 0), juce::dontSendNotification);
         btBucle.setToggleState (onBucleActiu && onBucleActiu(), juce::dontSendNotification);
         btRetard.setToggleState (onRetardMinimActiu && onRetardMinimActiu(), juce::dontSendNotification);

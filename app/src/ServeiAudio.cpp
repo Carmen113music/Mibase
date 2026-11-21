@@ -1,4 +1,5 @@
 #include "ServeiAudio.h"
+#include <mibase/ContextMusical.h>
 
 namespace
 {
@@ -167,6 +168,9 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
         const auto e = motorEstudi.getEstat();
         r.sonant.store (e == mibase::MotorEstudi::Estat::Sonant || e == mibase::MotorEstudi::Estat::Gravant, std::memory_order_relaxed);
         r.segons.store (motorEstudi.getPosicio(), std::memory_order_relaxed);
+        auto& cm = mibase::ContextMusical::global();   // 0.73: per a l'Harmonitzador (mode Acords)
+        cm.segons.store (r.segons.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        cm.sonant.store (r.sonant.load (std::memory_order_relaxed), std::memory_order_relaxed);
     }
     motorEstudi.processa (entrades, numEntrades, sortides, numSortides, numMostres);
     {
@@ -324,9 +328,15 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     if (slotBateria >= 0 && slot == slotBateria && ((e.estat & 0xE0) == 0x80 || (e.estat & 0xF0) == 0xA0))
         e.dada1 = (std::uint8_t) mapaBateria[(size_t) (e.dada1 & 127)];
     const bool acords = slotChordPad >= 0 && slot == slotChordPad;
-    auto envia = [this, desti] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    // 0.73: les notes que toques, per a l'Harmonitzador en mode Teclat MIDI (si n'hi ha, no sona el so de prova)
+    auto& cm = mibase::ContextMusical::global();
+    if ((e.estat & 0xF0) == 0x90 && e.dada2 > 0) cm.notaOn (e.dada1 & 127);
+    else if ((e.estat & 0xF0) == 0x80 || ((e.estat & 0xF0) == 0x90 && e.dada2 == 0)) cm.notaOff (e.dada1 & 127);
+    else if ((e.estat & 0xF0) == 0xB0 && (e.dada1 == 123 || e.dada1 == 120)) cm.totesOff();
+    const bool perHarmonitzador = cm.escoltantTeclat.load (std::memory_order_relaxed) > 0;
+    auto envia = [this, desti, perHarmonitzador] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
     {
-        if (! motorEstudi.enviaTeclat (es, d1, d2, desti))
+        if (! motorEstudi.enviaTeclat (es, d1, d2, desti) && ! perHarmonitzador)
             motorDiag.enviaMidi ({ es, d1, d2 });
     };
     // Primer el Chord Pad; el que hi passa tal qual, per l'escala (bloquejat / assistit).

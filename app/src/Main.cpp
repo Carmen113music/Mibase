@@ -4,6 +4,7 @@
 #include "Tema.h"
 #include "EscanerPlugins.h"
 #include "FinestraProgres.h"
+#include "FinestraFlotant.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -17,6 +18,7 @@ public:
         setUsingNativeTitleBar (true);
         setResizable (true, true);
         setResizeLimits (1100, 700, 5000, 3000);
+        finestraMibase() = this;   // 0.70: la «propietària» de les finestres dels efectes
         // 0.28: primer, la pantalla d'arrencada (logo, nom i què es carrega); el programa es carrega just després
         arrencada = new PantallaArrencada();
         setContentOwned (arrencada, false);

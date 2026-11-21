@@ -1244,6 +1244,23 @@ void VistaPistes::paint (juce::Graphics& g)
         }
     }
 
+    // 0.72: pre-roll: una franja discreta fins on començarà la gravació, a la pista armada.
+    if (estat.transport == 2 && estat.capcal < estat.cursorGravacio)
+    {
+        for (int i = 0; i < estat.numPistes(); ++i)
+        {
+            if (! estat.projecte.pistes[(size_t) i].grava || estat.altDe (i) == 0) continue;
+            auto r = juce::Rectangle<float> (estat.x (estat.capcal), (float) estat.yPista (i) + 5.0f,
+                                             estat.x (estat.cursorGravacio) - estat.x (estat.capcal), 16.0f);
+            g.setColour (tema::accent.withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 4.0f);
+            g.setColour (tema::accent);
+            g.setFont (dibuix::lletra (11.0f, true));
+            g.drawText ("Pre-roll", r.reduced (6.0f, 0.0f), juce::Justification::centredLeft, false);
+            g.fillRect (juce::Rectangle<float> (estat.x (estat.cursorGravacio) - 1.0f, (float) estat.yPista (i) + 3.0f, 2.0f, (float) estat.altPista - 6.0f));
+        }
+    }
+
     pintaCapcal (g, estat.x (estat.capcal), h, estat.transport);
 }
 
@@ -1642,6 +1659,18 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
     // Lloc buit: es treu la selecció i, si s'arrossega, es fa un requadre (el capçal només es mou a la regla).
     if (lloc0.pista < 0 || (lloc0.clip < 0 && lloc0.maneta == Maneta::Cap))
     {
+        // 0.72: Ctrl + arrossegar en un lloc buit d'una pista = clip buit (amb la graella), preparat per gravar-hi.
+        if (e.mods.isCommandDown() && ! e.mods.isShiftDown() && lloc0.pista >= 0 && lloc0.pista < estat.numPistes()
+            && ! estat.filaCarpeta (lloc0.pista) && ! mibase::esBus (estat.projecte.pistes[(size_t) lloc0.pista]))
+        {
+            estat.pistaTriada = lloc0.pista;
+            estat.capTriat();
+            mode = Mode::Llapis;
+            llapisPerCtrl = true;
+            t0 = tLlapis = tEina (t0);
+            estat.avisa();
+            return;
+        }
         if (! e.mods.isCommandDown() && ! e.mods.isShiftDown())
             estat.capTriat();
         else
@@ -2072,13 +2101,27 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
 
         case Mode::Llapis:
         {
+            const bool perCtrl = llapisPerCtrl;
+            llapisPerCtrl = false;
+            if (perCtrl && (e.getDistanceFromDragStart() < 4 || std::abs (tLlapis - t0) < 1e-6))
+            {
+                estat.avisa();   // Ctrl + clic sense arrossegar: res
+                break;
+            }
             comencaCanvi();
             restaura();
             double a = juce::jmin (t0, tLlapis), b = juce::jmax (t0, tLlapis);
             if (b - a < 1e-6) b = a + ed::segonsPerCompas (estat.projecte);   // sense arrossegar: un compàs
             const int nou = ed::creaFinestra (estat.projecte, lloc0.pista, a, b);
             estat.triaClip (lloc0.pista, nou);
-            acabaCanvi();
+            if (perCtrl)
+                if (auto* c = estat.clip ({ lloc0.pista, nou }))
+                {
+                    estat.clipPreparat = { estat.projecte.pistes[(size_t) lloc0.pista].id, c->iniciVisible(), c->fiVisible() };
+                    estat.info = "Clip buit preparat per gravar: arma la pista (botó vermell) i prem 0 al teclat numèric"_ca;
+                }
+            acabaCanvi (perCtrl ? juce::String ("Clip buit preparat per gravar"_ca) : juce::String());
+            if (perCtrl) break;   // no s'obre el Piano Roll: és un lloc per gravar
             if (auto* c = estat.clip ({ lloc0.pista, nou }); c != nullptr && c->midi && onObreMidi)
                 onObreMidi (lloc0.pista, nou);   // clip MIDI nou: s'obre al Piano Roll per dibuixar-hi
             break;
