@@ -1,4 +1,5 @@
 #pragma once
+#include "DialegExporta.h"
 
 #include <mibase/SeguimentCapcal.h>
 #include "DialegText.h"
@@ -165,8 +166,10 @@ private:
     void consolida (int pista, int a, int b);
     void consolidaComp (int pista);   // 0.81
     void printPista (int pista);      // 0.82: amb els efectes aplicats
+    void fesExportacio (const DialegExporta::Resultat& r, const juce::File& desti);   // 0.83
+    std::unique_ptr<DialegExporta> dialegExporta;                                     // 0.83
     bool renderitzaPista (const mibase::Pista& t, bool ambEfectes, double ini, double fi, int canals, const juce::File& desti,
-                          double minFi, long long& frames, std::string& error);
+                          double minFi, long long& frames, std::string& error, double escalfa = 0.0, float* pic = nullptr);
     void carregaOna (const mibase::Presa& s);
     std::function<void (double)> progresOna;   // 0.28: mentre es llegeix un àudio (0..1)
     juce::File fitxerPresa (const mibase::Presa& s) const;

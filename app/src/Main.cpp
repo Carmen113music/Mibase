@@ -5,6 +5,7 @@
 #include "EscanerPlugins.h"
 #include "FinestraProgres.h"
 #include "FinestraFlotant.h"
+#include "Tancaments.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -93,6 +94,7 @@ public:
             quit();
             return;
         }
+        tancaments::instal_la (MIBASE_VERSIO);   // 0.83: si es tanca de cop, que quedi escrit on
         finestra = std::make_unique<FinestraPrincipal>();
     }
     void shutdown() override                       { finestra = nullptr; }

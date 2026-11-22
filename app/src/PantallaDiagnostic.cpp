@@ -1,4 +1,5 @@
 #include "PantallaDiagnostic.h"
+#include "Tancaments.h"
 
 #include <cmath>
 
@@ -941,6 +942,12 @@ juce::String PantallaDiagnostic::textDiagnostic()
     if (juce::MidiInput::getAvailableDevices().isEmpty())
         t << "Cap teclat MIDI.\n";
 
+    if (const auto darrer = tancaments::darrer(); darrer.isNotEmpty())   // 0.83
+    {
+        auto linies = juce::StringArray::fromLines (darrer);
+        while (linies.size() > 45) linies.remove (linies.size() - 1);
+        t << "\n-- Darrer tancament inesperat --\n" << linies.joinIntoString ("\n") << "\n";
+    }
     t << "\n-- Historial (el més recent a dalt) --\n"_ca;
     const auto& linies = historial.getLinies();
     for (int i = 0; i < juce::jmin (40, linies.size()); ++i)

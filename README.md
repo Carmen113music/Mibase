@@ -89,6 +89,14 @@ No cal activar res: Mibase organitza les preses sol.
 - En tots dos casos, si alguna cosa falla no es crea res, i Ctrl+Z ho desfà tot d'un cop.
 - Tot és **no destructiu**: les preses no es retallen mai, el comp només diu quin tros de cada una sona, i Ctrl+Z / Ctrl+Y desfan i refan cada canvi.
 
+### Exportar (0.83)
+Fitxer → Exporta obre una finestra amb les opcions:
+- **Què**: tota la mescla (tal com sona, amb mutes i solos), una mescla amb les pistes triades, **un fitxer per pista** (stems) o **un per carpeta**. Amb més d'un fitxer, tria la carpeta on van; tots comencen i acaben al mateix lloc (per posar-los junts en un altre programa).
+- **Tros**: tota la cançó, **lineal** o seguint una **estructura**; el **bucle**; o una **part** de la regla.
+- **Amb els efectes** (si no, sense els efectes de les pistes ni dels busos i sense enviaments; el Vocal Editor sí) i **amb el màster** (la cadena de mastering).
+- **Format**: WAV estèreo de 24 bits o de 16 bits (amb dither). Al final s'hi afegeix la cua de reverbs i delays (es treu el silenci, menys als stems).
+- Si Mibase es tanca de cop (exportant o fent qualsevol cosa), a la propera arrencada l'historial ho diu, i el diagnòstic ensenya on va petar: copia'l i passa'l a Claude.
+
 ### Carpetes de pistes
 - El botó de la **carpeta** (a dalt de la columna dels noms de pista) mostra o amaga el **panell de carpetes**, a l'esquerra dels noms. Sense carpetes, hi surten totes les pistes seguides.
 - **Carpeta nova** (botó de dalt del panell), o tria unes quantes pistes amb **Ctrl** (o **Maj**, per triar-les seguides) clicant-ne el nom i prem **Ctrl+G**: demana el nom i les posa juntes dins la carpeta.
@@ -414,6 +422,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.83.0** — **Finestra d'exportar**: tota la mescla, una mescla de les pistes triades, un fitxer per pista (stems) o un per carpeta; tota la cançó (lineal o una estructura), el bucle o una part; amb o sense efectes; amb o sense màster; WAV 24 o 16 bits. Inclou la cua de reverbs i delays. **Print amb Kontakt i altres VST3**: les còpies per exportar treballen fora de temps real i s'espera que carreguin les mostres (si surt en silenci, es torna a provar esperant més). **Si Mibase es tanca de cop**, queda escrit on (al diagnòstic, «Darrer tancament inesperat»). «A pistes reals» explica per què no fa res si el Vocal Studio no té retorns, i si ho fa, la vista va a la carpeta nova.
 - **0.82.0** — **Print** de debò: el so de la pista amb tots els efectes aplicats (també pistes MIDI: l'instrument es converteix en àudio) en una pista d'àudio nova sense efectes, amb el mateix fader, panorama, sortida i enviaments; l'original queda silenciada i sencera. El «Print Comp» de la 0.81 passa a dir-se **Consolida el comp** (crea «Comp - nom»).
 - **0.81.0** — **Preses (takes) i comping automàtics**: gravar sobre el mateix tros (o en bucle, una presa per volta) organitza les preses en subpistes sota la pista, sense cap mode per activar. Arrossegant sobre una presa en tries el tros que sona al comp (només una presa per lloc, crossfades de 10 ms); vores per ampliar o reduir, doble clic per a la presa sencera, botó dret per treure trossos o preses. **Gravació en bucle**: amb el bucle encès, el capçal torna a l'inici mentre es grava i cada volta és una presa. **Consolida el comp** (a la 0.81 es deia «Print Comp»): pista nova amb el comp en un sol àudio i els mateixos efectes; l'original queda silenciada. **Tune en sec mentre graves** (pista armada escoltant l'entrada: sense retard, afina en reproduir).
 - **0.72.0** — **Gravació intuïtiva amb el 0 del teclat numèric** (única tecla de gravar; la R ja no grava). Aturat: 2 compassos de pre-roll i grava des del capçal; sonant: Punch In a l'instant amb fins a 4 s de pregravació al davant (fora del clip, per recuperar); gravant: Punch Out sense aturar, i la pista continua armada. Triar una pista no l'arma i canviar de pista desarma l'anterior. **Ctrl + arrossegar** amb la fletxa fa un clip buit: amb la pista armada, el 0 hi grava (2 compassos abans de l'inici del clip). Franja discreta de «Pre-roll» a la pista; el play queda encès mentre es grava. Les gravacions continuen sent no destructives (la presa nova va a sobre).

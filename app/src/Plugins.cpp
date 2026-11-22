@@ -1,4 +1,5 @@
 #include "Plugins.h"
+#include "Tancaments.h"
 #include "EscGlobal.h"
 #include "FinestraDelay.h"
 #include "FinestraSaturacio.h"
@@ -214,7 +215,7 @@ GestorPlugins::~GestorPlugins()
     finestres.clear();   // els editors, abans que els plugins
 }
 
-std::shared_ptr<AdaptadorPlugin> GestorPlugins::crea (const std::string& id, const std::string& estat, double fs, int maxBloc)
+std::shared_ptr<AdaptadorPlugin> GestorPlugins::crea (const std::string& id, const std::string& estat, double fs, int maxBloc, bool foraTempsReal)
 {
     auto desc = plugins.getTypeForIdentifierString (juce::String (id));
     if (desc == nullptr)
@@ -229,6 +230,7 @@ std::shared_ptr<AdaptadorPlugin> GestorPlugins::crea (const std::string& id, con
         ultimError = "No s'ha pogut obrir " + desc->name + ": " + error;
         return nullptr;
     }
+    if (foraTempsReal) inst->setNonRealtime (true);   // 0.83: exportant / Print: el plugin pot anar amb calma (i carregar-ho tot)
     auto a = std::make_shared<AdaptadorPlugin> (std::move (inst));
     a->prepara (fs, maxBloc);
     a->posaEstat (estat);
@@ -300,14 +302,32 @@ std::shared_ptr<mibase::Efecte> GestorPlugins::efecteNou (const mibase::Insert& 
         return r;
     }
     auto* a = viu (x.id);
-    return crea (x.plugin, a != nullptr ? a->estat() : x.estat, fs, bloc);
+    tancaments::pas ("obrint una còpia de " + juce::String (x.nom) + " per exportar");
+    return crea (x.plugin, a != nullptr ? a->estat() : x.estat, fs, bloc, true);
 }
 
-std::shared_ptr<mibase::Instrument> GestorPlugins::instrumentNou (const mibase::Pista& t, double fs, int bloc)
+std::shared_ptr<mibase::Instrument> GestorPlugins::instrumentNou (const mibase::Pista& t, double fs, int bloc, double escalfa)
 {
     if (! esVst3 (t.instrument)) return nullptr;
     auto* a = viu ("inst:" + t.id);
-    return crea (t.instrument.substr (5), a != nullptr ? a->estat() : t.estatInstrument, fs, bloc);
+    tancaments::pas ("obrint una còpia de l'instrument de «" + juce::String::fromUTF8 (t.nom.c_str()) + "» per exportar");
+    auto nou = crea (t.instrument.substr (5), a != nullptr ? a->estat() : t.estatInstrument, fs, bloc, true);
+    if (nou != nullptr && escalfa > 0.0)
+    {
+        // 0.83: el deixem treballar en silenci una estona perquè carregui les mostres (Kontakt i semblants)
+        tancaments::pas ("esperant que carregui l'instrument de «" + juce::String::fromUTF8 (t.nom.c_str()) + "»");
+        std::vector<float> L ((size_t) bloc), R ((size_t) bloc);
+        const auto fi = juce::Time::getMillisecondCounterHiRes() + escalfa * 1000.0;
+        const int n = juce::jmin (bloc, 512);
+        while (juce::Time::getMillisecondCounterHiRes() < fi)
+        {
+            nou->processa ((const mibase::EventInstrument*) nullptr, 0, L.data(), R.data(), n);
+            juce::Thread::sleep (10);
+        }
+        nou->apagaTot();
+        nou->processa ((const mibase::EventInstrument*) nullptr, 0, L.data(), R.data(), n);
+    }
+    return nou;
 }
 
 bool GestorPlugins::desaEstats (mibase::Projecte& p)

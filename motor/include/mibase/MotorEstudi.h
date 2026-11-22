@@ -221,6 +221,8 @@ namespace mibase
         void reiniciaBucle() noexcept;
         /** Pistes (slots) que no sonen al tram de l'estructura que sona ara (0.15). */
         void setSilenci (const std::bitset<128>& s) noexcept { silenciAra = s; }
+        /** 0.83: exportant, la cua final: no comença res de nou (ni clips ni notes), però els efectes continuen sonant. */
+        void setNomesCua (bool c) noexcept { nomesCua = c; }
         /** Apaga les notes MIDI que sonen (en aturar). */
         void apagaNotes() noexcept;
         /** Fil d'àudio, just abans de canviar de pla: els instruments que ja no hi seran (o han canviat) s'apaguen
@@ -234,6 +236,7 @@ namespace mibase
 
     private:
         std::bitset<128> silenciAra;
+        bool nomesCua = false;   // 0.83
         struct NotaActiva { long long fi = 0; std::uint8_t to = 0, canal = 0; };
         struct EstatSlot
         {
@@ -442,4 +445,24 @@ namespace mibase
     /** Exporta la mescla de [desDe, finsA) a un WAV estèreo de 24 bits (sense la claqueta). */
     bool exportaMescla (const Pla& pla, double fs, double desDe, double finsA, const std::filesystem::path& desti, std::string& error,
                         const std::function<void (double)>& progres = {});
+    /** 0.83: com exportaMescla, amb opcions. Si el pla té estructura (pla.ruta), en segueix els trams per ordre (desDe i
+        finsA no compten); si no, de desDe a finsA. «cua»: segons de més al final perquè s'apaguin reverbs i notes (el
+        silenci del final es treu, però mai abans de finsA o del final de l'estructura). bits: 16 (amb dither) o 24. */
+    bool exportaPla (const Pla& pla, double fs, double desDe, double finsA, int bits, double cua, const std::filesystem::path& desti,
+                     std::string& error, const std::function<void (double)>& progres = {}, bool retallaCua = true);
+    /** 0.83: opcions de la finestra d'exportar. */
+    struct OpcionsExport
+    {
+        enum Tros { Canco = 0, Bucle = 1, Part = 2 };
+        int tros = Canco;
+        std::string estructura;   // amb Canco: "" lineal, o l'id d'una estructura
+        std::string part;         // amb Part: l'id de la part
+        bool efectes = true;      // false: sense inserts (pistes i busos) ni enviaments (el Vocal Editor es queda)
+        bool master = true;       // false: sense la cadena del màster (el volum del màster es queda)
+    };
+    /** 0.83: el projecte a punt per exportar: només sonen «pistes» (índexs; buit = tot, tal com sona ara, amb mutes i
+        solos), amb o sense efectes i màster, i el tros [desDe, finsA] que toca ({0, 0} si no hi ha res). */
+    Projecte projectePerExportar (const Projecte& p, const OpcionsExport& o, const std::vector<int>& pistes, std::pair<double, double>& tros);
+    /** 0.83: quant dura el que s'exportarà (amb estructura, la suma dels trams). */
+    double duradaExportacio (const Pla& pla, double desDe, double finsA);
 }

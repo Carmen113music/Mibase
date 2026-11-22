@@ -2,6 +2,8 @@
 #include <mibase/ContextMusical.h>
 #include <array>
 #include "FinestraFlotant.h"
+#include "DialegExporta.h"
+#include "Tancaments.h"
 #include "BancGM.h"
 #include "EscGlobal.h"
 #include "Inserts.h"
@@ -149,12 +151,25 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
             return t.solo ? 1 : 0;
         }
         plugins.desaEstats (estat.projecte);   // el que hi ha ara al Vocal Studio viu
-        estat.desfes.abans (estat.projecte);
+        const auto abans = estat.projecte;
         const juce::String nom = dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom);
         if (accio == 1)
         {
             const auto r = rack::desplega (estat.projecte, pista, idInsert);
-            if (! r.correcte) { estat.info = dibuix::utf8 (r.error); estat.avisa(); return 0; }
+            if (! r.correcte)
+            {
+                // 0.83: que es vegi per què no fa res
+                estat.projecte = abans;
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "A pistes reals",
+                    dibuix::utf8 (r.error) + "\n\n«A pistes reals» converteix els retorns en paral·lel del Vocal Studio (els camins de sota "
+                    "la cadena principal) en busos de veritat. La cadena principal es queda dins el Vocal Studio. Afegeix-hi un retorn "
+                    "(o tria un preset amb camins en paral·lel) i torna-ho a provar."_ca);
+                return 0;
+            }
+            estat.desfes.abans (abans);
+            // 0.83: la vista baixa fins a la carpeta nova (és al final, amb els busos)
+            for (int i = 0; i < (int) estat.projecte.pistes.size(); ++i)
+                if (estat.projecte.pistes[(size_t) i].nom.rfind (std::string (rack::prefixDesplega) + nom.toStdString(), 0) == 0) { estat.desplY = juce::jmax (0, estat.yPista (i) + estat.desplY - 20); break; }
             // el Vocal Studio viu: ara només amb la cadena principal
             for (const auto& t : estat.projecte.pistes)
                 for (const auto& x : t.inserts)
@@ -165,6 +180,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
             estat.avisa();
             return r.busos;
         }
+        estat.desfes.abans (abans);
         const int n = rack::treuDesplegament (estat.projecte, pista);
         estat.canviat ("Treta la cadena «VS · "_ca + nom + "» ("_ca + juce::String (n) + " busos)"_ca);
         return n;
@@ -1709,46 +1725,133 @@ void PantallaEstudi::tic()
 
 void PantallaEstudi::exportaMescla()
 {
+    // 0.83: primer la finestra d'opcions
     desaAra();
-    const auto tros = trosPerExportar (estat.projecte);
-    if (tros.second <= tros.first)
+    dialegExporta = std::make_unique<DialegExporta> (estat.projecte, estat.pistaTriada, [this] (const DialegExporta::Resultat& r)
     {
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Exporta la mescla", "No hi ha res que soni per exportar."_ca);
+        const bool unSol = r.que == DialegExporta::Tot || r.que == DialegExporta::Triades;
+        const auto nomProj = dibuix::utf8 (estat.projecte.nom);
+        if (unSol)
+        {
+            const auto proposta = estat.carpeta.getChildFile (nomProj + (r.que == DialegExporta::Tot ? " - mescla.wav" : " - pistes triades.wav"));
+            selector = std::make_unique<juce::FileChooser> ("Exporta (WAV estèreo)"_ca, proposta, "*.wav");
+            selector->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                       | juce::FileBrowserComponent::warnAboutOverwriting,
+                                   [this, r] (const juce::FileChooser& fc)
+            {
+                auto desti = fc.getResult();
+                if (desti == juce::File()) return;
+                if (! desti.hasFileExtension ("wav")) desti = desti.withFileExtension ("wav");
+                fesExportacio (r, desti);
+            });
+        }
+        else
+        {
+            selector = std::make_unique<juce::FileChooser> ("Tria la carpeta on es desaran els fitxers"_ca, estat.carpeta);
+            selector->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                                   [this, r] (const juce::FileChooser& fc)
+            {
+                const auto carpeta = fc.getResult();
+                if (carpeta == juce::File()) return;
+                fesExportacio (r, carpeta);
+            });
+        }
+    });
+    DialegExporta::mostra (*this, dialegExporta);
+}
+
+void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce::File& desti)
+{
+    const auto& p = estat.projecte;
+    const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+    const auto nomProj = dibuix::utf8 (p.nom);
+    auto netejaNom = [] (juce::String n) { return juce::File::createLegalFileName (n).trim(); };
+
+    // Les feines: cada una, unes pistes (buit = tot) i un fitxer
+    struct Feina { std::vector<int> pistes; juce::File fitxer; juce::String nom; };
+    std::vector<Feina> feines;
+    if (r.que == DialegExporta::Tot) feines.push_back ({ {}, desti, "la mescla" });
+    else if (r.que == DialegExporta::Triades) feines.push_back ({ r.pistes, desti, "les pistes triades" });
+    else if (r.que == DialegExporta::UnPerPista)
+        for (int i : r.pistes)
+        {
+            const auto nom = dibuix::utf8 (p.pistes[(size_t) i].nom);
+            feines.push_back ({ { i }, desti.getChildFile (netejaNom (nomProj + " - " + nom) + ".wav"), "«" + nom + "»" });
+        }
+    else
+        for (const auto& id : r.carpetes)
+        {
+            std::vector<int> v;
+            for (int i = 0; i < (int) p.pistes.size(); ++i)
+                if (p.pistes[(size_t) i].carpeta == id && ! mibase::esBus (p.pistes[(size_t) i]) && ! mibase::esAcords (p.pistes[(size_t) i])) v.push_back (i);
+            juce::String nom = id;
+            for (const auto& c : p.carpetes) if (c.id == id) nom = dibuix::utf8 (c.nom);
+            if (! v.empty()) feines.push_back ({ v, desti.getChildFile (netejaNom (nomProj + " - " + nom) + ".wav"), "la carpeta «" + nom + "»" });
+        }
+
+    // El tros: el mateix per a tots els fitxers (així els stems queden alineats i amb la mateixa llargada)
+    std::vector<int> totes;
+    if (r.que != DialegExporta::Tot) for (auto& f : feines) totes.insert (totes.end(), f.pistes.begin(), f.pistes.end());
+    std::pair<double, double> tros;
+    mibase::projectePerExportar (p, r.opcions, totes, tros);
+    if (tros.second <= tros.first || feines.empty())
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Exporta", "No hi ha res que soni per exportar en aquest tros."_ca);
         return;
     }
-    const auto proposta = estat.carpeta.getChildFile (dibuix::utf8 (estat.projecte.nom) + " - mescla.wav");
-    selector = std::make_unique<juce::FileChooser> ("Exporta la mescla (WAV estèreo, 24 bits)"_ca, proposta, "*.wav");
-    selector->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                               | juce::FileBrowserComponent::warnAboutOverwriting,
-                           [this, tros] (const juce::FileChooser& fc)
+    const bool variosFitxers = feines.size() > 1 || r.que == DialegExporta::UnPerPista || r.que == DialegExporta::UnPerCarpeta;
+    const double cua = 4.0;   // reverbs, delays i notes que s'apaguen
+
+    juce::StringArray fets, errors;
+    juce::MouseCursor::showWaitCursor();
+    for (auto& f : feines)
     {
-        auto desti = fc.getResult();
-        if (desti == juce::File()) return;
-        if (! desti.hasFileExtension ("wav")) desti = desti.withFileExtension ("wav");
-        const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
-        std::string error;
-        juce::MouseCursor::showWaitCursor();
+        tancaments::pas ("exportant " + f.nom + ": preparant");
+        std::pair<double, double> trosFeina;
+        auto q = mibase::projectePerExportar (p, r.opcions, f.pistes, trosFeina);
+        const auto solo = ed::estatSolo (q);
+        std::vector<std::string> sonen;   // només es creen els instruments de les pistes que sonen
+        for (size_t i = 0; i < q.pistes.size(); ++i) if (solo[i] != 0) sonen.push_back (q.pistes[i].id);
         auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
-        const bool fet = mibase::exportaMescla (*construeixPla (estat.projecte, audioPreses,
-                                                    [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096) : interns (t); },
-                                                    [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
-                                                    &serveiVeu.corregides()),
-                                                fs, tros.first, tros.second, dibuix::cami (desti), error);
-        juce::MouseCursor::hideWaitCursor();
-        if (! fet)
+        std::string error;
+        bool fet = false;
         {
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No s'ha pogut exportar", dibuix::utf8 (error));
-            return;
+            auto pla = construeixPla (q, audioPreses,
+                [this, fs, interns, sonen] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
+                {
+                    if (std::find (sonen.begin(), sonen.end(), t.id) == sonen.end()) return nullptr;
+                    return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
+                },
+                [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
+                &serveiVeu.corregides());
+            tancaments::pas ("exportant " + f.nom + ": renderitzant");
+            fet = mibase::exportaPla (*pla, fs, tros.first, tros.second, r.bits, cua, dibuix::cami (f.fitxer), error, {}, ! variosFitxers);
+            tancaments::pas ("exportant " + f.nom + ": tancant les còpies dels plugins");
         }
-        const auto que = estat.projecte.bucle.marcat && estat.projecte.bucle.actiu ? juce::String ("el bucle") : juce::String ("del primer al darrer clip");
-        disc::afegeixEvolucio (dibuix::cami (estat.carpeta), dibuix::araText().toStdString(),
-                               ("Mescla exportada a " + desti.getFullPathName()).toStdString());
-        historial.afegeix ("Mescla exportada a "_ca + desti.getFullPathName());
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Mescla exportada",
-            "S'ha desat "_ca + que + " (" + juce::String (tros.second - tros.first, 1).replaceCharacter ('.', ',') + " s) a:\n" + desti.getFullPathName()
-            + "\n\nSona tal com ho sents (volums, panorama, silencis i solos), sense la claqueta."_ca);
-        desti.revealToUser();
-    });
+        tancaments::pas ("exportació acabada");
+        if (fet) fets.add (f.fitxer.getFileName());
+        else errors.add (f.nom + ": " + dibuix::utf8 (error));
+    }
+    juce::MouseCursor::hideWaitCursor();
+
+    const juce::String que = r.opcions.tros == mibase::OpcionsExport::Bucle ? "el bucle"
+                           : r.opcions.tros == mibase::OpcionsExport::Part ? "una part"
+                           : r.opcions.estructura.empty() ? "tota la cançó (lineal)" : "tota la cançó (estructura)";
+    const juce::String com = juce::String (r.bits) + " bits" + (r.opcions.efectes ? ", amb efectes" : ", sense efectes")
+                           + (r.opcions.master ? ", amb màster" : ", sense màster");
+    for (auto& f : fets)
+    {
+        disc::afegeixEvolucio (dibuix::cami (estat.carpeta), dibuix::araText().toStdString(), ("Exportat " + f + " (" + que + ", " + com + ")").toStdString());
+        historial.afegeix ("Exportat "_ca + f + " (" + que + ", " + com + ")");
+    }
+    juce::String text;
+    if (! fets.isEmpty())
+        text << "S'ha exportat " << que << " (" << com << ")"
+             << (fets.size() == 1 ? juce::String (":\n") + (variosFitxers ? desti.getChildFile (fets[0]) : desti).getFullPathName()
+                                  : juce::String (": ") + juce::String (fets.size()) + " fitxers a\n" + desti.getFullPathName());
+    if (! errors.isEmpty()) text << (text.isEmpty() ? "" : "\n\n") << "No s'ha pogut exportar:\n" << errors.joinIntoString ("\n");
+    juce::AlertWindow::showMessageBoxAsync (errors.isEmpty() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
+                                            "Exporta", text);
 }
 
 std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
@@ -2119,8 +2222,10 @@ void PantallaEstudi::importa (const juce::StringArray& fitxers, int pista, doubl
 }
 
 bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, double ini, double fi, int canals, const juce::File& desti,
-                                      double minFi, long long& frames, std::string& error)
+                                      double minFi, long long& frames, std::string& error, double escalfa, float* pic)
 {
+    tancaments::pas ("renderitzant la pista «" + dibuix::utf8 (t.nom) + "»");
+    desti.deleteFile();   // (si es torna a provar: juce afegiria al final del fitxer vell)
     // 0.81/0.82: la pista sola a un fitxer. Sense fader, panorama, enviaments, busos ni màster.
     // ambEfectes = false: en sec (només el Vocal Editor, que ja és la veu corregida); true: amb els efectes i l'instrument.
     const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
@@ -2147,7 +2252,7 @@ bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, d
     const auto temporal = desti.getSiblingFile (desti.getFileName() + ".tmp.wav");
     auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
     bool fet = mibase::exportaMescla (*construeixPla (q, audioPreses,
-                                          [this, fs, interns] (const mibase::Pista& x) { return GestorPlugins::esVst3 (x.instrument) ? plugins.instrumentNou (x, fs, 4096) : interns (x); },
+                                          [this, fs, interns, escalfa] (const mibase::Pista& x) { return GestorPlugins::esVst3 (x.instrument) ? plugins.instrumentNou (x, fs, 4096, escalfa) : interns (x); },
                                           [this, fs, ambEfectes] (const mibase::Insert& x) { return ambEfectes && x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
                                           &serveiVeu.corregides()),
                                       fs, ini, fi, dibuix::cami (temporal), error);
@@ -2164,6 +2269,7 @@ bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, d
             juce::AudioBuffer<float> b ((int) lector->numChannels, (int) frames);
             lector->read (&b, 0, (int) frames, 0, true, true);
             lector.reset();
+            if (pic != nullptr) *pic = b.getMagnitude (0, (int) frames);
             // la cua dels efectes (reverb, delay): es talla on ja no se sent, però mai abans de «minFi»
             const auto minim = (long long) std::ceil ((minFi - ini) * fs);
             long long ultim = frames;
@@ -2187,6 +2293,7 @@ bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, d
     }
     temporal.deleteFile();
     if (! fet) desti.deleteFile();   // res a mitges
+    tancaments::pas ("render de la pista acabat");
     return fet;
 }
 
@@ -2212,7 +2319,7 @@ void PantallaEstudi::consolidaComp (int pista)
     long long frames = 0;
     std::string error;
     juce::MouseCursor::showWaitCursor();
-    const bool fet = renderitzaPista (*t, false, ini, fi, t->canals == 2 ? 2 : 1, desti, fi, frames, error);
+    const bool fet = renderitzaPista (*t, false, ini, fi, t->canals == 2 ? 2 : 1, desti, fi, frames, error, 0.0, nullptr);
     juce::MouseCursor::hideWaitCursor();
     if (! fet)
     {
@@ -2260,8 +2367,25 @@ void PantallaEstudi::printPista (int pista)
     std::string error;
     desaAra();
     juce::MouseCursor::showWaitCursor();
-    const bool fet = renderitzaPista (*t, true, ini, fi + cua, 2, desti, fi, frames, error);
+    // 0.83: un instrument VST3 (Kontakt…) es deixa carregar uns segons; si tot i així surt en silenci, es torna a provar
+    // esperant més (les llibreries grans triguen)
+    const bool vst3 = GestorPlugins::esVst3 (t->instrument);
+    float pic = 0.0f;
+    bool fet = renderitzaPista (*t, true, ini, fi + cua, 2, desti, fi, frames, error, vst3 ? GestorPlugins::escalfamentVst3 : 0.0, &pic);
+    if (fet && vst3 && pic < 1.0e-4f)
+    {
+        historial.afegeix ("Print: l'instrument ha sortit en silenci; es torna a provar esperant que carregui més estona"_ca);
+        fet = renderitzaPista (*t, true, ini, fi + cua, 2, desti, fi, frames, error, 20.0, &pic);
+    }
     juce::MouseCursor::hideWaitCursor();
+    if (fet && vst3 && pic < 1.0e-4f)
+    {
+        desti.deleteFile();
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Print",
+            "L'instrument («"_ca + dibuix::utf8 (t->nom) + "») ha sortit en silenci fins i tot esperant 20 segons que carregués. No s'ha creat res.\n\n"
+            "Copia el diagnòstic i passa'l a Claude."_ca);
+        return;
+    }
     if (! fet)
     {
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Print", "No s'ha pogut fer el Print:\n"_ca + dibuix::utf8 (error));
