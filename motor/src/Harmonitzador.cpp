@@ -306,7 +306,7 @@ namespace mibase::canvito
         cursor = 0;
     }
 
-    float Veu::processa (const Analitzador& a, double semitons, double formant, float guanySord) noexcept
+    float Veu::processa (const Analitzador& a, double semitons, double formant, float guanySord, Afinacio* af) noexcept
     {
         if (acc.empty()) return 0.0f;
         const long long n = a.mostres();
@@ -321,7 +321,7 @@ namespace mibase::canvito
             while (k + 1 <= ultimaK && std::abs (a.marca (k + 1).pos - tS) <= std::abs (a.marca (k).pos - tS)) ++k;
             cursor = k;
             const Marca mk = a.marca (k);
-            double H, pasS, centre, kk;
+            double H, pasS, centre, kk, pAfina = 0.0;
             float g;
             if (mk.sonor)
             {
@@ -335,6 +335,7 @@ namespace mibase::canvito
                 P = std::clamp (P, 0.5 * mk.periode, 2.0 * mk.periode);
                 H = std::min (P, a.hMax());   // grans de dos períodes (PSOLA clàssic): baixant, queden separats
                 pasS = std::max (1.0, P / r);
+                pAfina = P;
                 centre = mk.pos;
                 kk = kf;
                 g = 1.0f;
@@ -347,6 +348,15 @@ namespace mibase::canvito
                 g = guanySord;
             }
             if ((double) (n - 1) < centre + H * std::max (1.0, kk) + 1.0) break;
+            if (af != nullptr && pAfina > 0.0 && ! (tS - H <= (double) std::max (o, -1LL)))
+            {
+                // 0.79: l'afinador decideix a cada pols (un cop per gra que es fa), amb el període de debò d'aquest pols
+                // 0.80: la nota es decideix amb el període del detector (estable); abans es feia amb la distància entre
+                // polsos, que salta fins a 2–4 semitons d'un pols a l'altre i feia canviar la nota destí a batzegades
+                const double nota = 69.0 + 12.0 * std::log2 (a.fs() / mk.periode / 440.0);
+                const double sem = std::clamp (af->desplacament (nota, pAfina / a.fs()), -12.0, 12.0);
+                pasS = std::max (1.0, mk.periode / std::pow (2.0, sem / 12.0));   // sortida regular: el to que toca
+            }
             // s'ha quedat enrere (o és l'inici): no s'escriu mai el que ja ha sortit ni abans de la mostra 0
             // (0.74: abans, el primer gra queia a posicions negatives de l'anell i sortia com un clic 0,34 s més tard)
             if (tS - H <= (double) std::max (o, -1LL))
@@ -795,5 +805,190 @@ namespace mibase::octava
     void Octava::posaEstat (const std::string& s)
     {
         llegeixText (s, "mibase-octava", infos, numParams, [this] (int i, float v) { posa (i, v); });
+    }
+}
+
+//==============================================================================
+namespace mibase::tune
+{
+    namespace
+    {
+        const InfoParam infos[numParams] = {
+            { "mode", "Escala de", 0, 2, 0, "D'on surt l'escala: la de la cançó (tonalitat del projecte), la que triïs o cromàtica (totes les notes)." },
+            { "tonica", "Tònica", 0, 11, 9, "La nota de l'escala triada (quan «Escala de» és «Triada»)." },
+            { "escala", "Escala", 0, numEscales - 1, 1, "L'escala triada (quan «Escala de» és «Triada»)." },
+            { "velocitat", "Velocitat", 0, 400, 25, "Quant triga a portar la veu a la nota (ms). 0 = l'efecte robòtic; 20–50 = natural." },
+            { "humanitza", "Humanitza", 0, 100, 30, "A les notes llargues corregeix més a poc a poc, perquè es conservi el vibrato." },
+            { "correccio", "Correcció", 0, 100, 100, "Quina part de la desafinació es corregeix." },
+            { "mescla", "Mescla", 0, 100, 100, "100 %: només la veu afinada." },
+        };
+        bool esEnter (int p) { return p == ModeP || p == Tonica || p == Escala; }
+        const char* const notes[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    }
+    const InfoParam& info (int p) { return infos[std::clamp (p, 0, numParams - 1)]; }
+    const char* nomEscala (int e)
+    {
+        static const char* const n[numEscales] = { "Major", "Menor", "Menor harmònica", "Dòrica", "Pentatònica major", "Pentatònica menor", "Blues" };
+        return n[std::clamp (e, 0, numEscales - 1)];
+    }
+    int mascaraEscala (int e)
+    {
+        static const int m[numEscales] = { 0xAB5, 0x5AD, 0x9AD, 0x6AD, 0x295, 0x4A9, 0x4E9 };
+        return m[std::clamp (e, 0, numEscales - 1)];
+    }
+
+    Tune::Tune() : ctx (&ContextMusical::global()) { for (int i = 0; i < numParams; ++i) par[(size_t) i].store (infos[i].def); }
+
+    void Tune::prepara (double f, int)
+    {
+        fs = f > 1000.0 ? f : 48000.0;
+        an.prepara (fs);
+        veu.prepara (an);
+        const long long mida = potencia2 (2.0 * an.latencia() + 16);
+        secL.assign ((size_t) mida, 0.0f);
+        secR.assign ((size_t) mida, 0.0f);
+        secMascara = mida - 1;
+        secW = 0;
+        calcul.notaObj = -1;
+        calcul.s = 0.0;
+        sMescla = valor (Mescla) / 100.0f;
+    }
+
+    void Tune::processa (float* L, float* R, int n) noexcept
+    {
+        if (secL.empty()) return;
+        if (demanaBuidar.exchange (false))
+        {
+            an.buida();
+            veu.buida();
+            std::fill (secL.begin(), secL.end(), 0.0f);
+            std::fill (secR.begin(), secR.end(), 0.0f);
+            calcul.notaObj = -1;
+            calcul.s = 0.0;
+        }
+        const int mode = (int) std::lround (valor (ModeP));
+        int escala = 0xFFF;
+        if (mode == Canco)
+        {
+            const int t = ((ctx->tonica.load (std::memory_order_relaxed) % 12) + 12) % 12, m = ctx->mascaraEscala.load (std::memory_order_relaxed) & 0xFFF;
+            escala = m == 0 ? 0xFFF : ((m << t) | (m >> (12 - t))) & 0xFFF;
+        }
+        else if (mode == Triada)
+        {
+            const int t = (int) std::lround (valor (Tonica)), m = mascaraEscala ((int) std::lround (valor (Escala)));
+            escala = ((m << t) | (m >> (12 - t))) & 0xFFF;
+        }
+        calcul.escala = escala;
+        calcul.vel = valor (Velocitat) * 0.001;
+        calcul.hum = valor (Humanitza) / 100.0;
+        calcul.corr = valor (Correccio) / 100.0;
+        const float mescla = valor (Mescla) / 100.0f;
+        const int lat = an.latencia();
+        constexpr int tros = 64;
+        for (int base = 0; base < n; base += tros)
+        {
+            const int m = std::min (tros, n - base);
+            const bool to = an.f0() > 0.0f;
+            detectada.store (to ? (float) calcul.ultimaNota : -1.0f, std::memory_order_relaxed);
+            desti.store (to ? calcul.notaObj : -1, std::memory_order_relaxed);
+            correccio.store ((float) (calcul.s * 100.0), std::memory_order_relaxed);
+            for (int i = base; i < base + m; ++i)
+            {
+                const float l = L[i], r = R[i];
+                an.entra (0.5f * (l + r));
+                const float y = veu.processa (an, 0.0, 0.0, 1.0f, &calcul);
+                secL[(size_t) (secW & secMascara)] = l;
+                secR[(size_t) (secW & secMascara)] = r;
+                const long long rd = secW - lat;
+                const float dl = rd >= 0 ? secL[(size_t) (rd & secMascara)] : 0.0f;
+                const float dr = rd >= 0 ? secR[(size_t) (rd & secMascara)] : 0.0f;
+                ++secW;
+                sMescla += (mescla - sMescla) * 0.001f;
+                // la veu afinada és mono (com la veu): es posa a tots dos costats com la seca
+                L[i] = (1.0f - sMescla) * dl + sMescla * y;
+                R[i] = (1.0f - sMescla) * dr + sMescla * y;
+            }
+        }
+    }
+
+    double Tune::Calcul::desplacament (double nota, double dt) noexcept
+    {
+        // la nota dels darrers polsos (cada pols sol tenir una mica de soroll); un salt gran reinicia la mitjana
+        const bool salt = suau < 0.0 || notaObj < 0 || std::abs (nota - suau) > 1.0;   // 0.80: nota nova de debò: el destí canvia de seguida
+        if (suau < 0.0 || std::abs (nota - suau) > 1.0) suau = nota;
+        else suau += (nota - suau) * 0.35;
+        ultimaNota = suau;
+        // la nota de l'escala més propera, amb una mica d'histèresi (no salta entre dues notes quan canta al mig)
+        const int prop = harmonitzador::ajustaAMascara ((int) std::lround (suau), escala);
+        const int alt = harmonitzador::mouDinsMascara (prop, escala, suau > prop ? 1 : -1);
+        const int millor = std::abs (suau - alt) < std::abs (suau - prop) ? alt : prop;
+        // 0.80: només canvia de nota quan la nova és clarament més a prop (0,3 semitons) i hi aguanta 35 ms; abans, una veu
+        // entre dues notes de l'escala (o amb vibrato) feia anar la nota destí amunt i avall i la veu tremolava a salts
+        if (millor == notaObj || std::abs (suau - notaObj) <= std::abs (suau - millor) + 0.3) { candidat = -1; tempsCand = 0.0; }
+        else if (salt) { notaObj = millor; temps = 0.0; candidat = -1; tempsCand = 0.0; }
+        else
+        {
+            if (millor != candidat) { candidat = millor; tempsCand = 0.0; }
+            tempsCand += dt;
+            if (tempsCand >= 0.035) { notaObj = millor; temps = 0.0; candidat = -1; tempsCand = 0.0; }
+        }
+        temps += dt;
+        const double objectiu = (notaObj - suau) * corr;
+        // humanitza: a partir de 0,15 s de nota, la correcció es fa més lenta (fins a +300 ms) i el vibrato es conserva
+        const double llarga = std::clamp ((temps - 0.15) / 0.35, 0.0, 1.0);
+        const double tau = vel + hum * llarga * 0.3;
+        const double k = tau < 1e-4 ? 1.0 : 1.0 - std::exp (-dt / tau);
+        s += (objectiu - s) * k;
+        // la sortida va a «suau + s»: el soroll d'aquest pols es treu (a 0 ms, exactament la nota de l'escala)
+        return s + (suau - nota);
+    }
+
+    InfoParametre Tune::infoParametre (int i) const
+    {
+        InfoParametre r;
+        r.id = info (i).clau;
+        r.nom = info (i).nom;
+        if (i == ModeP) r.passos = numModesEscala;
+        else if (i == Tonica) r.passos = 12;
+        else if (i == Escala) r.passos = numEscales;
+        return r;
+    }
+    float Tune::normal (int p, float v) noexcept { const auto& f = info (p); return lim ((v - f.mn) / (f.mx - f.mn), 0.0f, 1.0f); }
+    float Tune::deNormal (int p, float v01) noexcept { const auto& f = info (p); return f.mn + lim (v01, 0.0f, 1.0f) * (f.mx - f.mn); }
+    void Tune::posaParametre (int i, float v01) noexcept { posa (i, deNormal (i, v01)); }
+    float Tune::parametre (int i) const noexcept { return normal (i, valor (i)); }
+    std::string Tune::textParametre (int i, float v01) const
+    {
+        float v = deNormal (i, v01);
+        if (esEnter (i)) v = std::round (v);
+        char b[48];
+        switch (i)
+        {
+            case ModeP:     { static const char* const m[3] = { "Cançó", "Triada", "Cromàtica" }; return m[std::clamp ((int) v, 0, 2)]; }
+            case Tonica:    return notes[std::clamp ((int) v, 0, 11)];
+            case Escala:    return nomEscala ((int) v);
+            case Velocitat: std::snprintf (b, sizeof b, "%d ms", (int) std::lround (v)); break;
+            default:        std::snprintf (b, sizeof b, "%d %%", (int) std::lround (v)); break;
+        }
+        return b;
+    }
+    void Tune::posa (int p, float v) noexcept
+    {
+        if (p < 0 || p >= numParams || ! std::isfinite (v)) return;
+        v = lim (v, infos[p].mn, infos[p].mx);
+        if (esEnter (p)) v = std::round (v);
+        par[(size_t) p].store (v, std::memory_order_relaxed);
+    }
+    float Tune::valor (int p) const noexcept { return p >= 0 && p < numParams ? par[(size_t) p].load (std::memory_order_relaxed) : 0.0f; }
+    std::string Tune::estat() const
+    {
+        std::string st = "mibase-tune=1";
+        char b[64];
+        for (int i = 0; i < numParams; ++i) { std::snprintf (b, sizeof b, ";%s=%.6g", infos[i].clau, (double) valor (i)); st += b; }
+        return st;
+    }
+    void Tune::posaEstat (const std::string& st)
+    {
+        llegeixText (st, "mibase-tune", infos, numParams, [this] (int i, float v) { posa (i, v); });
     }
 }

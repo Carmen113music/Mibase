@@ -11,7 +11,7 @@
 #include <cmath>
 
 /** 0.70: els presets de fàbrica del Vocal Studio. Basats en les cadenes que en Roger va recollir
-    (claude/rack-veu-referencies.md), sense les parts que encara no té el rack (afinador, vocoder). 0.73: noms «Artista · Cançó», harmonies i octava:
+    (claude/rack-veu-referencies.md), sense les parts que encara no té el rack (vocoder). 0.79: Tune. 0.73: noms «Artista · Cançó», harmonies i octava:
     són un punt de partida per ajustar d'orella amb la veu de cadascú.
 
     Tots fan servir els mateixos 8 macros (si el preset té el mòdul): Cos, Presència, Aire, Compressió, Escalfor,
@@ -43,6 +43,7 @@ namespace mibase::rack
             float sec = 100, harm = 70, formant = 0, hum = 30, glide = 20;
         };
         struct ConfOct { bool on = false; float to = -12, formant = 0, mescla = 35; };   // 0.73
+        struct ConfTune { bool on = false; float vel = 25, hum = 30, corr = 100; };          // 0.79 (escala de la cançó)
         /** 0.76: un retorn en paral·lel amb els seus mòduls (en aquest ordre: EQ, compressor, saturació, drive, octava,
             harmonitzador, doubler, delay, reverb). Els efectes d'un retorn sonen al 100 % (només el seu so). */
         struct ConfRetorn
@@ -69,6 +70,7 @@ namespace mibase::rack
             ConfLim lim;
             ConfHarm harm;
             ConfOct oct;
+            ConfTune tune;
             bool satAbans = false;    // la saturació abans de l'EQ (preamp al principi)
         };
 
@@ -140,6 +142,12 @@ namespace mibase::rack
                 for (int v = 0; v < 4; ++v) { h->posa (Interval1 + v, (float) c.v[v]); h->posa (Nivell1 + v, c.niv[v]); h->posa (Pan1 + v, c.pan[v]); }
                 return r.afegeix ("harmonitzador", h, -1, camiActual);
             }
+            int tun (const ConfTune& c)
+            {
+                auto t = std::make_shared<tune::Tune>();
+                t->posa (tune::ModeP, tune::Canco); t->posa (tune::Velocitat, c.vel); t->posa (tune::Humanitza, c.hum); t->posa (tune::Correccio, c.corr);
+                return r.afegeix ("tune", t, -1, camiActual);
+            }
             int oct (const ConfOct& c)
             {
                 auto o = std::make_shared<octava::Octava>();
@@ -180,6 +188,7 @@ namespace mibase::rack
                 if (dynamic_cast<doubler::Doubler*> (f)) return doubler::Doubler::normal (p, v);
                 if (dynamic_cast<harmonitzador::Harmonitzador*> (f)) return harmonitzador::Harmonitzador::normal (p, v);
                 if (dynamic_cast<octava::Octava*> (f)) return octava::Octava::normal (p, v);
+                if (dynamic_cast<tune::Tune*> (f)) return tune::Tune::normal (p, v);
                 if (dynamic_cast<delay::Delay*> (f)) return delay::Delay::normal (p, v);
                 if (dynamic_cast<reverb::Reverb*> (f)) return reverb::Reverb::normal (p, v);
                 return 0.5f;
@@ -208,6 +217,7 @@ namespace mibase::rack
         std::string fes (const Conf& c)
         {
             Constructor k;
+            if (c.tune.on) k.tun (c.tune);   // 0.79: el Tune, el primer de tot
             if (c.satAbans && c.sat.on) k.iSat = k.sat (c.sat);
             if (c.deessAbans.on) k.deess (c.deessAbans);
             k.iEq = k.eq (c.eq);
@@ -326,7 +336,8 @@ namespace mibase::rack
             { Conf c { "Urbà", "Rosalía · Malamente", "Present i viva; puja el macro Eco a l'última paraula de cada frase." };
               c.eq = { 120, 250, 0, 4000, 3, 2 }; c.comp = { true, -26, 8, 2, 80, 4 }; c.deess = { true, 7000, -30 };
               c.sat = { true, saturacio::Suau, 2, 30, 2 };
-              c.dly = { true, true, 8, 120, 30, 2, 400, 4000 }; c.rev = { true, Hall, 3.0f, 40, 4, 7000 }; afegeix (c); }
+              c.dly = { true, true, 8, 120, 30, 2, 400, 4000 }; c.rev = { true, Hall, 3.0f, 40, 4, 7000 }; c.tune = { true, 35, 60, 100 };
+                  afegeix (c); }
             { Conf c { "Urbà", "Travis Scott · Sicko Mode", "Greu i fosca, amb doble ample i una sala llarga. L'afinador arribarà més endavant." };
               c.eq = { 90, 180, 2, 3500, 0, -3 }; c.comp = { true, -26, 6, 3, 80, 4 }; c.deess = { true, 6000, -28 };
               c.dbl = { true, 50, 14, 24 }; c.rev = { true, Hall, 4.0f, 40, 25, 6000 }; afegeix (c); }
@@ -447,11 +458,12 @@ namespace mibase::rack
                   c.sat = { true, saturacio::A, 1.5f, 10, 0 };
                   c.rets = { slap ("Slap 95 ms", 95, -24), dobles ("Dobles xiuxiuejats", -16, 8, 18, 200, 0) };
                   afegeix (c); }
-                { Conf c { "Íntim", "Frank Ocean · White Ferrari", "Càlida i suau: òptic, cinta, una plate fosca, un chorus molt subtil i harmonies del teclat MIDI amb el formant pujat. (Sense Tune encara.)" };
+                { Conf c { "Íntim", "Frank Ocean · White Ferrari", "Càlida i suau: òptic, cinta, una plate fosca, un chorus molt subtil i harmonies del teclat MIDI amb el formant pujat." };
                   c.eq = { 100, 180, 1.5f, 3500, 0, 1 }; c.comp = opt (4); c.sat = { true, saturacio::A, 1.5f, 30, 0 };
                   c.rets = { rv ("Plate fosca", Plate, 1.6f, 25, -18, 150, 4500), dobles ("Chorus", -18, 6, 15),
                              harmonies ("Harmonies (teclat)", -9, harmonitzador::Teclat, { 0 }, { -50, -15, 15, 50 }) };
                   c.rets.back().harm.formant = 1;
+                  c.tune = { true, 20, 50, 100 };
                   afegeix (c); }
                 { Conf c { "Íntim", "Olivia Rodrigo · Vampire", "Dos compressors (ràpid i suau) i vàlvula. Chamber, delay a negres amb ducking, dobles a l'uníson i una octava greu al mig." };
                   c.eq = { 85, 320, -2, 3500, 1, 1.5f }; c.comp = fet (5); c.comp2 = opt (3); c.sat = { true, saturacio::T, 2.5f, 45, 0 };
@@ -467,20 +479,23 @@ namespace mibase::rack
                   afegeix (c); }
 
                 // ---- 2. Harmonització sintètica, vocoders i processament experimental ----
-                { Conf c { "Harmonies", "Bon Iver · 715 - CRΣΣKS", "Totes les veus surten del teclat MIDI (toca els acords a l'AKAI mentre cantes), comprimides fort i gairebé seques, amb una sala curta que les enganxa. (Sense Tune encara.)" };
+                { Conf c { "Harmonies", "Bon Iver · 715 - CRΣΣKS", "Totes les veus surten del teclat MIDI (toca els acords a l'AKAI mentre cantes), comprimides fort i gairebé seques, amb una sala curta que les enganxa." };
                   c.eq = { 110, 300, 0, 1500, 2, 0 }; c.comp = fet (6, 8);
                   c.harm = { true, harmonitzador::Teclat, { 0, 0, 0, 0 }, { 0, 0, -1, -1 }, { -60, -20, 20, 60 }, 0, 100, 0, 10, 0 };
                   c.rets = { rv ("Sala curta", Room, 0.4f, 10, -22) };
+                  c.tune = { true, 0, 0, 100 };
                   afegeix (c); }
-                { Conf c { "Harmonies", "Bon Iver · Woods", "Òptic i cinta, una plate mitjana i un cor de veus dins de la tonalitat que s'obren cap als costats. (Sense Tune encara.)" };
+                { Conf c { "Harmonies", "Bon Iver · Woods", "Òptic i cinta, una plate mitjana i un cor de veus dins de la tonalitat que s'obren cap als costats." };
                   c.eq = { 90, 500, -2, 3500, 0, 1 }; c.comp = opt (5); c.sat = { true, saturacio::A, 2.5f, 25, 0 };
                   c.rets = { rv ("Plate", Plate, 1.8f, 30, -16, 150, 7000),
                              harmonies ("Cor", -10, harmonitzador::Tonalitat, { 2, 4, -3, 7 }, { -30, 30, -80, 80 }) };
+                  c.tune = { true, 0, 0, 100 };
                   afegeix (c); }
-                { Conf c { "Harmonies", "Rosalía · Saoko", "Seca i al mig, amb presència i un tallador de pics. Ecos curts una octava amunt, una sala metàl·lica i respostes amb el formant canviat a un costat. (Sense Tune encara.)" };
+                { Conf c { "Harmonies", "Rosalía · Saoko", "Seca i al mig, amb presència i un tallador de pics. Ecos curts una octava amunt, una sala metàl·lica i respostes amb el formant canviat a un costat." };
                   c.eq = { 95, 300, 0, 3500, 3, 1 }; c.comp = { true, -20, 4, 5, 80, 3, 100 }; c.lim = { true, 2, -1 };
                   auto oct = octava ("Ecos d'octava", 12, -20); oct.dly = { true, true, 2, 120, 20, 100, 300, 6000, delay::PingPong };
                   c.rets = { oct, rv ("Sala metàl·lica", Room, 0.6f, 5, -24, 300, 0), octava ("Respostes", 0, -18, -4, -100) };
+                  c.tune = { true, 10, 30, 100 };
                   afegeix (c); }
                 { Conf c { "Harmonies", "Imogen Heap · Hide and Seek", "Un bloc d'acords de la teva veu tocat amb el teclat MIDI, sense la veu original, i una hall espaiosa ben oberta. (El vocoder de debò arribarà més endavant.)" };
                   c.eq = { 120, 300, -1, 4000, 3, 2 }; c.comp = { true, -24, 4, 5, 120, 4, 100 }; c.deess = { true, 6500, -30 };
@@ -504,10 +519,11 @@ namespace mibase::rack
                   c.rets = { dobles ("Doubler estèreo", -10, 9, 15), slap ("Slap 85 ms", 85, -18),
                              harmonies ("Cors", -14, harmonitzador::Tonalitat, { 2, 4 }, { -60, 60 }) };
                   afegeix (c); }
-                { Conf c { "Pop", "The Weeknd · Blinding Lights", "Anys 80: presència, compressió ràpida i cinta. Plate llarga, delay de negres amb ducking i un doble a l'uníson molt comprimit. (Sense Tune encara.)" };
+                { Conf c { "Pop", "The Weeknd · Blinding Lights", "Anys 80: presència, compressió ràpida i cinta. Plate llarga, delay de negres amb ducking i un doble a l'uníson molt comprimit." };
                   c.eq = { 95, 300, 0, 4500, 2, 1.5f }; c.comp = fet (5); c.sat = { true, saturacio::A, 2, 40, 0 };
                   auto d = dobles ("Doble", -10, 8, 18); d.comp = { true, -32, 8, 2, 60, 8, 100 };
                   c.rets = { rv ("Plate 80s", Plate, 2.2f, 55, -16, 300), dlNota ("Delay 1/4", 8, 30, -18, 300, 5000, 8), d };
+                  c.tune = { true, 30, 40, 100 };
                   afegeix (c); }
                 { Conf c { "Pop", "Sia · Chandelier", "Per als crits: compressió forta, òptic i un punt de crunch. Hall gran, delay de blanca, quatre dobles i una octava greu." };
                   c.eq = { 90, 300, 0, 1200, -3, 1.5f }; c.comp = fet (8, 8); c.comp2 = opt (3); c.sat = { true, saturacio::P, 1.5f, 20, 2 };
@@ -562,11 +578,12 @@ namespace mibase::rack
                   auto lennon = dobles ("Doble i octava", -10, 10, 18); lennon.oct = { true, 12, 0, 50 }; lennon.comp = { true, -32, 8, 2, 60, 8, 100 };
                   c.rets = { rv ("Molla", Spring, 1.5f, 15, -18), dly, lennon };
                   afegeix (c); }
-                { Conf c { "Rock i indie", "The 1975 · Somebody Else", "Aire i compressió doble. Plate llarga, un chorus en paral·lel i harmonies de 3es i 6es filtrades amb la seva reverb. (Sense Tune encara.)" };
+                { Conf c { "Rock i indie", "The 1975 · Somebody Else", "Aire i compressió doble. Plate llarga, un chorus en paral·lel i harmonies de 3es i 6es filtrades amb la seva reverb." };
                   c.eq = { 90, 300, 0, 3500, 0, 2.5f }; c.comp = fet (4); c.comp2 = opt (3);
                   auto h = harmonies ("Harmonies (3es i 6es)", -12, harmonitzador::Tonalitat, { 2, 5 }, { -50, 50 }, 250, 8000);
                   h.rev = { true, Plate, 2.4f, 50, 30, 8000 };
                   c.rets = { rv ("Plate 80s", Plate, 2.4f, 50, -16), dobles ("Chorus", -14, 8, 10), h };
+                  c.tune = { true, 25, 40, 100 };
                   afegeix (c); }
                 { Conf c { "Rock i indie", "Phoenix · 1901", "La veu al davant i seca: presència, compressió ràpida i consola. Sala curta, slap mono present i dobles amb els aguts tallats." };
                   c.eq = { 110, 300, 0, 3000, 3, 1 }; c.comp = fet (5); c.sat = { true, saturacio::N, 2.5f, 45, 0 };
@@ -584,10 +601,11 @@ namespace mibase::rack
                   c.rets = { rv ("Plate càlida", Plate, 1.5f, 35, -16), dlNota ("Delay 1/4", 8, 30, -18, 300, 2500, 14),
                              harmonies ("Harmonies", -14, harmonitzador::Tonalitat, { 2, 4, -3, 5 }, { -80, 80, -50, 50 }, 150, 7000) };
                   afegeix (c); }
-                { Conf c { "Urbà", "Post Malone · Circles", "Presència i compressió doble. Hall, delay de corxera amb puntet amb filtre de telèfon i un doble gruixut gairebé tan fort com la veu. (Sense Tune encara.)" };
+                { Conf c { "Urbà", "Post Malone · Circles", "Presència i compressió doble. Hall, delay de corxera amb puntet amb filtre de telèfon i un doble gruixut gairebé tan fort com la veu." };
                   c.eq = { 100, 300, 0, 3000, 2.5f, 1 }; c.comp = fet (5); c.comp2 = vca (3);
                   auto tel = dlNota ("Delay telèfon", 7, 25, -18, 600, 3000); filtre (tel, 600, 3000);
                   c.rets = { rv ("Hall", Hall, 2.0f, 45, -16), tel, dobles ("Doble gruixut", -3, 10, 14) };
+                  c.tune = { true, 10, 30, 100 };
                   afegeix (c); }
                 { Conf c { "Urbà", "Kendrick Lamar · HUMBLE.", "Rap sec i agressiu: presència forta, 8:1 i tallador de pics. Només un delay de negres baix per als finals de compàs (puja'l amb el macro Eco o automatitza'l)." };
                   c.eq = { 110, 300, 0, 2800, 3.5f, 1 }; c.comp = fet (7, 8); c.lim = { true, 3, -1 };
@@ -599,11 +617,12 @@ namespace mibase::rack
                   auto cor = harmonies ("Cor greu", -10, harmonitzador::Tonalitat, { -7, 2, 4 }, { 0, -60, 60 }); cor.comp = { true, -34, 8, 2, 80, 8, 100 };
                   c.rets = { rv ("Chamber fosca", Chamber, 1.2f, 25, -18, 150, 4000), cor };
                   afegeix (c); }
-                { Conf c { "Urbà", "Travis Scott · Sicko Mode", "Trap: presència, 8:1 i saturació. Hall gegant, delay de negres que cau de to i ad-libs filtrats a la reverb. (Sense Tune encara.)" };
+                { Conf c { "Urbà", "Travis Scott · Sicko Mode", "Trap: presència, 8:1 i saturació. Hall gegant, delay de negres que cau de to i ad-libs filtrats a la reverb." };
                   c.eq = { 100, 300, 0, 4000, 3, 1 }; c.comp = fet (6, 8); c.sat = { true, saturacio::A, 3, 45, 0 };
                   auto cau = dlNota ("Delay que cau", 8, 45, -16, 300, 4000); cau.oct = { true, -5, 0, 100 };
                   auto ad = rv ("Ad-libs", Hall, 3.2f, 60, -20, 500, 3000);
                   c.rets = { rv ("Hall gegant", Hall, 3.2f, 60, -14), cau, ad };
+                  c.tune = { true, 0, 0, 100 };
                   afegeix (c); }
             }
             return v;

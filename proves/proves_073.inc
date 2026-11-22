@@ -5,6 +5,8 @@
 #include "mibase/Rack.h"
 #include "mibase/Doubler.h"
 #include "mibase/Reverb.h"
+#include "mibase/Edicio.h"
+#include "mibase/Projecte.h"
 namespace
 {
     void proves073()
@@ -409,6 +411,152 @@ namespace
                 if (a.f0[(size_t) i] > 0.0f && a.f0[(size_t) i - 1] > 0.0f) { tremolor += std::abs (1200.0 * std::log2 (a.f0[(size_t) i] / a.f0[(size_t) i - 1])); ++n; }
             tremolor = n > 0 ? tremolor / n : 99.0;
             comprova (finit (L) && tremolor < 4.0, "Humanitza 100 %: canvia " + std::to_string (tremolor) + " cèntims cada 5 ms (lent)");
+        });
+
+        prova ("0.78 Implementa a pistes reals: busos d'efectes, enviaments, ducking amb sidechain, i treure-ho", [&]
+        {
+            Projecte p;
+            edicio::afegeixPista (p, "Guitarra", "audio");
+            edicio::afegeixPista (p, "Veu", "audio");
+            std::string est;
+            for (const auto& x : rack::presetsFabrica()) if (x.nom == "Dua Lipa · Don't Start Now") est = x.estat;
+            Insert in;
+            in.id = "i" + std::to_string (++p.comptador);
+            in.plugin = rack::idPlugin;
+            in.nom = rack::nomPlugin;
+            in.estat = est;
+            p.pistes[1].inserts.push_back (in);
+            const auto r = rack::desplega (p, 1, in.id);
+            comprova (r.correcte && r.busos == 4 && p.pistes.size() == 6, "4 retorns → 4 busos (" + std::to_string (r.busos) + ")");
+            const int veu = edicio::pistaPerId (p, p.pistes[1].id);
+            const auto bs = rack::busosDesplegats (p, veu);
+            bool noms = bs.size() == 4, carpeta = true, ducking = false, petit = false;
+            for (int b : bs)
+            {
+                const auto& t = p.pistes[(size_t) b];
+                noms = noms && t.nom.rfind ("VS · Veu · ", 0) == 0 && t.tipus == "fx" && ! t.inserts.empty();
+                carpeta = carpeta && t.carpeta == r.carpeta;
+                for (const auto& x : t.inserts)
+                {
+                    if (x.plugin == dinamica::idPlugin && ! x.sidechain.empty() && x.sidechain[0].pista == p.pistes[(size_t) veu].id) ducking = true;
+                    if (x.plugin == rack::idPlugin) petit = true;   // el Doubler, dins d'un Vocal Studio petit
+                }
+            }
+            comprova (noms && carpeta && edicio::carpeta (p, r.carpeta) != nullptr && edicio::carpeta (p, r.carpeta)->nom == "VS · Veu",
+                      "busos «VS · Veu · …» dins de la carpeta «VS · Veu»");
+            comprova (ducking && petit, "el delay porta el ducking amb la veu de sidechain; el Doubler va dins d'un Vocal Studio petit");
+            comprova (p.pistes[(size_t) veu].enviaments.size() == 4, "la veu envia a cada bus");
+            rack::Rack queda;
+            queda.posaEstat (p.pistes[(size_t) veu].inserts[0].estat);
+            bool nomesPrincipal = queda.numModuls() > 0;
+            for (int i = 0; i < queda.numModuls(); ++i) nomesPrincipal = nomesPrincipal && queda.cami (i) == 0;
+            for (int k = 0; k < rack::maxRetorns; ++k) nomesPrincipal = nomesPrincipal && ! queda.retorn (k).actiu;
+            comprova (nomesPrincipal, "al Vocal Studio de la veu només hi queda la cadena principal");
+            // el fader del bus de la plate = el retorn d'abans
+            rack::Rack abans;
+            abans.posaEstat (est);
+            bool fader = false;
+            for (int b : bs) if (p.pistes[(size_t) b].nom.find ("Plate") != std::string::npos) fader = std::abs (p.pistes[(size_t) b].faderDb - abans.valor (rack::Retorn1 + 1)) < 1e-3;
+            comprova (fader, "el fader del bus és el volum del retorn");
+            const int tretes = rack::treuDesplegament (p, veu);
+            comprova (tretes == 4 && p.pistes.size() == 2 && p.pistes[1].enviaments.empty() && p.carpetes.empty(), "«Treu la cadena» ho esborra tot (busos, enviaments, carpeta)");
+            comprova (! rack::desplega (p, 1, in.id).correcte, "sense retorns, no es pot desplegar");
+        });
+
+        prova ("0.79 Tune: porta la veu a la nota, respecta la velocitat i la mescla", [&]
+        {
+            auto afina = [&] (double hz, int mode, float vel, float corr, float vibrato = 0.0f)
+            {
+                ContextMusical ctx;
+                ctx.tonica.store (9); ctx.mascaraEscala.store (0x5AD);   // La menor (per a «Cançó»)
+                tune::Tune t;
+                t.posaContext (&ctx);
+                t.prepara (fs, 256);
+                t.posa (tune::ModeP, (float) mode); t.posa (tune::Velocitat, vel); t.posa (tune::Correccio, corr); t.posa (tune::Humanitza, 0);
+                std::vector<float> v ((size_t) (2.5 * fs));
+                double fase = 0.0;
+                for (size_t i = 0; i < v.size(); ++i)
+                {
+                    const double f = hz * std::pow (2.0, vibrato / 1200.0 * std::sin (2.0 * 3.141592653589793 * 5.5 * (double) i / fs));
+                    fase += 2.0 * 3.141592653589793 * f / fs;
+                    double x = 0.0;
+                    for (int k = 1; k <= 12; ++k) x += std::sin (k * fase) / (k * 1.2);
+                    v[i] = (float) (0.25 * x);
+                }
+                auto R = v;
+                passa (t, v, R);
+                return std::pair { afinacio (v), t.notaDesti() };
+            };
+            auto cents = [] (float hz, double ref) { return 1200.0 * std::log2 (hz / ref); };
+            const auto [f1, n1] = afina (225.0, tune::Cromatica, 0, 100);   // La3 + 39 cèntims
+            comprova (std::abs (cents (f1, 220.0)) < 8.0 && n1 == 57, "cromàtica, 0 ms: 225 Hz → La3 (" + std::to_string (cents (f1, 220.0)) + " cèntims)");
+            const auto [f2, n2] = afina (238.0, tune::Canco, 0, 100);       // entre La# i Si: en La menor, cap a Si (246,9)
+            comprova (std::abs (cents (f2, 246.94)) < 8.0 && n2 == 59, "La menor de la cançó: 238 Hz → Si3 (" + std::to_string (cents (f2, 246.94)) + " cèntims)");
+            const auto [f3, n3] = afina (225.0, tune::Cromatica, 0, 0);
+            comprova (std::abs (cents (f3, 225.0)) < 8.0, "Correcció 0 %: no la toca");
+            (void) n3;
+            // amb velocitat lenta, el vibrato es conserva; a 0 ms, desapareix
+            auto vibrat = [&] (float vel)
+            {
+                ContextMusical ctx;
+                tune::Tune t;
+                t.posaContext (&ctx);
+                t.prepara (fs, 256);
+                t.posa (tune::ModeP, tune::Cromatica); t.posa (tune::Velocitat, vel); t.posa (tune::Humanitza, 0);
+                std::vector<float> v ((size_t) (2.5 * fs));
+                double fase = 0.0;
+                for (size_t i = 0; i < v.size(); ++i)
+                {
+                    const double f = 220.0 * std::pow (2.0, 40.0 / 1200.0 * std::sin (2.0 * 3.141592653589793 * 5.5 * (double) i / fs));
+                    fase += 2.0 * 3.141592653589793 * f / fs;
+                    double x = 0.0;
+                    for (int k = 1; k <= 12; ++k) x += std::sin (k * fase) / (k * 1.2);
+                    v[i] = (float) (0.25 * x);
+                }
+                auto R = v;
+                passa (t, v, R);
+                auto a = veu::analitza (v.data() + (int) fs, (long long) v.size() - (int) fs, fs);
+                double mn = 1e9, mx = -1e9;
+                for (int i = 0; i < a.punts(); ++i) if (a.f0[(size_t) i] > 0.0f) { const double c = cents (a.f0[(size_t) i], 220.0); mn = std::min (mn, c); mx = std::max (mx, c); }
+                return mx - mn;
+            };
+            const double robot = vibrat (0), natural = vibrat (300);
+            comprova (robot < 25.0 && natural > 45.0, "vibrato de ±40 cèntims: a 0 ms en queden " + std::to_string (robot) + "; a 300 ms, " + std::to_string (natural));
+        });
+
+        prova ("0.80 Tune: la nota destí no va amunt i avall", [&]
+        {
+            // una veu real: Do3 + 70 cèntims (entre Do i Re, que en La menor no té Do#), amb vibrato i una mica d'irregularitat
+            ContextMusical ctx;
+            ctx.tonica.store (9); ctx.mascaraEscala.store (0x5AD);
+            tune::Tune t;
+            t.posaContext (&ctx);
+            t.prepara (fs, 64);
+            t.posa (tune::ModeP, tune::Canco); t.posa (tune::Velocitat, 25);
+            std::vector<float> v ((size_t) (3.0 * fs));
+            double fase = 0.0;
+            unsigned llavor = 12345;
+            auto soroll = [&llavor] { llavor = llavor * 1664525u + 1013904223u; return (double) (llavor >> 8) / 16777216.0 - 0.5; };
+            double jit = 0.0;
+            for (size_t i = 0; i < v.size(); ++i)
+            {
+                if (i % 300 == 0) jit = 0.03 * soroll();   // ±1,5 % de període, com una veu de debò
+                const double f = 130.81 * std::pow (2.0, (70.0 + 25.0 * std::sin (2.0 * 3.141592653589793 * 5.5 * (double) i / fs)) / 1200.0) * (1.0 + jit);
+                fase += 2.0 * 3.141592653589793 * f / fs;
+                double x = 0.0;
+                for (int k = 1; k <= 14; ++k) x += std::sin (k * fase) / (k * 1.1);
+                v[i] = (float) (0.25 * x + 0.01 * soroll());
+            }
+            auto R = v;
+            int canvis = 0, ant = -1;
+            for (size_t i = 0; i + 64 <= v.size(); i += 64)
+            {
+                t.processa (v.data() + i, R.data() + i, 64);
+                const int d = t.notaDesti();
+                if (i > (size_t) (0.4 * fs) && d >= 0 && ant >= 0 && d != ant) ++canvis;
+                if (d >= 0) ant = d;
+            }
+            comprova (canvis == 0 && ant == 48, "una nota aguantada entre dues de l'escala: " + std::to_string (canvis) + " canvis de destí (nota " + std::to_string (ant) + ")");
         });
 
         prova ("0.73 Context i escales", [&]

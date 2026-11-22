@@ -22,8 +22,25 @@
       fa servir des del bloc següent. La vella s'esborra a la interfície quan el fil d'àudio ja no la pot fer servir.
     - Encès, Mix, entrada, sortida i macros són atòmics: es poden moure des de qualsevol fil (també l'automatització).
     - Un mòdul amb latència (el Limitador) no fa barreja: sona sempre al 100 % (si no, sonaria desfasat). */
+namespace mibase { struct Projecte; }
+
 namespace mibase::rack
 {
+    /** 0.78: «Implementa a pistes reals». Els retorns del Vocal Studio de l'insert «idInsert» de la pista «pista» passen a ser
+        busos d'efectes de debò (un per retorn), dins d'una carpeta «VS · <pista>»:
+        - cada bus porta els efectes del retorn com a inserts (Doubler, Harmonitzador i Octava, que no poden anar sols, dins
+          d'un Vocal Studio petit), el volum (Retorn) al fader i el pan;
+        - la pista hi envia (post-fader) amb el nivell de l'Envia;
+        - si el retorn tenia ducking, al final del bus hi ha una Dinàmica amb sidechain de la pista;
+        - al Vocal Studio de la pista hi queda només la cadena principal.
+        Tot porta el prefix «VS · » per poder-ho treure. */
+    inline constexpr const char* prefixDesplega = "VS · ";
+    struct ResultatDesplega { bool correcte = false; std::string error; int busos = 0; std::string carpeta; };
+    ResultatDesplega desplega (Projecte& p, int pista, const std::string& idInsert);
+    /** Els busos «VS · » que reben un enviament de la pista (el que ha creat «desplega»). */
+    std::vector<int> busosDesplegats (const Projecte& p, int pista);
+    /** Esborra aquests busos (i la carpeta «VS · …» si queda buida). Torna quants n'ha esborrat. */
+    int treuDesplegament (Projecte& p, int pista);
     inline constexpr const char* idPlugin = "intern:vocalstudio";
     inline constexpr const char* nomPlugin = "Vocal Studio (Mibase)";
 
@@ -138,6 +155,11 @@ namespace mibase::rack
         void posaCami (int i, int cami);
         const InfoRetorn& retorn (int k) const { static const InfoRetorn buit; return k >= 0 && k < maxRetorns ? ui->retorns[(size_t) k] : buit; }
         void activaRetorn (int k, bool actiu, const std::string& nom = {});
+        /** 0.79: el preset d'on ve (es desa amb el projecte) i si s'ha tocat des que es va carregar o desar. Fil de la interfície. */
+        const std::string& nomPreset() const noexcept { return presetNom; }
+        bool presetModificat() const noexcept { return presetMod; }
+        void posaNomPreset (const std::string& n, bool modificat = false) { presetNom = n; presetMod = modificat; }
+        void marcaModificat() noexcept { if (! presetNom.empty()) presetMod = true; }
         /** 0.76: els paràmetres dels retorns en les seves unitats (dB, %). */
         float valor (int p) const noexcept { return p >= 0 && p < numParams ? par[(size_t) p].load (std::memory_order_relaxed) : 0.0f; }
         void posaValor (int p, float v) noexcept;
@@ -168,6 +190,8 @@ namespace mibase::rack
     private:
         void publica (std::shared_ptr<Cadena> c);
         std::shared_ptr<Cadena> copia() const;
+        std::string presetNom;   // 0.79
+        bool presetMod = false;
         void preparaModul (Modul& m);
         void aplica (Modul& m, float* L, float* R, int n) noexcept;
         void processaBloc (float* L, float* R, int n) noexcept;

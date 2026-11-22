@@ -35,6 +35,7 @@ add_library(mibase_motor STATIC
     src/LimitadorPresets.cpp
     src/Doubler.cpp
     src/Harmonitzador.cpp
+    src/RackDesplega.cpp
     src/Rack.cpp
     src/RackPresets.cpp
     src/Convolucio.cpp
