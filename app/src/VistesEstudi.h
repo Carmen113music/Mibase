@@ -146,7 +146,8 @@ public:
     std::function<bool (juce::Point<int> pantalla)> arrossegaFora;   // 0.29: si el ratolí és a sobre d'on es pot deixar un clip (el samplejador)
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
-    std::function<void (int pista)> onPrintComp;   // 0.81
+    std::function<void (int pista)> onConsolidaComp;   // 0.81
+    std::function<void (int pista)> onPrint;           // 0.82
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;
@@ -243,7 +244,8 @@ public:
     juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
     juce::Rectangle<int> rectPreses (int fila) const;   // 0.81: plega / desplega les preses
-    std::function<void (int pista)> onPrintComp;          // 0.81
+    std::function<void (int pista)> onConsolidaComp;      // 0.81
+    std::function<void (int pista)> onPrint;              // 0.82
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;

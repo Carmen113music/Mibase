@@ -248,10 +248,17 @@ namespace mibase::edicio
     std::vector<std::vector<std::pair<double, double>>> zonesTakes (const Projecte& p, int pista);
     /** Treu una presa (i el que en sona al comp). Si en queda una o cap, la pista torna a ser normal. */
     void treuTake (Projecte& p, int pista, int take);
-    /** Print Comp: pista nova just a sota de «pista», «Print - <nom>», amb un sol clip (la presa «idPresa», que comença a
-        «pos», sonant de «inici» a «fi» dins el fitxer) i els mateixos efectes, enviaments, sortida, volum, panorama i
-        automatització (sense preses). L'original queda silenciada, però no s'esborra ni es desarma. Torna l'índex nou. */
+    /** Consolida el comp: pista nova just a sota de «pista», «Comp - <nom>», amb un sol clip (la presa «idPresa», que
+        comença a «pos», sonant de «inici» a «fi» dins el fitxer) i els mateixos efectes, enviaments, sortida, volum,
+        panorama i automatització (sense preses). L'original queda silenciada, però no s'esborra ni es desarma.
+        Torna l'índex nou. */
+    int creaPistaComp (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi);
+    /** 0.82: Print: pista d'àudio estèreo nova just a sota de «pista», «Print - <nom>», amb l'àudio que ja porta els efectes
+        (o l'instrument) i SENSE cap efecte; mateix fader, panorama, sortida, enviaments i automatització de volum i
+        panorama. L'original (d'àudio o MIDI) queda silenciada, sense perdre res. Torna l'índex nou. */
     int creaPistaPrint (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi);
+    /** 0.82: on comencen i acaben els clips que sonen de la pista (àudio o MIDI); {0, 0} si no n'hi ha. */
+    std::pair<double, double> rangClips (const Pista& t);
     /** On comença i acaba el comp (clips d'àudio que sonen); {0, 0} si no n'hi ha. */
     std::pair<double, double> rangComp (const Pista& t);
 

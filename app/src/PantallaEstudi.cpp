@@ -315,7 +315,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onImporta = [this] (const juce::StringArray& fitxers, int pista, double on) { importa (fitxers, pista, on); };
     pistes.onDemanaImportar = [this] (int pista, double on) { demanaImportar (pista, on); };
     pistes.onConsolida = [this] (int pista, int clipA, int clipB) { consolida (pista, clipA, clipB); };
-    pistes.onPrintComp = [this] (int pista) { printComp (pista); };   // 0.81
+    pistes.onConsolidaComp = [this] (int pista) { consolidaComp (pista); };   // 0.81
+    pistes.onPrint = [this] (int pista) { printPista (pista); };              // 0.82
     pistes.onObreMidi = [this] (int pista, int clip) { obrePianoRoll (pista, clip); };
     pistes.onVistaMoguda = [this] { actualitzaBarres(); estat.avisa(); };   // 0.54
     pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
@@ -492,7 +493,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     panellBateria.onObreKits = [this] { obreKits(); };
     panellHarmonia.onObreKits = [this] { obreKits(); };
     capcaleres.onAutomatitzacio = [this] (int pista) { obreAutomatitzacio (pista); };
-    capcaleres.onPrintComp = [this] (int pista) { printComp (pista); };   // 0.81
+    capcaleres.onConsolidaComp = [this] (int pista) { consolidaComp (pista); };   // 0.81
+    capcaleres.onPrint = [this] (int pista) { printPista (pista); };              // 0.82
     capcaleres.onObreInstrument = [this] (int fila)
     {
         auto* t = estat.pista (fila);
@@ -2116,29 +2118,22 @@ void PantallaEstudi::importa (const juce::StringArray& fitxers, int pista, doubl
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Algun fitxer no s'ha pogut importar", errors.joinIntoString ("\n"));
 }
 
-void PantallaEstudi::printComp (int pista)
+bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, double ini, double fi, int canals, const juce::File& desti,
+                                      double minFi, long long& frames, std::string& error)
 {
-    // 0.81: el comp (el que sona de la pista, sense efectes) a un fitxer nou, en una pista nova amb els mateixos efectes.
-    // Es renderitza en sec perquè el Print es pugui continuar mesclant (els efectes queden vius a la pista nova).
-    const auto* t = estat.pista (pista);
-    if (t == nullptr || mibase::esMidi (*t) || mibase::esBus (*t) || mibase::esAcords (*t)) return;
-    const auto rg = ed::rangComp (*t);
-    if (rg.second - rg.first < ed::longitudMinima)
-    {
-        estat.info = "Print Comp: la pista no té res que soni"_ca;
-        estat.avisa();
-        return;
-    }
+    // 0.81/0.82: la pista sola a un fitxer. Sense fader, panorama, enviaments, busos ni màster.
+    // ambEfectes = false: en sec (només el Vocal Editor, que ja és la veu corregida); true: amb els efectes i l'instrument.
     const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
-    const double marge = juce::jmin (0.25, rg.first);   // una mica de silenci al davant (el clip comença on toca)
-    const double ini = rg.first - marge, fi = rg.second + 0.02;
-
-    // Un projecte només amb aquesta pista, en sec: sense efectes (tret del Vocal Editor), a 0 dB, al centre, sense busos
     mibase::Projecte q = estat.projecte;
-    auto sola = *t;
-    sola.inserts.erase (std::remove_if (sola.inserts.begin(), sola.inserts.end(), [] (const mibase::Insert& x) { return ! mibase::esInsertVeu (x); }),
-                        sola.inserts.end());
-    sola.enviaments.clear(); sola.sortida.clear(); sola.autos.clear(); sola.carpeta.clear();
+    auto sola = t;
+    if (! ambEfectes)
+        sola.inserts.erase (std::remove_if (sola.inserts.begin(), sola.inserts.end(), [] (const mibase::Insert& x) { return ! mibase::esInsertVeu (x); }),
+                            sola.inserts.end());
+    // l'automatització dels efectes i de l'instrument sí (és part del so); la de volum i panorama, no
+    sola.autos.erase (std::remove_if (sola.autos.begin(), sola.autos.end(), [ambEfectes] (const mibase::Automatitzacio& a)
+                                      { return ! ambEfectes || a.objectiu == "volum" || a.objectiu == "pan"; }), sola.autos.end());
+    sola.enviaments.clear(); sola.sortida.clear(); sola.carpeta.clear();
+    for (auto& x : sola.inserts) x.sidechain.clear();   // les altres pistes no hi són
     sola.mut = sola.solo = sola.grava = false;
     sola.faderDb = 0.0; sola.pan = 0.0;
     q.pistes = { sola };
@@ -2149,19 +2144,14 @@ void PantallaEstudi::printComp (int pista)
     q.estructuraActiva.clear();
     q.bucle.actiu = false;
 
-    auto carpetaAudios = audios();
-    carpetaAudios.createDirectory();
-    const auto nomDesti = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), "Print - " + t->nom));
-    const auto desti = carpetaAudios.getChildFile (nomDesti);
-    const auto temporal = carpetaAudios.getChildFile (nomDesti + ".tmp.wav");
-    std::string error;
-    juce::MouseCursor::showWaitCursor();
-    bool fet = mibase::exportaMescla (*construeixPla (q, audioPreses, {}, [] (const mibase::Insert&) { return std::shared_ptr<mibase::Efecte>(); },
-                                                      &serveiVeu.corregides()),
+    const auto temporal = desti.getSiblingFile (desti.getFileName() + ".tmp.wav");
+    auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
+    bool fet = mibase::exportaMescla (*construeixPla (q, audioPreses,
+                                          [this, fs, interns] (const mibase::Pista& x) { return GestorPlugins::esVst3 (x.instrument) ? plugins.instrumentNou (x, fs, 4096) : interns (x); },
+                                          [this, fs, ambEfectes] (const mibase::Insert& x) { return ambEfectes && x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
+                                          &serveiVeu.corregides()),
                                       fs, ini, fi, dibuix::cami (temporal), error);
-    // La pista era mono: el fitxer també (els dos canals són iguals)
-    const int canals = t->canals == 2 ? 2 : 1;
-    long long frames = 0;
+    frames = 0;
     if (fet)
     {
         juce::AudioFormatManager fm;
@@ -2174,39 +2164,125 @@ void PantallaEstudi::printComp (int pista)
             juce::AudioBuffer<float> b ((int) lector->numChannels, (int) frames);
             lector->read (&b, 0, (int) frames, 0, true, true);
             lector.reset();
+            // la cua dels efectes (reverb, delay): es talla on ja no se sent, però mai abans de «minFi»
+            const auto minim = (long long) std::ceil ((minFi - ini) * fs);
+            long long ultim = frames;
+            while (ultim > minim && ultim > 1)
+            {
+                bool silenci = true;
+                for (int ch = 0; ch < b.getNumChannels() && silenci; ++ch) silenci = std::abs (b.getSample (ch, (int) ultim - 1)) < 3.0e-5f;
+                if (! silenci) break;
+                --ultim;
+            }
+            frames = juce::jmin (frames, ultim + (long long) (0.05 * fs));
             std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
             juce::WavAudioFormat wav;
             auto escriptor = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}
                                                                                 .withSampleRate (fs).withNumChannels (canals).withBitsPerSample (24))
                                                 : nullptr;
             fet = escriptor != nullptr && escriptor->writeFromAudioSampleBuffer (b, 0, (int) frames);
-            if (! fet) error = "No s'ha pogut escriure el fitxer del Print.";
+            if (! fet) error = "No s'ha pogut escriure el fitxer nou.";
         }
         else error = "No s'ha pogut llegir el que s'havia renderitzat.";
     }
     temporal.deleteFile();
+    if (! fet) desti.deleteFile();   // res a mitges
+    return fet;
+}
+
+void PantallaEstudi::consolidaComp (int pista)
+{
+    // 0.81: el comp (els trossos triats de les preses) en un àudio nou, en sec, en una pista amb els mateixos efectes.
+    const auto* t = estat.pista (pista);
+    if (t == nullptr || mibase::esMidi (*t) || mibase::esBus (*t) || mibase::esAcords (*t)) return;
+    const auto rg = ed::rangComp (*t);
+    if (rg.second - rg.first < ed::longitudMinima)
+    {
+        estat.info = "Consolida el comp: la pista no té res que soni"_ca;
+        estat.avisa();
+        return;
+    }
+    const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+    const double marge = juce::jmin (0.25, rg.first);   // una mica de silenci al davant (el clip comença on toca)
+    const double ini = rg.first - marge, fi = rg.second + 0.02;
+    auto carpetaAudios = audios();
+    carpetaAudios.createDirectory();
+    const auto nomDesti = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), "Comp - " + t->nom));
+    const auto desti = carpetaAudios.getChildFile (nomDesti);
+    long long frames = 0;
+    std::string error;
+    juce::MouseCursor::showWaitCursor();
+    const bool fet = renderitzaPista (*t, false, ini, fi, t->canals == 2 ? 2 : 1, desti, fi, frames, error);
     juce::MouseCursor::hideWaitCursor();
     if (! fet)
     {
-        desti.deleteFile();   // res a mitges: el projecte no canvia
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Print Comp", "No s'ha pogut fer el Print:\n"_ca + dibuix::utf8 (error));
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Consolida el comp", "No s'ha pogut fer:\n"_ca + dibuix::utf8 (error));
         return;
     }
-
     estat.desfes.abans (estat.projecte);   // un sol pas: pista nova + original silenciada
     const auto nomPista = t->nom;
     const double durada = (double) frames / fs;
-    const auto& pr = ed::afegeixPresa (estat.projecte, (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + nomDesti).toStdString(),
-                                       desti.getFileNameWithoutExtension().toStdString(), durada);
-    const auto idPresa = pr.id;
-    const int nova = ed::creaPistaPrint (estat.projecte, pista, idPresa, ini, marge, juce::jmin (durada, fi - ini));
+    const auto idPresa = ed::afegeixPresa (estat.projecte, (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + nomDesti).toStdString(),
+                                           desti.getFileNameWithoutExtension().toStdString(), durada).id;
+    const int nova = ed::creaPistaComp (estat.projecte, pista, idPresa, ini, marge, juce::jmin (durada, fi - ini));
     carregaOna (*ed::presa (estat.projecte, idPresa));
     estat.recalculaFiles();
     estat.pistaTriada = nova;
     estat.capTriat();
-    estat.info = "Print Comp: «Print - "_ca + dibuix::utf8 (nomPista) + "» (l'original queda silenciada; desfés amb Ctrl+Z)"_ca;
-    historial.afegeix ("Print Comp de «"_ca + dibuix::utf8 (nomPista) + "»: "_ca + nomDesti);
-    estat.canviat ("Print Comp de «"_ca + dibuix::utf8 (nomPista) + "» → «Print - "_ca + dibuix::utf8 (nomPista) + "»"_ca);
+    estat.info = "Comp consolidat: «Comp - "_ca + dibuix::utf8 (nomPista) + "» (l'original queda silenciada; desfés amb Ctrl+Z)"_ca;
+    historial.afegeix ("Comp consolidat de «"_ca + dibuix::utf8 (nomPista) + "»: "_ca + nomDesti);
+    estat.canviat ("Comp consolidat de «"_ca + dibuix::utf8 (nomPista) + "» → «Comp - "_ca + dibuix::utf8 (nomPista) + "»"_ca);
+}
+
+void PantallaEstudi::printPista (int pista)
+{
+    // 0.82: el so de la pista amb tots els seus efectes (i l'instrument, si és MIDI) en un àudio nou; la pista nova no té
+    // cap efecte, però sí el mateix fader, panorama, sortida i enviaments. L'original queda silenciada.
+    const auto* t = estat.pista (pista);
+    if (t == nullptr || mibase::esBus (*t) || mibase::esAcords (*t)) return;
+    const auto rg = ed::rangClips (*t);
+    if (rg.second - rg.first < ed::longitudMinima)
+    {
+        estat.info = "Print: la pista no té res que soni"_ca;
+        estat.avisa();
+        return;
+    }
+    const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+    const double marge = juce::jmin (0.25, rg.first);
+    const double ini = rg.first - marge;
+    const double fi = rg.second + (mibase::esMidi (*t) ? 1.0 : 0.02);   // les notes MIDI s'apaguen amb una mica de cua
+    const double cua = 8.0;                                                // reverbs i delays: fins a 8 s (es talla el silenci)
+    auto carpetaAudios = audios();
+    carpetaAudios.createDirectory();
+    const auto nomDesti = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), "Print - " + t->nom));
+    const auto desti = carpetaAudios.getChildFile (nomDesti);
+    long long frames = 0;
+    std::string error;
+    desaAra();
+    juce::MouseCursor::showWaitCursor();
+    const bool fet = renderitzaPista (*t, true, ini, fi + cua, 2, desti, fi, frames, error);
+    juce::MouseCursor::hideWaitCursor();
+    if (! fet)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Print", "No s'ha pogut fer el Print:\n"_ca + dibuix::utf8 (error));
+        return;
+    }
+    estat.desfes.abans (estat.projecte);   // un sol pas: pista nova + original silenciada
+    const auto nomPista = t->nom;
+    bool ambSidechain = false;
+    for (const auto& x : t->inserts) ambSidechain |= ! x.sidechain.empty();
+    const double durada = (double) frames / fs;
+    const auto idPresa = ed::afegeixPresa (estat.projecte, (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + nomDesti).toStdString(),
+                                           desti.getFileNameWithoutExtension().toStdString(), durada).id;
+    const int nova = ed::creaPistaPrint (estat.projecte, pista, idPresa, ini, marge, durada);
+    carregaOna (*ed::presa (estat.projecte, idPresa));
+    estat.recalculaFiles();
+    estat.pistaTriada = nova;
+    estat.capTriat();
+    estat.info = "Print: «Print - "_ca + dibuix::utf8 (nomPista) + "» amb els efectes aplicats (l'original queda silenciada; desfés amb Ctrl+Z)"_ca
+               + (ambSidechain ? juce::String (" · Compte: el sidechain d'altres pistes no s'aplica al Print") : juce::String());
+    historial.afegeix ("Print de «"_ca + dibuix::utf8 (nomPista) + "»: "_ca + nomDesti);
+    estat.canviat ("Print de «"_ca + dibuix::utf8 (nomPista) + "» → «Print - "_ca + dibuix::utf8 (nomPista) + "» (amb efectes)"_ca);
 }
 
 void PantallaEstudi::consolida (int pista, int ia, int ib)

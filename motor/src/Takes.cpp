@@ -251,12 +251,12 @@ namespace mibase::edicio
         if (t.takes.size() <= 1) t.takes.clear();   // ja no hi ha alternatives: pista normal (el comp queda com està)
     }
 
-    int creaPistaPrint (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi)
+    int creaPistaComp (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi)
     {
         if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
         Pista q = p.pistes[(size_t) pista];
         q.id = idNou (p, 't');
-        q.nom = "Print - " + q.nom;
+        q.nom = "Comp - " + q.nom;
         q.takes.clear();
         q.takesObertes = true;
         q.mut = q.solo = q.grava = false;
@@ -300,6 +300,52 @@ namespace mibase::edicio
         p.pistes[(size_t) pista].mut = true;
         p.pistes.insert (p.pistes.begin() + pista + 1, q);
         return pista + 1;
+    }
+
+    int creaPistaPrint (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
+        const Pista& o = p.pistes[(size_t) pista];
+        Pista q;
+        q.id = idNou (p, 't');
+        q.nom = "Print - " + o.nom;
+        q.tipus = "audio";
+        q.canals = 2;                    // els efectes (i els instruments) surten en estèreo
+        q.color = o.color;
+        q.rgb = o.rgb;
+        q.carpeta = o.carpeta;
+        q.faderDb = o.faderDb;
+        q.pan = o.pan;
+        q.sortida = o.sortida;
+        q.entrada = o.entrada;
+        q.escolta = o.escolta;
+        q.enviaments = o.enviaments;
+        for (auto& e : q.enviaments) e.id = idNou (p, 'v');
+        for (const auto& a : o.autos)    // només el volum i el panorama: els efectes ja són dins l'àudio
+            if (a.objectiu == "volum" || a.objectiu == "pan")
+            {
+                auto b = a;
+                b.id = idNou (p, 'a');
+                q.autos.push_back (b);
+            }
+        Clip c;
+        c.presa = idPresa;
+        c.pos = pos;
+        c.inici = inici;
+        c.fi = std::max (inici + longitudMinima, fi);
+        q.clips = { c };
+        p.pistes[(size_t) pista].mut = true;
+        p.pistes.insert (p.pistes.begin() + pista + 1, q);
+        return pista + 1;
+    }
+
+    std::pair<double, double> rangClips (const Pista& t)
+    {
+        double a = 1.0e300, b = -1.0e300;
+        for (const auto& c : t.clips)
+            if (! c.mut && ! c.esAcord() && (c.midi || ! c.presa.empty())) { a = std::min (a, c.iniciVisible()); b = std::max (b, c.fiVisible()); }
+        if (b <= a) return { 0.0, 0.0 };
+        return { a, b };
     }
 
     std::pair<double, double> rangComp (const Pista& t)

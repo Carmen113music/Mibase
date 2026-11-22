@@ -231,7 +231,7 @@ namespace
             comprova (pic > 0.4f && pic < 0.55f, "el so hi és i no se suma");
         });
 
-        prova ("0.81 Print Comp: pista nova a sota, amb els mateixos efectes, i l'original silenciada", [&]
+        prova ("0.82 Consolida el comp: pista nova a sota, amb els mateixos efectes, i l'original silenciada", [&]
         {
             Projecte p;
             auto& t = afegeixPista (p, "Veu", "audio");
@@ -243,11 +243,11 @@ namespace
             grava (p, 0, 0.0, 8.0, "a");
             grava (p, 0, 0.0, 8.0, "b");
             const auto& pr = afegeixPresa (p, "Àudios/Print - Veu.wav", "Print - Veu", 8.5);
-            const int n = creaPistaPrint (p, 0, pr.id, -0.25, 0.25, 8.25);
+            const int n = creaPistaComp (p, 0, pr.id, -0.25, 0.25, 8.25);
             comprova (n == 1 && p.pistes.size() == 3, "pista nova just a sota");
             const auto& o = p.pistes[0];
             const auto& q = p.pistes[1];
-            comprova (q.nom == "Print - Veu", "es diu «Print - Veu»");
+            comprova (q.nom == "Comp - Veu", "es diu «Comp - Veu»");
             comprova (o.mut && ! q.mut, "l'original, silenciada; el Print sona");
             comprova (o.takes.size() == 2 && ! o.clips.empty(), "l'original conserva les preses i el comp");
             comprova (q.takes.empty() && q.clips.size() == 1 && q.clips[0].presa == pr.id, "el Print és un clip d'àudio propi");
@@ -256,6 +256,36 @@ namespace
             comprova (q.autos.size() == 1 && q.autos[0].objectiu == "insert:" + q.inserts[0].id + ":mix", "l'automatització segueix el seu efecte");
             comprova (prop (q.faderDb, -3.0) && prop (q.pan, 0.2) && q.id != o.id, "mateix volum i panorama");
             comprova (p.pistes[2].nom == "Baix", "les altres pistes, al seu lloc");
+        });
+
+        prova ("0.82 Print: pista d'àudio estèreo sense efectes, amb el mateix fader i enviaments", [&]
+        {
+            Projecte p;
+            afegeixPista (p, "Bus reverb", "fx");
+            auto& t = afegeixPista (p, "Piano", "midi");
+            t.instrument = "intern:piano";
+            t.faderDb = -4.0; t.pan = -0.3;
+            Insert x; x.id = "i90"; x.plugin = "intern:reverb"; t.inserts.push_back (x);
+            Enviament e; e.id = "v91"; e.desti = p.pistes[0].id; e.nivellDb = -6.0; t.enviaments.push_back (e);
+            Automatitzacio av; av.id = "a92"; av.objectiu = "volum"; av.punts.push_back ({}); t.autos.push_back (av);
+            Automatitzacio ai; ai.id = "a93"; ai.objectiu = "insert:i90:mix"; ai.punts.push_back ({}); t.autos.push_back (ai);
+            Clip c; c.midi = true; c.pos = 2.0; c.inici = 0.0; c.fi = 4.0; c.notes.push_back ({ 0, 960, 60, 100, 0 });
+            t.clips.push_back (c);
+            busosABaix (p);
+            const int ip = pistaPerId (p, t.id);
+            const auto rg = rangClips (p.pistes[(size_t) ip]);
+            comprova (prop (rg.first, 2.0) && prop (rg.second, 6.0), "el tros que sona del clip MIDI");
+            const auto& pr = afegeixPresa (p, "Àudios/Print - Piano.wav", "Print - Piano", 7.0);
+            const int n = creaPistaPrint (p, ip, pr.id, 1.75, 0.25, 7.0);
+            const auto& o = p.pistes[(size_t) ip];
+            const auto& q = p.pistes[(size_t) n];
+            comprova (n == ip + 1 && q.nom == "Print - Piano" && q.tipus == "audio" && q.canals == 2, "pista d'àudio estèreo a sota");
+            comprova (q.inserts.empty() && q.instrument.empty(), "sense cap efecte (ja són dins l'àudio)");
+            comprova (prop (q.faderDb, -4.0) && prop (q.pan, -0.3), "mateix fader i panorama");
+            comprova (q.enviaments.size() == 1 && q.enviaments[0].desti == p.pistes[0].id && q.enviaments[0].id != "v91", "els enviaments, copiats");
+            comprova (q.autos.size() == 1 && q.autos[0].objectiu == "volum", "l'automatització de volum sí; la de l'efecte no");
+            comprova (o.mut && o.clips.size() == 1 && o.clips[0].midi && o.inserts.size() == 1, "l'original, silenciada i sencera");
+            comprova (prop (q.clips[0].iniciVisible(), 2.0), "el clip comença on sonava");
         });
 
         prova ("0.81 Tune: en directe passa en sec i sense retard", [&]

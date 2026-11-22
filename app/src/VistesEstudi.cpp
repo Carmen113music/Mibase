@@ -1682,7 +1682,8 @@ void VistaPistes::menuLane (int pista, int take, double t)
     m.addItem (2, "Treu aquest tros del comp"_ca, dins);
     m.addSeparator();
     m.addItem (3, "Plega les preses"_ca);
-    m.addItem (4, "Print Comp: pista nova amb el comp"_ca);
+    m.addItem (4, "Consolida el comp: un àudio nou amb els trossos triats"_ca);
+    m.addItem (6, "Print: un àudio nou amb els efectes aplicats"_ca);
     m.addSeparator();
     m.addItem (5, "Esborra aquesta presa"_ca);
     juce::Component::SafePointer<VistaPistes> jo (this);
@@ -1711,7 +1712,11 @@ void VistaPistes::menuLane (int pista, int take, double t)
         }
         else if (r == 4)
         {
-            if (jo->onPrintComp) jo->onPrintComp (pista);
+            if (jo->onConsolidaComp) jo->onConsolidaComp (pista);
+        }
+        else if (r == 6)
+        {
+            if (jo->onPrint) jo->onPrint (pista);
         }
         else if (r == 5)
         {
@@ -2816,8 +2821,13 @@ void Capcaleres::menu (int pista)
         {
             m.addSeparator();
             m.addItem (12, t.takesObertes ? "Plega les preses"_ca : "Desplega les preses ("_ca + juce::String ((int) t.takes.size()) + ")");
-            m.addItem (13, "Print Comp: pista nova amb el comp"_ca);
+            m.addItem (13, "Consolida el comp: un àudio nou amb els trossos triats"_ca);
         }
+    }
+    if (! mibase::esBus (t) && ! mibase::esAcords (t))   // 0.82: també les pistes MIDI
+    {
+        m.addSeparator();
+        m.addItem (14, "Print: un àudio nou amb els efectes aplicats"_ca, ed::rangClips (t).second > ed::rangClips (t).first);
     }
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
@@ -2830,7 +2840,8 @@ void Capcaleres::menu (int pista)
         if (r == 1) { if (onCanviaNom) onCanviaNom (pista); return; }
         if (r == 11) { if (onAutomatitzacio) onAutomatitzacio (pista); return; }   // 0.56
         if (r == 12) { auto& tt = estat.projecte.pistes[(size_t) pista]; tt.takesObertes = ! tt.takesObertes; estat.canviat(); return; }   // 0.81
-        if (r == 13) { if (onPrintComp) onPrintComp (pista); return; }
+        if (r == 13) { if (onConsolidaComp) onConsolidaComp (pista); return; }
+        if (r == 14) { if (onPrint) onPrint (pista); return; }   // 0.82
         if (r == 9)
         {
             VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
