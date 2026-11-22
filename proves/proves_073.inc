@@ -524,6 +524,41 @@ namespace
             comprova (robot < 25.0 && natural > 45.0, "vibrato de ±40 cèntims: a 0 ms en queden " + std::to_string (robot) + "; a 300 ms, " + std::to_string (natural));
         });
 
+        prova ("0.80 Tune: la nota destí no va amunt i avall", [&]
+        {
+            // una veu real: Do3 + 70 cèntims (entre Do i Re, que en La menor no té Do#), amb vibrato i una mica d'irregularitat
+            ContextMusical ctx;
+            ctx.tonica.store (9); ctx.mascaraEscala.store (0x5AD);
+            tune::Tune t;
+            t.posaContext (&ctx);
+            t.prepara (fs, 64);
+            t.posa (tune::ModeP, tune::Canco); t.posa (tune::Velocitat, 25);
+            std::vector<float> v ((size_t) (3.0 * fs));
+            double fase = 0.0;
+            unsigned llavor = 12345;
+            auto soroll = [&llavor] { llavor = llavor * 1664525u + 1013904223u; return (double) (llavor >> 8) / 16777216.0 - 0.5; };
+            double jit = 0.0;
+            for (size_t i = 0; i < v.size(); ++i)
+            {
+                if (i % 300 == 0) jit = 0.03 * soroll();   // ±1,5 % de període, com una veu de debò
+                const double f = 130.81 * std::pow (2.0, (70.0 + 25.0 * std::sin (2.0 * 3.141592653589793 * 5.5 * (double) i / fs)) / 1200.0) * (1.0 + jit);
+                fase += 2.0 * 3.141592653589793 * f / fs;
+                double x = 0.0;
+                for (int k = 1; k <= 14; ++k) x += std::sin (k * fase) / (k * 1.1);
+                v[i] = (float) (0.25 * x + 0.01 * soroll());
+            }
+            auto R = v;
+            int canvis = 0, ant = -1;
+            for (size_t i = 0; i + 64 <= v.size(); i += 64)
+            {
+                t.processa (v.data() + i, R.data() + i, 64);
+                const int d = t.notaDesti();
+                if (i > (size_t) (0.4 * fs) && d >= 0 && ant >= 0 && d != ant) ++canvis;
+                if (d >= 0) ant = d;
+            }
+            comprova (canvis == 0 && ant == 48, "una nota aguantada entre dues de l'escala: " + std::to_string (canvis) + " canvis de destí (nota " + std::to_string (ant) + ")");
+        });
+
         prova ("0.73 Context i escales", [&]
         {
             using namespace harmonitzador;

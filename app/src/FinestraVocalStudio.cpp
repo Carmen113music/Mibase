@@ -318,7 +318,7 @@ namespace
             else dalt.removeFromLeft (110.0f);
             g.setFont (dibuix::lletra (22.0f, true));
             g.setColour (desti >= 0 ? tema::accent : tema::suau);
-            g.drawText (desti >= 0 ? juce::String ("→  ") + nomNota (desti) : juce::String(), dalt, juce::Justification::centredRight);
+            g.drawText (desti >= 0 ? "→  "_ca + nomNota (desti) : juce::String(), dalt, juce::Justification::centredRight);   // 0.80: la fletxa sortia com «â□□»
             // la correcció d'ara: una barra des del mig (±100 cèntims)
             auto barra = r.reduced (14.0f, 8.0f);
             const float mig = barra.getCentreX();
@@ -1417,4 +1417,9 @@ std::unique_ptr<juce::DocumentWindow> creaFinestraVocalStudio (std::shared_ptr<R
                                                                std::function<int (int)> accioPistes)
 {
     return std::make_unique<FinestraVocalStudio> (std::move (r), titol, std::move (enTancar), std::move (accioPistes));
+}
+
+std::unique_ptr<juce::DocumentWindow> creaFinestraTune (std::shared_ptr<mibase::tune::Tune> t, const juce::String& titol, std::function<void()> enTancar)
+{
+    return std::make_unique<FinestraSimple> (titol, new PanellTune (std::move (t)), std::move (enTancar));
 }

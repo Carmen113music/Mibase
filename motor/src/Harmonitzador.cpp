@@ -351,9 +351,11 @@ namespace mibase::canvito
             if (af != nullptr && pAfina > 0.0 && ! (tS - H <= (double) std::max (o, -1LL)))
             {
                 // 0.79: l'afinador decideix a cada pols (un cop per gra que es fa), amb el període de debò d'aquest pols
-                const double nota = 69.0 + 12.0 * std::log2 (a.fs() / pAfina / 440.0);
+                // 0.80: la nota es decideix amb el període del detector (estable); abans es feia amb la distància entre
+                // polsos, que salta fins a 2–4 semitons d'un pols a l'altre i feia canviar la nota destí a batzegades
+                const double nota = 69.0 + 12.0 * std::log2 (a.fs() / mk.periode / 440.0);
                 const double sem = std::clamp (af->desplacament (nota, pAfina / a.fs()), -12.0, 12.0);
-                pasS = std::max (1.0, pAfina / std::pow (2.0, sem / 12.0));
+                pasS = std::max (1.0, mk.periode / std::pow (2.0, sem / 12.0));   // sortida regular: el to que toca
             }
             // s'ha quedat enrere (o és l'inici): no s'escriu mai el que ja ha sortit ni abans de la mostra 0
             // (0.74: abans, el primer gra queia a posicions negatives de l'anell i sortia com un clic 0,34 s més tard)
@@ -912,6 +914,7 @@ namespace mibase::tune
     double Tune::Calcul::desplacament (double nota, double dt) noexcept
     {
         // la nota dels darrers polsos (cada pols sol tenir una mica de soroll); un salt gran reinicia la mitjana
+        const bool salt = suau < 0.0 || notaObj < 0 || std::abs (nota - suau) > 1.0;   // 0.80: nota nova de debò: el destí canvia de seguida
         if (suau < 0.0 || std::abs (nota - suau) > 1.0) suau = nota;
         else suau += (nota - suau) * 0.35;
         ultimaNota = suau;
@@ -919,7 +922,16 @@ namespace mibase::tune
         const int prop = harmonitzador::ajustaAMascara ((int) std::lround (suau), escala);
         const int alt = harmonitzador::mouDinsMascara (prop, escala, suau > prop ? 1 : -1);
         const int millor = std::abs (suau - alt) < std::abs (suau - prop) ? alt : prop;
-        if (notaObj < 0 || (millor != notaObj && std::abs (suau - notaObj) > std::abs (suau - millor) + 0.15)) { notaObj = millor; temps = 0.0; }
+        // 0.80: només canvia de nota quan la nova és clarament més a prop (0,3 semitons) i hi aguanta 35 ms; abans, una veu
+        // entre dues notes de l'escala (o amb vibrato) feia anar la nota destí amunt i avall i la veu tremolava a salts
+        if (millor == notaObj || std::abs (suau - notaObj) <= std::abs (suau - millor) + 0.3) { candidat = -1; tempsCand = 0.0; }
+        else if (salt) { notaObj = millor; temps = 0.0; candidat = -1; tempsCand = 0.0; }
+        else
+        {
+            if (millor != candidat) { candidat = millor; tempsCand = 0.0; }
+            tempsCand += dt;
+            if (tempsCand >= 0.035) { notaObj = millor; temps = 0.0; candidat = -1; tempsCand = 0.0; }
+        }
         temps += dt;
         const double objectiu = (notaObj - suau) * corr;
         // humanitza: a partir de 0,15 s de nota, la correcció es fa més lenta (fins a +300 ms) i el vibrato es conserva

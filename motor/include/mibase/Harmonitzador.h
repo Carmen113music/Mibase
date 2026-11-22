@@ -279,8 +279,8 @@ namespace mibase::tune
         struct Calcul : canvito::Afinacio
         {
             double desplacament (double nota, double dt) noexcept override;
-            int escala = 0xFFF, notaObj = -1;
-            double vel = 0.025, hum = 0.3, corr = 1.0, temps = 0.0, s = 0.0, ultimaNota = -1.0, suau = -1.0;
+            int escala = 0xFFF, notaObj = -1, candidat = -1;   // 0.80: la nota nova ha d'aguantar uns ms abans de canviar
+            double vel = 0.025, hum = 0.3, corr = 1.0, temps = 0.0, s = 0.0, ultimaNota = -1.0, suau = -1.0, tempsCand = 0.0;
         } calcul;
         float sMescla = 1.0f;
         double fs = 48000.0;
