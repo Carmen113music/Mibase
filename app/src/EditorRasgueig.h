@@ -187,11 +187,24 @@ private:
 
     static juce::String u8 (const std::string& s) { return juce::String::fromUTF8 (s.c_str()); }
 
+    /** 0.84: «nom», o «nom 2», «nom 3»… si ja hi ha un patró meu amb aquest nom. */
+    juce::String nomLliure (const juce::String& base) const
+    {
+        auto existeix = [] (const juce::String& n) { return mibase::guitarra::patro ("propi:" + n.toStdString()) != nullptr; };
+        if (base.isEmpty() || ! existeix (base)) return base;
+        for (int k = 2; k < 1000; ++k)
+            if (! existeix (base + " " + juce::String (k))) return base + " " + juce::String (k);
+        return base;
+    }
+
     /** 0.53: en desar, es tria si és un patró nou o una variació d'un patró (el triat, el d'abans o qualsevol altre). */
     void menuDesa()
     {
         namespace gt = mibase::guitarra;
         juce::PopupMenu m;
+        // 0.84: guardar els canvis al mateix patró (si és dels meus), o fer-ne un de nou sense tocar aquest
+        const auto* propi = idOriginal.empty() ? nullptr : gt::patro (idOriginal);
+        if (propi != nullptr) m.addItem (4, juce::String::fromUTF8 ("Desa els canvis a «") + u8 (propi->nom) + juce::String::fromUTF8 ("»"));
         m.addItem (1, juce::String::fromUTF8 ("Desa com a patró nou (a «Els meus rasgueigs»)…"));
         if (! arrel.empty()) m.addItem (2, juce::String::fromUTF8 ("Desa com a variació de «") + u8 (nomArrel) + juce::String::fromUTF8 ("»…"));
         const auto* abans = variacioDe.empty() || variacioDe == arrel ? nullptr : gt::patro (variacioDe);
@@ -212,7 +225,18 @@ private:
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btDesa), [jo, tots] (int r)
         {
             if (jo == nullptr || r <= 0) return;
-            if (r == 1) jo->demanaNom ({}, {});
+            if (r == 4)
+            {
+                if (const auto* q = mibase::guitarra::patro (jo->idOriginal))
+                {
+                    jo->nom.setText (u8 (q->nom), false);
+                    jo->variacioDe = q->de;
+                    std::string nomDe;
+                    if (const auto* d = q->de.empty() ? nullptr : mibase::guitarra::patro (q->de)) nomDe = d->nom;
+                    jo->desaAra (nomDe);
+                }
+            }
+            else if (r == 1) jo->demanaNom ({}, {});
             else if (r == 2) jo->demanaNom (jo->arrel, jo->nomArrel);
             else if (r == 3) { if (const auto* p = mibase::guitarra::patro (jo->variacioDe)) jo->demanaNom (p->id, p->nom); }
             else if (r >= 1000 && r - 1000 < (int) tots.size()) jo->demanaNom (tots[(size_t) (r - 1000)]->id, tots[(size_t) (r - 1000)]->nom);
@@ -225,13 +249,14 @@ private:
                                       : juce::String::fromUTF8 ("Nom de la variació de «") + u8 (nomDe) + juce::String::fromUTF8 ("»");
         auto suggerit = nom.getText().trim();
         if (! de.empty() && (suggerit.isEmpty() || suggerit == u8 (nomDe) + juce::String::fromUTF8 (" (meu)"))) suggerit = u8 (nomDe) + juce::String::fromUTF8 (" (la meva)");
+        suggerit = nomLliure (suggerit);   // 0.84: mai el d'un patró que ja existeix (si no, el sobreescriuria)
         panellNom = std::make_unique<PanellNomRasgueig> (titol, suggerit);
         juce::Component::SafePointer<EditorRasgueig> jo (this);
         panellNom->onCancella = [jo] { if (jo != nullptr) juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->panellNom.reset(); }); };
         panellNom->onDesa = [jo, de, nomDe] (const juce::String& t)
         {
             if (jo == nullptr) return;
-            jo->nom.setText (t, false);
+            jo->nom.setText (jo->nomLliure (t.trim()), false);   // 0.84: si el nom ja hi és, s'hi afegeix un número
             jo->variacioDe = de;
             jo->desaAra (nomDe);
             juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->panellNom.reset(); });
@@ -245,7 +270,7 @@ private:
     {
         const auto p = patro();
         if (onDesa) onDesa (p);
-        if (! idOriginal.empty() && idOriginal != p.id && onEsborra) onEsborra (idOriginal);   // li han canviat el nom
+        // 0.84: desar amb un altre nom fa un patró NOU i l'original es queda (abans s'esborrava: només quedava l'últim)
         idOriginal = p.id;
         btEsborra.setVisible (true);
         avis = p.de.empty() ? juce::String::fromUTF8 ("Desat a «Els meus rasgueigs».")

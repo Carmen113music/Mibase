@@ -160,7 +160,7 @@ public:
             r.removeFromTop (8);
         };
         const int tros = cbTros.getSelectedId();
-        fila ("Què", cbQue, true);
+        fila ("Què"_ca, cbQue, true);
         fila ("Tros", cbTros, true);
         fila ("Estructura", cbEstructura, tros == 1 && ! projecte.estructures.empty());
         fila ("Part", cbPart, tros == 3);

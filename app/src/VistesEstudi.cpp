@@ -1053,6 +1053,12 @@ void VistaPistes::paint (juce::Graphics& g)
         if (estat.filaCarpeta (i)) g.setColour (juce::Colour (0xff1d1d23));
         g.fillRect (0, y, getWidth(), estat.altPista);
         const auto& t = estat.projecte.pistes[(size_t) i];
+        if (! estat.filaCarpeta (i) && ! mibase::esBus (t) && ! mibase::esAcords (t))
+        {
+            // 0.84: tota la fila, una mica tenyida del color de la pista (per distingir-les d'un cop d'ull)
+            g.setColour (EstatEstudi::colorPista (t).withAlpha (0.075f));
+            g.fillRect (0, y, getWidth(), estat.altPista);
+        }
         if (mibase::esAcords (t))
         {
             g.setColour (juce::Colour (0xffa98bff).withAlpha (0.05f));   // 0.36: la pista d'Acords
@@ -1558,6 +1564,8 @@ void VistaPistes::pintaTakes (juce::Graphics& g, int pista)
         const int y = estat.yLane (pista, k);
         if (y > getHeight() || y + h < 0) continue;
         g.setColour (juce::Colour (0xff131317));
+        g.fillRect (0, y, getWidth(), h);
+        g.setColour (col.withAlpha (0.05f));   // 0.84
         g.fillRect (0, y, getWidth(), h);
         g.setColour (col.withAlpha (0.25f));
         g.fillRect (0, y, 3, h);
@@ -2648,6 +2656,8 @@ void Capcaleres::paint (juce::Graphics& g)
             g.setColour (tema::triat);
             g.fillRect (r);
         }
+        g.setColour (EstatEstudi::colorPista (t).withAlpha (0.09f));   // 0.84: la capçalera, també tenyida
+        g.fillRect (r);
         g.setColour (sona (p, t) ? EstatEstudi::colorPista (t) : tema::suau);
         g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
 
