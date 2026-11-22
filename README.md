@@ -89,6 +89,15 @@ No cal activar res: Mibase organitza les preses sol.
 - En tots dos casos, si alguna cosa falla no es crea res, i Ctrl+Z ho desfà tot d'un cop.
 - Tot és **no destructiu**: les preses no es retallen mai, el comp només diu quin tros de cada una sona, i Ctrl+Z / Ctrl+Y desfan i refan cada canvi.
 
+### Pool (0.85)
+Pestanya «Pool» del panell de la dreta (al costat de Clip i Biblioteca): tots els àudios del projecte (gravacions, importats, Prints…).
+- Cada àudio diu la durada, si és mono o estèreo, la freqüència i on es fa servir (clips i preses). Els que no es fan servir surten apagats («sense fer servir»); els que no es troben al disc, en vermell («no es troba el fitxer»).
+- **Clic**: tria a la taula tots els clips on surt i hi porta la vista. **Triangle** (o doble clic): l'escolta; un altre clic l'atura.
+- **Arrossega'l** a una pista d'àudio (o a sota de les pistes: pista nova) per posar-lo un altre cop. No es copia res: és el mateix fitxer.
+- **Cerca** pel nom i **ordre** (nom, els més nous, durada, sense fer servir). **Importa…**: afegeix àudios al Pool sense posar-los a la taula.
+- **Botó dret**: escolta'l, on és a la taula, **canvia el nom** (el fitxer també; el projecte el continua trobant), obre la carpeta, **busca el fitxer** si falta (es copia a Àudios), o treu-lo del projecte si no es fa servir.
+- **Treu els que sobren**: els que no es fan servir enlloc surten del projecte i el fitxer va a **Àudios\Paperera**. Es pot desfer amb Ctrl+Z. El botó de la carpeta → **Buida la paperera…** els esborra del disc de debò (això no es pot desfer).
+
 ### Exportar (0.83)
 Fitxer → Exporta obre una finestra amb les opcions:
 - **Què**: tota la mescla (tal com sona, amb mutes i solos), una mescla amb les pistes triades, **un fitxer per pista** (stems) o **un per carpeta**. Amb més d'un fitxer, tria la carpeta on van; tots comencen i acaben al mateix lloc (per posar-los junts en un altre programa).
@@ -422,6 +431,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.85.0** — **Pool** (pestanya nova del panell de la dreta): tots els àudios del projecte amb durada, mono/estèreo, freqüència i on es fan servir. Clic: tria a la taula tots els clips on surt; triangle o doble clic: escolta'l; arrossega'l a la taula per tornar-lo a posar (sense copiar res); ordre per nom, més nous, durada o sense fer servir; cerca; importar àudios sense posar-los a la taula; canviar el nom del fitxer; obrir la carpeta; els que falten surten en vermell i es poden buscar; treure els que sobren a la paperera del projecte (es pot desfer) i buidar-la.
 - **0.84.0** — Arreglat: desar un rasgueig propi amb un altre nom esborrava l'original (ara se'n fa un de nou; si el nom ja existeix, s'hi afegeix un número) i nova opció «Desa els canvis a…» per actualitzar el mateix. Cada pista queda una mica tenyida del seu color (fila, capçalera i preses). Corregit el text «Què» de la finestra d'exportar.
 - **0.83.0** — **Finestra d'exportar**: tota la mescla, una mescla de les pistes triades, un fitxer per pista (stems) o un per carpeta; tota la cançó (lineal o una estructura), el bucle o una part; amb o sense efectes; amb o sense màster; WAV 24 o 16 bits. Inclou la cua de reverbs i delays. **Print amb Kontakt i altres VST3**: les còpies per exportar treballen fora de temps real i s'espera que carreguin les mostres (si surt en silenci, es torna a provar esperant més). **Si Mibase es tanca de cop**, queda escrit on (al diagnòstic, «Darrer tancament inesperat»). «A pistes reals» explica per què no fa res si el Vocal Studio no té retorns, i si ho fa, la vista va a la carpeta nova.
 - **0.82.0** — **Print** de debò: el so de la pista amb tots els efectes aplicats (també pistes MIDI: l'instrument es converteix en àudio) en una pista d'àudio nova sense efectes, amb el mateix fader, panorama, sortida i enviaments; l'original queda silenciada i sencera. El «Print Comp» de la 0.81 passa a dir-se **Consolida el comp** (crea «Comp - nom»).

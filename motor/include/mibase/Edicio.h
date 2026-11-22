@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #include "mibase/Projecte.h"
 
@@ -262,6 +263,19 @@ namespace mibase::edicio
     /** On comença i acaba el comp (clips d'àudio que sonen); {0, 0} si no n'hi ha. */
     std::pair<double, double> rangComp (const Pista& t);
 
+    // ---- 0.85: el Pool (tots els àudios del projecte) ----
+    struct UsPresa { int clips = 0; int takes = 0; bool enUs() const noexcept { return clips + takes > 0; } };
+    /** Quantes vegades surt la presa a la taula (clips) i a les preses (takes). */
+    UsPresa usPresa (const Projecte& p, const std::string& id);
+    /** On és la presa a la taula: els clips, per ordre de temps. */
+    std::vector<RefClip> llocsPresa (const Projecte& p, const std::string& id);
+    /** Les preses que no es fan servir enlloc. */
+    std::vector<std::string> presesSenseUs (const Projecte& p);
+    /** Treu la presa del projecte, només si no es fa servir. */
+    bool treuPresa (Projecte& p, const std::string& id);
+    /** Canvia el fitxer (relatiu a la carpeta del projecte) i, si no és buit, el nom. */
+    void canviaFitxerPresa (Projecte& p, const std::string& id, const std::string& fitxer, const std::string& nom = {});
+
     // ---- Bucle ----
     int compasA (const Projecte& p, double t);
     void marcaBucle (Projecte& p, int compasA, int compasB);   // inclou tots dos
@@ -285,6 +299,9 @@ namespace mibase::edicio
         bool desfes (Projecte& p);
         bool refes (Projecte& p);
         void buida() { enrere.clear(); endavant.clear(); }
+        /** 0.85: aplica un canvi a totes les còpies guardades (quan un fitxer canvia de nom o de lloc al disc: així
+            desfer no torna a un camí que ja no existeix). */
+        void perTots (const std::function<void (Projecte&)>& f) { for (auto& q : enrere) f (q); for (auto& q : endavant) f (q); }
 
     private:
         std::vector<Projecte> enrere, endavant;

@@ -8,6 +8,7 @@
 #include "EditorAutomatitzacio.h"
 #include "Inserts.h"
 #include "PanellBiblioteca.h"
+#include "PanellPool.h"
 #include "FinestraProgres.h"
 #include "CarregaPreses.h"
 #include "EstatEstudi.h"
@@ -237,8 +238,21 @@ private:
     Focus focusEditor, focusPistes;
     PanellPista panell { estat };
     PanellBiblioteca biblioteca { ajustos };                          // 0.27
-    Segmentat pestDreta { { "Clip", "Biblioteca" } };
-    bool dretaBiblioteca = false;
+    Segmentat pestDreta { { "Clip", "Biblioteca", "Pool" } };
+    int dreta = 0;                                                    // 0.85: 0 clip, 1 biblioteca, 2 Pool
+    PanellPool pool { estat };                                        // 0.85
+    std::string presaEscoltada;                                       // 0.85
+    juce::uint32 presaEscoltadaFins = 0;
+    void escoltaPresa (const std::string& id);
+    void localitzaPresa (const std::string& id);
+    void canviaNomPresa (const std::string& id);
+    void buscaPresa (const std::string& id);
+    void aLaPaperera (const std::vector<std::string>& ids);
+    void buidaPaperera();
+    void importaAlPool();
+    void deixaPresa (const std::string& id, int fila, double temps);
+    std::string copiaAlPool (const juce::File& f, const juce::String& nomBase, juce::String& error);
+    juce::File paperera() const { return audios().getChildFile ("Paperera"); }
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };

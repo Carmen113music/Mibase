@@ -106,9 +106,10 @@ public:
 
     /** 0.27: un sample de la biblioteca deixat a la taula (fila -1: sota les pistes). */
     std::function<void (const juce::File&, int fila, double temps)> onSample;
+    std::function<void (const std::string& presa, int fila, double temps)> onPresa;   // 0.85: del Pool
     bool isInterestedInDragSource (const SourceDetails& d) override
     {
-        return d.description.toString().startsWith ("mibase-sample:")
+        return d.description.toString().startsWith ("mibase-sample:") || d.description.toString().startsWith ("mibase-presa:")   // 0.85: del Pool
             || (d.description.toString() == "mibase-acord" && estat.segell.actiu());   // 0.36: acords del Chord Pad a la pista d'Acords
     }
     void itemDragMove (const SourceDetails& d) override { const int f = estat.pistaA (d.localPosition.y); if (f != filaDeixar) { filaDeixar = f < estat.numPistes() ? f : -1; repaint(); } }
@@ -119,6 +120,13 @@ public:
         filaDeixar = -2;
         int fila = estat.pistaA (d.localPosition.y);
         if (fila >= 0 && fila < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) fila])) fila = -1;   // 0.34: a un bus no
+        if (d.description.toString().startsWith ("mibase-presa:"))   // 0.85: un àudio del Pool
+        {
+            if (onPresa) onPresa (d.description.toString().fromFirstOccurrenceOf ("mibase-presa:", false, false).toStdString(),
+                                  (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
+            repaint();
+            return;
+        }
         const juce::File f (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false));
         if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
         repaint();

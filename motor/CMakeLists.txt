@@ -6,6 +6,7 @@ add_library(mibase_motor STATIC
     src/ProjecteDisc.cpp
     src/Edicio.cpp
     src/Takes.cpp
+    src/Pool.cpp
     src/Wav.cpp
     src/Gravadora.cpp
     src/MotorEstudi.cpp

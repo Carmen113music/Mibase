@@ -402,9 +402,34 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     // 0.27: panell de la dreta amb pestanyes (clip / biblioteca)
     addAndMakeVisible (pestDreta);
     addChildComponent (biblioteca);
-    dretaBiblioteca = ajustos.getBoolValue ("estudi.dretaBiblioteca", false);
-    pestDreta.setTriat (dretaBiblioteca ? 1 : 0);
-    pestDreta.onCanvi = [this] (int i) { dretaBiblioteca = i == 1; ajustos.setValue ("estudi.dretaBiblioteca", dretaBiblioteca); colocaSeccions(); };
+    addChildComponent (pool);   // 0.85
+    dreta = juce::jlimit (0, 2, ajustos.getIntValue ("estudi.dretaPestanya", ajustos.getBoolValue ("estudi.dretaBiblioteca", false) ? 1 : 0));
+    pestDreta.setTriat (dreta);
+    pestDreta.onCanvi = [this] (int i) { dreta = i; ajustos.setValue ("estudi.dretaPestanya", dreta); colocaSeccions(); };
+    pool.fitxerDe = [this] (const mibase::Presa& s) { return fitxerPresa (s); };
+    pool.audioDe = [this] (const std::string& id) -> const mibase::AudioPresa*
+    {
+        auto it = audioPreses.find (id);
+        return it != audioPreses.end() ? it->second.get() : nullptr;
+    };
+    pool.onEscolta = [this] (const std::string& id) { escoltaPresa (id); };
+    pool.onLocalitza = [this] (const std::string& id) { localitzaPresa (id); };
+    pool.onCanviaNom = [this] (const std::string& id) { canviaNomPresa (id); };
+    pool.onBusca = [this] (const std::string& id) { buscaPresa (id); };
+    pool.onTreu = [this] (const std::string& id) { aLaPaperera ({ id }); };
+    pool.onTreuSobrants = [this]
+    {
+        const auto ids = ed::presesSenseUs (estat.projecte);
+        if (ids.empty()) return;
+        juce::Component::SafePointer<PantallaEstudi> jo (this);
+        juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Treu els àudios que sobren"_ca,
+            juce::String ((int) ids.size()) + " àudios no es fan servir enlloc (ni a la taula ni a les preses). Van a la paperera del projecte "
+            "(carpeta Àudios\\Paperera) i es pot desfer amb Ctrl+Z."_ca, "Treu-los"_ca, "Cancel·la"_ca, nullptr,
+            juce::ModalCallbackFunction::create ([jo, ids] (int r) { if (jo != nullptr && r == 1) jo->aLaPaperera (ids); }));
+    };
+    pool.onBuidaPaperera = [this] { buidaPaperera(); };
+    pool.onImporta = [this] { importaAlPool(); };
+    pistes.onPresa = [this] (const std::string& id, int fila, double t) { deixaPresa (id, fila, t); };
     escGlobal() = [this] { tancaTot(); };
     // 0.46: amb una finestra a part al davant (guitarra virtual, sinte, plugin…), les tecles del transport també van
     teclaGlobal() = [this] (const juce::KeyPress& k)
@@ -842,6 +867,7 @@ void PantallaEstudi::colocaSeccions()
         pestDreta.setBounds (zDreta.removeFromTop (34).reduced (8, 4));
         panell.setBounds (zDreta);
         biblioteca.setBounds (zDreta);
+        pool.setBounds (zDreta);
     }
     // 0.26: el samplejador, a baix (sense tocar el panell de la dreta, on anirà la biblioteca)
     const bool samplerBaix = estat.sampler.obert && ! m && ! estat.veu.obert;
@@ -890,8 +916,9 @@ void PantallaEstudi::colocaSeccions()
 
     mescles.setVisible (estat.vistaMescles);
     taulaEstructura.setVisible (estat.vistaEstructura);
-    panell.setVisible (! estat.vistaEstructura && ! dretaBiblioteca);
-    biblioteca.setVisible (! estat.vistaEstructura && dretaBiblioteca);
+    panell.setVisible (! estat.vistaEstructura && dreta == 0);
+    biblioteca.setVisible (! estat.vistaEstructura && dreta == 1);
+    pool.setVisible (! estat.vistaEstructura && dreta == 2);
     pestDreta.setVisible (! estat.vistaEstructura);
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
         c->setVisible (! m);
@@ -2140,43 +2167,13 @@ bool PantallaEstudi::importaUn (const juce::File& f, int& pista, double on, doub
     }
 
     auto& t = estat.projecte.pistes[(size_t) pista];
-    auto carpetaAudios = audios();
-    carpetaAudios.createDirectory();
-    const auto nomDesti = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), t.nom));
-    const auto desti = carpetaAudios.getChildFile (nomDesti);
-
-    if (f.hasFileExtension ("wav"))
-    {
-        if (! f.copyFileTo (desti))
-        {
-            error = "No s'ha pogut copiar «"_ca + f.getFileName() + "» a Àudios."_ca;
-            return false;
-        }
-    }
-    else
-    {
-        std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
-        juce::WavAudioFormat wav;
-        auto escriptor = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}
-                                                                            .withSampleRate (lector->sampleRate)
-                                                                            .withNumChannels ((int) lector->numChannels)
-                                                                            .withBitsPerSample (24))
-                                            : nullptr;
-        if (escriptor == nullptr || ! escriptor->writeFromAudioReader (*lector, 0, -1))
-        {
-            escriptor.reset();
-            desti.deleteFile();
-            error = "No s'ha pogut convertir «"_ca + f.getFileName() + "» a WAV."_ca;
-            return false;
-        }
-    }
-
     const double durada = (double) lector->lengthInSamples / lector->sampleRate;
-    const auto fitxerRelatiu = (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + nomDesti).toStdString();
-    const auto idPresa = ed::afegeixPresa (estat.projecte, fitxerRelatiu, f.getFileName().toStdString(), durada).id;
+    lector.reset();
+    const auto idPresa = copiaAlPool (f, dibuix::utf8 (t.nom), error);   // 0.85: la mateixa còpia que fa el Pool
+    if (idPresa.empty()) return false;
+    const auto nomDesti = juce::File (fitxerPresa (*ed::presa (estat.projecte, idPresa))).getFileName();
     ed::afegeixClip (estat.projecte, pista, idPresa, on);
     final = on + durada;
-    carregaOna (*ed::presa (estat.projecte, idPresa));
     disc::afegeixEvolucio (dibuix::cami (estat.carpeta), dibuix::araText().toStdString(),
                            ("Importat «"_ca + f.getFileName() + "» a la pista «"_ca + dibuix::utf8 (t.nom) + "» ("_ca + nomDesti + ")").toStdString());
     return true;
@@ -3641,4 +3638,295 @@ void PantallaEstudi::gravaSampler()
     tempsOrdre = juce::Time::currentTimeMillis();
     estat.info = "Gravant al samplejador… (torna a clicar «Grava» o atura per acabar)"_ca;
     estat.avisa();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 0.85: el Pool
+
+std::string PantallaEstudi::copiaAlPool (const juce::File& f, const juce::String& nomBase, juce::String& error)
+{
+    // L'àudio es copia (o es converteix a WAV) a la carpeta Àudios del projecte i passa a ser una presa (sense clip).
+    std::unique_ptr<juce::AudioFormatReader> lector (formats.createReaderFor (f));
+    if (lector == nullptr || lector->sampleRate <= 0.0 || lector->lengthInSamples <= 0)
+    {
+        error = "«"_ca + f.getFileName() + "» no és un àudio que Mibase sàpiga llegir."_ca;
+        return {};
+    }
+    auto carpetaAudios = audios();
+    carpetaAudios.createDirectory();
+    const auto nomDesti = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), nomBase.toStdString()));
+    const auto desti = carpetaAudios.getChildFile (nomDesti);
+    if (f.hasFileExtension ("wav"))
+    {
+        if (! f.copyFileTo (desti))
+        {
+            error = "No s'ha pogut copiar «"_ca + f.getFileName() + "» a Àudios."_ca;
+            return {};
+        }
+    }
+    else
+    {
+        std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
+        juce::WavAudioFormat wav;
+        auto escriptor = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}
+                                                                            .withSampleRate (lector->sampleRate)
+                                                                            .withNumChannels ((int) lector->numChannels)
+                                                                            .withBitsPerSample (24))
+                                            : nullptr;
+        if (escriptor == nullptr || ! escriptor->writeFromAudioReader (*lector, 0, -1))
+        {
+            escriptor.reset();
+            desti.deleteFile();
+            error = "No s'ha pogut convertir «"_ca + f.getFileName() + "» a WAV."_ca;
+            return {};
+        }
+    }
+    const double durada = (double) lector->lengthInSamples / lector->sampleRate;
+    const auto fitxerRelatiu = (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + nomDesti).toStdString();
+    const auto id = ed::afegeixPresa (estat.projecte, fitxerRelatiu, f.getFileName().toStdString(), durada).id;
+    carregaOna (*ed::presa (estat.projecte, id));
+    return id;
+}
+
+void PantallaEstudi::escoltaPresa (const std::string& id)
+{
+    const auto ara = juce::Time::getMillisecondCounter();
+    if (id == presaEscoltada && ara < presaEscoltadaFins)   // tornar-hi a clicar l'atura
+    {
+        servei.escoltaSo (nullptr);
+        presaEscoltada.clear();
+        pool.escoltant.clear();
+        pool.repaint();
+        return;
+    }
+    const auto* s = ed::presa (estat.projecte, id);
+    if (s == nullptr) return;
+    auto mo = kits::llegeix (fitxerPresa (*s), 180.0);   // fins a 3 minuts
+    if (mo == nullptr || mo->L.empty()) { estat.info = "No es pot obrir aquest àudio"_ca; estat.avisa(); return; }
+    presaEscoltada = id;
+    presaEscoltadaFins = ara + (juce::uint32) (1000.0 * (double) mo->L.size() / juce::jmax (1.0, mo->fs));
+    pool.escoltant = id;
+    servei.escoltaSo (mo);
+    pool.repaint();
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    juce::Timer::callAfterDelay ((int) (presaEscoltadaFins - ara) + 50, [jo, id]
+    {
+        if (jo != nullptr && jo->pool.escoltant == id && juce::Time::getMillisecondCounter() >= jo->presaEscoltadaFins)
+        { jo->pool.escoltant.clear(); jo->pool.repaint(); }
+    });
+}
+
+void PantallaEstudi::localitzaPresa (const std::string& id)
+{
+    const auto llocs = ed::llocsPresa (estat.projecte, id);
+    const auto us = ed::usPresa (estat.projecte, id);
+    if (llocs.empty())
+    {
+        estat.info = us.takes > 0 ? "Aquest àudio només és a les preses (subpistes) d'una pista"_ca
+                                  : "Aquest àudio no és a la taula: arrossega'l des del Pool per posar-lo"_ca;
+        if (us.takes > 0)
+            for (int i = 0; i < estat.numPistes(); ++i)
+                for (const auto& k : estat.projecte.pistes[(size_t) i].takes)
+                    if (k.presa == id) { estat.pistaTriada = i; estat.projecte.pistes[(size_t) i].takesObertes = true; }
+        estat.avisa();
+        pistes.repaint();
+        return;
+    }
+    // es trien tots els clips on surt i la vista va al primer
+    estat.triats = llocs;
+    estat.rang.actiu = false;
+    estat.pistaTriada = llocs[0].pista;
+    const auto& c = estat.projecte.pistes[(size_t) llocs[0].pista].clips[(size_t) llocs[0].clip];
+    const double ampleSeg = pistes.getWidth() / juce::jmax (1.0, estat.pxPerSegon);
+    if (c.iniciVisible() < estat.iniciVista || c.iniciVisible() > estat.iniciVista + ampleSeg * 0.9)
+        estat.iniciVista = juce::jmax (0.0, c.iniciVisible() - ampleSeg * 0.15);
+    const int y = estat.yPista (llocs[0].pista);
+    if (y < estat.altPista || y + estat.altPista > pistes.getHeight())
+        estat.desplY = juce::jmax (0, y + estat.desplY - estat.altPista * 2);
+    estat.info = llocs.size() == 1 ? "Aquest àudio surt en 1 clip (triat a la taula)"_ca
+                                   : "Aquest àudio surt en "_ca + juce::String ((int) llocs.size()) + " clips (tots triats a la taula)";
+    estat.avisa();
+    repaint();
+}
+
+void PantallaEstudi::canviaNomPresa (const std::string& id)
+{
+    const auto* s = ed::presa (estat.projecte, id);
+    if (s == nullptr) return;
+    const auto vell = fitxerPresa (*s);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    dialeg = std::make_unique<DialegText> ("Canvia el nom de l'àudio"_ca,
+        "Es canvia el nom del fitxer a la carpeta Àudios i el projecte el continua trobant."_ca, "Canvia"_ca,
+        [] (const juce::String& t) { return juce::File::createLegalFileName (t.trim()).isEmpty() ? "Escriu un nom"_ca : juce::String(); },
+        [jo, id, vell] (const juce::String& t)
+        {
+            if (jo == nullptr) return;
+            auto& e = jo->estat;
+            const auto base = juce::File::createLegalFileName (t.trim());
+            auto nou = vell.getSiblingFile (base + vell.getFileExtension());
+            for (int k = 2; nou.exists() && nou != vell; ++k) nou = vell.getSiblingFile (base + " " + juce::String (k) + vell.getFileExtension());
+            if (nou != vell && ! vell.moveFileTo (nou))
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Canvia el nom"_ca,
+                                                        "No s'ha pogut canviar el nom del fitxer (potser és obert en un altre programa)."_ca);
+                return;
+            }
+            const auto relatiu = nou.getRelativePathFrom (e.carpeta).replaceCharacter ('\\', '/').toStdString();
+            const auto nom = t.trim().toStdString();
+            // el fitxer ha canviat al disc: totes les còpies de desfer també ho han de saber
+            ed::canviaFitxerPresa (e.projecte, id, relatiu, nom);
+            e.desfes.perTots ([&] (mibase::Projecte& q) { ed::canviaFitxerPresa (q, id, relatiu, nom); });
+            jo->historial.afegeix ("Pool: «"_ca + vell.getFileName() + "» ara es diu «" + nou.getFileName() + "»");
+            e.canviat ("Canviat el nom de l'àudio «"_ca + vell.getFileName() + "» a «" + nou.getFileName() + "»");
+            jo->desaAra();
+        },
+        dibuix::utf8 (s->nom).upToLastOccurrenceOf (".", false, false).isEmpty() ? dibuix::utf8 (s->nom) : dibuix::utf8 (s->nom).upToLastOccurrenceOf (".", false, false));
+    DialegText::mostra (*this, dialeg);
+}
+
+void PantallaEstudi::buscaPresa (const std::string& id)
+{
+    const auto* s = ed::presa (estat.projecte, id);
+    if (s == nullptr) return;
+    const auto nom = dibuix::utf8 (s->nom);
+    selector = std::make_unique<juce::FileChooser> ("On és «"_ca + nom + "»?", estat.carpeta, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    selector->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, id, nom] (const juce::FileChooser& fc)
+    {
+        const auto f = fc.getResult();
+        if (! f.existsAsFile()) return;
+        // es copia a Àudios (el projecte continua tenint-ho tot a la seva carpeta) i la presa hi apunta
+        juce::String error;
+        const auto idTemp = copiaAlPool (f, nom.upToLastOccurrenceOf (".", false, false).isEmpty() ? nom : nom.upToLastOccurrenceOf (".", false, false), error);
+        if (idTemp.empty()) { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Busca el fitxer"_ca, error); return; }
+        const auto* t = ed::presa (estat.projecte, idTemp);
+        const auto fitxer = t->fitxer;
+        const double durada = t->durada;
+        estat.projecte.preses.erase (std::remove_if (estat.projecte.preses.begin(), estat.projecte.preses.end(),
+                                                     [&idTemp] (const mibase::Presa& x) { return x.id == idTemp; }), estat.projecte.preses.end());
+        estat.ones.erase (idTemp);
+        audioPreses.erase (idTemp);
+        ed::canviaFitxerPresa (estat.projecte, id, fitxer);
+        if (auto* p = ed::presa (estat.projecte, id)) p->durada = durada;
+        estat.desfes.perTots ([&] (mibase::Projecte& q) { ed::canviaFitxerPresa (q, id, fitxer); });
+        carregaOna (*ed::presa (estat.projecte, id));
+        publicaPla();
+        historial.afegeix ("Pool: «"_ca + nom + "» retrobat a " + f.getFullPathName());
+        estat.canviat ("Retrobat l'àudio «"_ca + nom + "»");
+    });
+}
+
+void PantallaEstudi::aLaPaperera (const std::vector<std::string>& ids)
+{
+    // Els àudios que no es fan servir surten del projecte i el fitxer va a Àudios/Paperera. Es pot desfer: les còpies de
+    // desfer apunten a la paperera, i l'àudio continua carregat.
+    auto copia = estat.projecte;
+    int fets = 0;
+    const auto pap = paperera();
+    pap.createDirectory();
+    for (const auto& id : ids)
+    {
+        const auto* s = ed::presa (estat.projecte, id);
+        if (s == nullptr || ed::usPresa (estat.projecte, id).enUs()) continue;
+        const auto f = fitxerPresa (*s);
+        std::string relatiu = s->fitxer;
+        if (f.existsAsFile())
+        {
+            auto desti = pap.getChildFile (f.getFileName());
+            for (int k = 2; desti.exists(); ++k) desti = pap.getChildFile (f.getFileNameWithoutExtension() + " " + juce::String (k) + f.getFileExtension());
+            if (! f.moveFileTo (desti)) continue;
+            relatiu = desti.getRelativePathFrom (estat.carpeta).replaceCharacter ('\\', '/').toStdString();
+        }
+        ed::canviaFitxerPresa (copia, id, relatiu);
+        estat.desfes.perTots ([&] (mibase::Projecte& q) { ed::canviaFitxerPresa (q, id, relatiu); });
+        ed::treuPresa (estat.projecte, id);
+        ++fets;
+    }
+    if (fets == 0) return;
+    estat.desfes.abans (copia);
+    estat.canviat ("Pool: "_ca + juce::String (fets) + (fets == 1 ? " àudio a la paperera"_ca : " àudios a la paperera"_ca));
+    estat.info = (fets == 1 ? "1 àudio a la paperera del projecte"_ca : juce::String (fets) + " àudios a la paperera del projecte"_ca) + " (Ctrl+Z ho desfà)";
+    estat.avisa();
+    desaAra();
+}
+
+void PantallaEstudi::buidaPaperera()
+{
+    const auto pap = paperera();
+    juce::Array<juce::File> fitxers;
+    for (const auto& f : pap.findChildFiles (juce::File::findFiles, false))
+    {
+        bool usat = false;   // si un desfer l'ha tornat al projecte, no
+        for (const auto& s : estat.projecte.preses) usat |= fitxerPresa (s) == f;
+        if (! usat) fitxers.add (f);
+    }
+    if (fitxers.isEmpty()) { estat.info = "La paperera del projecte és buida"_ca; estat.avisa(); return; }
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Buida la paperera"_ca,
+        "S'esborraran del disc "_ca + juce::String (fitxers.size()) + " fitxers de la paperera del projecte. Això no es pot desfer."_ca,
+        "Esborra'ls"_ca, "Cancel·la"_ca, nullptr, juce::ModalCallbackFunction::create ([jo, fitxers] (int r)
+        {
+            if (jo == nullptr || r != 1) return;
+            int n = 0;
+            for (auto& f : fitxers) if (f.deleteFile()) ++n;
+            jo->historial.afegeix ("Pool: paperera buidada ("_ca + juce::String (n) + " fitxers)");
+            jo->estat.info = "Paperera buidada: "_ca + juce::String (n) + " fitxers esborrats";
+            jo->estat.avisa();
+        }));
+}
+
+void PantallaEstudi::importaAlPool()
+{
+    selector = std::make_unique<juce::FileChooser> ("Importa àudios al Pool"_ca, juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                    "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    selector->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                               | juce::FileBrowserComponent::canSelectMultipleItems,
+                           [this] (const juce::FileChooser& fc)
+    {
+        if (fc.getResults().isEmpty()) return;
+        const auto copia = estat.projecte;
+        juce::StringArray errors;
+        int fets = 0;
+        for (auto& f : fc.getResults())
+        {
+            juce::String error;
+            if (copiaAlPool (f, f.getFileNameWithoutExtension(), error).empty()) errors.add (error);
+            else ++fets;
+        }
+        if (fets > 0)
+        {
+            estat.desfes.abans (copia);
+            estat.canviat ("Pool: importats "_ca + juce::String (fets) + " àudios");
+        }
+        if (! errors.isEmpty())
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Importa al Pool"_ca, errors.joinIntoString ("\n"));
+    });
+}
+
+void PantallaEstudi::deixaPresa (const std::string& id, int fila, double temps)
+{
+    // Un àudio del Pool deixat a la taula: un clip nou del mateix fitxer (no es copia res)
+    const auto* s = ed::presa (estat.projecte, id);
+    if (s == nullptr) return;
+    auto* t = fila >= 0 ? estat.pista (fila) : nullptr;
+    if (t != nullptr && (mibase::esMidi (*t) || mibase::esBus (*t) || mibase::esAcords (*t)))
+    {
+        estat.info = "Deixa'l en una pista d'àudio o a sota de les pistes (pista nova)"_ca;
+        estat.avisa();
+        return;
+    }
+    estat.desfes.abans (estat.projecte);
+    if (t == nullptr)
+    {
+        auto base = dibuix::utf8 (s->nom).upToLastOccurrenceOf (".", false, false);
+        if (base.isEmpty()) base = dibuix::utf8 (s->nom);
+        const auto nom = ed::nomPistaLliure (estat.projecte, base.substring (0, 40).toStdString());
+        auto& nova = ed::afegeixPista (estat.projecte, nom, "audio");
+        auto it = audioPreses.find (id);
+        nova.canals = it != audioPreses.end() && it->second != nullptr && it->second->canals == 2 ? 2 : 1;
+        fila = ed::pistaPerId (estat.projecte, nova.id);
+    }
+    ed::afegeixClip (estat.projecte, fila, id, juce::jmax (0.0, temps));
+    estat.recalculaFiles();
+    estat.triaClip (fila, (int) estat.projecte.pistes[(size_t) fila].clips.size() - 1);
+    estat.canviat ("Pool: «"_ca + dibuix::utf8 (ed::presa (estat.projecte, id)->nom) + "» posat a la taula");
 }
