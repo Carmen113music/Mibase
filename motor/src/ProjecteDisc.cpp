@@ -593,6 +593,24 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                         t.clips.push_back (c);
                     }
                 }
+                // 0.81: preses alternatives (només àudio)
+                if (e.contains ("takes") && e["takes"].is_array())
+                    for (auto& k : e["takes"])
+                    {
+                        if (! k.is_object()) continue;
+                        Clip c;
+                        c.presa = k.value ("presa", std::string());
+                        c.pos = k.value ("pos", 0.0);
+                        c.inici = k.value ("inici", 0.0);
+                        c.fi = k.value ("fi", c.inici + 1.0);
+                        c.guanyDb = k.value ("guanyDb", 0.0);
+                        c.rgb = k.value ("rgb", (std::uint32_t) 0);
+                        if (c.presa.empty()) continue;
+                        if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
+                        t.takes.push_back (c);
+                    }
+                if (t.takes.size() <= 1) t.takes.clear();
+                t.takesObertes = e.value ("takesObertes", true);
                 if (t.id.empty()) t.id = "t" + std::to_string (++p.comptador);
                 p.pistes.push_back (t);
             }
@@ -841,6 +859,15 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                            { "mut", t.mut }, { "solo", t.solo },
                            { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "escolta", t.escolta }, { "rgb", t.rgb },
                            { "clips", clips } };
+            if (! t.takes.empty())   // 0.81
+            {
+                json tk = json::array();
+                for (auto& c : t.takes)
+                    tk.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
+                                    { "guanyDb", c.guanyDb }, { "rgb", c.rgb } });
+                pista["takes"] = tk;
+                pista["takesObertes"] = t.takesObertes;
+            }
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
             if (! t.nomInstrument.empty()) { pista["nomInstrument"] = t.nomInstrument; pista["estatInstrument"] = t.estatInstrument; }
             if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
@@ -1119,6 +1146,10 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         std::vector<std::string> usades;
         for (auto& t : projecte.pistes)
             for (auto& c : t.clips)
+                if (! c.presa.empty() && std::find (usades.begin(), usades.end(), c.presa) == usades.end())
+                    usades.push_back (c.presa);
+        for (auto& t : projecte.pistes)   // 0.81: les preses alternatives també
+            for (auto& c : t.takes)
                 if (! c.presa.empty() && std::find (usades.begin(), usades.end(), c.presa) == usades.end())
                     usades.push_back (c.presa);
 

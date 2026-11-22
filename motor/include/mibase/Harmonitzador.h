@@ -246,7 +246,10 @@ namespace mibase::tune
         Tune();
         void prepara (double fs, int maxBloc) override;
         void processa (float* L, float* R, int n) noexcept override;
-        int latencia() const noexcept override { return an.latencia(); }
+        /** 0.81: en directe (pista armada escoltant l'entrada) no retarda: deixa passar en sec. */
+        int latencia() const noexcept override { return directe.load (std::memory_order_relaxed) ? 0 : an.latencia(); }
+        void posaDirecte (bool d) noexcept override { directe.store (d, std::memory_order_relaxed); }
+        bool enDirecte() const noexcept { return directe.load (std::memory_order_relaxed); }
         int numParametres() const override { return numParams; }
         InfoParametre infoParametre (int i) const override;
         void posaParametre (int i, float v01) noexcept override;
@@ -268,6 +271,8 @@ namespace mibase::tune
     private:
         std::array<std::atomic<float>, numParams> par;
         std::atomic<bool> demanaBuidar { false };
+        std::atomic<bool> directe { false };   // 0.81
+        bool eraDirecte = false;
         ContextMusical* ctx;
         canvito::Analitzador an;
         canvito::Veu veu;

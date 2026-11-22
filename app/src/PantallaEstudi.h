@@ -163,6 +163,7 @@ private:
     void importa (const juce::StringArray& fitxers, int pista, double on);
     bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);
     void consolida (int pista, int a, int b);
+    void printComp (int pista);   // 0.81
     void carregaOna (const mibase::Presa& s);
     std::function<void (double)> progresOna;   // 0.28: mentre es llegeix un àudio (0..1)
     juce::File fitxerPresa (const mibase::Presa& s) const;

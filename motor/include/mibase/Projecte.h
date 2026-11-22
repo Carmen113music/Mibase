@@ -310,6 +310,11 @@ namespace mibase
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
         std::vector<Automatitzacio> autos;         // 0.56: automatització
+        // ---- 0.81: preses alternatives (takes) d'una pista d'àudio ----
+        /** Cada gravació que competeix amb una altra al mateix tros, sencera i per ordre de gravació. No sonen:
+            el que sona són els clips de la pista (el «comp»), que són finestres d'aquestes preses al mateix lloc. */
+        std::vector<Clip> takes;
+        bool takesObertes = true;                  // les subpistes es veuen (desplegades)
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */

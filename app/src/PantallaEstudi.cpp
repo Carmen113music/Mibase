@@ -315,6 +315,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.onImporta = [this] (const juce::StringArray& fitxers, int pista, double on) { importa (fitxers, pista, on); };
     pistes.onDemanaImportar = [this] (int pista, double on) { demanaImportar (pista, on); };
     pistes.onConsolida = [this] (int pista, int clipA, int clipB) { consolida (pista, clipA, clipB); };
+    pistes.onPrintComp = [this] (int pista) { printComp (pista); };   // 0.81
     pistes.onObreMidi = [this] (int pista, int clip) { obrePianoRoll (pista, clip); };
     pistes.onVistaMoguda = [this] { actualitzaBarres(); estat.avisa(); };   // 0.54
     pistes.onObreVeu = [this] (int pista, int clip) { obreVeu (pista, clip); };
@@ -491,6 +492,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     panellBateria.onObreKits = [this] { obreKits(); };
     panellHarmonia.onObreKits = [this] { obreKits(); };
     capcaleres.onAutomatitzacio = [this] (int pista) { obreAutomatitzacio (pista); };
+    capcaleres.onPrintComp = [this] (int pista) { printComp (pista); };   // 0.81
     capcaleres.onObreInstrument = [this] (int fila)
     {
         auto* t = estat.pista (fila);
@@ -1221,6 +1223,17 @@ void PantallaEstudi::grava (double cursor)
         return;
     }
 
+    // 0.81: amb el bucle encès es grava en bucle (cada volta, una presa): si el capçal és fora del bucle, comença a l'inici
+    bool enBucle = false;
+    {
+        const auto& b = estat.projecte.bucle;
+        if (b.marcat && b.actiu && b.a > b.de && ed::estructuraActiva (estat.projecte) == nullptr)
+        {
+            const double bi = ed::iniciBucle (estat.projecte), bf = ed::fiBucle (estat.projecte);
+            if (cursor < bi - 1.0e-6 || cursor >= bf - 0.05) cursor = bi;
+            enBucle = true;
+        }
+    }
     publicaPla();
     gravacio.pista = pista;
     gravacio.punch = false;
@@ -1236,7 +1249,7 @@ void PantallaEstudi::grava (double cursor)
     esperaExacte = false;
     iniciPlay = cursor;
     tempsOrdre = juce::Time::currentTimeMillis();
-    estat.info = "Pre-roll de 2 compassos…"_ca;
+    estat.info = enBucle ? "Pre-roll de 2 compassos… Grava en bucle: cada volta serà una presa"_ca : "Pre-roll de 2 compassos…"_ca;
     estat.avisa();
 }
 
@@ -1460,14 +1473,32 @@ void PantallaEstudi::acabaGravacio()
         return;
     }
 
+    // 0.81: en bucle, cada volta és una presa; i si trepitja altres gravacions del mateix tros, totes passen a ser preses
+    std::vector<int> nous { clip };
+    const int voltes = motor.getVoltes();
+    if (voltes > 0)
+        nous = ed::afegeixVoltes (estat.projecte, pista, clip, motor.getIniciVolta(), motor.getPrimeraVolta(), motor.getLlargVolta(),
+                                  voltes, gravacio.retard);
+    const auto takesAbans = estat.projecte.pistes[(size_t) pista].takes.size();
+    const bool ambTakes = ed::organitzaTakes (estat.projecte, pista, nous);
+    const auto takesAra = estat.projecte.pistes[(size_t) pista].takes.size();
+
     estat.desfes.abans (copia);
     carregaOna (estat.projecte.preses.back());
-    estat.triaClip (pista, clip);
+    if (ambTakes) estat.capTriat();
+    else estat.triaClip (pista, clip);
     const auto retard = juce::String (gravacio.retard * 1000.0, 1).replaceCharacter ('.', ',') + " ms";
     estat.info = "Gravat: "_ca + fitxer.getFileName() + " (retard corregit: " + retard + (gravacio.retardMesurat ? ", mesurat)" : ", el que diu la targeta)");
     historial.afegeix ("Gravada la presa «"_ca + fitxer.getFileName() + "» (" + juce::String ((double) r.frames / fs, 1) + " s, retard corregit "
                        + retard + ")");
-    estat.canviat ("Gravada «"_ca + fitxer.getFileName() + "» a la pista «"_ca + nomPista + "»"_ca);
+    if (ambTakes && takesAra > takesAbans)
+    {
+        estat.info += " · La pista té "_ca + juce::String ((int) takesAra) + " preses: arrossega sobre una presa per triar-ne el tros"_ca;
+        historial.afegeix ("Preses a la pista «"_ca + nomPista + "»: "_ca + juce::String ((int) takesAra)
+                           + (voltes > 0 ? " (gravació en bucle, " + juce::String ((int) nous.size()) + " voltes)" : juce::String()));
+    }
+    estat.canviat ("Gravada «"_ca + fitxer.getFileName() + "» a la pista «"_ca + nomPista + "»"_ca
+                   + (ambTakes ? " · "_ca + juce::String ((int) takesAra) + " preses" : juce::String()));
     if (r.perdudes > 0)
         avisDeTargeta ("Compte: s'han perdut mostres",
                        "El disc no ha anat prou de pressa i s'han perdut "_ca + juce::String (r.perdudes) + " mostres de la gravació.");
@@ -2083,6 +2114,99 @@ void PantallaEstudi::importa (const juce::StringArray& fitxers, int pista, doubl
     }
     if (! errors.isEmpty())
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Algun fitxer no s'ha pogut importar", errors.joinIntoString ("\n"));
+}
+
+void PantallaEstudi::printComp (int pista)
+{
+    // 0.81: el comp (el que sona de la pista, sense efectes) a un fitxer nou, en una pista nova amb els mateixos efectes.
+    // Es renderitza en sec perquè el Print es pugui continuar mesclant (els efectes queden vius a la pista nova).
+    const auto* t = estat.pista (pista);
+    if (t == nullptr || mibase::esMidi (*t) || mibase::esBus (*t) || mibase::esAcords (*t)) return;
+    const auto rg = ed::rangComp (*t);
+    if (rg.second - rg.first < ed::longitudMinima)
+    {
+        estat.info = "Print Comp: la pista no té res que soni"_ca;
+        estat.avisa();
+        return;
+    }
+    const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+    const double marge = juce::jmin (0.25, rg.first);   // una mica de silenci al davant (el clip comença on toca)
+    const double ini = rg.first - marge, fi = rg.second + 0.02;
+
+    // Un projecte només amb aquesta pista, en sec: sense efectes (tret del Vocal Editor), a 0 dB, al centre, sense busos
+    mibase::Projecte q = estat.projecte;
+    auto sola = *t;
+    sola.inserts.erase (std::remove_if (sola.inserts.begin(), sola.inserts.end(), [] (const mibase::Insert& x) { return ! mibase::esInsertVeu (x); }),
+                        sola.inserts.end());
+    sola.enviaments.clear(); sola.sortida.clear(); sola.autos.clear(); sola.carpeta.clear();
+    sola.mut = sola.solo = sola.grava = false;
+    sola.faderDb = 0.0; sola.pan = 0.0;
+    q.pistes = { sola };
+    q.carpetes.clear();
+    q.insertsMaster.clear();
+    q.masterDb = 0.0;
+    q.clic = false;
+    q.estructuraActiva.clear();
+    q.bucle.actiu = false;
+
+    auto carpetaAudios = audios();
+    carpetaAudios.createDirectory();
+    const auto nomDesti = dibuix::utf8 (disc::nomPresa (dibuix::cami (carpetaAudios), "Print - " + t->nom));
+    const auto desti = carpetaAudios.getChildFile (nomDesti);
+    const auto temporal = carpetaAudios.getChildFile (nomDesti + ".tmp.wav");
+    std::string error;
+    juce::MouseCursor::showWaitCursor();
+    bool fet = mibase::exportaMescla (*construeixPla (q, audioPreses, {}, [] (const mibase::Insert&) { return std::shared_ptr<mibase::Efecte>(); },
+                                                      &serveiVeu.corregides()),
+                                      fs, ini, fi, dibuix::cami (temporal), error);
+    // La pista era mono: el fitxer també (els dos canals són iguals)
+    const int canals = t->canals == 2 ? 2 : 1;
+    long long frames = 0;
+    if (fet)
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> lector (fm.createReaderFor (temporal));
+        fet = lector != nullptr && lector->lengthInSamples > 0;
+        if (fet)
+        {
+            frames = lector->lengthInSamples;
+            juce::AudioBuffer<float> b ((int) lector->numChannels, (int) frames);
+            lector->read (&b, 0, (int) frames, 0, true, true);
+            lector.reset();
+            std::unique_ptr<juce::OutputStream> sortida = desti.createOutputStream();
+            juce::WavAudioFormat wav;
+            auto escriptor = sortida != nullptr ? wav.createWriterFor (sortida, juce::AudioFormatWriterOptions{}
+                                                                                .withSampleRate (fs).withNumChannels (canals).withBitsPerSample (24))
+                                                : nullptr;
+            fet = escriptor != nullptr && escriptor->writeFromAudioSampleBuffer (b, 0, (int) frames);
+            if (! fet) error = "No s'ha pogut escriure el fitxer del Print.";
+        }
+        else error = "No s'ha pogut llegir el que s'havia renderitzat.";
+    }
+    temporal.deleteFile();
+    juce::MouseCursor::hideWaitCursor();
+    if (! fet)
+    {
+        desti.deleteFile();   // res a mitges: el projecte no canvia
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Print Comp", "No s'ha pogut fer el Print:\n"_ca + dibuix::utf8 (error));
+        return;
+    }
+
+    estat.desfes.abans (estat.projecte);   // un sol pas: pista nova + original silenciada
+    const auto nomPista = t->nom;
+    const double durada = (double) frames / fs;
+    const auto& pr = ed::afegeixPresa (estat.projecte, (juce::String::fromUTF8 (disc::carpetaAudios) + "/" + nomDesti).toStdString(),
+                                       desti.getFileNameWithoutExtension().toStdString(), durada);
+    const auto idPresa = pr.id;
+    const int nova = ed::creaPistaPrint (estat.projecte, pista, idPresa, ini, marge, juce::jmin (durada, fi - ini));
+    carregaOna (*ed::presa (estat.projecte, idPresa));
+    estat.recalculaFiles();
+    estat.pistaTriada = nova;
+    estat.capTriat();
+    estat.info = "Print Comp: «Print - "_ca + dibuix::utf8 (nomPista) + "» (l'original queda silenciada; desfés amb Ctrl+Z)"_ca;
+    historial.afegeix ("Print Comp de «"_ca + dibuix::utf8 (nomPista) + "»: "_ca + nomDesti);
+    estat.canviat ("Print Comp de «"_ca + dibuix::utf8 (nomPista) + "» → «Print - "_ca + dibuix::utf8 (nomPista) + "»"_ca);
 }
 
 void PantallaEstudi::consolida (int pista, int ia, int ib)

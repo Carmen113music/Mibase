@@ -487,7 +487,26 @@ public:
         if (files.size() != projecte.pistes.size()) files = mibase::edicio::filesVisibles (projecte);
         return files[(size_t) i];
     }
-    int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista; }
+    // 0.81: les subpistes de les preses (takes), sota la pista, quan estan desplegades
+    int altLane() const noexcept              { return juce::jmax (30, altPista * 3 / 5); }
+    int numLanes (int i) const noexcept
+    {
+        if (i < 0 || i >= numPistes() || modeFila (i) != 1) return 0;
+        const auto& t = projecte.pistes[(size_t) i];
+        return t.takesObertes ? (int) t.takes.size() : 0;
+    }
+    int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista + numLanes (i) * altLane(); }
+    /** 0.81: a quina subpista cau «y»: {pista, presa}, o {-1, -1} si no és cap subpista. */
+    std::pair<int, int> laneA (int y) const noexcept
+    {
+        const int i = pistaA (y);
+        if (i < 0 || i >= numPistes() || numLanes (i) == 0) return { -1, -1 };
+        const int dins = y - yPista (i) - altPista;
+        if (dins < 0) return { -1, -1 };
+        const int k = dins / altLane();
+        return k < numLanes (i) ? std::pair<int, int> { i, k } : std::pair<int, int> { -1, -1 };
+    }
+    int yLane (int i, int k) const noexcept   { return yPista (i) + altPista + k * altLane(); }
     bool filaCarpeta (int i) const noexcept   { return modeFila (i) == 2; }
     // 0.17: la primera fila és la del màster (pistaTriada == master quan és la triada).
     static constexpr int master = -2;

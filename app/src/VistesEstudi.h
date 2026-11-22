@@ -146,6 +146,7 @@ public:
     std::function<bool (juce::Point<int> pantalla)> arrossegaFora;   // 0.29: si el ratolí és a sobre d'on es pot deixar un clip (el samplejador)
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
+    std::function<void (int pista)> onPrintComp;   // 0.81
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;
@@ -181,7 +182,17 @@ protected:
 private:
     void pintaFilaCarpeta (juce::Graphics& g, int fila);
     enum class Mode { Res, Requadre, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
-                      Llapis, Goma, Cola };
+                      Llapis, Goma, Cola, CompTria, CompVora };
+    // ---- 0.81: subpistes de preses i comping ----
+    void pintaTakes (juce::Graphics& g, int pista);
+    bool mouseDownLane (const juce::MouseEvent& e);
+    void menuLane (int pista, int take, double t);
+    /** La zona del comp (de la presa) on cau «x», si n'és a prop de la vora: -1 esquerra, 1 dreta, 0 dins, 2 fora. */
+    int voraZona (int pista, int take, float x, std::pair<double, double>& zona) const;
+    int compPista = -1, compTakeIdx = -1;
+    double compA = 0.0, compB = 0.0;
+    std::pair<double, double> compZona0 { 0.0, 0.0 };
+    bool compVoraEsq = false;
     enum class Maneta { Cap, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera };
 
     struct Lloc { int pista = -1, clip = -1; Maneta maneta = Maneta::Cap; bool pistaNova = false; };
@@ -231,6 +242,8 @@ public:
     bool esEstreta (int fila) const;
     juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
+    juce::Rectangle<int> rectPreses (int fila) const;   // 0.81: plega / desplega les preses
+    std::function<void (int pista)> onPrintComp;          // 0.81
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;

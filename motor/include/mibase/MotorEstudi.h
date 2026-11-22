@@ -329,6 +329,13 @@ namespace mibase
         double getIniciFitxer() const noexcept { return iniciFitxer.load (std::memory_order_acquire); }
         double getPuntGravacio() const noexcept { return puntGravacio.load (std::memory_order_acquire); }
         double getFiGravacio() const noexcept { return fiGravacio.load (std::memory_order_acquire); }
+        /** 0.81: gravació d'àudio en bucle (el bucle encès mentre es grava): el capçal torna a l'inici del bucle i el fitxer
+            continua. Quantes vegades ha tornat, on (segons dins el fitxer) ho va fer el primer cop, quant dura cada volta
+            i on comença el bucle. Sense voltes: getVoltes() == 0. */
+        int getVoltes() const noexcept { return voltesGrav.load (std::memory_order_acquire); }
+        double getPrimeraVolta() const noexcept { return primeraVolta.load (std::memory_order_acquire); }
+        double getLlargVolta() const noexcept { return llargVolta.load (std::memory_order_acquire); }
+        double getIniciVolta() const noexcept { return iniciVolta.load (std::memory_order_acquire); }
 
         // ---- MIDI en directe ----
         /** Fil de la interfície: una nota (o un altre missatge) per a l'instrument d'una pista, ara (piano roll, teclat de pantalla). */
@@ -413,6 +420,9 @@ namespace mibase
         int preEntradaVista = -1, preCanalsVists = 1;
         std::atomic<int> preEntrada { -1 }, preCanals { 1 };
         std::atomic<double> iniciFitxer { 0.0 }, puntGravacio { 0.0 }, fiGravacio { 0.0 };
+        std::atomic<int> voltesGrav { 0 };                 // 0.81
+        std::atomic<double> primeraVolta { -1.0 }, llargVolta { 0.0 }, iniciVolta { 0.0 };
+        long long mostresFitxer = 0;                       // fil d'àudio: mostres escrites al fitxer d'aquesta gravació
 
         CuaSenseBloqueig<EventDirecte, 512> directeUI, directeTeclat;
         std::array<EventDirecte, 512> directeBloc {};

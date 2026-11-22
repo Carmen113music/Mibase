@@ -198,6 +198,14 @@ namespace mibase::rack
         return r + mx;   // 0.76: el camí més lent mana (els altres s'hi alineen)
     }
 
+    void Rack::posaDirecte (bool d) noexcept
+    {
+        const Cadena* c = actual.load (std::memory_order_acquire);
+        if (c == nullptr) return;
+        for (const auto& m : c->moduls)
+            if (m != nullptr && m->fx != nullptr) m->fx->posaDirecte (d);
+    }
+
     void Rack::processa (float* L, float* R, int n) noexcept
     {
         // 0.76: els retorns fan servir buffers de «maxBloc»: un bloc més gran es fa a trossos

@@ -1116,7 +1116,7 @@ void VistaPistes::paint (juce::Graphics& g)
             for (const auto& c : t.clips)
             {
                 if (! c.midi || ! c.acordsPropis || c.blocs.empty()) continue;
-                auto r = juce::Rectangle<float> (estat.x (c.iniciVisible()), (float) estat.yPista (i) + 5.0f, estat.x (c.fiVisible()) - estat.x (c.iniciVisible()), (float) estat.altDe (i) - 10.0f);
+                auto r = juce::Rectangle<float> (estat.x (c.iniciVisible()), (float) estat.yPista (i) + 5.0f, estat.x (c.fiVisible()) - estat.x (c.iniciVisible()), (float) estat.altPista - 10.0f);
                 if (r.getRight() < 0.0f || r.getX() > w) continue;
                 juce::Graphics::ScopedSaveState guarda (g);
                 g.reduceClipRegion (r.toNearestInt());
@@ -1132,6 +1132,8 @@ void VistaPistes::paint (juce::Graphics& g)
                 const double ta = juce::jmax (t.clips[(size_t) a].iniciVisible(), t.clips[(size_t) b].iniciVisible());
                 const double tb = juce::jmin (t.clips[(size_t) a].fiVisible(), t.clips[(size_t) b].fiVisible());
                 if (tb - ta <= 1.0e-6) continue;
+                // 0.81: el crossfade curt entre dos trossos de preses del comp no és una trepitjada
+                if (tb - ta <= ed::crossfadeComp + 1.0e-6 && ed::takeDe (t, t.clips[(size_t) a]) >= 0 && ed::takeDe (t, t.clips[(size_t) b]) >= 0) continue;
                 auto r = juce::Rectangle<float> (estat.x (ta), (float) estat.yPista (i) + 5.0f, estat.x (tb) - estat.x (ta), (float) estat.altPista - 10.0f);
                 if (r.getRight() < 0.0f || r.getX() > w) continue;
                 juce::Graphics::ScopedSaveState guarda (g);
@@ -1156,6 +1158,9 @@ void VistaPistes::paint (juce::Graphics& g)
                 }
             }
     }
+
+    for (int i = 0; i < estat.numPistes(); ++i)   // 0.81: les subpistes de les preses
+        if (estat.numLanes (i) > 0) pintaTakes (g, i);
 
     // Tros triat (requadre en mode «només el que queda dins»).
     if (estat.rang.actiu)
@@ -1228,13 +1233,17 @@ void VistaPistes::paint (juce::Graphics& g)
     }
 
     // Gravant: la zona que s'està gravant, a la pista amb el botó encès.
-    if (estat.transport == 3 && estat.capcal > estat.cursorGravacio)
+    // 0.81: gravant en bucle, després de tornar a l'inici, la zona va de l'inici del bucle al capçal
+    double desDeGrav = estat.cursorGravacio;
+    if (estat.transport == 3 && estat.capcal < desDeGrav && estat.projecte.bucle.marcat && estat.projecte.bucle.actiu)
+        desDeGrav = ed::iniciBucle (estat.projecte);
+    if (estat.transport == 3 && estat.capcal > desDeGrav)
     {
         for (int i = 0; i < estat.numPistes(); ++i)
         {
             if (! estat.projecte.pistes[(size_t) i].grava || estat.altDe (i) == 0) continue;
-            auto r = juce::Rectangle<float> (estat.x (estat.cursorGravacio), (float) estat.yPista (i) + 5.0f,
-                                             estat.x (estat.capcal) - estat.x (estat.cursorGravacio), (float) estat.altPista - 10.0f);
+            auto r = juce::Rectangle<float> (estat.x (desDeGrav), (float) estat.yPista (i) + 5.0f,
+                                             estat.x (estat.capcal) - estat.x (desDeGrav), (float) estat.altPista - 10.0f);
             g.setColour (vintage::ledVermell.withAlpha (0.18f));
             g.fillRoundedRectangle (r, 6.0f);
             g.setColour (vintage::ledVermell.withAlpha (0.8f));
@@ -1266,6 +1275,14 @@ void VistaPistes::paint (juce::Graphics& g)
 
 void VistaPistes::mouseMove (const juce::MouseEvent& e)
 {
+    if (const auto [pl, kl] = estat.laneA (e.y); pl >= 0 && estat.triantFantasma < 0)   // 0.81
+    {
+        std::pair<double, double> z;
+        const int v = voraZona (pl, kl, (float) e.x, z);
+        setMouseCursor (v == -1 || v == 1 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::IBeamCursor);
+        if (sobre.pista >= 0 || sobre.clip >= 0) { sobre = {}; repaint(); }
+        return;
+    }
     if (estat.triantFantasma >= 0)
     {
         static const juce::MouseCursor cursorFantasma = []
@@ -1527,6 +1544,184 @@ void VistaPistes::menuClip (int pista, int clip, double t)
     });
 }
 
+// ---- 0.81: subpistes de preses (takes) i comping ----
+void VistaPistes::pintaTakes (juce::Graphics& g, int pista)
+{
+    const auto& p = estat.projecte;
+    const auto& t = p.pistes[(size_t) pista];
+    const auto zones = ed::zonesTakes (p, pista);
+    const auto col = EstatEstudi::colorPista (t);
+    const int h = estat.altLane();
+    const float w = (float) getWidth();
+    for (int k = 0; k < estat.numLanes (pista) && k < (int) t.takes.size(); ++k)
+    {
+        const int y = estat.yLane (pista, k);
+        if (y > getHeight() || y + h < 0) continue;
+        g.setColour (juce::Colour (0xff131317));
+        g.fillRect (0, y, getWidth(), h);
+        g.setColour (col.withAlpha (0.25f));
+        g.fillRect (0, y, 3, h);
+        g.setColour (tema::linia.withAlpha (0.4f));
+        g.fillRect (0, y + h - 1, getWidth(), 1);
+
+        const auto& tk = t.takes[(size_t) k];
+        auto r = juce::Rectangle<float> (estat.x (tk.iniciVisible()), (float) y + 3.0f,
+                                         estat.x (tk.fiVisible()) - estat.x (tk.iniciVisible()), (float) h - 6.0f);
+        const bool sona = k < (int) zones.size() && ! zones[(size_t) k].empty();
+        if (r.getRight() >= 0.0f && r.getX() <= w)
+        {
+            g.setColour (col.withAlpha (0.08f));
+            g.fillRoundedRectangle (r, 4.0f);
+            g.setColour (col.withAlpha (0.35f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+            const auto* s = ed::presa (p, tk.presa);
+            auto it = estat.ones.find (tk.presa);
+            const bool ambOna = s != nullptr && it != estat.ones.end() && it->second != nullptr;
+            if (ambOna)
+            {
+                juce::Graphics::ScopedSaveState guarda (g);
+                g.reduceClipRegion (r.toNearestInt());
+                pintaOna (g, tk, *s, *it->second, r, tema::suau.withAlpha (0.55f));
+            }
+            // on sona aquesta presa al comp: ressaltat amb el color de la pista
+            if (k < (int) zones.size())
+                for (auto z : zones[(size_t) k])
+                {
+                    auto rz = juce::Rectangle<float> (estat.x (z.first), r.getY(), estat.x (z.second) - estat.x (z.first), r.getHeight());
+                    if (rz.getRight() < 0.0f || rz.getX() > w) continue;
+                    g.setColour (col.withAlpha (0.30f));
+                    g.fillRect (rz);
+                    if (ambOna)
+                    {
+                        juce::Graphics::ScopedSaveState guarda (g);
+                        g.reduceClipRegion (rz.toNearestInt());
+                        pintaOna (g, tk, *s, *it->second, r, col.brighter (0.35f));
+                    }
+                    g.setColour (col);
+                    g.drawRect (rz, 1.5f);
+                }
+        }
+        // l'etiqueta, sempre a la vista
+        auto et = juce::Rectangle<float> (juce::jlimit (6.0f, juce::jmax (6.0f, w - 80.0f), r.getX() + 6.0f), (float) y + 4.0f, 70.0f, 15.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (et, 3.0f);
+        g.setColour (sona ? col.brighter (0.4f) : tema::suau);
+        g.setFont (dibuix::lletra (10.5f, true));
+        g.drawText ("Presa "_ca + juce::String (k + 1), et.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
+    }
+
+    // el tros que s'està triant (o la vora que es mou)
+    if ((mode == Mode::CompTria || mode == Mode::CompVora) && compPista == pista && compTakeIdx >= 0 && compTakeIdx < estat.numLanes (pista))
+    {
+        const double a = juce::jmin (compA, compB), b = juce::jmax (compA, compB);
+        const int y = estat.yLane (pista, compTakeIdx);
+        auto r = juce::Rectangle<float> (estat.x (a), (float) y + 2.0f, juce::jmax (1.0f, estat.x (b) - estat.x (a)), (float) h - 4.0f);
+        g.setColour (tema::accent.withAlpha (0.22f));
+        g.fillRect (r);
+        g.setColour (tema::accent);
+        g.drawRect (r, 1.5f);
+        // i a la pista principal, on anirà
+        auto rp = juce::Rectangle<float> (r.getX(), (float) estat.yPista (pista) + 5.0f, r.getWidth(), (float) estat.altPista - 10.0f);
+        g.setColour (tema::accent.withAlpha (0.12f));
+        g.fillRect (rp);
+    }
+}
+
+int VistaPistes::voraZona (int pista, int take, float x, std::pair<double, double>& zona) const
+{
+    const auto zones = ed::zonesTakes (estat.projecte, pista);
+    if (take < 0 || take >= (int) zones.size()) return 2;
+    for (auto z : zones[(size_t) take])
+    {
+        const float xa = estat.x (z.first), xb = estat.x (z.second);
+        const float marge = juce::jmin (6.0f, (xb - xa) / 3.0f);
+        if (std::abs (x - xa) <= marge) { zona = z; return -1; }
+        if (std::abs (x - xb) <= marge) { zona = z; return 1; }
+        if (x > xa && x < xb) { zona = z; return 0; }
+    }
+    return 2;
+}
+
+bool VistaPistes::mouseDownLane (const juce::MouseEvent& e)
+{
+    const auto [pista, k] = estat.laneA (e.y);
+    if (pista < 0) return false;
+    grabKeyboardFocus();
+    const double t = estat.t ((float) e.x);
+    if (e.mods.isPopupMenu()) { menuLane (pista, k, t); return true; }
+    if (estat.pistaTriada != pista) { estat.pistaTriada = pista; estat.avisa(); }
+    compPista = pista;
+    compTakeIdx = k;
+    inici = e.getPosition();
+    std::pair<double, double> z;
+    const int v = voraZona (pista, k, (float) e.x, z);
+    if (v == -1 || v == 1)
+    {
+        mode = Mode::CompVora;
+        compVoraEsq = v == -1;
+        compZona0 = z;
+        compA = z.first;
+        compB = z.second;
+    }
+    else
+    {
+        mode = Mode::CompTria;
+        compA = compB = tEina (t);
+    }
+    repaint();
+    return true;
+}
+
+void VistaPistes::menuLane (int pista, int take, double t)
+{
+    std::pair<double, double> z { 0.0, 0.0 };
+    const bool dins = voraZona (pista, take, estat.x (t), z) != 2;
+    juce::PopupMenu m;
+    m.addSectionHeader ("Presa "_ca + juce::String (take + 1));
+    m.addItem (1, "Fes sonar tota la presa   (doble clic)"_ca);
+    m.addItem (2, "Treu aquest tros del comp"_ca, dins);
+    m.addSeparator();
+    m.addItem (3, "Plega les preses"_ca);
+    m.addItem (4, "Print Comp: pista nova amb el comp"_ca);
+    m.addSeparator();
+    m.addItem (5, "Esborra aquesta presa"_ca);
+    juce::Component::SafePointer<VistaPistes> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista, take, z] (int r)
+    {
+        if (jo == nullptr || r <= 0) return;
+        auto& estat = jo->estat;
+        if (pista >= estat.numPistes()) return;
+        auto& p = estat.projecte;
+        const auto nom = "Presa "_ca + juce::String (take + 1);
+        if (r == 1)
+        {
+            estat.desfes.abans (p);
+            if (ed::compTakeSencera (p, pista, take)) estat.canviat ("Comp: "_ca + nom + " sencera");
+        }
+        else if (r == 2)
+        {
+            estat.desfes.abans (p);
+            ed::treuDelComp (p, pista, z.first, z.second);
+            estat.canviat ("Comp: tret un tros de la "_ca + nom);
+        }
+        else if (r == 3)
+        {
+            p.pistes[(size_t) pista].takesObertes = false;
+            estat.canviat();
+        }
+        else if (r == 4)
+        {
+            if (jo->onPrintComp) jo->onPrintComp (pista);
+        }
+        else if (r == 5)
+        {
+            estat.desfes.abans (p);
+            ed::treuTake (p, pista, take);
+            estat.canviat ("Esborrada la "_ca + nom + " (el fitxer es conserva)");
+        }
+    });
+}
+
 void VistaPistes::mouseDown (const juce::MouseEvent& e)
 {
     if (estat.triantFantasma >= 0)
@@ -1546,6 +1741,7 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
         estat.avisa();
         return;
     }
+    if (mouseDownLane (e)) return;   // 0.81: subpista d'una presa
     grabKeyboardFocus();
     inici = e.getPosition();
     rang0 = estat.rang;   // 0.29: per si el clic és per arrossegar el tros triat al samplejador
@@ -1841,6 +2037,13 @@ void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
 void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu()) return;
+    if (mode == Mode::CompTria || mode == Mode::CompVora)   // 0.81
+    {
+        const double t = juce::jmax (0.0, tEina (estat.t ((float) e.x)));
+        if (mode == Mode::CompTria || ! compVoraEsq) compB = t; else compA = t;
+        repaint();
+        return;
+    }
     if (dibuixaAcord)
     {
         acordT1 = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), estat.projecte.snap));
@@ -2050,6 +2253,39 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 
 void VistaPistes::mouseUp (const juce::MouseEvent& e)
 {
+    if (mode == Mode::CompTria || mode == Mode::CompVora)   // 0.81: el tros triat passa al comp
+    {
+        const auto m = mode;
+        mode = Mode::Res;
+        auto& p = estat.projecte;
+        const double a = juce::jmin (compA, compB), b = juce::jmax (compA, compB);
+        const auto nom = "Presa "_ca + juce::String (compTakeIdx + 1);
+        if (compPista >= 0 && compPista < estat.numPistes())
+        {
+            if (m == Mode::CompTria)
+            {
+                if (std::abs (e.x - inici.x) >= 3 && b - a >= ed::longitudMinima)
+                {
+                    auto copia = p;
+                    if (ed::compTake (p, compPista, compTakeIdx, a, b))
+                    {
+                        estat.desfes.abans (copia);
+                        estat.canviat ("Comp: "_ca + nom + " de " + dibuix::utf8 (ed::textPosicio (p, a)) + " a " + dibuix::utf8 (ed::textPosicio (p, b)));
+                    }
+                }
+            }
+            else if (std::abs (a - compZona0.first) > 1.0e-6 || std::abs (b - compZona0.second) > 1.0e-6)
+            {
+                estat.desfes.abans (p);
+                ed::treuDelComp (p, compPista, compZona0.first, compZona0.second);
+                if (b - a >= ed::longitudMinima) ed::compTake (p, compPista, compTakeIdx, a, b);
+                estat.canviat ("Comp: canviat el tros de la "_ca + nom);
+            }
+        }
+        compPista = compTakeIdx = -1;
+        repaint();
+        return;
+    }
     if (dibuixaAcord)
     {
         // 0.42: finestra dibuixada (o un clic sol: fins al final del compàs, com abans); ara, quin acord hi va
@@ -2172,6 +2408,13 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
 
 void VistaPistes::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    if (const auto [pl, kl] = estat.laneA (e.y); pl >= 0)   // 0.81: doble clic a una presa: sona sencera
+    {
+        mode = Mode::Res;
+        estat.desfes.abans (estat.projecte);
+        if (ed::compTakeSencera (estat.projecte, pl, kl)) estat.canviat ("Comp: Presa "_ca + juce::String (kl + 1) + " sencera");
+        return;
+    }
     if (const int fila = estat.pistaA (e.y); fila >= 0 && fila < estat.numPistes() && estat.filaCarpeta (fila))
     {
         if (auto* c = ed::carpeta (estat.projecte, estat.projecte.pistes[(size_t) fila].carpeta)) c->plegada = false;
@@ -2408,6 +2651,20 @@ void Capcaleres::paint (juce::Graphics& g)
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
         g.drawText (juce::String (i + 1), fila.removeFromLeft (22), juce::Justification::centredLeft);
+        if (const auto rp = rectPreses (i); ! rp.isEmpty())
+        {
+            // 0.81: «▸ 3 preses» / «▾ 3 preses»
+            fila.setRight (juce::jmin (fila.getRight(), rp.getX() - 4));
+            vintage::tecla (g, rp.toFloat(), t.takesObertes, false, EstatEstudi::colorPista (t));
+            juce::Path f;
+            const float fx = (float) rp.getX() + 6.0f, fy = (float) rp.getCentreY();
+            if (t.takesObertes) f.addTriangle (fx, fy - 2.5f, fx + 7.0f, fy - 2.5f, fx + 3.5f, fy + 3.0f);
+            else f.addTriangle (fx + 1.0f, fy - 4.0f, fx + 1.0f, fy + 4.0f, fx + 6.5f, fy);
+            g.setColour (tema::text);
+            g.fillPath (f);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawFittedText (juce::String ((int) t.takes.size()) + " preses"_ca, rp.withTrimmedLeft (16).withTrimmedRight (3), juce::Justification::centredLeft, 1, 0.8f);
+        }
         g.setColour (tema::text);
         g.setFont (dibuix::lletra (14.0f, true));
         g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
@@ -2477,6 +2734,31 @@ void Capcaleres::paint (juce::Graphics& g)
 
         g.setColour (tema::linia.withAlpha (0.6f));
         g.fillRect (0, r.getBottom() - 1, getWidth(), 1);
+
+        if (const int nl = estat.numLanes (i); nl > 0)
+        {
+            // 0.81: el nom de cada subpista i un llum si sona al comp
+            const auto zones = ed::zonesTakes (p, i);
+            const auto col = EstatEstudi::colorPista (t);
+            for (int k = 0; k < nl; ++k)
+            {
+                const auto rl = juce::Rectangle<int> (0, estat.yLane (i, k), getWidth(), estat.altLane());
+                g.setColour (juce::Colour (0xff131317));
+                g.fillRect (rl);
+                g.setColour (col.withAlpha (0.35f));
+                g.fillRect (rl.getX() + 14, rl.getY() + 4, 2, rl.getHeight() - 8);
+                const bool sona = k < (int) zones.size() && ! zones[(size_t) k].empty();
+                g.setColour (sona ? col : juce::Colours::black.withAlpha (0.6f));
+                g.fillEllipse ((float) rl.getX() + 24.0f, (float) rl.getCentreY() - 4.0f, 8.0f, 8.0f);
+                g.setColour (col.withAlpha (0.7f));
+                g.drawEllipse ((float) rl.getX() + 24.0f, (float) rl.getCentreY() - 4.0f, 8.0f, 8.0f, 1.0f);
+                g.setColour (sona ? tema::text : tema::suau);
+                g.setFont (dibuix::lletra (12.0f, sona));
+                g.drawText ("Presa "_ca + juce::String (k + 1), rl.withTrimmedLeft (40).withTrimmedRight (24), juce::Justification::centredLeft, true);
+                g.setColour (tema::linia.withAlpha (0.4f));
+                g.fillRect (0, rl.getBottom() - 1, getWidth(), 1);
+            }
+        }
     }
 
     {
@@ -2530,6 +2812,12 @@ void Capcaleres::menu (int pista)
     {
         m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
         m.addSubMenu ("Entrada per gravar"_ca, entrades);
+        if (! t.takes.empty())   // 0.81
+        {
+            m.addSeparator();
+            m.addItem (12, t.takesObertes ? "Plega les preses"_ca : "Desplega les preses ("_ca + juce::String ((int) t.takes.size()) + ")");
+            m.addItem (13, "Print Comp: pista nova amb el comp"_ca);
+        }
     }
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
@@ -2541,6 +2829,8 @@ void Capcaleres::menu (int pista)
         if (r == 0 || pista >= estat.numPistes()) return;
         if (r == 1) { if (onCanviaNom) onCanviaNom (pista); return; }
         if (r == 11) { if (onAutomatitzacio) onAutomatitzacio (pista); return; }   // 0.56
+        if (r == 12) { auto& tt = estat.projecte.pistes[(size_t) pista]; tt.takesObertes = ! tt.takesObertes; estat.canviat(); return; }   // 0.81
+        if (r == 13) { if (onPrintComp) onPrintComp (pista); return; }
         if (r == 9)
         {
             VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
@@ -2588,6 +2878,17 @@ void Capcaleres::menu (int pista)
         else if (r >= 20 && r < 40) { tt.color = r - 20; tt.rgb = 0; }
         acabaCanvi (evolucio);
     });
+}
+
+juce::Rectangle<int> Capcaleres::rectPreses (int fila) const
+{
+    // 0.81: plega / desplega les subpistes de les preses (al costat del nom)
+    if (fila < 0 || fila >= estat.numPistes() || estat.modeFila (fila) != 1) return {};
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (t.takes.empty() || mibase::esMidi (t) || mibase::esBus (t)) return {};
+    const int w = juce::jmin (70, getWidth() - 120);
+    if (w < 40) return {};
+    return { getWidth() - 24 - w, estat.yPista (fila) + 6, w, 19 };
 }
 
 juce::Rectangle<int> Capcaleres::zonaES (int fila) const
@@ -2675,6 +2976,14 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
         return;
     }
     if (fila < 0 || fila >= estat.numPistes()) return;
+    if (rectPreses (fila).contains (e.getPosition()))   // 0.81: plega / desplega les preses
+    {
+        auto& tt = estat.projecte.pistes[(size_t) fila];
+        tt.takesObertes = ! tt.takesObertes;
+        estat.canviat();
+        return;
+    }
+    if (estat.laneA (e.y).first >= 0) return;   // 0.81: el nom d'una subpista (les preses es trien a la taula)
 
     if (estat.filaCarpeta (fila))
     {

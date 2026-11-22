@@ -786,6 +786,9 @@ namespace mibase
             long long posT = pos;   // 0.68: on llegeix aquesta pista (avançada pel retard del seu camí)
             if (! esBus)
             {
+                // 0.81: armada i escoltant l'entrada: els efectes que ho saben fer (el Tune) passen en sec, sense retard
+                const bool directeEntrada = t.escoltaEntrada >= 0;
+                for (const auto& e : t.inserts) if (e != nullptr) e->posaDirecte (directeEntrada);
                 const int av = (t.instrument != nullptr ? std::clamp (t.instrument->latencia(), 0, 1 << 20) : 0)
                              + retardDe (t.inserts, minim && enDirecte, &saltats, &t.encesAmbRM, llindar)
                              + (t.desti >= 0 && t.desti < nb && t.desti < maxBusos ? latCami[(size_t) t.desti] : 0) + latMaster;
@@ -1197,6 +1200,9 @@ namespace mibase
                     preContinus = 0;
                     iniciFitxer.store (o.t, std::memory_order_release);
                     puntGravacio.store (o.t2, std::memory_order_release);
+                    mostresFitxer = 0;   // 0.81
+                    voltesGrav.store (0, std::memory_order_release);
+                    primeraVolta.store (-1.0, std::memory_order_release);
                     mesclador.setSilenci ({});
                     mesclador.reinicia();
                     estat.store ((int) (pos < compteFins ? Estat::Comptant : Estat::Gravant), std::memory_order_release);
@@ -1212,6 +1218,9 @@ namespace mibase
                     if (audio && grav.activa() && preEntradaVista == o.a && preCanalsVists == canalsGrava)
                         previ = std::min (preContinus, preMida);
                     if (previ > 0) escriuPregravacio (previ);
+                    mostresFitxer = audio ? previ : 0;   // 0.81
+                    voltesGrav.store (0, std::memory_order_release);
+                    primeraVolta.store (-1.0, std::memory_order_release);
                     if (tramRuta >= 0) { tramRuta = -1; mesclador.setSilenci ({}); }   // gravant, sempre lineal
                     compteFins = pos;
                     iniciFitxer.store ((double) (pos - previ) / fs, std::memory_order_release);
@@ -1278,7 +1287,9 @@ namespace mibase
             int m = std::min (n - fet, maxBloc);
             // El bucle (no mentre es grava): el tros acaba al final del bucle i torna a l'inici.
             const long long fiBucle = (long long) std::llround (pla->bucleFi * fs);
-            const bool potTornar = pla->bucle && ! gravant && pos < fiBucle;
+            // 0.81: gravant àudio (no durant el compte d'entrada), també torna: cada volta serà una presa
+            const bool gravaBucle = gravant && ara == Estat::Gravant && grav.activa();
+            const bool potTornar = pla->bucle && (! gravant || gravaBucle) && pos < fiBucle;
             if (potTornar && pos + m > fiBucle)
                 m = (int) (fiBucle - pos);
             if (gravant && pos < compteFins && pos + m > compteFins)
@@ -1306,6 +1317,7 @@ namespace mibase
                 }
                 if (canalsGrava == 2 && canals[1] == nullptr) canals[1] = canals[0];
                 grav.escriu (canals, m);
+                mostresFitxer += m;   // 0.81
             }
 
             sumaSortida (sortides, numSortides, fet, m);
@@ -1332,6 +1344,17 @@ namespace mibase
             }
             if (potTornar && pos >= fiBucle)
             {
+                if (gravaBucle)   // 0.81: una volta més de la gravació en bucle
+                {
+                    const long long ini = (long long) std::llround (pla->bucleIni * fs);
+                    if (voltesGrav.load (std::memory_order_relaxed) == 0)
+                    {
+                        primeraVolta.store ((double) mostresFitxer / fs, std::memory_order_release);
+                        llargVolta.store ((double) (fiBucle - ini) / fs, std::memory_order_release);
+                        iniciVolta.store ((double) ini / fs, std::memory_order_release);
+                    }
+                    voltesGrav.fetch_add (1, std::memory_order_acq_rel);
+                }
                 pos = (long long) std::llround (pla->bucleIni * fs);
                 preContinus = 0;
                 mesclador.reiniciaBucle();

@@ -218,6 +218,43 @@ namespace mibase::edicio
     /** Posa (o treu, amb un valor negatiu) la bandera de la presa d'un clip, en temps absolut. */
     void posaBandera (Projecte& p, const Clip& c, double abs);
 
+    // ---- 0.81: preses alternatives (takes) i comping ----
+    /** Crossfade dels canvis de presa al comp (segons). */
+    constexpr double crossfadeComp = 0.010;
+    /** Una presa del bucle més curta que això no es guarda (s'ha aturat just després de tornar a començar). */
+    constexpr double voltaMinima = 0.5;
+    /** El clip és un tros d'aquesta presa al seu lloc (mateix àudio i mateixa posició)? */
+    bool esDeTake (const Clip& c, const Clip& take) noexcept;
+    /** La presa (índex de «takes») d'on surt el clip, o -1. */
+    int takeDe (const Pista& t, const Clip& c) noexcept;
+    /** Gravació en bucle: el clip «clip» (el que ha fet afegeixGravacio) és la primera volta; se'n fan les altres.
+        «primeraVolta»: segons dins el fitxer on el capçal va tornar a l'inici del bucle per primer cop; «llargVolta»:
+        el que dura cada volta; «voltes»: quantes vegades ha tornat. Retorna els índexs de tots els clips de les voltes
+        (la primera inclosa), per ordre. */
+    std::vector<int> afegeixVoltes (Projecte& p, int pista, int clip, double iniBucle, double primeraVolta, double llargVolta,
+                                    int voltes, double latencia);
+    /** Després de gravar: si els clips nous (índexs de la pista) competeixen amb altres gravacions del mateix tros
+        (o entre ells, en bucle), totes passen a ser preses i el comp queda amb la més nova on n'hi ha. Els clips que
+        no es trepitgen no es toquen mai. Retorna true si la pista té preses. */
+    bool organitzaTakes (Projecte& p, int pista, const std::vector<int>& nous);
+    /** Al comp, el tros [a, b) passa a sonar de la presa «take» (el que hi sonava abans en aquest tros es treu; la resta,
+        intacta). Amb crossfades curts als canvis. Retorna false si no hi queda res. */
+    bool compTake (Projecte& p, int pista, int take, double a, double b);
+    /** El tros [a, b) del comp queda sense cap presa (silenci). Els clips tallats acaben amb un fade curt (sense clic). */
+    void treuDelComp (Projecte& p, int pista, double a, double b);
+    /** Tot el tros de la presa. */
+    bool compTakeSencera (Projecte& p, int pista, int take);
+    /** On sona cada presa al comp (per pintar-ho a les subpistes): per a cada presa, trossos [a, b) en segons. */
+    std::vector<std::vector<std::pair<double, double>>> zonesTakes (const Projecte& p, int pista);
+    /** Treu una presa (i el que en sona al comp). Si en queda una o cap, la pista torna a ser normal. */
+    void treuTake (Projecte& p, int pista, int take);
+    /** Print Comp: pista nova just a sota de «pista», «Print - <nom>», amb un sol clip (la presa «idPresa», que comença a
+        «pos», sonant de «inici» a «fi» dins el fitxer) i els mateixos efectes, enviaments, sortida, volum, panorama i
+        automatització (sense preses). L'original queda silenciada, però no s'esborra ni es desarma. Torna l'índex nou. */
+    int creaPistaPrint (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi);
+    /** On comença i acaba el comp (clips d'àudio que sonen); {0, 0} si no n'hi ha. */
+    std::pair<double, double> rangComp (const Pista& t);
+
     // ---- Bucle ----
     int compasA (const Projecte& p, double t);
     void marcaBucle (Projecte& p, int compasA, int compasB);   // inclou tots dos
