@@ -1,5 +1,6 @@
 #include "EditorAutomatitzacio.h"
 #include <mibase/SubBass.h>
+#include <mibase/Lead.h>
 #include "Text.h"
 #include "Vintage.h"
 #include <map>
@@ -259,16 +260,17 @@ void EditorAutomatitzacio::menuLinia (juce::Component* on, const std::string& id
                 }
                 else m.addItem (-1, "Instrument: encara no s'ha obert (fes sonar la pista un moment)"_ca, false);
             }
-            else if (mibase::subbass::esSubBass (*t))
+            else if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t))
             {
                 // 0.88: tots els controls del SUB & BASS, per seccions
                 if (auto* o = plugins.parametresInstrument (t->id))
                 {
                     juce::PopupMenu sub;
-                    params (sub, o, [] (const std::string& id) { return au::objectiuInstrument (id); }, "SUB & BASS · ");
-                    m.addSubMenu ("Instrument · SUB & BASS"_ca, sub);
+                    const juce::String nomS = mibase::lead::esLead (*t) ? "LEAD" : "SUB & BASS";
+                    params (sub, o, [] (const std::string& id) { return au::objectiuInstrument (id); }, (nomS + " · ").toStdString());
+                    m.addSubMenu ("Instrument · "_ca + nomS, sub);
                 }
-                else m.addItem (-1, "SUB & BASS: fes sonar la pista un moment"_ca, false);
+                else m.addItem (-1, "Sinte de Mibase: fes sonar la pista un moment"_ca, false);
             }
             else m.addItem (-1, "Instrument intern: de moment, sense paràmetres automatitzables"_ca, false);
         }

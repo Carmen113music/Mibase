@@ -1,5 +1,6 @@
 #include "VistesEstudi.h"
 #include <mibase/SubBass.h>
+#include <mibase/Lead.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraAcords.h"
@@ -66,7 +67,7 @@ namespace
     [[maybe_unused]] juce::String textPistaCurt (const Pista& t)
     {
         if (mibase::esKit (t)) return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
-        if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "intern:piano" : t.instrument)).c_str());
+        if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "sinte:lead" : t.instrument)).c_str());
         return textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t);
     }
 }
@@ -2907,10 +2908,7 @@ void Capcaleres::menu (int pista)
     juce::PopupMenu sons;
     if (t.tipus == "midi")
     {
-        const int actual = juce::jmax (0, midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument));
-        for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
-            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument) >= 0);
-        sons.addSeparator();
+        sons.addItem (56, "Mibase LEAD (sinte de solistes)"_ca, true, mibase::lead::esLead (t));   // 0.89 (abans, els sons del sinte bàsic)
         sons.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (200, mibase::gm::programa (t.instrument)), true, juce::Image(), mibase::gm::programa (t.instrument) >= 0);   // 0.31
         sons.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t.instrument), true, juce::Image(), t.instrument.rfind ("sf2:", 0) == 0);   // 0.43
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
@@ -2998,10 +2996,11 @@ void Capcaleres::menu (int pista)
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (r - 200));
             juce::MessageManager::callAsync ([this] { bancgm::assegura (this, {}); });
         }
-        else if (r >= 60 && r < 200)
+        else if (r == 56 && ! mibase::lead::esLead (tt))   // 0.89
         {
-            tt.instrument = std::string ("intern:") + midi::sonsInterns()[(size_t) (r - 60)].id;
-            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: so "_ca + juce::String::fromUTF8 (midi::sonsInterns()[(size_t) (r - 60)].nom);
+            tt.instrument = mibase::lead::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase LEAD"_ca;
         }
         else if (EstatEstudi::aplicaEntrada (tt, r, 1000)) evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: entrada "_ca + EstatEstudi::textEntrada (tt);
         else if (r >= 20 && r < 40) { tt.color = r - 20; tt.rgb = 0; }

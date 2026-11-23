@@ -142,6 +142,26 @@ Fitxer → Exporta obre una finestra amb les opcions:
 - **Canviar el tempo**: els clips MIDI segueixen els compassos (les notes es guarden en temps musical); els d'àudio no es mouen.
 - La **dinàmica** d'un clip MIDI és la velocitat de les notes: els clips MIDI no tenen fades ni volum de clip (el fader de la pista sí).
 
+### Mibase LEAD, el sinte de solistes (0.89)
+Per a leads, melodies, solos, hooks i riffs. A una pista d'instrument: **Instrument → Mibase LEAD** (és l'instrument de les pistes noves). El botó del costat obre la finestra.
+- **Oscil·ladors**: tres, cadascun amb sinus, triangle, serra, quadrada, pols, **supersaw**, **wavetable** (8 taules pròpies: bàsica, PWM, vocal, harmònics, digital, campana, sync, metall) o soroll; octava, semitò, fi i **Forma** (amplada del pols, obertura del supersaw, posició de la wavetable, brillantor de la serra…). Sync 2 i 3 amb l'1, FM 1→2 i 3→1, unison fins a 7 còpies, fase lliure i **deriva** analògica (imperfeccions vintage).
+- **Mix**: volum de cada oscil·lador, sub (−1/−2 oct, sinus o quadrada), soroll amb color i **ring** (1×2), amb la **forma d'ona** a la pantalla.
+- **Filtre**: LP, HP, BP o Ladder, de **12, 24 o 36 dB**; tall, ressonància, envolupant, seguiment i saturació.
+- **Envolupants** de volum i de filtre; **dos LFO** assignables (to, tall, forma, volum, FM, panorama), lliures o amb el tempo, amb **retard** (el vibrato entra a poc a poc).
+- **FX**: drive (saturació, overdrive, distorsió, fuzz), chorus, el Delay de Mibase (amb el tempo, ping-pong) i la Reverb de Mibase (plate).
+- **Modulació**: roda → vibrato i → tall, **aftertouch** → vibrato i → tall, velocitat, pitch bend fins a 24 semitons, envolupant de to.
+- **Veu**: Mono, Legato (les notes lligades llisquen) o Poli (8 veus), glide, volum i amplada.
+- **135 presets** en 27 categories (Classic, Analog, Moog, Prophet, Juno, ARP, Oberheim, Synthwave, 80s, Modern Pop, Indie, Stadium, Supersaw, Bright, Soft, Fat, Distorted, Acid, FM, Digital, Ambient, Cinematic, Pluck, Solo, Sequence, Expressive, Experimental). Els teus presets es guarden a `Documents\Mibase\Lead` (fitxers .mblead per importar i exportar).
+
+### Arpegiador / seqüenciador (0.89, LEAD i SUB & BASS)
+A la franja del teclat de cada sinte. **Arp**: Amunt, Avall, Amunt-avall, Atzar, Ordre (com toques), Acord o **Patró** (16 seqüències: octaves, berlinesa, àcid amb lligades i accents, trance, hook…). Va amb el tempo del projecte: **amb una sola tecla premuda, els patrons toquen sols**; amb un acord, l'arpegi. Ritme (1/4 a 1/32, tresets), octaves, gate (al màxim, notes lligades que llisquen en legato) i swing. Els presets de seqüència dels dos sintes ja el porten encès.
+
+### Navegador de presets dels sintes (0.89)
+A més de categories, cerca i preferits: **Recents** (els últims que has fet servir) i **Atzar** (un preset a l'atzar d'entre els que es veuen a la llista). El botó Atzar de la finestra també ofereix «Un preset de fàbrica a l'atzar».
+
+### El sinte bàsic ja no hi és (0.89)
+El sinte de prova de les primeres versions s'ha tret. En obrir un projecte antic, les seves pistes passen soles al LEAD (piano, piano elèctric, orgue, pad, pinçat, solista i cordes, amb un preset semblant) o al SUB & BASS (el baix). Queda apuntat a l'evolució del projecte.
+
 ### Mibase SUB & BASS, el sinte de baixos (0.88)
 El primer sinte del motor de síntesi nou de Mibase, només per a baixos. A una pista d'instrument: **Instrument → Mibase SUB & BASS** (columna esquerra, botó dret al nom de la pista o panell de l'editor). El botó del costat obre la finestra.
 - **Oscil·ladors**: dos, amb sinus, triangle, serra, quadrada i pols (sense aliàsing), octava, semitò, afinació fina i PW; sync, FM de l'1 sobre el 2, unison fins a 7 còpies (detune i obertura estèreo), fase d'inici (o fase lliure, més analògica) i clic d'atac.
@@ -470,6 +490,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.89.0** — **Mibase LEAD**: sinte de solistes (3 oscil·ladors amb supersaw i wavetables pròpies, ring, sync, FM, filtres LP/HP/BP/Ladder de 12/24/36 dB, 2 LFO amb retard, aftertouch, chorus, delay i reverb de Mibase) amb 135 presets i finestra pròpia. **Arpegiador / seqüenciador** per als dos sintes (els presets de seqüència ara sí que toquen sols). Motor comú per als sintes. Navegador amb Recents i Atzar. **Fora el sinte bàsic**: els projectes antics passen al LEAD o al SUB & BASS. Arreglat: al SUB & BASS, la icona «Quadrada» del sub era la d'una serra.
 - **0.88.0** — **Mibase SUB & BASS**, el primer sinte del motor de síntesi nou: un sinte de baixos propi (2 oscil·ladors amb unison, sync i FM, sub, soroll, 4 models de filtre, drive, envolupants, LFO amb tempo, mono/legato/poli amb glide) amb 128 presets, navegador, atzar, desfer, importar/exportar, MIDI learn, automatització de tots els controls, oscil·loscopi i teclat de pantalla. De passada: el llapis «Edita» del Chord Pad es desactiva sol en canviar d'eina.
 - **0.87.0** — **Acords d'un àudio**: arrossega un clip d'àudio (o un àudio del Pool) a la pista d'Acords, o fes servir el botó «Treu els acords», i Mibase hi posa els acords que sent (majors, menors, 7, m7, maj7, dim, inversions); els dubtosos surten apagats i amb «?». **Panell de la dreta**: secció «Pista triada» (tipus, entrada i sortida, efectes, enviaments) i un quadre de notes per pista que es desa amb el projecte.
 - **0.86.0** — **Elastic Audio**: canviar el temps dels clips d'àudio sense canviar el to. Eina nova (tecla 7): estirar el clip per les vores, el marcador del mig que reparteix el temps entre dues meitats, i tants marcadors com calgui (clic a l'ona, arrossegar, doble clic per treure'n). Botó «Elastic Audio» al panell del clip: algorisme (General, Ritme, Veu), marcadors als cops, quantitzar a la graella (100 % o 50 %), treure els marcadors i restaurar l'original. Trossos lents en blau i ràpids en taronja. Motor WSOLA amb mapa de temps variable que talla als cops (atacs intactes); el so estirat es calcula en un fil a part. No destructiu, amb Ctrl+Z.

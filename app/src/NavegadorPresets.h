@@ -49,6 +49,9 @@ public:
     virtual void mou (const juce::String& nom, const juce::String& carpeta) = 0;
     virtual void esborra (const juce::String& nom) = 0;
     virtual void tancaNavegador() = 0;
+    /** 0.89: presets triats fa poc (el primer, el més recent), si l'origen en porta. Amb això surten «Recents» i «Atzar». */
+    virtual juce::StringArray recents() { return {}; }
+    virtual bool ambRecentsIAtzar() { return false; }
 };
 
 class NavegadorPresetsComu : public juce::Component, private juce::ListBoxModel, private juce::TextEditor::Listener
@@ -75,6 +78,24 @@ public:
         llista.setModel (this);
         llista.setRowHeight (28);
         for (auto* b : { &btReanomena, &btMou, &btEsborra, &btTanca }) addAndMakeVisible (*b);
+        if (origen.ambRecentsIAtzar())   // 0.89
+        {
+            addAndMakeVisible (btRecents);
+            addAndMakeVisible (btAtzar);
+            btRecents.setClickingTogglesState (true);
+            btRecents.setTooltip ("Només els presets que has fet servir fa poc (el més recent a dalt)"_ca);
+            btAtzar.setTooltip ("Un preset a l'atzar d'entre els que es veuen a la llista (respecta la categoria i la cerca)"_ca);
+            btRecents.onClick = [this] { actualitza(); };
+            btAtzar.onClick = [this]
+            {
+                if (files.empty()) return;
+                const int i = juce::Random::getSystemRandom().nextInt ((int) files.size());
+                llista.selectRow (i);
+                llista.scrollToEnsureRowIsOnscreen (i);
+                origen.aplica (files[(size_t) i]);
+                repaint();
+            };
+        }
         btTanca.onClick = [this] { origen.tancaNavegador(); };
         btReanomena.onClick = [this] { reanomena(); };
         btMou.onClick = [this] { mou(); };
@@ -108,6 +129,13 @@ public:
         dalt.removeFromRight (10);
         filtre.setBounds (dalt.removeFromRight (filtre.ampladaIdeal()));
         dalt.removeFromRight (10);
+        if (btRecents.isVisible())
+        {
+            btAtzar.setBounds (dalt.removeFromRight (90));
+            dalt.removeFromRight (6);
+            btRecents.setBounds (dalt.removeFromRight (100));
+            dalt.removeFromRight (10);
+        }
         cerca.setBounds (dalt);
         r.removeFromTop (10);
         auto peu = r.removeFromBottom (34);
@@ -160,6 +188,14 @@ public:
             if (! totes && e.cat != catTriada) continue;
             if (text.isNotEmpty() && ! senseAccents (e.nom + " " + e.cat + " " + e.desc + " " + e.etiqueta).contains (text)) continue;
             files.push_back (e);
+        }
+        if (btRecents.getToggleState())   // 0.89: només els recents, en ordre
+        {
+            const auto rec = origen.recents();
+            std::vector<EntradaPreset> ord;
+            for (auto& r : rec)
+                for (auto& e : files) if (e.nom == r) { ord.push_back (e); break; }
+            files = ord;
         }
         llista.updateContent();
         llista.repaint();
@@ -307,5 +343,6 @@ private:
     std::vector<EntradaPreset> files;
     Boto btReanomena { "Reanomena", dibuix::Icona::Llapis }, btMou { "Mou a carpeta", dibuix::Icona::Carpeta },
          btEsborra { "Esborra", dibuix::Icona::Goma }, btTanca { "Tanca", dibuix::Icona::Tanca };
+    Boto btRecents { "Recents", std::nullopt, Boto::Estil::Tecla }, btAtzar { "Atzar", std::nullopt, Boto::Estil::Secundari };   // 0.89
     std::unique_ptr<DialegText> dialeg;
 };

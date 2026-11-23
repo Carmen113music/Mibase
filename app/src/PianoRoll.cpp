@@ -1909,7 +1909,7 @@ void PianoRoll::pintaBarra (juce::Graphics& g)
         auto r = zonaInfo;
         juce::String titol = "PIANO ROLL";
         if (const auto* t = const_cast<PianoRoll*> (this)->pista())
-            titol = dibuix::utf8 (t->nom) + " · "_ca + dibuix::utf8 (midi::nomInstrument (t->instrument.empty() ? "intern:piano" : t->instrument));
+            titol = dibuix::utf8 (t->nom) + " · "_ca + dibuix::utf8 (midi::nomInstrument (t->instrument.empty() ? "sinte:lead" : t->instrument));
         if (index >= 0 && index < (int) estat.editors.size() && estat.editors[(size_t) index].bloquejat) titol += " · bloquejat"_ca;
         g.setFont (dibuix::lletra (12.5f, true));
         g.setColour (tema::text);
@@ -3453,10 +3453,10 @@ void PianoRoll::actualitzaControlsPads()
             const bool smp = mibase::esSampler (*t), kit = mibase::esKit (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
             btInstrPads.setButtonText (guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false)   // 0.46: la guitarra virtual
                                        : kit ? "Kit de bateria"_ca : smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
-                                       : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte intern"_ca);
+                                       : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte de Mibase"_ca);
             btSoPads.setButtonText (kit ? "Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()) : smp ? (t->sampler.nom.empty() ? "Sample: cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str()))
                                     : vst ? "So: el del plugin"_ca
-                                    : juce::String::fromUTF8 (midi::nomInstrument (t->instrument.empty() ? "intern:piano" : t->instrument).c_str()));
+                                    : juce::String::fromUTF8 (midi::nomInstrument (t->instrument.empty() ? "sinte:lead" : t->instrument).c_str()));
         }
     }
     for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads })

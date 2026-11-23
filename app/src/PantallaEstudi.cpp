@@ -542,18 +542,18 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     esquerra.opcions.onObreKits = [this] { obreKits(); };
     esquerra.opcions.onObreSampler = [this] { obreSampler (estat.pistaTriada); };
     // 0.88: el SUB & BASS (finestra, teclat de pantalla, automatització i desar els ajustos)
-    esquerra.opcions.subBass = [this] (const std::string& id)
+    esquerra.opcions.sinte = [this] (const std::string& id)
     {
-        if (auto s = instruments.subBass (id)) return s;
+        if (auto s = instruments.sinte (id)) return s;
         publicaPla();   // la pista l'acaba d'agafar: que el pla el creï
-        return instruments.subBass (id);
+        return instruments.sinte (id);
     };
     esquerra.opcions.onDirecte = [this] (const std::string& id, std::uint8_t e, std::uint8_t d1, std::uint8_t d2)
     {
         if (auto* t = estat.pista (mibase::edicio::pistaPerId (estat.projecte, id))) servei.estudi().enviaDirecte ({ slotDePista (*t), e, d1, d2 });
     };
     panellHarmonia.onObreSubBass = [this] (const std::string& id) { esquerra.opcions.obreSubBass (id); };
-    plugins.instrumentIntern = [this] (const std::string& id) -> mibase::Parametritzable* { return instruments.subBass (id).get(); };
+    plugins.instrumentIntern = [this] (const std::string& id) -> mibase::Parametritzable* { return instruments.sinte (id).get(); };
     plugins.desaInterns = [this] (mibase::Projecte& p) { return instruments.desaEstats (p); };
     panellHarmonia.onObreSampler = [this]
     {
@@ -1976,7 +1976,7 @@ void PantallaEstudi::pistaNova (const juce::String& tipus, int canals)
         const auto nom = ed::nomPistaLliure (estat.projecte, "Instrument");   // 0.65: abans «Piano»
         auto& t = ed::afegeixPista (estat.projecte, nom, "midi");
         t.canals = 2;
-        t.instrument = "intern:piano";
+        t.instrument = mibase::lead::idInstrument;   // 0.89: el sinte bàsic ja no hi és
         estat.pistaTriada = ed::pistaPerId (estat.projecte, t.id);   // 0.34: les pistes noves van abans dels busos
         estat.capTriat();
         estat.info = "Pista d'instrument: fes un clip amb el llapis (2) i dibuixa-hi notes, o grava amb el teclat MIDI"_ca;

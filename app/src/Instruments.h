@@ -7,9 +7,9 @@
 #include <string>
 #include <mibase/Midi.h>
 #include <mibase/MotorEstudi.h>
-#include <mibase/SinteIntern.h>
 #include <mibase/Sampler.h>
 #include <mibase/SubBass.h>
+#include <mibase/Lead.h>
 #include "Kits.h"
 #include "BancGM.h"
 #include "Guitarres.h"
@@ -55,23 +55,24 @@ public:
             return e.instrument;
         }
         if (t.tipus != "midi") return nullptr;
-        if (mibase::subbass::esSubBass (t))
+        if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t))
         {
-            // 0.88: el SUB & BASS. El mateix objecte mentre la pista el tingui; si el projecte porta uns ajustos
-            // nous (desfer, obrir), s'hi posen sense parar el so.
+            // 0.88 / 0.89: els sintes de Mibase. El mateix objecte mentre la pista el tingui; si el projecte porta uns
+            // ajustos nous (desfer, obrir), s'hi posen sense parar el so.
+            const std::string tipus = mibase::lead::esLead (t) ? "lead" : "subbass";
             auto& e = llista[t.id];
-            if (e.tipus != "subbass" || e.instrument == nullptr)
+            if (e.tipus != tipus || e.instrument == nullptr)
             {
-                e.instrument = creaSubBass (t, fs, maxBloc);
-                e.tipus = "subbass";
+                e.instrument = creaSinte (t, fs, maxBloc);
+                e.tipus = tipus;
                 e.fs = fs;
                 e.ultimEstat = t.estatInstrument;
             }
             else if (t.estatInstrument != e.ultimEstat)
             {
-                if (auto* s = dynamic_cast<mibase::subbass::SubBass*> (e.instrument.get()))
-                    if (s->estat() != t.estatInstrument)   // si ja el té (l'acaba de desar la finestra), no cal
-                        s->posaEstat (t.estatInstrument.empty() ? inicialSubBass() : t.estatInstrument);
+                if (auto* s = dynamic_cast<mibase::sinte::Base*> (e.instrument.get()))
+                    if (s->estat() != t.estatInstrument && ! t.estatInstrument.empty())
+                        s->posaEstat (t.estatInstrument);
                 e.ultimEstat = t.estatInstrument;
             }
             e.fs = fs;
@@ -118,9 +119,6 @@ public:
             // Ha canviat la targeta: el motor ja l'ha preparat; només ens ho apuntem.
             e.fs = fs;
         }
-        if (intern)
-            if (auto* s = dynamic_cast<mibase::SinteIntern*> (e.instrument.get()))
-                s->setSo (mibase::midi::soIntern (desc));   // canviar de so no talla res
         return e.instrument;
     }
 
@@ -138,7 +136,7 @@ public:
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
             if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
-            if (mibase::subbass::esSubBass (t)) return creaSubBass (t, fs, bloc);   // 0.88
+            if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t)) return creaSinte (t, fs, bloc);   // 0.88 / 0.89
             if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
             {
                 auto s = creaSf2 (ref, fs, bloc);
@@ -160,22 +158,24 @@ public:
         }
     }
 
-    /** 0.88: el SUB & BASS viu d'una pista (nullptr si la pista no en té o encara no sona). */
-    std::shared_ptr<mibase::subbass::SubBass> subBass (const std::string& idPista)
+    /** 0.88 / 0.89: el sinte de Mibase viu d'una pista (SUB & BASS o LEAD; nullptr si no en té o encara no sona). */
+    std::shared_ptr<mibase::sinte::Base> sinte (const std::string& idPista)
     {
         auto it = llista.find (idPista);
         if (it == llista.end()) return nullptr;
-        return std::dynamic_pointer_cast<mibase::subbass::SubBass> (it->second.instrument);
+        return std::dynamic_pointer_cast<mibase::sinte::Base> (it->second.instrument);
     }
 
-    /** 0.88: copia els ajustos dels SUB & BASS vius al projecte (abans de desar, desfer o exportar). */
+    /** Copia els ajustos dels sintes vius al projecte (abans de desar, desfer o exportar). */
     bool desaEstats (mibase::Projecte& p)
     {
         bool canvi = false;
         for (auto& t : p.pistes)
-            if (mibase::subbass::esSubBass (t))
-                if (auto s = subBass (t.id))
+            if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t))
+                if (auto s = sinte (t.id))
                 {
+                    if ((mibase::lead::esLead (t) && dynamic_cast<mibase::lead::Lead*> (s.get()) == nullptr)
+                        || (mibase::subbass::esSubBass (t) && dynamic_cast<mibase::subbass::SubBass*> (s.get()) == nullptr)) continue;
                     auto e = s->estat();
                     if (e != t.estatInstrument) { t.estatInstrument = e; canvi = true; }
                     llista[t.id].ultimEstat = t.estatInstrument;
@@ -231,18 +231,22 @@ private:
         return s;
     }
 
-    /** 0.88: el so d'un SUB & BASS nou: el primer preset «Analog Bass» (millor que el so inicial pla). */
-    static std::string inicialSubBass()
+    /** 0.88 / 0.89: un sinte nou de Mibase. Sense ajustos, el primer preset «Analog Bass» (SUB & BASS) o «Classic Lead» (LEAD). */
+    static std::shared_ptr<mibase::Instrument> creaSinte (const mibase::Pista& t, double fs, int bloc)
     {
-        for (const auto& p : mibase::subbass::presetsFabrica())
-            if (p.categoria == "Analog Bass") return p.estat + ";pnom=" + p.nom;
-        return mibase::subbass::estatInicial();
-    }
-
-    static std::shared_ptr<mibase::Instrument> creaSubBass (const mibase::Pista& t, double fs, int bloc)
-    {
-        auto s = std::make_shared<mibase::subbass::SubBass>();
-        s->posaEstat (t.estatInstrument.empty() ? inicialSubBass() : t.estatInstrument);
+        std::shared_ptr<mibase::sinte::Base> s;
+        std::string inicial;
+        if (mibase::lead::esLead (t))
+        {
+            s = std::make_shared<mibase::lead::Lead>();
+            for (const auto& p : mibase::lead::presetsFabrica()) if (p.categoria == "Classic Lead") { inicial = p.estat + ";pnom=" + p.nom; break; }
+        }
+        else
+        {
+            s = std::make_shared<mibase::subbass::SubBass>();
+            for (const auto& p : mibase::subbass::presetsFabrica()) if (p.categoria == "Analog Bass") { inicial = p.estat + ";pnom=" + p.nom; break; }
+        }
+        s->posaEstat (t.estatInstrument.empty() || ! s->esEstatMeu (t.estatInstrument) ? inicial : t.estatInstrument);
         s->prepara (fs, bloc);
         return s;
     }
@@ -263,10 +267,13 @@ private:
 
     static std::shared_ptr<mibase::Instrument> crea (const std::string& desc, double fs, int maxBloc)
     {
-        // Més endavant: «vst3:…» → adaptador del plugin.
-        auto s = std::make_shared<mibase::SinteIntern> (std::max (0, mibase::midi::soIntern (desc)));
-        s->prepara (fs, maxBloc);
-        return s;
+        // 0.89: el sinte bàsic ja no hi és: un so antic («intern:piano»…) sona amb el LEAD o el SUB & BASS
+        // (normalment el projecte ja s'ha passat en obrir-lo: lead::migraSintesAntics)
+        mibase::Pista t;
+        t.tipus = "midi";
+        const auto id = desc.rfind ("intern:", 0) == 0 ? desc.substr (7) : std::string ("piano");
+        t.estatInstrument = mibase::lead::estatPerSoAntic (id, t.instrument);
+        return creaSinte (t, fs, maxBloc);
     }
 
     struct Entrada

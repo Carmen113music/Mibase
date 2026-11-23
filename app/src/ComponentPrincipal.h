@@ -1,4 +1,5 @@
 #pragma once
+#include <mibase/Lead.h>
 
 #include "Capcalera.h"
 #include "Historial.h"
@@ -56,6 +57,13 @@ public:
             return;
         }
 
+        // 0.89: el sinte bàsic ja no hi és: les pistes que el feien servir passen al LEAD o al SUB & BASS
+        if (const int n = mibase::lead::migraSintesAntics (*p); n > 0)
+        {
+            historial.afegeix (juce::String (n) + " pistes amb el sinte bàsic antic passen al Mibase LEAD / SUB & BASS"_ca);
+            mibase::disc::afegeixEvolucio (dibuix::cami (f.getParentDirectory()), dibuix::araText().toStdString(),
+                                           std::to_string (n) + " pistes del sinte antic passen al Mibase LEAD / SUB & BASS");
+        }
         if (! acabatDeCrear)
             mibase::disc::afegeixEvolucio (dibuix::cami (f.getParentDirectory()), dibuix::araText().toStdString(),
                                            "Obert: " + p->nom);

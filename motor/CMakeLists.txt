@@ -13,7 +13,6 @@ add_library(mibase_motor STATIC
     src/Gravadora.cpp
     src/MotorEstudi.cpp
     src/Midi.cpp
-    src/SinteIntern.cpp
     src/Harmonia.cpp
     src/Guitarra.cpp
     src/Piano.cpp
@@ -35,8 +34,11 @@ add_library(mibase_motor STATIC
     src/SaturacioPresets.cpp
     src/Drive.cpp
     src/DrivePresets.cpp
+    src/SinteBase.cpp
     src/SubBass.cpp
     src/SubBassPresets.cpp
+    src/Lead.cpp
+    src/LeadPresets.cpp
     src/Limitador.cpp
     src/LimitadorPresets.cpp
     src/Doubler.cpp

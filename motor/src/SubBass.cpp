@@ -60,7 +60,7 @@ namespace mibase::subbass
             { "fr", "R", SEnv, 3, 8000, 150, Log, nullptr, "Alliberament del filtre" },
             { "lw", "Ona", SLfo, 0, 4, 0, Enter, "Sinus|Triangle|Serra|Quadrada|Atzar", "Forma de l'LFO" },
             { "lr", "Velocitat", SLfo, 0.05f, 30, 2, Log, nullptr, "Velocitat de l'LFO (si no va amb el tempo)" },
-            { "ls", "Tempo", SLfo, 0, 11, 0, Enter, "Lliure|1/1|1/2|1/4|1/8|1/16|1/32|1/4T|1/8T|1/16T|1/4.|1/8.", "L'LFO va lliure o amb el tempo del projecte (wobble)" },
+            { "ls", "Tempo", SLfo, 0, 11, 0, Enter, sinte::ritmesLfo, "L'LFO va lliure o amb el tempo del projecte (wobble)" },
             { "ld", "Destí", SLfo, 0, 4, 0, Enter, "Tall|To|PW|Volum|FM", "Què mou l'LFO" },
             { "lq", "Quantitat", SLfo, 0, 1, 0, Lineal, nullptr, "Quant mou l'LFO" },
             { "lret", "Reinicia", SLfo, 0, 1, 1, Enter, noSi, "L'LFO torna a començar a cada nota nova" },
@@ -81,21 +81,15 @@ namespace mibase::subbass
             { "vol", "Volum", SSortida, -24, 6, -3, Lineal, nullptr, "Volum de sortida" },
             { "width", "Amplada", SSortida, 0, 1.5f, 1, Lineal, nullptr, "Amplada estèreo (el sub sempre és mono)" },
             { "lim", "Límit", SSortida, 0, 1, 1, Enter, noSi, "Limitador suau a la sortida" },
+            { "arp", "Arp", SArp, 0, 7, 0, Enter, sinte::modesArp, "Arpegiador / seqüenciador: amb una tecla o un acord premut, toca sol amb el tempo del projecte" },
+            { "arpr", "Ritme", SArp, 0, 5, 3, Enter, sinte::ritmesArp, "Durada de cada pas de l'arpegiador" },
+            { "arpo", "Octaves", SArp, 1, 4, 1, Enter, nullptr, "Quantes octaves recorre l'arpegiador" },
+            { "arpg", "Gate", SArp, 0.05f, 1, 0.5f, Lineal, nullptr, "Durada de cada nota de l'arpegiador (al màxim, lligades: en legato llisquen)" },
+            { "arpsw", "Swing", SArp, 0, 0.6f, 0, Lineal, nullptr, "Swing: els passos parells s'allarguen i els senars s'escurcen" },
+            { "arpp", "Patró", SArp, 0, 15, 0, Enter, sinte::nomsPatrons, "Patró del seqüenciador (mode «Patró»): tons relatius a la nota més greu premuda" },
         };
 
-        inline float tanhR (float x) noexcept
-        {
-            if (x > 3.0f) return 1.0f;
-            if (x < -3.0f) return -1.0f;
-            const float x2 = x * x;
-            return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-        }
-        inline float blep (double t, double dt) noexcept
-        {
-            if (t < dt) { t /= dt; return (float) (t + t - t * t - 1.0); }
-            if (t > 1.0 - dt) { t = (t - 1.0) / dt; return (float) (t * t + t + t + 1.0); }
-            return 0.0f;
-        }
+        using sinte::tanhR; using sinte::blep; using sinte::coef; using sinte::num; using sinte::ms;
         inline float formaOna (int w, double p, double dt, float pw, bool ambBlep) noexcept
         {
             switch (w)
@@ -118,95 +112,12 @@ namespace mibase::subbass
                 }
             }
         }
-        inline float coef (double temps, double fs) noexcept { return temps <= 0.0 ? 1.0f : (float) (1.0 - std::exp (-1.0 / (temps * fs))); }
-
-        std::string num (double v, int dec)
-        {
-            char b[32];
-            std::snprintf (b, sizeof b, "%.*f", dec, v);
-            std::string s (b);
-            for (auto& c : s) if (c == '.') c = ',';
-            if (s == "-0" || s == "-0,0") s = s.substr (1);
-            return s;
-        }
-        std::string ms (double v) { return v < 10.0 ? num (v, 1) + " ms" : v < 1000.0 ? num (v, 0) + " ms" : num (v / 1000.0, 2) + " s"; }
-
-        // filtre de mitja banda (2× → 1×)
-        constexpr int tapsHb = 47;
-        const float* coefHb()
-        {
-            static float h[tapsHb];
-            static bool fet = false;
-            if (! fet)
-            {
-                double suma = 0.0;
-                const int c = tapsHb / 2;
-                for (int i = 0; i < tapsHb; ++i)
-                {
-                    const int d = i - c;
-                    double v = d == 0 ? 0.5 : (d % 2 == 0 ? 0.0 : std::sin (dpi * d / 2.0) / (dpi * d));
-                    const double w = 0.42 - 0.5 * std::cos (2.0 * dpi * i / (tapsHb - 1)) + 0.08 * std::cos (4.0 * dpi * i / (tapsHb - 1));
-                    h[i] = (float) (v * w);
-                    suma += h[i];
-                }
-                for (auto& x : h) x = (float) (x / suma);
-                fet = true;
-            }
-            return h;
-        }
     }
-
-    std::atomic<double>& tempo() { static std::atomic<double> t { 120.0 }; return t; }
 
     const InfoParam& info (int p) { return infos[std::clamp (p, 0, numParams - 1)]; }
-
-    std::vector<std::string> opcions (int p)
-    {
-        std::vector<std::string> r;
-        const char* o = info (p).opcions;
-        if (o == nullptr) return r;
-        std::string s (o);
-        size_t a = 0;
-        while (true)
-        {
-            const auto b = s.find ('|', a);
-            r.push_back (s.substr (a, b == std::string::npos ? std::string::npos : b - a));
-            if (b == std::string::npos) break;
-            a = b + 1;
-        }
-        return r;
-    }
-
-    double negresRitme (int r) noexcept
-    {
-        static const double d[] = { 0.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0, 1.5, 0.75 };
-        return d[std::clamp (r, 0, 11)];
-    }
-
-    float normal (int p, float v) noexcept
-    {
-        const auto& i = infos[p];
-        v = std::clamp (v, i.mn, i.mx);
-        switch (i.escala)
-        {
-            case Log: return (float) (std::log (v / i.mn) / std::log (i.mx / i.mn));
-            case Cub: return (float) std::cbrt ((v - i.mn) / (i.mx - i.mn));
-            default: return (v - i.mn) / (i.mx - i.mn);
-        }
-    }
-
-    float deNormal (int p, float x) noexcept
-    {
-        const auto& i = infos[p];
-        x = std::clamp (x, 0.0f, 1.0f);
-        switch (i.escala)
-        {
-            case Log: return (float) (i.mn * std::pow (i.mx / i.mn, (double) x));
-            case Cub: return i.mn + (i.mx - i.mn) * x * x * x;
-            case Enter: return std::round (i.mn + (i.mx - i.mn) * x);
-            default: return i.mn + (i.mx - i.mn) * x;
-        }
-    }
+    std::vector<std::string> opcions (int p) { return sinte::opcions (info (p)); }
+    float normal (int p, float v) noexcept { return sinte::normal (info (p), v); }
+    float deNormal (int p, float x) noexcept { return sinte::deNormal (info (p), x); }
 
     std::string textValor (int p, float v)
     {
@@ -230,192 +141,56 @@ namespace mibase::subbass
             case LVel: return v < 10.0f ? num (v, 2) + " Hz" : num (v, 1) + " Hz";
             case AA: case AD: case AR: case FA: case FD: case FR: case PEnvTemps: case Glide: return v < 0.05f && p == Glide ? std::string ("Off") : ms (v);
             case Volum: return (v > 0 ? "+" : "") + num (v, 1) + " dB";
+            case ArpOct: return num (v, 0) + " oct";
+            case ArpGate: return v >= 0.99f ? std::string ("Lligat") : num (v * 100.0, 0) + " %";
             case FEnv: case RodaTall: return (v > 0 ? "+" : "") + num (v * 100.0, 0) + " %";
             default: return num (v * 100.0, 0) + " %";
         }
     }
 
     //==========================================================================
-    SubBass::SubBass()
+    SubBass::SubBass() : sinte::Base (infos, numParams, "mibase-subbass", { ArpMode, ArpRitme, ArpOct, ArpGate, ArpSwing, ArpPatro })
     {
-        for (int i = 0; i < numParams; ++i) par[(size_t) i].store (infos[i].def);
-        for (auto& c : ccMapa) c.store (-1);
-        for (auto& n : notesOn) n.store (0);
-        for (auto& o : ona) o.store (0.0f);
-        ccMapa[74].store (FTall);
-        ccMapa[71].store (FRes);
-        const float* h = coefHb();
-        for (int i = 0; i < tapsHb; ++i) hb[i] = h[i];
-        numHb = tapsHb;
+        assignaCC (74, FTall);
+        assignaCC (71, FRes);
     }
 
-    void SubBass::prepara (double f, int)
+    std::string SubBass::nomComplet (int i) const
     {
-        fs = f > 1000.0 ? f : 48000.0;
-        fsI = fs * sobre;
-        for (auto& v : veus) { v = Veu(); }
-        std::memset (histL, 0, sizeof histL);
-        std::memset (histR, 0, sizeof histR);
+        static const char* seccions[] = { "Osc", "Sub", "Filtre", "Env", "LFO", "Drive", "Mod", "Sortida", "Arp" };
+        const auto& x = info (i);
+        if (i >= O1Ona && i <= O1Niv) return std::string ("Osc 1 · ") + x.nom;
+        if (i >= O2Ona && i <= O2Niv) return std::string ("Osc 2 · ") + x.nom;
+        if (i >= AA && i <= AR) return std::string ("Env volum · ") + x.nom;
+        if (i >= FA && i <= FR) return std::string ("Env filtre · ") + x.nom;
+        return std::string (seccions[x.seccio]) + " · " + x.nom;
+    }
+
+    void SubBass::preparaSo (double f)
+    {
+        fsI = f * sobre;
+        for (auto& v : veus) v = Veu();
+        delL.buida(); delR.buida();
         numPila = 0;
         dcL = dcR = dcxL = dcxR = 0.0f;
     }
 
-    InfoParametre SubBass::infoParametre (int i) const
-    {
-        InfoParametre r;
-        const auto& x = infos[std::clamp (i, 0, numParams - 1)];
-        static const char* seccions[] = { "Osc", "Sub", "Filtre", "Env", "LFO", "Drive", "Mod", "Sortida" };
-        r.id = x.clau;
-        r.nom = std::string (seccions[x.seccio]) + " · " + x.nom;
-        if (i >= O1Ona && i <= O1Niv) r.nom = std::string ("Osc 1 · ") + x.nom;
-        else if (i >= O2Ona && i <= O2Niv) r.nom = std::string ("Osc 2 · ") + x.nom;
-        else if (i >= AA && i <= AR) r.nom = std::string ("Env volum · ") + x.nom;
-        else if (i >= FA && i <= FR) r.nom = std::string ("Env filtre · ") + x.nom;
-        r.passos = x.escala == Enter ? (int) (x.mx - x.mn) + 1 : 0;
-        return r;
-    }
-
-    void SubBass::posaParametre (int i, float v01) noexcept { if (i >= 0 && i < numParams) posa (i, deNormal (i, v01)); }
-    float SubBass::parametre (int i) const noexcept { return i >= 0 && i < numParams ? normal (i, valor (i)) : 0.0f; }
-    std::string SubBass::textParametre (int i, float v01) const { return textValor (i, deNormal (i, v01)); }
-
-    void SubBass::posa (int p, float v) noexcept
-    {
-        if (p < 0 || p >= numParams) return;
-        const auto& i = infos[p];
-        v = std::clamp (v, i.mn, i.mx);
-        if (i.escala == Enter) v = std::round (v);
-        par[(size_t) p].store (v, std::memory_order_relaxed);
-    }
-
-    // ---- estat ----
-    std::string SubBass::estatSo() const
-    {
-        std::string s = "mibase-subbass=1";
-        char b[64];
-        for (int i = 0; i < numParams; ++i)
-        {
-            std::snprintf (b, sizeof b, ";%s=%.6g", infos[i].clau, (double) valor (i));
-            s += b;
-        }
-        return s;
-    }
-
-    std::string SubBass::estat() const
-    {
-        auto s = estatSo();
-        std::string cc;
-        for (int c = 0; c < 128; ++c)
-            if (const int p = paramDeCC (c); p >= 0)
-                cc += (cc.empty() ? "" : ",") + std::to_string (c) + ">" + infos[p].clau;
-        s += ";cc=" + cc;
-        if (! nomPreset.empty())
-        {
-            std::string n = nomPreset;
-            for (auto& c : n) if (c == ';' || c == '=') c = ',';
-            s += ";pnom=" + n;
-        }
-        return s;
-    }
-
-    void SubBass::posaEstat (const std::string& s)
-    {
-        if (s.rfind ("mibase-subbass=", 0) != 0) return;
-        // primer es llegeix tot i després es posa: el fil d'àudio no veu mai valors a mitges
-        float v[numParams];
-        for (int i = 0; i < numParams; ++i) v[i] = infos[i].def;
-        std::string nom;
-        bool ambCC = false;
-        int cc[128];
-        for (auto& c : cc) c = -1;
-        size_t a = 0;
-        while (a < s.size())
-        {
-            size_t b = s.find (';', a);
-            if (b == std::string::npos) b = s.size();
-            const auto parell = s.substr (a, b - a);
-            const auto eq = parell.find ('=');
-            if (eq != std::string::npos)
-            {
-                const auto clau = parell.substr (0, eq), val = parell.substr (eq + 1);
-                if (clau == "pnom") nom = val;
-                else if (clau == "cc")
-                {
-                    ambCC = true;
-                    size_t x = 0;
-                    while (x < val.size())
-                    {
-                        size_t y = val.find (',', x);
-                        if (y == std::string::npos) y = val.size();
-                        const auto e = val.substr (x, y - x);
-                        const auto g = e.find ('>');
-                        if (g != std::string::npos)
-                        {
-                            const int n = std::atoi (e.substr (0, g).c_str());
-                            const auto cl = e.substr (g + 1);
-                            for (int i = 0; i < numParams; ++i)
-                                if (cl == infos[i].clau && n >= 0 && n < 128 && ! ccReservat (n)) cc[n] = i;
-                        }
-                        x = y + 1;
-                    }
-                }
-                else
-                    for (int i = 0; i < numParams; ++i)
-                        if (clau == infos[i].clau) v[i] = (float) std::strtod (val.c_str(), nullptr);
-            }
-            a = b + 1;
-        }
-        for (int i = 0; i < numParams; ++i) posa (i, v[i]);
-        nomPreset = nom;
-        if (ambCC)   // sense «cc=» (un preset) les assignacions no es toquen
-            for (int n = 0; n < 128; ++n) ccMapa[(size_t) n].store (cc[n]);
-    }
-
-    void SubBass::assignaCC (int cc, int param) noexcept
-    {
-        if (cc < 0 || cc >= 128 || ccReservat (cc) || param < 0 || param >= numParams) return;
-        treuCC (param);
-        ccMapa[(size_t) cc].store (param);
-    }
-    void SubBass::treuCC (int param) noexcept
-    {
-        for (auto& c : ccMapa) if (c.load() == param) c.store (-1);
-    }
-    int SubBass::ccDeParam (int param) const noexcept
-    {
-        for (int c = 0; c < 128; ++c) if (ccMapa[(size_t) c].load() == param) return c;
-        return -1;
-    }
-
-    void SubBass::copiaOna (float* d, int n) const noexcept
-    {
-        n = std::min (n, midaOna);
-        const int pos = posOna.load (std::memory_order_acquire);
-        for (int i = 0; i < n; ++i)
-            d[i] = ona[(size_t) ((pos - n + i + midaOna * 2) % midaOna)].load (std::memory_order_relaxed);
-    }
-
-    void SubBass::marcaNota (int n, bool on) noexcept
-    {
-        if (n < 0 || n > 127) return;
-        auto& w = notesOn[(size_t) (n >> 6)];
-        const std::uint64_t bit = 1ull << (n & 63);
-        if (on) w.fetch_or (bit, std::memory_order_relaxed); else w.fetch_and (~bit, std::memory_order_relaxed);
-    }
-
-    bool SubBass::fentSo() const noexcept
+    bool SubBass::veusSonen() const noexcept
     {
         for (const auto& v : veus) if (v.viva) return true;
         return false;
     }
+    int SubBass::numVeusActives() const noexcept
+    {
+        int n = 0;
+        for (const auto& v : veus) n += v.viva ? 1 : 0;
+        return n;
+    }
 
-    void SubBass::apagaTot() noexcept
+    void SubBass::apagaVeus() noexcept
     {
         for (auto& v : veus) if (v.viva) { v.etapaA = 4; v.tecla = false; v.etapaF = 3; }
         numPila = 0;
-        pedal = false;
-        for (auto& s : sostingudes) s = false;
-        for (auto& n : notesOn) n.store (0);
     }
 
     // ---- notes ----
@@ -454,11 +229,10 @@ namespace mibase::subbass
                     for (int k = 0; k < maxUnison; ++k) { v.f1[k] = 0.5 + 0.5 * aleat(); v.f2[k] = 0.5 + 0.5 * aleat(); }
                 for (auto& f : v.fl) f.buida();
                 v.drvTo[0] = v.drvTo[1] = 0.0f;
-                v.compta = 0;
             }
         }
         v.viva = true;
-        hzUltima.store ((float) (440.0 * std::pow (2.0, (nota - 69) / 12.0)), std::memory_order_relaxed);
+        posaHz ((float) (440.0 * std::pow (2.0, (nota - 69) / 12.0)));
         if (valor (LRetrig) > 0.5f && retriga && numPila <= 1) fase = 0.0;
     }
 
@@ -469,10 +243,8 @@ namespace mibase::subbass
         if (v.etapaF != 0) v.etapaF = 3;
     }
 
-    void SubBass::noteOn (int nota, int vel) noexcept
+    void SubBass::notaOn (int nota, int vel) noexcept
     {
-        marcaNota (nota, true);
-        sostingudes[nota] = false;
         const float vf = std::clamp (vel / 127.0f, 0.0f, 1.0f);
         const int mode = (int) valor (Mode);
         const bool ambGlide = valor (Glide) > 0.5f;
@@ -503,10 +275,8 @@ namespace mibase::subbass
         darreraNota = nota;
     }
 
-    void SubBass::noteOff (int nota) noexcept
+    void SubBass::notaOff (int nota) noexcept
     {
-        marcaNota (nota, false);
-        if (pedal) { sostingudes[nota] = true; return; }
         const int mode = (int) valor (Mode);
         if (mode == 2)
         {
@@ -527,109 +297,35 @@ namespace mibase::subbass
         else allibera (v);
     }
 
-    void SubBass::controla (int cc, int val) noexcept
-    {
-        const int apr = aprenent.load (std::memory_order_relaxed);
-        if (apr >= 0 && ! ccReservat (cc))
-        {
-            for (auto& c : ccMapa) if (c.load (std::memory_order_relaxed) == apr) c.store (-1, std::memory_order_relaxed);
-            ccMapa[(size_t) cc].store (apr, std::memory_order_relaxed);
-            aprenent.store (-1);
-        }
-        if (cc == 1) { rodaMod = val / 127.0f; rodaV.store (rodaMod, std::memory_order_relaxed); return; }
-        if (cc == 64)
-        {
-            pedal = val >= 64;
-            if (! pedal)
-                for (int n = 0; n < 128; ++n)
-                    if (sostingudes[n]) { sostingudes[n] = false; noteOff (n); }
-            return;
-        }
-        if (cc == 120 || cc == 123) { apagaTot(); return; }
-        const int p = ccMapa[(size_t) cc].load (std::memory_order_relaxed);
-        if (p >= 0) posa (p, deNormal (p, val / 127.0f));
-    }
-
     // ---- so ----
-    void SubBass::processa (const EventInstrument* events, int numEvents, float* L, float* R, int n) noexcept
+    void SubBass::renderitza (float* L, float* R, int m) noexcept
     {
-        const auto t0 = std::chrono::steady_clock::now();
-        int fet = 0, e = 0;
-        while (fet < n)
+        renderitza2x (m);
+        float oL[tros], oR[tros];
+        delL.processa (bufL, oL, m);
+        delR.processa (bufR, oR, m);
+        const float volObj = std::pow (10.0f, valor (Volum) / 20.0f);
+        const float amp = valor (Ample);
+        const bool lim = valor (Limit) > 0.5f;
+        for (int i = 0; i < m; ++i)
         {
-            while (e < numEvents && events[e].offset <= fet)
+            const float yl = oL[i], yr = oR[i];
+            const float ol = yl - dcxL + 0.9995f * dcL; dcxL = yl; dcL = ol;
+            const float orr = yr - dcxR + 0.9995f * dcR; dcxR = yr; dcR = orr;
+            volSuau += (volObj - volSuau) * 0.002f;
+            const float mid = 0.5f * (ol + orr), sid = 0.5f * (ol - orr) * amp;
+            float a = (mid + sid) * volSuau, b = (mid - sid) * volSuau;
+            if (lim)
             {
-                const auto& ev = events[e++];
-                const int tipus = ev.estat & 0xF0;
-                if (tipus == 0x90 && ev.dada2 > 0) noteOn (ev.dada1 & 127, ev.dada2);
-                else if (tipus == 0x80 || (tipus == 0x90 && ev.dada2 == 0)) noteOff (ev.dada1 & 127);
-                else if (tipus == 0xB0) controla (ev.dada1 & 127, ev.dada2);
-                else if (tipus == 0xE0)
-                {
-                    const float b = (float) (((int) ev.dada2 << 7 | ev.dada1) - 8192) / 8192.0f;
-                    bendV.store (b, std::memory_order_relaxed);
-                    bendSemis = b;
-                }
+                auto sl = [] (float x) { const float ax = std::abs (x); return ax <= 0.8f ? x : std::copysign (0.8f + 0.2f * tanhR ((ax - 0.8f) / 0.2f), x); };
+                a = sl (a); b = sl (b);
             }
-            int fins = e < numEvents ? std::min (n, std::max (fet + 1, events[e].offset)) : n;
-            fins = std::min (fins, fet + tros);
-            const int m = fins - fet;
-            renderitza (m);
-            // delmat 2× → 1× amb el filtre de mitja banda
-            const int nI = m * sobre, h = numHb - 1;
-            float wL[tros * sobre + 64], wR[tros * sobre + 64];
-            std::memcpy (wL, histL, sizeof (float) * (size_t) h);
-            std::memcpy (wR, histR, sizeof (float) * (size_t) h);
-            std::memcpy (wL + h, bufL, sizeof (float) * (size_t) nI);
-            std::memcpy (wR + h, bufR, sizeof (float) * (size_t) nI);
-            const float volObj = std::pow (10.0f, valor (Volum) / 20.0f);
-            const float amp = valor (Ample);
-            const bool lim = valor (Limit) > 0.5f;
-            float pic = nivellV.load (std::memory_order_relaxed) * 0.97f;
-            int pos = posOna.load (std::memory_order_relaxed);
-            for (int i = 0; i < m; ++i)
-            {
-                float yl = 0.0f, yr = 0.0f;
-                const float* xl = wL + 2 * i + 1;
-                const float* xr = wR + 2 * i + 1;
-                for (int j = 0; j < numHb; j += 2) { yl += hb[j] * xl[j]; yr += hb[j] * xr[j]; }
-                // els coeficients no nuls són els parells i el del centre (senar)
-                const int c = numHb / 2;
-                yl += hb[c] * xl[c]; yr += hb[c] * xr[c];
-                // tallar la continua
-                const float ol = yl - dcxL + 0.9995f * dcL; dcxL = yl; dcL = ol;
-                const float orr = yr - dcxR + 0.9995f * dcR; dcxR = yr; dcR = orr;
-                volSuau += (volObj - volSuau) * 0.002f;
-                float mid = 0.5f * (ol + orr), sid = 0.5f * (ol - orr) * amp;
-                float a = (mid + sid) * volSuau, b = (mid - sid) * volSuau;
-                if (lim)
-                {
-                    auto sl = [] (float x) { const float ax = std::abs (x); return ax <= 0.8f ? x : std::copysign (0.8f + 0.2f * tanhR ((ax - 0.8f) / 0.2f), x); };
-                    a = sl (a); b = sl (b);
-                }
-                L[fet + i] = a;
-                R[fet + i] = b;
-                pic = std::max (pic, std::max (std::abs (a), std::abs (b)));
-                ona[(size_t) pos].store (0.5f * (a + b), std::memory_order_relaxed);
-                pos = (pos + 1) % midaOna;
-            }
-            posOna.store (pos, std::memory_order_release);
-            nivellV.store (pic, std::memory_order_relaxed);
-            std::memcpy (histL, wL + nI, sizeof (float) * (size_t) h);
-            std::memcpy (histR, wR + nI, sizeof (float) * (size_t) h);
-            fet = fins;
+            L[i] = a;
+            R[i] = b;
         }
-        while (e < numEvents) { const auto& ev = events[e++]; if ((ev.estat & 0xF0) == 0x80 || ((ev.estat & 0xF0) == 0x90 && ev.dada2 == 0)) noteOff (ev.dada1 & 127); }
-        int act = 0;
-        for (const auto& v : veus) act += v.viva ? 1 : 0;
-        actives.store (act, std::memory_order_relaxed);
-        const double usat = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
-        const float carrega = (float) (usat / std::max (1e-6, n / fs));
-        const float ant = cpu.load (std::memory_order_relaxed);
-        cpu.store (ant + (carrega - ant) * 0.05f, std::memory_order_relaxed);
     }
 
-    void SubBass::renderitza (int n) noexcept
+    void SubBass::renderitza2x (int n) noexcept
     {
         const int nI = n * sobre;
         std::memset (bufL, 0, sizeof (float) * (size_t) nI);
@@ -664,7 +360,7 @@ namespace mibase::subbass
                 default: l = lfoSH; break;
             }
             lfoVal += (l - lfoVal) * (lw == 3 || lw == 4 ? 0.5f : 1.0f);
-            lfoV.store (lfoVal, std::memory_order_relaxed);
+            posaLfo (lfoVal);
             for (auto& v : veus)
                 if (v.viva) renderitzaVeu (v, s, m, lfoVal);
         }
@@ -699,7 +395,7 @@ namespace mibase::subbass
         }
         // envolupant de to
         const float pe = valor (PEnvQuant);
-        double semis = v.semis + bendSemis * valor (BendRang);
+        double semis = v.semis + bendCru * valor (BendRang);
         if (std::abs (pe) > 1e-3f) semis += pe * std::exp (-v.tPEnv / (valor (PEnvTemps) / 1000.0f));
         v.tPEnv += (float) dtS;
         if (desti == 1) semis += lfoM * lfoQ * 12.0f;
