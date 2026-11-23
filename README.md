@@ -113,6 +113,12 @@ Canvia el temps d'un clip d'àudio **sense canviar-ne el to**: per corregir cops
 - Com sona: els atacs (cops, púes, consonants) no s'estiren mai: cada cop comença exactament on diu el marcador i només s'estira el que hi ha entre cops. Es pot anar de 4 vegades més ràpid a 4 vegades més lent, però el que sona més natural és quedar-se entre el 80 % i el 125 %.
 - Funciona amb tot: moure, copiar, tallar, crossfades, la bandera del primer temps, exportar, Print i la Cola. Si la pista té el Vocal Editor encès, s'estira la veu ja corregida.
 
+### Acords d'un àudio i panell de la pista (0.87)
+- **Arrossega un clip d'àudio a la pista d'Acords** (amb la fletxa, cap amunt fins a la fila d'Acords) i deixa'l anar: el clip no es mou, però Mibase l'escolta i hi posa els acords, un per compàs o per mig compàs, seguint el tempo. També des del **Pool** (deixant l'àudio a la pista d'Acords, on caurà) o amb el botó **«Treu els acords»** del panell Clip.
+- Reconeix majors, menors, 7, m7, maj7, disminuïts i inversions («C/E»). Els que no són segurs surten **més apagats i amb un «?»**: revisa'ls. En canviar-ne un a mà, deixa de ser dubtós. Ctrl+Z ho desfà tot d'un cop.
+- Va molt bé amb guitarra, piano o una mescla senzilla. Amb bateria i veu fortes encerta menys. Si el clip té Elastic Audio, s'escolta tal com sona.
+- **Panell de la dreta, «Pista triada»**: el tipus de pista, l'entrada i la sortida, els efectes i els enviaments, sense obrir la taula de mescles. A sota, un **quadre de notes** per a cada pista (què falta, quin so…): es desa sol en sortir del quadre o canviar de pista, i es guarda amb el projecte.
+
 ### Exportar (0.83)
 Fitxer → Exporta obre una finestra amb les opcions:
 - **Què**: tota la mescla (tal com sona, amb mutes i solos), una mescla amb les pistes triades, **un fitxer per pista** (stems) o **un per carpeta**. Amb més d'un fitxer, tria la carpeta on van; tots comencen i acaben al mateix lloc (per posar-los junts en un altre programa).
@@ -446,6 +452,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.87.0** — **Acords d'un àudio**: arrossega un clip d'àudio (o un àudio del Pool) a la pista d'Acords, o fes servir el botó «Treu els acords», i Mibase hi posa els acords que sent (majors, menors, 7, m7, maj7, dim, inversions); els dubtosos surten apagats i amb «?». **Panell de la dreta**: secció «Pista triada» (tipus, entrada i sortida, efectes, enviaments) i un quadre de notes per pista que es desa amb el projecte.
 - **0.86.0** — **Elastic Audio**: canviar el temps dels clips d'àudio sense canviar el to. Eina nova (tecla 7): estirar el clip per les vores, el marcador del mig que reparteix el temps entre dues meitats, i tants marcadors com calgui (clic a l'ona, arrossegar, doble clic per treure'n). Botó «Elastic Audio» al panell del clip: algorisme (General, Ritme, Veu), marcadors als cops, quantitzar a la graella (100 % o 50 %), treure els marcadors i restaurar l'original. Trossos lents en blau i ràpids en taronja. Motor WSOLA amb mapa de temps variable que talla als cops (atacs intactes); el so estirat es calcula en un fil a part. No destructiu, amb Ctrl+Z.
 - **0.85.0** — **Pool** (pestanya nova del panell de la dreta): tots els àudios del projecte amb durada, mono/estèreo, freqüència i on es fan servir. Clic: tria a la taula tots els clips on surt; triangle o doble clic: escolta'l; arrossega'l a la taula per tornar-lo a posar (sense copiar res); ordre per nom, més nous, durada o sense fer servir; cerca; importar àudios sense posar-los a la taula; canviar el nom del fitxer; obrir la carpeta; els que falten surten en vermell i es poden buscar; treure els que sobren a la paperera del projecte (es pot desfer) i buidar-la.
 - **0.84.0** — Arreglat: desar un rasgueig propi amb un altre nom esborrava l'original (ara se'n fa un de nou; si el nom ja existeix, s'hi afegeix un número) i nova opció «Desa els canvis a…» per actualitzar el mateix. Cada pista queda una mica tenyida del seu color (fila, capçalera i preses). Corregit el text «Què» de la finestra d'exportar.

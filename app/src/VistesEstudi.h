@@ -156,6 +156,8 @@ public:
     std::function<void (int pista, int a, int b)> onConsolida;
     std::function<void (int pista)> onConsolidaComp;   // 0.81
     std::function<void (int pista)> onPrint;           // 0.82
+    /** 0.87: un clip d'àudio deixat a la pista d'Acords: se'n treuen els acords. */
+    std::function<void (int pista, int clip)> onAcordsDeClip;
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;
@@ -202,6 +204,7 @@ private:
     LlocElastic elastic0, sobreElastic;
     double elasticT0 = 0.0;   // on era la vora o el marcador en començar
     bool elasticMogut = false;
+    int filaAcordsDeixar = -1;   // 0.87: s'arrossega un clip d'àudio a sobre de la pista d'Acords
     // ---- 0.81: subpistes de preses i comping ----
     void pintaTakes (juce::Graphics& g, int pista);
     bool mouseDownLane (const juce::MouseEvent& e);
@@ -455,6 +458,7 @@ public:
     explicit PanellPista (EstatEstudi& e);
     std::function<void()> onDuplica, onTreu;
     std::function<void (juce::Component&)> onElastic;   // 0.86: el menú d'Elastic Audio del clip triat
+    std::function<void()> onAcords;                       // 0.87: els acords del clip triat a la pista d'Acords
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -466,5 +470,11 @@ private:
     Boto btDuplica { "Duplica", std::nullopt, Boto::Estil::Secundari };
     Boto btTreu { "Treu", std::nullopt, Boto::Estil::Secundari };
     Boto btElastic { "Elastic Audio", dibuix::Icona::Elastic, Boto::Estil::Secundari };   // 0.86
+    Boto btAcords { "Treu els acords", std::nullopt, Boto::Estil::Secundari };            // 0.87
+    // ---- 0.87: la pista triada i les seves notes ----
+    juce::TextEditor notes;
+    std::string idNotes;     // de quina pista són les notes que hi ha escrites
+    void desaNotes();
+    int yPista = 0;          // on comença la secció de la pista (es calcula a resized)
     Boto btEstructura { "Estructura: lineal", std::nullopt, Boto::Estil::Secundari };   // 0.15: quina estructura sona
 };

@@ -1,4 +1,5 @@
 #include "PantallaEstudi.h"
+#include <mibase/DeteccioAcords.h>
 #include <mibase/ContextMusical.h>
 #include <array>
 #include "FinestraFlotant.h"
@@ -471,6 +472,17 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
     panell.onElastic = [this] (juce::Component& b) { menuElastic (b); };   // 0.86
+    panell.onAcords = [this]   // 0.87
+    {
+        if (estat.triats.size() != 1) return;
+        if (const auto* c = estat.clip (estat.triats[0]))
+            if (const auto* s = ed::presa (estat.projecte, c->presa)) treuAcords (*c, dibuix::utf8 (s->nom));
+    };
+    pistes.onAcordsDeClip = [this] (int pista, int clip)   // 0.87: un clip arrossegat a la pista d'Acords
+    {
+        if (const auto* c = estat.clip ({ pista, clip }))
+            if (const auto* s = ed::presa (estat.projecte, c->presa)) treuAcords (*c, dibuix::utf8 (s->nom));
+    };
 
     // Carpetes de pistes (0.11).
     addChildComponent (carpetes);
@@ -3942,6 +3954,15 @@ void PantallaEstudi::deixaPresa (const std::string& id, int fila, double temps)
     const auto* s = ed::presa (estat.projecte, id);
     if (s == nullptr) return;
     auto* t = fila >= 0 ? estat.pista (fila) : nullptr;
+    if (t != nullptr && mibase::esAcords (*t))   // 0.87: a la pista d'Acords: se n'escolten els acords (el clip no s'hi posa)
+    {
+        mibase::Clip c;
+        c.presa = id;
+        c.pos = juce::jmax (0.0, temps);
+        c.fi = s->durada;
+        treuAcords (c, dibuix::utf8 (s->nom));
+        return;
+    }
     if (t != nullptr && (mibase::esMidi (*t) || mibase::esBus (*t) || mibase::esAcords (*t)))
     {
         estat.info = "Deixa'l en una pista d'àudio o a sota de les pistes (pista nova)"_ca;
@@ -4080,4 +4101,54 @@ void PantallaEstudi::menuElastic (juce::Component& boto)
         estat.desfes.abans (copia);
         estat.canviat (text);
     });
+}
+
+//==============================================================================
+// 0.87: acords d'un àudio
+//==============================================================================
+void PantallaEstudi::treuAcords (const mibase::Clip& c0, const juce::String& nom)
+{
+    auto c = c0;
+    auto ia = audioPreses.find (c.presa);
+    if (c.midi || c.presa.empty() || ia == audioPreses.end() || ia->second == nullptr)
+    {
+        estat.info = "Aquest clip no té l'àudio carregat"_ca;
+        estat.avisa();
+        return;
+    }
+    juce::MouseCursor::showWaitCursor();
+    std::shared_ptr<const mibase::AudioPresa> so = ia->second;
+    if (mibase::elastic::actiu (c))
+    {
+        // Amb Elastic Audio s'escolta el so estirat (tal com sona a la línia de temps).
+        so = mibase::elastic::renderitza (*so, c.warp, c.elastic);
+        c.warp.clear();
+    }
+    const auto trobats = mibase::acordsAudio::detecta (estat.projecte, c, *so);
+    juce::MouseCursor::hideWaitCursor();
+    if (trobats.empty())
+    {
+        estat.info = "No s'hi ha trobat cap acord (silenci o massa poc clar)"_ca;
+        estat.avisa();
+        return;
+    }
+    estat.desfes.abans (estat.projecte);
+    int posats = 0, dubtosos = 0;
+    for (auto& a : trobats)
+    {
+        const int i = ed::posaAcord (estat.projecte, a.ini, a.fi, a.nom);
+        if (i < 0) continue;
+        ++posats;
+        if (a.dubtos)
+        {
+            estat.projecte.pistes[(size_t) ed::pistaAcords (estat.projecte)].clips[(size_t) i].dubtos = true;
+            ++dubtosos;
+        }
+    }
+    const auto text = "Acords de «"_ca + nom + "»: " + juce::String (posats) + (posats == 1 ? " acord" : " acords")
+                    + (dubtosos > 0 ? ", "_ca + juce::String (dubtosos) + " per revisar (amb «?»)"_ca : juce::String());
+    estat.recalculaFiles();
+    estat.canviat (text);
+    estat.info = text;
+    estat.avisa();
 }

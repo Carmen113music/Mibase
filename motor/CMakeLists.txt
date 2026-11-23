@@ -8,6 +8,7 @@ add_library(mibase_motor STATIC
     src/Takes.cpp
     src/Pool.cpp
     src/Elastic.cpp
+    src/DeteccioAcords.cpp
     src/Wav.cpp
     src/Gravadora.cpp
     src/MotorEstudi.cpp

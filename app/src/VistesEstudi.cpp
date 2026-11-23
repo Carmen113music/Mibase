@@ -827,7 +827,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
     {
         // 0.36: un bloc de la pista d'Acords: l'etiqueta amb el nom i una barra fins on dura (com la Chord Track de Cubase)
         const bool triatA = estat.clipTriat (pista, indexClip);
-        const auto col = c.mut ? tema::suau : juce::Colour (0xffa98bff);
+        const auto col = c.mut ? tema::suau : juce::Colour (0xffa98bff).withMultipliedAlpha (c.dubtos ? 0.5f : 1.0f);   // 0.87: dubtós, més apagat
         auto barra = r.withTrimmedTop (r.getHeight() * 0.62f).withTrimmedBottom (r.getHeight() * 0.2f);
         g.setColour (col.withAlpha (triatA ? 0.55f : 0.30f));
         g.fillRoundedRectangle (barra.withTrimmedRight (3.0f), 2.0f);
@@ -835,7 +835,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         g.fillRect (r.getX(), r.getY() + 4.0f, 2.0f, r.getHeight() - 8.0f);
         g.setFont (dibuix::lletra (juce::jlimit (12.0f, 20.0f, r.getHeight() * 0.36f), true));
         const auto net = mibase::harmonia::nomPad (mibase::harmonia::llegeixAcord (c.acord));   // sense la «^n» de la inversió
-        const auto nom = juce::String::fromUTF8 ((net.empty() ? c.acord : net).c_str());
+        const auto nom = juce::String::fromUTF8 ((net.empty() ? c.acord : net).c_str()) + (c.dubtos ? "?" : "");
         const float w = juce::jmin (r.getWidth() - 6.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), nom) + 14.0f);
         auto etiqueta = juce::Rectangle<float> (r.getX() + 4.0f, r.getY() + 6.0f, juce::jmax (8.0f, w), r.getHeight() * 0.5f - 4.0f);
         g.setColour (triatA ? col : col.withAlpha (0.85f));
@@ -1395,7 +1395,7 @@ void VistaPistes::menuAcords (int pista, int clip, double t)
             if (clip >= 0 && clip < (int) p.pistes[(size_t) pista].clips.size())
             {
                 if (mibase::harmonia::llegeixAcord (nom).buit()) return;
-                p.pistes[(size_t) pista].clips[(size_t) clip].acord = nom;
+                { p.pistes[(size_t) pista].clips[(size_t) clip].acord = nom; p.pistes[(size_t) pista].clips[(size_t) clip].dubtos = false; }   // 0.87: revisat
             }
             else
             {
@@ -1441,7 +1441,7 @@ void VistaPistes::obreFinestraAcords (int pista, int clip, double t, juce::Point
             jo->restaura();
             auto& p = jo->estat.projecte;
             auto& clips = p.pistes[(size_t) pista].clips;
-            if (clip >= 0 && clip < (int) clips.size()) clips[(size_t) clip].acord = nom;
+            if (clip >= 0 && clip < (int) clips.size()) { clips[(size_t) clip].acord = nom; clips[(size_t) clip].dubtos = false; }   // 0.87: revisat
             else if (fi > t + 0.02) ed::posaAcord (p, t, fi, nom);   // 0.42: el tros que s'ha dibuixat
             else
             {
@@ -2251,6 +2251,21 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
         {
             restaura();
             const int fila = juce::jlimit (0, estat.numPistes() - 1, estat.pistaA (e.y));
+            // 0.87: un sol clip d'àudio a sobre de la pista d'Acords: no es mou; en deixar-lo, se'n treuen els acords.
+            filaAcordsDeixar = -1;
+            if (mibase::esAcords (p.pistes[(size_t) fila]) && triatsOriginals.size() == 1)
+                if (const auto* c = estat.clip (triatsOriginals[0]); c != nullptr && ! c->midi && ! c->esAcord() && ! c->presa.empty())
+                {
+                    canviFet = false;
+                    estat.triats = triatsOriginals;
+                    estat.pistaTriada = lloc0.pista;
+                    filaAcordsDeixar = fila;
+                    filaDeixar = fila;
+                    estat.info = "Deixa'l aquí: Mibase n'escoltarà els acords i els posarà a la pista d'Acords"_ca;
+                    estat.avisa();
+                    return;
+                }
+            if (filaDeixar >= 0) filaDeixar = -2;
             const int d = fila - lloc0.pista;
             estat.triats = ed::mouDePista (p, triatsOriginals, d);
             if (estat.triats == triatsOriginals) canviFet = false;
@@ -2459,6 +2474,14 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
         case Mode::MouTemps: case Mode::MouPista: case Mode::RetallInici: case Mode::RetallFi:
         case Mode::FadeIn: case Mode::FadeOut: case Mode::Guany: case Mode::Bandera:
             acabaCanvi();
+            if (mode == Mode::MouPista && filaAcordsDeixar >= 0 && triatsOriginals.size() == 1)   // 0.87
+            {
+                filaDeixar = -2;
+                filaAcordsDeixar = -1;
+                const auto ref = triatsOriginals[0];
+                if (onAcordsDeClip) onAcordsDeClip (ref.pista, ref.clip);
+            }
+            filaAcordsDeixar = -1;
             break;
 
         case Mode::ElasticVora:   // 0.86
@@ -4232,6 +4255,22 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
     addChildComponent (btElastic);   // 0.86
     btElastic.setTooltip ("Elastic Audio del clip: algorisme, marcadors als cops, quantitzar i tornar a l'original"_ca);
     btElastic.onClick = [this] { if (onElastic) onElastic (btElastic); };
+    addChildComponent (btAcords);   // 0.87
+    btAcords.setTooltip ("Escolta el clip i posa'n els acords a la pista d'Acords (els dubtosos surten amb un «?»). També pots arrossegar el clip a la pista d'Acords."_ca);
+    btAcords.onClick = [this] { if (onAcords) onAcords(); };
+    // 0.87: notes de la pista triada
+    addAndMakeVisible (notes);
+    notes.setMultiLine (true, true);
+    notes.setReturnKeyStartsNewLine (true);
+    notes.setScrollbarsShown (true);
+    notes.setFont (dibuix::lletra (13.0f));
+    notes.setTextToShowWhenEmpty ("Notes de la pista (què falta, quin so, idees…)"_ca, tema::suau);
+    notes.setColour (juce::TextEditor::backgroundColourId, tema::superficie);
+    notes.setColour (juce::TextEditor::outlineColourId, tema::linia);
+    notes.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+    notes.setColour (juce::TextEditor::textColourId, tema::text);
+    notes.onFocusLost = [this] { desaNotes(); };
+    notes.onEscapeKey = [this] { desaNotes(); unfocusAllComponents(); };
     addAndMakeVisible (btEstructura);
     btEstructura.setTooltip ("Quina estructura sona en fer play: la línia de temps tal com és (lineal) o una de la taula d'estructura"_ca);
     btEstructura.onClick = [this]
@@ -4263,6 +4302,22 @@ void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
     {
         const auto* c = estat.clipUnicTriat();   // 0.86: només per a un clip d'àudio
         btElastic.setVisible (c != nullptr && ! c->midi && ! c->esAcord() && ! c->presa.empty());
+        btAcords.setVisible (btElastic.isVisible());
+    }
+    {
+        // 0.87: si ha canviat la pista triada, es desen les notes de l'anterior i es mostren les de la nova
+        const auto* t = estat.pista (estat.pistaTriada);
+        const std::string id = t != nullptr ? t->id : std::string();
+        if (id != idNotes)
+        {
+            desaNotes();
+            idNotes = id;
+            notes.setText (t != nullptr ? juce::String::fromUTF8 (t->notes.c_str()) : juce::String(), juce::dontSendNotification);
+        }
+        else if (t != nullptr && ! notes.hasKeyboardFocus (true) && notes.getText().toStdString() != t->notes)
+            notes.setText (juce::String::fromUTF8 (t->notes.c_str()), juce::dontSendNotification);   // desfer / refer
+        notes.setVisible (t != nullptr);
+        resized();
     }
     {
         const auto* e = ed::estructura (estat.projecte, estat.projecte.estructuraActiva);
@@ -4277,7 +4332,19 @@ void PanellPista::resized()
     btDuplica.setBounds (botons.removeFromLeft (botons.getWidth() / 2 - 5));
     botons.removeFromLeft (10);
     btTreu.setBounds (botons);
-    btElastic.setBounds (getLocalBounds().reduced (18, 16).withTrimmedTop (274).withHeight (32));   // 0.86
+    {
+        auto fila = getLocalBounds().reduced (18, 16).withTrimmedTop (274).withHeight (32);   // 0.86 / 0.87
+        btElastic.setBounds (fila.removeFromLeft (fila.getWidth() / 2 - 5));
+        fila.removeFromLeft (10);
+        btAcords.setBounds (fila);
+    }
+    // 0.87: la pista triada: títol i 4 línies d'informació, i a sota les notes
+    yPista = 16 + (btElastic.isVisible() ? 320 : 280);
+    {
+        const int notesY = yPista + 24 + 4 * 22 + 6;
+        const int baix = getHeight() - 16 - 34 - 10;
+        notes.setBounds (18, notesY, getWidth() - 36, juce::jlimit (40, 160, baix - notesY));
+    }
     btEstructura.setBounds (getLocalBounds().reduced (18, 16).removeFromBottom (34));
 }
 
@@ -4352,7 +4419,48 @@ void PanellPista::paint (juce::Graphics& g)
                           info.removeFromTop (60), juce::Justification::topLeft, 3);
     }
 
-    r.removeFromTop (btElastic.isVisible() ? 330 : 290);
+    // 0.87: la pista triada (sense haver d'obrir la taula de mescles)
+    if (const auto* t = estat.pista (estat.pistaTriada))
+    {
+        auto zona = juce::Rectangle<int> (18, yPista, getWidth() - 36, 24 + 4 * 22);
+        dibuix::pintaEtiquetaSeccio (g, "Pista triada", zona.removeFromTop (20));
+        zona.removeFromTop (4);
+        auto fila = [&] (const juce::String& etiqueta, const juce::String& valor)
+        {
+            auto f = zona.removeFromTop (22);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (12.0f));
+            g.drawText (etiqueta, f.removeFromLeft (74), juce::Justification::centredLeft);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.5f));
+            g.drawText (valor, f, juce::Justification::centredLeft, true);
+        };
+        auto nomPista = [&] (const std::string& id) -> juce::String
+        {
+            for (auto& x : p.pistes) if (x.id == id) return dibuix::utf8 (x.nom);
+            return "?";
+        };
+        const juce::String tipus = mibase::esAcords (*t) ? "acords"_ca : mibase::esBus (*t) ? (t->tipus == "fx" ? "retorn d'efectes"_ca : "grup"_ca)
+                                 : mibase::esKit (*t) ? "bateria (MIDI)"_ca : mibase::esMidi (*t) ? "instrument (MIDI)"_ca
+                                 : (t->canals == 2 ? "àudio estèreo"_ca : "àudio mono"_ca);
+        fila ("Pista", dibuix::utf8 (t->nom) + "  · "_ca + tipus);
+        if (! mibase::esAcords (*t))
+        {
+            const juce::String entrada = mibase::esBus (*t) ? juce::String ("busos i enviaments")
+                                       : mibase::esMidi (*t) ? (t->entradaMidiNom.empty() ? juce::String ("teclat de la pista triada") : dibuix::utf8 (t->entradaMidiNom))
+                                       : juce::String (t->entrada + 1) + (t->canals == 2 ? "-" + juce::String (t->entrada + 2) : juce::String());
+            fila ("E / S", entrada + "  >  "_ca + (t->sortida.empty() ? juce::String ("Màster"_ca) : nomPista (t->sortida)));
+            juce::StringArray efectes;
+            for (auto& x : t->inserts) efectes.add (dibuix::utf8 (x.nom) + (x.actiu ? "" : " (apagat)"));
+            fila ("Efectes", efectes.isEmpty() ? juce::String ("cap") : efectes.joinIntoString (", "));
+            juce::StringArray env;
+            for (auto& x : t->enviaments) env.add (nomPista (x.desti) + " " + EstatEstudi::textDb (x.nivellDb));
+            fila ("Enviaments", env.isEmpty() ? juce::String ("cap") : env.joinIntoString (", "));
+        }
+        r = r.withTop (notes.getBottom() + 14);
+    }
+    else r.removeFromTop (btElastic.isVisible() ? 330 : 290);
+    if (r.getHeight() < 80) return;
     dibuix::pintaEtiquetaSeccio (g, "Eines", r.removeFromTop (20));
     const char* linies[] = {
         "Fletxa (1): tria i mou. Arrossega en un lloc buit per fer un requadre. Cantonades: retallar i fades; punt del mig: volum.",
@@ -4591,4 +4699,21 @@ void VistaPistes::pintaElastic (juce::Graphics& g, int pista, int indexClip, con
         g.setColour (tema::accent);
         g.fillRect (juce::Rectangle<float> (x, r.getY(), 4.0f, r.getHeight()));
     }
+}
+
+void PanellPista::desaNotes()
+{
+    // 0.87: les notes de la pista es desen en sortir del quadre (o en canviar de pista), amb Ctrl+Z
+    if (idNotes.empty()) return;
+    const auto text = notes.getText().toStdString();
+    for (int i = 0; i < estat.numPistes(); ++i)
+        if (estat.projecte.pistes[(size_t) i].id == idNotes)
+        {
+            if (estat.projecte.pistes[(size_t) i].notes == text) return;
+            comencaCanvi();
+            restaura();
+            estat.projecte.pistes[(size_t) i].notes = text;
+            acabaCanvi ("Notes de la pista «"_ca + dibuix::utf8 (estat.projecte.pistes[(size_t) i].nom) + "»");
+            return;
+        }
 }

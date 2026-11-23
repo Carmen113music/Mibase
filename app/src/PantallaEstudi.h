@@ -153,6 +153,8 @@ private:
     void recullElastic();
     /** El menú d'Elastic Audio del clip triat (algorisme, marcadors als cops, quantitzar, restaurar). */
     void menuElastic (juce::Component& boto);
+    /** 0.87: escolta el clip d'àudio i en posa els acords a la pista d'Acords (els dubtosos, marcats). */
+    void treuAcords (const mibase::Clip& c, const juce::String& nom);
     // 0.24: solo dels editors.
     std::string pistaEditor() const;
     void commutaSoloEditor();

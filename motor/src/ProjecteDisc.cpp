@@ -381,6 +381,7 @@ namespace mibase::disc
                 t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
+                t.notes = e.value ("notes", std::string());   // 0.87
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
                 t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
@@ -518,6 +519,7 @@ namespace mibase::disc
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
                         c.acord = k.value ("acord", std::string());   // 0.36
+                        c.dubtos = k.value ("dubtos", false);   // 0.87
                         if (k.contains ("warp") && k["warp"].is_array())   // 0.86: Elastic Audio
                         {
                             for (auto& w : k["warp"])
@@ -815,6 +817,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                            { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
                            { "rgb", c.rgb } };
                 if (c.esAcord()) k["acord"] = c.acord;   // 0.36
+                if (c.esAcord() && c.dubtos) k["dubtos"] = true;   // 0.87
                 if (! c.warp.empty())   // 0.86: Elastic Audio
                 {
                     json ww = json::array();
@@ -891,6 +894,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
+            if (! t.notes.empty()) pista["notes"] = t.notes;   // 0.87
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
             if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
             if (! t.enviaments.empty())

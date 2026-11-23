@@ -22,6 +22,7 @@
 #include "mibase/TeclatAcords.h"
 #include "mibase/Bateria.h"
 #include "mibase/Elastic.h"
+#include "mibase/DeteccioAcords.h"
 #include "mibase/PatronsBateria.h"
 #include "mibase/SeguimentCapcal.h"
 #include "mibase/Reverb.h"
@@ -186,6 +187,7 @@ namespace
 #include "proves_083.inc"
 #include "proves_085.inc"
 #include "proves_086.inc"
+#include "proves_087.inc"
 
 int main()
 {
@@ -2423,6 +2425,7 @@ int main()
     proves083();
     proves085();
     proves086();
+    proves087();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

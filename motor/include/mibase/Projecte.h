@@ -148,6 +148,7 @@ namespace mibase
             No sona: és la guia de la cançó. Ocupa de iniciVisible() a fiVisible(). */
         std::string acord;
         bool esAcord() const noexcept { return ! acord.empty(); }
+        bool dubtos = false;   // 0.87: acord proposat per la detecció d'un àudio i poc segur (cal revisar-lo)
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
         std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
@@ -301,6 +302,7 @@ namespace mibase
         int canals = 1;                 // 1 mono, 2 estèreo
         int color = 0;                  // índex de la paleta de colors de pista
         std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta
+        std::string notes;   // 0.87: anotacions d'en Roger sobre la pista (panell de la dreta)
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6
