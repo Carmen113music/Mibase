@@ -2126,9 +2126,14 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
     const auto clipFora = [&]
     {
         if (! (mode == Mode::Decidint || mode == Mode::MouTemps || mode == Mode::MouPista || (mode == Mode::Requadre && lloc0.clip >= 0 && ! nomesSeleccio))) return false;
-        if (! arrossegaFora || ! arrossegaFora (e.getScreenPosition())) return false;
         // movent, el projecte bo és la còpia d'abans de moure; fent un requadre, no s'ha mogut res
         const auto& pr = mode == Mode::Requadre ? estat.projecte : copiaInici;
+        // 0.92.1: un acord de la pista d'Acords surt de la taula cap a qualsevol lloc (Piano Roll, Chord Pad, patrons)
+        const bool esAcordFora = lloc0.pista >= 0 && lloc0.pista < (int) pr.pistes.size() && lloc0.clip >= 0
+                                 && lloc0.clip < (int) pr.pistes[(size_t) lloc0.pista].clips.size()
+                                 && pr.pistes[(size_t) lloc0.pista].clips[(size_t) lloc0.clip].esAcord()
+                                 && ! getScreenBounds().contains (e.getScreenPosition());
+        if (! esAcordFora && (! arrossegaFora || ! arrossegaFora (e.getScreenPosition()))) return false;
         return lloc0.pista >= 0 && lloc0.pista < (int) pr.pistes.size() && lloc0.clip >= 0
                && lloc0.clip < (int) pr.pistes[(size_t) lloc0.pista].clips.size() && ! mibase::esMidi (pr.pistes[(size_t) lloc0.pista]);
     };
@@ -4403,6 +4408,7 @@ void PanellPista::resized()
     yPista = 16 + (btElastic.isVisible() ? 320 : 280) + 18;
     {
         int notesY = yPista + 30 + 4 * 22 + 6;
+        if (const auto* tp = estat.pista (estat.pistaTriada); tp != nullptr && mibase::esMidi (*tp) && tp->segueixAcords) notesY += 22;   // 0.92.1: la línia «Acords»
         if (ambTeclat())
         {
             modesTeclat.setBounds (18 + 74, notesY, getWidth() - 36 - 74, 28);
@@ -4537,6 +4543,16 @@ void PanellPista::paint (juce::Graphics& g)
             juce::StringArray env;
             for (auto& x : t->enviaments) env.add (nomPista (x.desti) + " " + EstatEstudi::textDb (x.nivellDb));
             fila ("Enviaments", env.isEmpty() ? juce::String ("cap") : env.joinIntoString (", "));
+        }
+        if (mibase::esMidi (*t) && t->segueixAcords)   // 0.92.1: si toca sola els acords o no, i per què
+        {
+            bool notes = false, blocs = false;
+            for (auto& k : t->clips) if (k.midi) { notes |= ! k.notes.empty(); blocs |= ! k.blocs.empty(); }
+            bool hiHaAcords = false;
+            for (auto& x : p.pistes) if (mibase::esAcords (x)) for (auto& k : x.clips) hiHaAcords |= k.esAcord() && ! k.mut;
+            fila ("Acords", mibase::tocaAcordsSols (*t) ? (hiHaAcords ? "toca sola els de la pista d'Acords"_ca : "no hi ha acords a la pista d'Acords"_ca)
+                            : blocs ? "els segueixen els patrons"_ca
+                            : notes ? "té notes: sonen les notes"_ca : "no"_ca);
         }
         if (ambTeclat())
         {
