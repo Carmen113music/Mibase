@@ -1,6 +1,7 @@
 #include "PanellHarmonia.h"
 #include <mibase/SubBass.h>
 #include <mibase/Lead.h>
+#include <mibase/Atmos.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 
@@ -242,9 +243,10 @@ public:
                                             : mibase::gm::programa (pe->instrument) >= 0 ? "Instrument: General MIDI"_ca
                                             : mibase::subbass::esSubBass (*pe) ? "Instrument: SUB & BASS"_ca   // 0.88
                                             : mibase::lead::esLead (*pe) ? "Instrument: LEAD"_ca   // 0.89
+                                            : mibase::atmos::esAtmos (*pe) ? "Instrument: ATMOS"_ca   // 0.90
                                             : guitarres::part (pe->instrument, false).isNotEmpty() ? "Guitarra: "_ca + guitarres::part (pe->instrument, false) : "Instrument: sinte intern"_ca);
                 btSo.setButtonText ("So: "_ca + (guitarres::part (pe->instrument, true).isNotEmpty() ? guitarres::part (pe->instrument, true)
-                                     : mibase::subbass::esSubBass (*pe) || mibase::lead::esLead (*pe) ? "finestra del sinte"_ca
+                                     : mibase::subbass::esSubBass (*pe) || mibase::lead::esLead (*pe) || mibase::atmos::esAtmos (*pe) ? "finestra del sinte"_ca
                                      : txt (midi::nomInstrument (pe->instrument.empty() ? "sinte:lead" : pe->instrument))));
             }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
@@ -580,6 +582,7 @@ private:
         const bool sb = mibase::subbass::esSubBass (*t);   // 0.88
         m.addItem (1, "Mibase LEAD (sinte de solistes)"_ca, true, mibase::lead::esLead (*t));   // 0.89 (abans, el sinte bàsic)
         m.addItem (5, "Mibase SUB & BASS (sinte de baixos)"_ca, true, sb);
+        m.addItem (6, "Mibase ATMOS (pads i atmosferes)"_ca, true, mibase::atmos::esAtmos (*t));   // 0.90
         m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
@@ -599,6 +602,13 @@ private:
                 if (! mibase::subbass::esSubBass (*p))
                     canviaPista ([] (Pista& q) { q.instrument = mibase::subbass::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
                                  "Instrument: Mibase SUB & BASS"_ca);
+                if (onObreSubBass) juce::MessageManager::callAsync ([f = onObreSubBass, id = p->id] { f (id); });
+                return;
+            }
+            if (r == 6)   // 0.90
+            {
+                if (! mibase::atmos::esAtmos (*p))
+                    canviaPista ([] (Pista& q) { q.instrument = mibase::atmos::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: Mibase ATMOS"_ca);
                 if (onObreSubBass) juce::MessageManager::callAsync ([f = onObreSubBass, id = p->id] { f (id); });
                 return;
             }
@@ -624,7 +634,7 @@ private:
         if (t == nullptr) return;
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         if (mibase::esKit (*t)) { if (onObreKits) onObreKits(); return; }   // 0.39: el «so» del kit és el kit
-        if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t)) { if (onObreSubBass) onObreSubBass (t->id); return; }   // 0.88 / 0.89
+        if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t)) { if (onObreSubBass) onObreSubBass (t->id); return; }   // 0.88 / 0.89
         juce::PopupMenu m;
         const int gm = mibase::gm::programa (t->instrument);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31

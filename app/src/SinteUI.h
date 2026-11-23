@@ -1084,6 +1084,9 @@ namespace sinteui
         const std::vector<std::string>* categories = nullptr;
         std::function<std::string()> inicial;
         std::function<std::string (unsigned)> aleatori;
+        /** 0.90 (opcional): sons nous a l'atzar d'un tipus concret (ATMOS: Analog Warm, Cinematic…). */
+        std::vector<std::string> tipusAtzar;
+        std::function<std::string (unsigned, int)> aleatoriTipus;
         std::function<std::string (const std::string&, unsigned, float)> varia;
         std::function<float (const std::string&, float*, int)> previsualitza;
         juce::String textPrevi;
@@ -1285,6 +1288,8 @@ namespace sinteui
             return extra;
         }
         juce::Rectangle<int> dins (juce::Rectangle<int> r) const { return r.withTrimmedTop (30).reduced (10, 6); }
+        /** 0.90: desa l'estat del sinte al projecte (per a canvis que no passen per un control). */
+        void desaCanvis() { desaAlProjecte(); }
 
         /** Detalls propis de cada secció (es crida després de dibuixar-ne el marc). */
         virtual void detallsSeccio (juce::Graphics&, const Seccio&) {}
@@ -1624,9 +1629,21 @@ namespace sinteui
             m.addItem (1, "So nou a l'atzar (fet del no-res, però sempre útil)"_ca);
             m.addItem (2, "Varia una mica el so actual"_ca);
             m.addItem (3, "Varia molt el so actual"_ca);
+            if (cfg.aleatoriTipus != nullptr && ! cfg.tipusAtzar.empty())
+            {
+                juce::PopupMenu t;
+                for (size_t i = 0; i < cfg.tipusAtzar.size(); ++i) t.addItem (100 + (int) i, u8 (cfg.tipusAtzar[i]));
+                m.addSubMenu ("So nou a l'atzar d'un tipus"_ca, t);
+            }
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btAtzar), [this] (int r)
             {
                 const auto llavor = (unsigned) juce::Random::getSystemRandom().nextInt();
+                if (r >= 100 && cfg.aleatoriTipus != nullptr)
+                {
+                    canviSencer (cfg.aleatoriTipus (llavor, r - 100), {});
+                    info ("So nou a l'atzar («"_ca + u8 (cfg.tipusAtzar[(size_t) (r - 100)]) + "»). Si t'agrada: «Desa com…»"_ca);
+                    return;
+                }
                 if (r == 4 && ! cfg.presets->empty()) aplicaPreset ((*cfg.presets)[(size_t) juce::Random::getSystemRandom().nextInt ((int) cfg.presets->size())]);
                 else if (r == 1) { canviSencer (cfg.aleatori (llavor), {}); info ("So nou a l'atzar. Si t'agrada: «Desa com…»"_ca); }
                 else if (r == 2 || r == 3)

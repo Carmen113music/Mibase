@@ -39,6 +39,8 @@ add_library(mibase_motor STATIC
     src/SubBassPresets.cpp
     src/Lead.cpp
     src/LeadPresets.cpp
+    src/Atmos.cpp
+    src/AtmosPresets.cpp
     src/Limitador.cpp
     src/LimitadorPresets.cpp
     src/Doubler.cpp

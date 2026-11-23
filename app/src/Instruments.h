@@ -10,6 +10,7 @@
 #include <mibase/Sampler.h>
 #include <mibase/SubBass.h>
 #include <mibase/Lead.h>
+#include <mibase/Atmos.h>
 #include "Kits.h"
 #include "BancGM.h"
 #include "Guitarres.h"
@@ -55,11 +56,11 @@ public:
             return e.instrument;
         }
         if (t.tipus != "midi") return nullptr;
-        if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t))
+        if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t) || mibase::atmos::esAtmos (t))
         {
             // 0.88 / 0.89: els sintes de Mibase. El mateix objecte mentre la pista el tingui; si el projecte porta uns
             // ajustos nous (desfer, obrir), s'hi posen sense parar el so.
-            const std::string tipus = mibase::lead::esLead (t) ? "lead" : "subbass";
+            const std::string tipus = mibase::atmos::esAtmos (t) ? "atmos" : mibase::lead::esLead (t) ? "lead" : "subbass";
             auto& e = llista[t.id];
             if (e.tipus != tipus || e.instrument == nullptr)
             {
@@ -136,7 +137,7 @@ public:
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
             if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
-            if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t)) return creaSinte (t, fs, bloc);   // 0.88 / 0.89
+            if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t) || mibase::atmos::esAtmos (t)) return creaSinte (t, fs, bloc);   // 0.88 / 0.89
             if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
             {
                 auto s = creaSf2 (ref, fs, bloc);
@@ -171,10 +172,11 @@ public:
     {
         bool canvi = false;
         for (auto& t : p.pistes)
-            if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t))
+            if (mibase::subbass::esSubBass (t) || mibase::lead::esLead (t) || mibase::atmos::esAtmos (t))
                 if (auto s = sinte (t.id))
                 {
                     if ((mibase::lead::esLead (t) && dynamic_cast<mibase::lead::Lead*> (s.get()) == nullptr)
+                        || (mibase::atmos::esAtmos (t) && dynamic_cast<mibase::atmos::Atmos*> (s.get()) == nullptr)
                         || (mibase::subbass::esSubBass (t) && dynamic_cast<mibase::subbass::SubBass*> (s.get()) == nullptr)) continue;
                     auto e = s->estat();
                     if (e != t.estatInstrument) { t.estatInstrument = e; canvi = true; }
@@ -236,7 +238,12 @@ private:
     {
         std::shared_ptr<mibase::sinte::Base> s;
         std::string inicial;
-        if (mibase::lead::esLead (t))
+        if (mibase::atmos::esAtmos (t))   // 0.90
+        {
+            s = std::make_shared<mibase::atmos::Atmos>();
+            for (const auto& p : mibase::atmos::presetsFabrica()) if (p.categoria == "Warm Pads") { inicial = p.estat + ";pnom=" + p.nom; break; }
+        }
+        else if (mibase::lead::esLead (t))
         {
             s = std::make_shared<mibase::lead::Lead>();
             for (const auto& p : mibase::lead::presetsFabrica()) if (p.categoria == "Classic Lead") { inicial = p.estat + ";pnom=" + p.nom; break; }
