@@ -2,6 +2,7 @@
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
 #include "mibase/Elastic.h"
+#include "mibase/Harmonia.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -101,9 +102,55 @@ namespace mibase
                     pp.events.push_back (pe);
                 }
             }
+            if (tocaAcordsSols (t))   // 0.91
+                for (const auto& n : notesAcordsSols (p, t)) pp.notes.push_back (n);
             std::stable_sort (pp.notes.begin(), pp.notes.end(), [] (const Pla::Nota& a, const Pla::Nota& b) { return a.ini < b.ini; });
             std::stable_sort (pp.events.begin(), pp.events.end(), [] (const Pla::Event& a, const Pla::Event& b) { return a.t < b.t; });
         }
+    }
+
+    bool tocaAcordsSols (const Pista& t)
+    {
+        if (! esMidi (t) || ! t.segueixAcords) return false;
+        for (const auto& c : t.clips)
+            if (c.midi && (! c.notes.empty() || ! c.blocs.empty())) return false;
+        return true;
+    }
+
+    std::vector<Pla::Nota> notesAcordsSols (const Projecte& p, const Pista& t)
+    {
+        std::vector<Pla::Nota> r;
+        if (! tocaAcordsSols (t)) return r;
+        struct T { double a, b; std::string acord; };
+        std::vector<T> trams;
+        for (const auto& ta : p.pistes)
+        {
+            if (! esAcords (ta)) continue;
+            for (const auto& k : ta.clips)
+                if (k.esAcord() && ! k.mut && k.fiVisible() - k.iniciVisible() > 0.01) trams.push_back ({ k.iniciVisible(), k.fiVisible(), k.acord });
+        }
+        std::stable_sort (trams.begin(), trams.end(), [] (const T& x, const T& y) { return x.a < y.a; });
+        for (size_t i = 0; i + 1 < trams.size(); ++i) trams[i].b = std::min (trams[i].b, trams[i + 1].a);   // el següent talla l'anterior
+        for (const auto& x : trams)
+        {
+            if (x.b - x.a < 0.005) continue;
+            auto notes = harmonia::notesPad (harmonia::llegeixAcord (x.acord), 4, harmonia::Voicing::Tancat);
+            if (notes.empty()) continue;
+            // al voltant del do central, com la mà dreta d'un pianista
+            int mx = 0; for (int n : notes) mx = std::max (mx, n);
+            if (mx > 76) for (auto& n : notes) n -= 12;
+            for (int n : notes)
+            {
+                Pla::Nota pn;
+                pn.ini = x.a;
+                pn.fi = x.b - 0.002;   // un bri abans, perquè l'acord següent torni a atacar
+                pn.to = (std::uint8_t) std::clamp (n, 0, 127);
+                pn.vel = 90;
+                pn.canal = 0;
+                r.push_back (pn);
+            }
+        }
+        return r;
     }
 
     std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments,

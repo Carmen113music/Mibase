@@ -32,6 +32,17 @@ namespace
         return i < e.size() ? e[i] == 2 : ! t.mut;
     }
 
+    /** 0.91: la «M» encesa també quan la pista queda callada perquè una altra és en solo (sense tocar el seu mute:
+        en treure el solo torna a com estava). */
+    bool mutAra (const Projecte& p, const Pista& t)
+    {
+        if (t.mut) return true;
+        if (std::none_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& x) { return x.solo; })) return false;
+        const int i = ed::pistaPerId (p, t.id);
+        const auto e = ed::estatSolo (p);
+        return i >= 0 && (size_t) i < e.size() && e[(size_t) i] == 0;
+    }
+
     void pintaCapcal (juce::Graphics& g, float x, float alt, int transport = 0)
     {
         g.setColour (transport >= 2 ? vintage::ledVermell : (transport == 1 ? vintage::ledVerd : tema::text));
@@ -2733,7 +2744,7 @@ void Capcaleres::paint (juce::Graphics& g)
             g.setColour (tema::text);
             g.setFont (dibuix::lletra (14.0f, true));
             g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
-            dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", t.mut, vintage::ledBlau);
+            dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", mutAra (p, t), vintage::ledBlau);
             dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
             const int d = ed::pistaPerId (p, t.sortida);
             g.setColour (tema::suau);
@@ -2787,7 +2798,7 @@ void Capcaleres::paint (juce::Graphics& g)
         g.setFont (dibuix::lletra (14.0f, true));
         g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
 
-        dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", t.mut, vintage::ledBlau);
+        dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", mutAra (p, t), vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 2), {}, t.grava, vintage::ledVermell, true);
 
@@ -3490,7 +3501,7 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     const int ample = 28, sep = 4;
     auto tecles = zonaTecles.withSizeKeepingCentre (ample * 3 + sep * 2, 26);
-    dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), "M", t->mut, vintage::ledBlau);
+    dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), "M", mutAra (estat.projecte, *t), vintage::ledBlau);
     tecles.removeFromLeft (sep);
     dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), "S", t->solo, vintage::ledGroc);
     tecles.removeFromLeft (sep);
@@ -3792,7 +3803,7 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
         g.setFont (dibuix::mono (11.5f));
         g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
 
-        dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", t->mut, vintage::ledBlau);
+        dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", mutAra (estat.projecte, *t), vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
         if (! mibase::esBus (*t)) dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
 

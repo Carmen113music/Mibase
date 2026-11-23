@@ -159,6 +159,11 @@ namespace mibase
     std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments = {},
                                      const ProveidorEfectes& efectes = {}, const MapaAudios* corregides = nullptr);
 
+    /** 0.91: una pista MIDI que segueix els acords però no té cap nota escrita (ni patró) toca sola l'acord de cada
+        moment de la pista d'Acords, sostingut (de cap a fi de l'acord). Aquestes són aquestes notes (en segons). */
+    bool tocaAcordsSols (const Pista& t);
+    std::vector<Pla::Nota> notesAcordsSols (const Projecte& p, const Pista& t);
+
     /** Un missatge MIDI en directe (del piano roll o del teclat) per a l'instrument d'una pista. */
     struct EventDirecte
     {
