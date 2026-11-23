@@ -476,5 +476,9 @@ private:
     std::string idNotes;     // de quina pista són les notes que hi ha escrites
     void desaNotes();
     int yPista = 0;          // on comença la secció de la pista (es calcula a resized)
+    // ---- 0.92: el teclat MIDI de la pista d'instrument (Visual / Assistit / Bloquejat) ----
+    Segmentat modesTeclat { { "Visual", "Assistit", "Bloquejat" } };
+    bool ambTeclat() const;
+    int fiPista = 0;         // on acaba la targeta de la pista
     Boto btEstructura { "Estructura: lineal", std::nullopt, Boto::Estil::Secundari };   // 0.15: quina estructura sona
 };

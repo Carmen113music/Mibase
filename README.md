@@ -90,7 +90,7 @@ No cal activar res: Mibase organitza les preses sol.
 - Tot és **no destructiu**: les preses no es retallen mai, el comp només diu quin tros de cada una sona, i Ctrl+Z / Ctrl+Y desfan i refan cada canvi.
 
 ### Pool (0.85)
-Pestanya «Pool» del panell de la dreta (al costat de Clip i Biblioteca): tots els àudios del projecte (gravacions, importats, Prints…).
+Pestanya «Pool» del panell de la dreta (al costat d'Info i Biblioteca): tots els àudios del projecte (gravacions, importats, Prints…).
 - Cada àudio diu la durada, si és mono o estèreo, la freqüència i on es fa servir (clips i preses). Els que no es fan servir surten apagats («sense fer servir»); els que no es troben al disc, en vermell («no es troba el fitxer»).
 - **Clic**: tria a la taula tots els clips on surt i hi porta la vista. **Triangle** (o doble clic): l'escolta; un altre clic l'atura.
 - **Arrossega'l** a una pista d'àudio (o a sota de les pistes: pista nova) per posar-lo un altre cop. No es copia res: és el mateix fitxer.
@@ -117,6 +117,7 @@ Canvia el temps d'un clip d'àudio **sense canviar-ne el to**: per corregir cops
 - **Arrossega un clip d'àudio a la pista d'Acords** (amb la fletxa, cap amunt fins a la fila d'Acords) i deixa'l anar: el clip no es mou, però Mibase l'escolta i hi posa els acords, un per compàs o per mig compàs, seguint el tempo. També des del **Pool** (deixant l'àudio a la pista d'Acords, on caurà) o amb el botó **«Treu els acords»** del panell Clip.
 - Reconeix majors, menors, 7, m7, maj7, disminuïts i inversions («C/E»). Els que no són segurs surten **més apagats i amb un «?»**: revisa'ls. En canviar-ne un a mà, deixa de ser dubtós. Ctrl+Z ho desfà tot d'un cop.
 - Va molt bé amb guitarra, piano o una mescla senzilla. Amb bateria i veu fortes encerta menys. Si el clip té Elastic Audio, s'escolta tal com sona.
+- **Panell de la dreta, pestanya «Info»** (0.92, abans «Clip»): dues targetes ben separades, **Clip triat** i **Pista triada**. A les pistes d'instrument, la fila **Teclat** (Visual / Assistit / Bloquejat) diu com toca el teclat MIDI aquesta pista.
 - **Panell de la dreta, «Pista triada»**: el tipus de pista, l'entrada i la sortida, els efectes i els enviaments, sense obrir la taula de mescles. A sota, un **quadre de notes** per a cada pista (què falta, quin so…): es desa sol en sortir del quadre o canviar de pista, i es guarda amb el projecte.
 
 ### Exportar (0.83)
@@ -502,6 +503,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.92.0** — **Panell de la dreta**: la pestanya «Clip» ara és **«Info»**, amb dues targetes separades (**Clip triat** i **Pista triada**). A la pista d'instrument, botons **Visual / Assistit / Bloquejat** del teclat MIDI. **Arrossegar acords de la pista d'Acords**: estira un acord fora de la taula i deixa'l al **Piano Roll** (hi posa les notes, amb la durada de l'acord), damunt d'un **pad del Chord Pad** (el pad passa a ser aquest acord) o en un **bloc de patró** (guitarra o piano: aquell bloc fa aquest acord). Els pads del Chord Pad també es poden arrossegar a un altre pad.
 - **0.91.0** — **Solo**: quan una pista és en solo, les altres que queden callades tenen la «M» encesa; en treure el solo, cada pista torna a com estava (el seu mute no es toca). **Seguir els acords sense notes**: una pista MIDI amb «segueix els acords» i sense cap nota ni patró toca sola l'acord de cada moment de la pista d'Acords (sostingut, sense haver-lo de dibuixar). Si hi escrius notes o hi poses un patró, sonen aquests.
 - **0.90.0** — **Mibase ATMOS**: sinte de pads, textures i atmosferes (4 oscil·ladors amb wavetables i granular, mescla A/B, FM, textures de soroll, deriva, 3 LFO, evolució, matriu de 8 vies, chorus, phaser, delay, reverb amb shimmer i freeze, auto-pan) amb **165 presets** anivellats en 33 categories, vista **SIMPLE / AVANÇAT**, 8 macros, pantalles d'evolució del timbre i moviment estèreo, i atzar musical per tipus de pad. El menú Atzar dels sintes pot oferir «So nou d'un tipus».
 - **0.89.0** — **Mibase LEAD**: sinte de solistes (3 oscil·ladors amb supersaw i wavetables pròpies, ring, sync, FM, filtres LP/HP/BP/Ladder de 12/24/36 dB, 2 LFO amb retard, aftertouch, chorus, delay i reverb de Mibase) amb 135 presets i finestra pròpia. **Arpegiador / seqüenciador** per als dos sintes (els presets de seqüència ara sí que toquen sols). Motor comú per als sintes. Navegador amb Recents i Atzar. **Fora el sinte bàsic**: els projectes antics passen al LEAD o al SUB & BASS. Arreglat: al SUB & BASS, la icona «Quadrada» del sub era la d'una serra.

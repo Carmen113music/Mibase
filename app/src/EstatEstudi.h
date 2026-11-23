@@ -197,6 +197,7 @@ public:
         juce::String nom;
         bool perArrossegar = false; // es posa arrossegant (s'esborra quan s'amolla, caigui on caigui)
         std::string acordBloc;                // 0.41: si no és buit, a l'eina de patrons es posa aquest acord al clip (a mà)
+        std::string acord;                    // 0.92: el nom de l'acord (per deixar-lo en un pad del Chord Pad o en un bloc de patró)
         std::vector<mibase::Nota> rasgueig;   // 0.29: si n'hi ha, es posen aquestes notes (ticks des de l'inici) en lloc de l'acord en bloc
         bool actiu() const noexcept { return ! notes.empty(); }
     } segell;

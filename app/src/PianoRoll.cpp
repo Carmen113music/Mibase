@@ -1429,6 +1429,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
                 arrossegaAcord (*this, estat, notesPadPremut, juce::String::fromUTF8 (padsActuals()[(size_t) i].c_str()), duradaPads(),
                                 btMinimPads.getToggleState(), {});   // 0.38.1: al Chord Pad, l'acord sencer
                 if (modeGuitarra()) estat.segell.acordBloc = padsActuals()[(size_t) i];   // 0.40: a l'eina de patrons, un bloc amb el rasgueig
+                estat.segell.acord = padsActuals()[(size_t) i];   // 0.92: també es pot deixar en un altre pad
                 repaint();
             }
             return;
@@ -2540,6 +2541,24 @@ void PianoRoll::itemDropped (const SourceDetails& d)
         return;
     }
     const auto p = d.localPosition.toFloat();
+    if (modePads() && zonaPads().toFloat().contains (p) && ! estat.segell.acord.empty())
+    {
+        // 0.92: un acord deixat damunt d'un pad del Chord Pad: el pad passa a ser aquest acord
+        const int i = padA (d.localPosition);
+        const auto ac = estat.segell.acord;
+        estat.segell = {};
+        if (i >= 0)
+        {
+            desaPad (i, ac);
+            info = "Pad "_ca + juce::String (i + 1) + ": "_ca + juce::String::fromUTF8 (harmonia::nomPad (harmonia::llegeixAcord (ac)).c_str());
+        }
+        ratoli = { -1.0f, -1.0f };
+        estat.avisa();
+        repaint();
+        return;
+    }
+    if (modeGuitarra() && estat.segell.acordBloc.empty() && ! estat.segell.acord.empty())
+        estat.segell.acordBloc = estat.segell.acord;   // 0.92: un acord de la pista d'Acords a l'eina de patrons: el bloc amb aquest acord
     if (zonaGraella().toFloat().contains (p) || (modeGuitarra() && zonaBlocs().toFloat().contains (p)))
     {
         if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); }

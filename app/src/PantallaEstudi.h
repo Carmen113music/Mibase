@@ -250,7 +250,7 @@ private:
     Focus focusEditor, focusPistes;
     PanellPista panell { estat };
     PanellBiblioteca biblioteca { ajustos };                          // 0.27
-    Segmentat pestDreta { { "Clip", "Biblioteca", "Pool" } };
+    Segmentat pestDreta { { "Info", "Biblioteca", "Pool" } };   // 0.92: «Clip» → «Info» (clip i pista)
     int dreta = 0;                                                    // 0.85: 0 clip, 1 biblioteca, 2 Pool
     PanellPool pool { estat };                                        // 0.85
     std::string presaEscoltada;                                       // 0.85

@@ -5,6 +5,7 @@
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraAcords.h"
+#include "PianoRoll.h"
 #include "TempoPart.h"
 
 #include <mibase/Midi.h>
@@ -2153,6 +2154,20 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
             mode = Mode::Res;
             const int pi = lloc0.pista, ci = lloc0.clip;
             const auto& t2 = estat.projecte.pistes[(size_t) pi];
+            if (const auto& ka = t2.clips[(size_t) ci]; ka.esAcord())
+            {
+                // 0.92: un acord de la pista d'Acords arrossegat fora: al Piano Roll (notes), a un pad del Chord Pad o a un bloc de patró
+                const auto pad = mibase::harmonia::llegeixAcord (ka.acord);
+                const auto notesA = mibase::harmonia::notesPad (pad, 4);
+                const long long dur = std::llround (mibase::midi::ticks (estat.projecte, ka.fiVisible()) - mibase::midi::ticks (estat.projecte, ka.iniciVisible()));
+                const auto nomA = juce::String::fromUTF8 (mibase::harmonia::nomPad (pad).c_str());
+                repaint();
+                PianoRoll::arrossegaAcord (*this, estat, notesA, nomA, juce::jmax (1LL, dur), false, {});
+                estat.segell.acord = ka.acord;
+                estat.info = "Deixa "_ca + nomA + " al Piano Roll, en un pad del Chord Pad o en un patró"_ca;
+                estat.avisa();
+                return;
+            }
             const auto* s = ed::presa (estat.projecte, t2.clips[(size_t) ci].presa);
             const auto nom = s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Clip");
             juce::Image im (juce::Image::ARGB, 160, 28, true);
@@ -4297,6 +4312,17 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
     notes.setColour (juce::TextEditor::textColourId, tema::text);
     notes.onFocusLost = [this] { desaNotes(); };
     notes.onEscapeKey = [this] { desaNotes(); unfocusAllComponents(); };
+    addChildComponent (modesTeclat);   // 0.92
+    modesTeclat.setTooltip ("Com toca el teclat MIDI aquesta pista. Visual: tal qual (al Piano Roll es ressalta l'escala). Assistit: una tecla fora de l'escala toca la més propera. Bloquejat: les tecles fora de l'escala no sonen."_ca);
+    modesTeclat.onCanvi = [this] (int i)
+    {
+        auto* t = estat.pista (estat.pistaTriada);
+        if (t == nullptr) return;
+        comencaCanvi();
+        restaura();
+        if (auto* q = estat.pista (estat.pistaTriada)) { q->modeEscala = i; q->escalaTeclat = true; }
+        acabaCanvi();
+    };
     addAndMakeVisible (btEstructura);
     btEstructura.setTooltip ("Quina estructura sona en fer play: la línia de temps tal com és (lineal) o una de la taula d'estructura"_ca);
     btEstructura.onClick = [this]
@@ -4318,6 +4344,12 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
             acabaCanvi();
         });
     };
+}
+
+bool PanellPista::ambTeclat() const
+{
+    const auto* t = estat.pista (estat.pistaTriada);
+    return t != nullptr && mibase::esMidi (*t) && ! mibase::esKit (*t);
 }
 
 void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -4343,6 +4375,9 @@ void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
         else if (t != nullptr && ! notes.hasKeyboardFocus (true) && notes.getText().toStdString() != t->notes)
             notes.setText (juce::String::fromUTF8 (t->notes.c_str()), juce::dontSendNotification);   // desfer / refer
         notes.setVisible (t != nullptr);
+        modesTeclat.setVisible (ambTeclat());
+        if (t != nullptr && ambTeclat())
+            modesTeclat.setTriat (t->escalaTeclat ? (int) mibase::modeEscalaDe (estat.projecte, *t) : 0);
         resized();
     }
     {
@@ -4364,12 +4399,18 @@ void PanellPista::resized()
         fila.removeFromLeft (10);
         btAcords.setBounds (fila);
     }
-    // 0.87: la pista triada: títol i 4 línies d'informació, i a sota les notes
-    yPista = 16 + (btElastic.isVisible() ? 320 : 280);
+    // 0.87: la pista triada: títol i 4 línies d'informació, i a sota les notes (0.92: targetes separades i el teclat)
+    yPista = 16 + (btElastic.isVisible() ? 320 : 280) + 18;
     {
-        const int notesY = yPista + 24 + 4 * 22 + 6;
+        int notesY = yPista + 30 + 4 * 22 + 6;
+        if (ambTeclat())
+        {
+            modesTeclat.setBounds (18 + 74, notesY, getWidth() - 36 - 74, 28);
+            notesY += 36;
+        }
         const int baix = getHeight() - 16 - 34 - 10;
         notes.setBounds (18, notesY, getWidth() - 36, juce::jlimit (40, 160, baix - notesY));
+        fiPista = notes.getBottom() + 12;
     }
     btEstructura.setBounds (getLocalBounds().reduced (18, 16).removeFromBottom (34));
 }
@@ -4381,12 +4422,28 @@ void PanellPista::paint (juce::Graphics& g)
     g.fillRect (0, 0, 1, getHeight());
 
     auto r = getLocalBounds().reduced (18, 16);
-    auto info = r.withHeight (220);
     auto* c = estat.clipUnicTriat();
     const auto& p = estat.projecte;
 
-    dibuix::pintaEtiquetaSeccio (g, c != nullptr ? "Clip triat" : "Clips", info.removeFromTop (20));
-    info.removeFromTop (4);
+    // 0.92: dues targetes ben separades, cadascuna amb el seu títol: el clip triat i la pista triada
+    auto targeta = [&] (int y0, int y1, const juce::String& titol, juce::Colour color)
+    {
+        auto b = juce::Rectangle<int> (8, y0, getWidth() - 16, y1 - y0).toFloat();
+        g.setColour (tema::superficie.withAlpha (0.55f));
+        g.fillRoundedRectangle (b, 8.0f);
+        g.setColour (tema::linia);
+        g.drawRoundedRectangle (b, 8.0f, 1.0f);
+        auto cap = b.removeFromTop (28.0f);
+        g.setColour (color);
+        g.fillRoundedRectangle (cap.getX() + 10.0f, cap.getCentreY() - 7.0f, 4.0f, 14.0f, 2.0f);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (13.5f, true));
+        g.drawText (titol.toUpperCase(), cap.withTrimmedLeft (22.0f), juce::Justification::centredLeft);
+    };
+    targeta (8, yPista - 10, c != nullptr ? "Clip triat"_ca : "Clips", tema::accent);
+    if (estat.pista (estat.pistaTriada) != nullptr) targeta (yPista - 2, fiPista, "Pista triada"_ca, vintage::ledVerd);
+    r.removeFromTop (26);
+    auto info = r.withHeight (204);
     if (c != nullptr)
     {
         const auto* s = ed::presa (p, c->presa);
@@ -4448,9 +4505,7 @@ void PanellPista::paint (juce::Graphics& g)
     // 0.87: la pista triada (sense haver d'obrir la taula de mescles)
     if (const auto* t = estat.pista (estat.pistaTriada))
     {
-        auto zona = juce::Rectangle<int> (18, yPista, getWidth() - 36, 24 + 4 * 22);
-        dibuix::pintaEtiquetaSeccio (g, "Pista triada", zona.removeFromTop (20));
-        zona.removeFromTop (4);
+        auto zona = juce::Rectangle<int> (18, yPista + 30, getWidth() - 36, 4 * 22 + 40);
         auto fila = [&] (const juce::String& etiqueta, const juce::String& valor)
         {
             auto f = zona.removeFromTop (22);
@@ -4483,7 +4538,13 @@ void PanellPista::paint (juce::Graphics& g)
             for (auto& x : t->enviaments) env.add (nomPista (x.desti) + " " + EstatEstudi::textDb (x.nivellDb));
             fila ("Enviaments", env.isEmpty() ? juce::String ("cap") : env.joinIntoString (", "));
         }
-        r = r.withTop (notes.getBottom() + 14);
+        if (ambTeclat())
+        {
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (12.0f));
+            g.drawText ("Teclat", juce::Rectangle<int> (18, modesTeclat.getY(), 74, modesTeclat.getHeight()), juce::Justification::centredLeft);
+        }
+        r = r.withTop (fiPista + 14);
     }
     else r.removeFromTop (btElastic.isVisible() ? 330 : 290);
     if (r.getHeight() < 80) return;
