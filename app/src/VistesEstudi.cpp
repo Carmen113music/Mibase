@@ -2,6 +2,7 @@
 #include <mibase/SubBass.h>
 #include <mibase/Lead.h>
 #include <mibase/Atmos.h>
+#include <mibase/Neo.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraAcords.h"
@@ -2946,6 +2947,7 @@ void Capcaleres::menu (int pista)
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
         sons.addItem (57, "Mibase SUB & BASS (sinte de baixos)"_ca, true, mibase::subbass::esSubBass (t));   // 0.88
         sons.addItem (60, "Mibase ATMOS (pads i atmosferes)"_ca, true, mibase::atmos::esAtmos (t));   // 0.90
+        sons.addItem (61, "Mibase NEO (síntesi híbrida, disseny de so)"_ca, true, mibase::neo::esNeo (t));   // 0.93
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
     }
@@ -3028,6 +3030,12 @@ void Capcaleres::menu (int pista)
             tt.nomInstrument.clear(); tt.estatInstrument.clear();
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (r - 200));
             juce::MessageManager::callAsync ([this] { bancgm::assegura (this, {}); });
+        }
+        else if (r == 61 && ! mibase::neo::esNeo (tt))   // 0.93
+        {
+            tt.instrument = mibase::neo::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase NEO"_ca;
         }
         else if (r == 60 && ! mibase::atmos::esAtmos (tt))   // 0.90
         {

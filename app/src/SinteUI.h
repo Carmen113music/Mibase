@@ -571,6 +571,28 @@ namespace sinteui
             const int n = textos.size();
             const int tria = (int) std::lround (real() - enllac.sinte().info (p).mn);
             const float w = r.getWidth() / (float) n;
+            if (desplegable())
+            {
+                // 0.93: si no hi caben totes les opcions, un desplegable (clic = llista; roda = la següent)
+                auto b = r.reduced (1.0f, 0.0f);
+                g.setColour (juce::Colours::black.withAlpha (0.55f));
+                g.fillRoundedRectangle (b.translated (0.0f, 1.5f), 3.5f);
+                g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2c2d34), b.getX(), b.getY(), juce::Colour (0xff17181c), b.getX(), b.getBottom(), false));
+                g.fillRoundedRectangle (b, 3.5f);
+                const bool cap = tria == 0 && (textos[0] == "Cap" || textos[0] == "Sempre");
+                g.setColour (color.withAlpha (cap ? 0.25f : 0.7f));
+                g.drawRoundedRectangle (b.reduced (0.5f), 3.5f, 1.0f);
+                auto fl = b.removeFromRight (16.0f).withSizeKeepingCentre (8.0f, 5.0f);
+                juce::Path t;
+                t.addTriangle (fl.getX(), fl.getY(), fl.getRight(), fl.getY(), fl.getCentreX(), fl.getBottom());
+                g.setColour (sb::serigrafiaSuau);
+                g.fillPath (t);
+                g.setColour (cap ? sb::serigrafiaSuau : color.brighter (0.35f));
+                g.setFont (dibuix::lletra (juce::jmin (11.0f, b.getHeight() * 0.48f), true));
+                g.drawFittedText (textos[juce::jlimit (0, n - 1, tria)], b.reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+                dibuixaCC (g, getLocalBounds().toFloat());
+                return;
+            }
             for (int i = 0; i < n; ++i)
             {
                 auto b = juce::Rectangle<float> (r.getX() + i * w, r.getY(), w, r.getHeight()).reduced (1.5f, 0.0f);
@@ -613,6 +635,22 @@ namespace sinteui
             if (menu (e)) return;
             auto r = getLocalBounds().toFloat();
             if (titol.isNotEmpty()) r.removeFromTop (14.0f);
+            if (desplegable())
+            {
+                const int tria = (int) std::lround (real() - enllac.sinte().info (p).mn);
+                juce::PopupMenu m;
+                for (int k = 0; k < textos.size(); ++k) m.addItem (k + 1, textos[k], true, k == tria);
+                juce::Component::SafePointer<SelectorSB> jo (this);
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [jo] (int res)
+                {
+                    if (jo == nullptr || res <= 0) return;
+                    auto& en = jo->enllac;
+                    en.comenca (jo->p);
+                    jo->posa01 (mibase::sinte::normal (en.sinte().info (jo->p), en.sinte().info (jo->p).mn + (float) (res - 1)));
+                    en.acaba (jo->p);
+                });
+                return;
+            }
             const int i = juce::jlimit (0, textos.size() - 1, (int) ((e.position.x - r.getX()) / (r.getWidth() / textos.size())));
             enllac.comenca (p);
             posa01 (mibase::sinte::normal (enllac.sinte().info (p), enllac.sinte().info (p).mn + (float) i));
@@ -620,6 +658,7 @@ namespace sinteui
         }
         juce::String getTooltip() override
         {
+            if (desplegable()) return u8 (enllac.sinte().info (p).nom) + " · "_ca + u8 (enllac.sinte().info (p).ajuda);
             const auto m = getMouseXYRelative().toFloat();
             const int i = juce::jlimit (0, juce::jmax (0, textos.size() - 1), (int) (m.x / (getWidth() / (float) juce::jmax (1, textos.size()))));
             return textos[i] + " · "_ca + u8 (enllac.sinte().info (p).ajuda);
@@ -628,6 +667,7 @@ namespace sinteui
         bool ones;
         juce::String titol;
         juce::StringArray textos;
+        bool desplegable() const { return ! ones && textos.size() > 2 && (float) getWidth() / (float) textos.size() < 30.0f; }
     };
 
     //==========================================================================

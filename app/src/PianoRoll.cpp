@@ -754,15 +754,20 @@ void PianoRoll::resized()
         }
         const int resta = 84 + 10 + 6 + voicingPads.ampladaIdeal() + 6 + selDuradaPads.ampladaIdeal() + 6 + (padsGuitarra() ? 200 : 84 + 6 + 110);
         const int lliure = f.getWidth() - resta - 22;
-        const int wi = juce::jlimit (84, 140, lliure / 4);
-        btPresetPads.setBounds (f.removeFromLeft (juce::jlimit (110, 300, lliure - 2 * wi))); f.removeFromLeft (6);
+        const int wi = juce::jlimit (60, 140, lliure / 4);   // 0.93: amb l'editor estret, es fan més petits (abans tallaven «Mov. mínim»)
+        btPresetPads.setBounds (f.removeFromLeft (juce::jlimit (70, 300, lliure - 2 * wi))); f.removeFromLeft (6);
         btInstrPads.setBounds (f.removeFromLeft (wi)); f.removeFromLeft (6);
         btSoPads.setBounds (f.removeFromLeft (wi)); f.removeFromLeft (10);
         btLlapisPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (10);
         if (! padsGuitarra()) { octavaPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (6); }
         voicingPads.setBounds (f.removeFromLeft (voicingPads.ampladaIdeal())); f.removeFromLeft (6);
         selDuradaPads.setBounds (f.removeFromLeft (selDuradaPads.ampladaIdeal())); f.removeFromLeft (6);
-        if (! padsGuitarra()) btMinimPads.setBounds (f.removeFromLeft (110));
+        if (! padsGuitarra())
+        {
+            const int wm = juce::jlimit (0, 110, f.getWidth());
+            btMinimPads.setButtonText (wm < 96 ? "Mín."_ca : "Mov. mínim"_ca);
+            btMinimPads.setBounds (f.removeFromLeft (wm));
+        }
     }
     actualitzaBarres();
 }

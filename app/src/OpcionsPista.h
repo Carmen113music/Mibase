@@ -16,9 +16,11 @@
 #include "FinestraSubBass.h"
 #include "FinestraLead.h"
 #include "FinestraAtmos.h"
+#include "FinestraNeo.h"
 #include <mibase/SubBass.h>
 #include <mibase/Lead.h>
 #include <mibase/Atmos.h>
+#include <mibase/Neo.h>
 
 /** Opcions de la pista triada (o del màster), a la columna esquerra sobre el fader (0.16).
     Pista d'instrument (MIDI): instrument (sinte intern o VST3), so i teclat MIDI, i els inserts.
@@ -140,9 +142,10 @@ public:
                                         : mibase::subbass::esSubBass (*t) ? "SUB & BASS"_ca   // 0.88
                                         : mibase::lead::esLead (*t) ? "LEAD"_ca   // 0.89
                                         : mibase::atmos::esAtmos (*t) ? "ATMOS"_ca   // 0.90
+                                        : mibase::neo::esNeo (*t) ? "NEO"_ca   // 0.93
                                         : guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false) : "LEAD"_ca);   // 0.43
             btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sintes de Mibase, General MIDI, guitarres, samplejador, kit de bateria o VST3)"_ca);
-            if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t))   // 0.88: el preset que sona
+            if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t) || mibase::neo::esNeo (*t))   // 0.88: el preset que sona
             {
                 auto s = sinte ? sinte (t->id) : nullptr;
                 btSo.setButtonText ("Preset: "_ca + (s != nullptr && ! s->nomPreset.empty() ? juce::String::fromUTF8 (s->nomPreset.c_str()) : "(propi)"_ca));
@@ -285,6 +288,8 @@ public:
             finestresSubBass[id] = creaFinestraLead (ld, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · LEAD"_ca, directe, tanca);
         else if (auto at = std::dynamic_pointer_cast<mibase::atmos::Atmos> (s))   // 0.90
             finestresSubBass[id] = creaFinestraAtmos (at, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · ATMOS"_ca, directe, tanca);
+        else if (auto ne = std::dynamic_pointer_cast<mibase::neo::Neo> (s))   // 0.93
+            finestresSubBass[id] = creaFinestraNeo (ne, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · NEO"_ca, directe, tanca);
         else return;
         quedaSobreMibase (*finestresSubBass[id]);
     }
@@ -305,6 +310,7 @@ private:
         m.addItem (1, "Mibase LEAD (sinte de solistes)"_ca, true, mibase::lead::esLead (*t));   // 0.89 (abans, el sinte bàsic)
         m.addItem (5, "Mibase SUB & BASS (sinte de baixos)"_ca, true, sb);   // 0.88
         m.addItem (6, "Mibase ATMOS (pads i atmosferes)"_ca, true, mibase::atmos::esAtmos (*t));   // 0.90
+        m.addItem (7, "Mibase NEO (síntesi híbrida, disseny de so)"_ca, true, mibase::neo::esNeo (*t));   // 0.93
         m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
@@ -322,6 +328,13 @@ private:
                 if (! mibase::subbass::esSubBass (*p))
                     canvia ([] (mibase::Pista& q) { q.instrument = mibase::subbass::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
                             "Instrument: Mibase SUB & BASS"_ca);
+                juce::MessageManager::callAsync ([this] { obreInstrument(); });
+            }
+            else if (r == 7)   // 0.93
+            {
+                if (! mibase::neo::esNeo (*p))
+                    canvia ([] (mibase::Pista& q) { q.instrument = mibase::neo::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                            "Instrument: Mibase NEO"_ca);
                 juce::MessageManager::callAsync ([this] { obreInstrument(); });
             }
             else if (r == 6)   // 0.90
@@ -384,7 +397,7 @@ private:
         auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return;
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
-        if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t)) { obreSinteMibase (t->id); return; }   // 0.88: els presets són a la seva finestra
+        if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t) || mibase::neo::esNeo (*t)) { obreSinteMibase (t->id); return; }   // 0.88: els presets són a la seva finestra
         juce::PopupMenu m;
         const int gm = mibase::gm::programa (t->instrument);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
