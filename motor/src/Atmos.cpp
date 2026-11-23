@@ -617,7 +617,9 @@ namespace mibase::atmos
             {
                 float x = (float) chPos - d;
                 while (x < 0.0f) x += (float) N;
-                const int a = (int) x, c = (a + 1) % N;
+                int a = (int) x;
+                if (a >= N) { a -= N; x -= (float) N; }   // 0.92: l'arrodoniment podia deixar x = N (lectura fora del buffer)
+                const int c = (a + 1) % N;
                 const float k = x - (float) a;
                 return b[(size_t) a] + (b[(size_t) c] - b[(size_t) a]) * k;
             };
