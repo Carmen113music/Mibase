@@ -1,4 +1,5 @@
 #include "VistesEstudi.h"
+#include <mibase/SubBass.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraAcords.h"
@@ -2913,6 +2914,7 @@ void Capcaleres::menu (int pista)
         sons.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (200, mibase::gm::programa (t.instrument)), true, juce::Image(), mibase::gm::programa (t.instrument) >= 0);   // 0.31
         sons.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t.instrument), true, juce::Image(), t.instrument.rfind ("sf2:", 0) == 0);   // 0.43
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
+        sons.addItem (57, "Mibase SUB & BASS (sinte de baixos)"_ca, true, mibase::subbass::esSubBass (t));   // 0.88
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
     }
@@ -2968,6 +2970,12 @@ void Capcaleres::menu (int pista)
             estat.capTriat();
         }
         else if (r == 3) tt.canals = tt.canals == 2 ? 1 : 2;
+        else if (r == 57 && ! mibase::subbass::esSubBass (tt))   // 0.88
+        {
+            tt.instrument = mibase::subbass::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase SUB & BASS"_ca;
+        }
         else if (r == 58)
         {
             tt.instrument = mibase::instrumentSampler;

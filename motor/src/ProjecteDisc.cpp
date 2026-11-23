@@ -891,6 +891,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             }
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
             if (! t.nomInstrument.empty()) { pista["nomInstrument"] = t.nomInstrument; pista["estatInstrument"] = t.estatInstrument; }
+            else if (! t.estatInstrument.empty()) pista["estatInstrument"] = t.estatInstrument;   // 0.88: el SUB & BASS (sense nom de plugin)
             if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;

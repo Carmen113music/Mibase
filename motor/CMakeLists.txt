@@ -35,6 +35,8 @@ add_library(mibase_motor STATIC
     src/SaturacioPresets.cpp
     src/Drive.cpp
     src/DrivePresets.cpp
+    src/SubBass.cpp
+    src/SubBassPresets.cpp
     src/Limitador.cpp
     src/LimitadorPresets.cpp
     src/Doubler.cpp

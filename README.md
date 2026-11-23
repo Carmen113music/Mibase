@@ -142,6 +142,24 @@ Fitxer → Exporta obre una finestra amb les opcions:
 - **Canviar el tempo**: els clips MIDI segueixen els compassos (les notes es guarden en temps musical); els d'àudio no es mouen.
 - La **dinàmica** d'un clip MIDI és la velocitat de les notes: els clips MIDI no tenen fades ni volum de clip (el fader de la pista sí).
 
+### Mibase SUB & BASS, el sinte de baixos (0.88)
+El primer sinte del motor de síntesi nou de Mibase, només per a baixos. A una pista d'instrument: **Instrument → Mibase SUB & BASS** (columna esquerra, botó dret al nom de la pista o panell de l'editor). El botó del costat obre la finestra.
+- **Oscil·ladors**: dos, amb sinus, triangle, serra, quadrada i pols (sense aliàsing), octava, semitò, afinació fina i PW; sync, FM de l'1 sobre el 2, unison fins a 7 còpies (detune i obertura estèreo), fase d'inici (o fase lliure, més analògica) i clic d'atac.
+- **Sub i soroll**: sub-oscil·lador una o dues octaves avall (sinus, triangle o quadrada); pot passar pel filtre o anar net per sota. Soroll amb color.
+- **Filtre** passa-baixos: Ladder (12 o 24 dB, rodó), SVF (12 o 24 dB, net), Diode (l'àcid) i MS-20 (agressiu); tall, ressonància (fins que xiula), envolupant, seguiment de teclat i saturació.
+- **Envolupants** ADSR de volum i de filtre amb faders i el dibuix de les corbes.
+- **LFO**: 5 ones, lliure o amb el **tempo** del projecte (1/1 a 1/32, tresets i amb punt), destí tall, to, PW, volum o FM, i reinici a cada nota.
+- **Drive**: suau, dur, fuzz o plec (growl), to i mix; abans o després del filtre.
+- **Modulació**: roda → tall i → LFO, velocitat → volum i → filtre, rang del pitch bend i envolupant de to (el «punch» dels 808).
+- **Sortida**: volum, amplada estèreo (el sub sempre mono), limitador suau, oscil·loscopi (l'ona que sona o, aturat, la del so) i vúmetre.
+- **Veu**: Mono, Legato (les notes lligades no tornen a atacar i llisquen) o Poli (8 veus), i glide.
+- **Presets**: 128 de fàbrica en 21 categories (Pure Sub, Deep Sine, Acid, 303, Reese, Growl, FM, Funk, Synthwave, Cinematic… i «Estils»: indie rock, synth pop, house, techno, trap, pop d'estadi, anys 80…). Cerca, preferits, Desa, Desa com…, Importa/Exporta (fitxers .mbsub), Reinicia. Els teus presets es guarden a `Documents\Mibase\SubBass`.
+- **Atzar**: un so nou (sempre un baix útil) o una variació, suau o forta, del que tens. **Desfés/Refés** propis (Ctrl+Z / Ctrl+Y amb la finestra davant).
+- **MIDI**: botó dret sobre un control → *Aprèn MIDI* (mou un potenciòmetre del teclat) o *Assigna un CC*. El botó **MIDI** mostra les assignacions i posa d'un cop els 8 potenciòmetres de l'AKAI (CC 70–77). De fàbrica, CC 74 = tall i CC 71 = ressonància.
+- **Automatització**: tots els controls, des del botó **A** de la pista → *Instrument · SUB & BASS*.
+- **Teclat de pantalla** de 4 octaves (més avall a la tecla, més fort; arrossegant llisca) amb rodes de pitch i de modulació, i indicador de **CPU** i de veus.
+- Controls: arrossega amunt/avall (Maj = fi), roda del ratolí, doble clic = valor de fàbrica.
+
 ### Piano Roll
 S'obre a **baix de l'estudi** (doble clic a un clip MIDI, o la tecla **P** per mostrar-lo o amagar-lo). La ratlla de sobre el fa més alt o més baix. El botó de la finestra el **desenganxa** en una finestra a part (per portar-lo a la segona pantalla i maximitzar-lo); el mateix botó, o tancar la finestra, el torna a baix. Es recorda com el vas deixar.
 
@@ -452,6 +470,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.88.0** — **Mibase SUB & BASS**, el primer sinte del motor de síntesi nou: un sinte de baixos propi (2 oscil·ladors amb unison, sync i FM, sub, soroll, 4 models de filtre, drive, envolupants, LFO amb tempo, mono/legato/poli amb glide) amb 128 presets, navegador, atzar, desfer, importar/exportar, MIDI learn, automatització de tots els controls, oscil·loscopi i teclat de pantalla. De passada: el llapis «Edita» del Chord Pad es desactiva sol en canviar d'eina.
 - **0.87.0** — **Acords d'un àudio**: arrossega un clip d'àudio (o un àudio del Pool) a la pista d'Acords, o fes servir el botó «Treu els acords», i Mibase hi posa els acords que sent (majors, menors, 7, m7, maj7, dim, inversions); els dubtosos surten apagats i amb «?». **Panell de la dreta**: secció «Pista triada» (tipus, entrada i sortida, efectes, enviaments) i un quadre de notes per pista que es desa amb el projecte.
 - **0.86.0** — **Elastic Audio**: canviar el temps dels clips d'àudio sense canviar el to. Eina nova (tecla 7): estirar el clip per les vores, el marcador del mig que reparteix el temps entre dues meitats, i tants marcadors com calgui (clic a l'ona, arrossegar, doble clic per treure'n). Botó «Elastic Audio» al panell del clip: algorisme (General, Ritme, Veu), marcadors als cops, quantitzar a la graella (100 % o 50 %), treure els marcadors i restaurar l'original. Trossos lents en blau i ràpids en taronja. Motor WSOLA amb mapa de temps variable que talla als cops (atacs intactes); el so estirat es calcula en un fil a part. No destructiu, amb Ctrl+Z.
 - **0.85.0** — **Pool** (pestanya nova del panell de la dreta): tots els àudios del projecte amb durada, mono/estèreo, freqüència i on es fan servir. Clic: tria a la taula tots els clips on surt; triangle o doble clic: escolta'l; arrossega'l a la taula per tornar-lo a posar (sense copiar res); ordre per nom, més nous, durada o sense fer servir; cerca; importar àudios sense posar-los a la taula; canviar el nom del fitxer; obrir la carpeta; els que falten surten en vermell i es poden buscar; treure els que sobren a la paperera del projecte (es pot desfer) i buidar-la.

@@ -1,4 +1,5 @@
 #include "PanellHarmonia.h"
+#include <mibase/SubBass.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 
@@ -171,6 +172,7 @@ public:
 
     std::function<void()> onMida;   // l'alçada ha canviat (s'ha plegat o desplegat una secció)
     std::function<void()> onObreSampler;   // 0.26
+    std::function<void (const std::string&)> onObreSubBass;   // 0.88
     std::function<void()> onObreKits;      // 0.39
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -237,8 +239,10 @@ public:
             {
                 btInstrument.setButtonText (pe->instrument.rfind ("vst3:", 0) == 0 ? "Instrument: "_ca + txt (pe->nomInstrument)
                                             : mibase::gm::programa (pe->instrument) >= 0 ? "Instrument: General MIDI"_ca
+                                            : mibase::subbass::esSubBass (*pe) ? "Instrument: SUB & BASS"_ca   // 0.88
                                             : guitarres::part (pe->instrument, false).isNotEmpty() ? "Guitarra: "_ca + guitarres::part (pe->instrument, false) : "Instrument: sinte intern"_ca);
                 btSo.setButtonText ("So: "_ca + (guitarres::part (pe->instrument, true).isNotEmpty() ? guitarres::part (pe->instrument, true)
+                                     : mibase::subbass::esSubBass (*pe) ? "finestra del sinte"_ca
                                      : txt (midi::nomInstrument (pe->instrument.empty() ? "intern:piano" : pe->instrument))));
             }
             btTeclat.setButtonText ("Teclat MIDI: "_ca + (pe->entradaMidi.empty() ? "qualsevol"_ca : txt (pe->entradaMidiNom)));
@@ -571,7 +575,9 @@ private:
         const int gm = mibase::gm::programa (t->instrument);
         juce::PopupMenu m;
         const bool kit = mibase::esKit (*t);
-        m.addItem (1, "Sinte intern", true, ! sampler && ! vst && gm < 0 && ! kit);
+        const bool sb = mibase::subbass::esSubBass (*t);   // 0.88
+        m.addItem (5, "Mibase SUB & BASS (sinte de baixos)"_ca, true, sb);
+        m.addItem (1, "Sinte intern", true, ! sampler && ! vst && gm < 0 && ! kit && ! sb);
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.addItem (3, "Samplejador"_ca, true, sampler);
@@ -585,7 +591,15 @@ private:
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
             if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
             if (r == 4) { if (! mibase::esKit (*p)) canviaPista ([] (Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); return; }
-            if (r == 1 && (mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
+            if (r == 5)
+            {
+                if (! mibase::subbass::esSubBass (*p))
+                    canviaPista ([] (Pista& q) { q.instrument = mibase::subbass::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                                 "Instrument: Mibase SUB & BASS"_ca);
+                if (onObreSubBass) juce::MessageManager::callAsync ([f = onObreSubBass, id = p->id] { f (id); });
+                return;
+            }
+            if (r == 1 && (mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0 || mibase::subbass::esSubBass (*p)))
                 canviaPista ([] (Pista& q) { q.instrument = "intern:piano"; }, "Instrument: sinte intern"_ca);
             else if (r == 3)
             {
@@ -602,6 +616,7 @@ private:
         if (t == nullptr) return;
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
         if (mibase::esKit (*t)) { if (onObreKits) onObreKits(); return; }   // 0.39: el «so» del kit és el kit
+        if (mibase::subbass::esSubBass (*t)) { if (onObreSubBass) onObreSubBass (t->id); return; }   // 0.88
         juce::PopupMenu m;
         const int actual = juce::jmax (0, midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
         const int gm = mibase::gm::programa (t->instrument);
@@ -889,6 +904,7 @@ PanellHarmonia::PanellHarmonia (EstatEstudi& e, std::function<PianoRoll*()> edit
     contingut = std::make_unique<Contingut> (e, std::move (editorActiu), ajustos, std::move (teclats));
     contingut->onMida = [this] { resized(); };
     contingut->onObreSampler = [this] { if (onObreSampler) onObreSampler(); };
+    contingut->onObreSubBass = [this] (const std::string& id) { if (onObreSubBass) onObreSubBass (id); };   // 0.88
     contingut->onObreKits = [this] { if (onObreKits) onObreKits(); };
     vista.setViewedComponent (contingut.get(), false);
     vista.setScrollBarsShown (true, false);

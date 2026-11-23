@@ -541,6 +541,20 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     esquerra.setPanellEditor (&panellEditor);
     esquerra.opcions.onObreKits = [this] { obreKits(); };
     esquerra.opcions.onObreSampler = [this] { obreSampler (estat.pistaTriada); };
+    // 0.88: el SUB & BASS (finestra, teclat de pantalla, automatització i desar els ajustos)
+    esquerra.opcions.subBass = [this] (const std::string& id)
+    {
+        if (auto s = instruments.subBass (id)) return s;
+        publicaPla();   // la pista l'acaba d'agafar: que el pla el creï
+        return instruments.subBass (id);
+    };
+    esquerra.opcions.onDirecte = [this] (const std::string& id, std::uint8_t e, std::uint8_t d1, std::uint8_t d2)
+    {
+        if (auto* t = estat.pista (mibase::edicio::pistaPerId (estat.projecte, id))) servei.estudi().enviaDirecte ({ slotDePista (*t), e, d1, d2 });
+    };
+    panellHarmonia.onObreSubBass = [this] (const std::string& id) { esquerra.opcions.obreSubBass (id); };
+    plugins.instrumentIntern = [this] (const std::string& id) -> mibase::Parametritzable* { return instruments.subBass (id).get(); };
+    plugins.desaInterns = [this] (mibase::Projecte& p) { return instruments.desaEstats (p); };
     panellHarmonia.onObreSampler = [this]
     {
         if (auto* pr = zonaEditors.actiu()) obreSampler (pr->pistaDeLEditor());
@@ -1145,6 +1159,7 @@ void PantallaEstudi::publicaPla()
     instruments.carpeta = estat.carpeta;
     plugins.neteja (estat.projecte);
     RellotgePlugins::global().tempo.store (estat.projecte.tempo > 1.0 ? estat.projecte.tempo : 120.0);
+    mibase::subbass::tempo().store (estat.projecte.tempo > 1.0 ? estat.projecte.tempo : 120.0);   // 0.88: LFO amb el tempo
     RellotgePlugins::global().num.store (estat.projecte.compasNum);
     RellotgePlugins::global().den.store (estat.projecte.compasDen);
     const double fs = servei.estudi().getFs();
@@ -1805,6 +1820,7 @@ void PantallaEstudi::exportaMescla()
 
 void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce::File& desti)
 {
+    instruments.desaEstats (estat.projecte);   // 0.88: els ajustos d'ara del SUB & BASS
     const auto& p = estat.projecte;
     const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
     const auto nomProj = dibuix::utf8 (p.nom);
@@ -2243,6 +2259,7 @@ bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, d
     // 0.81/0.82: la pista sola a un fitxer. Sense fader, panorama, enviaments, busos ni màster.
     // ambEfectes = false: en sec (només el Vocal Editor, que ja és la veu corregida); true: amb els efectes i l'instrument.
     const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+    instruments.desaEstats (estat.projecte);   // 0.88
     mibase::Projecte q = estat.projecte;
     auto sola = t;
     if (! ambEfectes)

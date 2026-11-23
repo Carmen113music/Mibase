@@ -9,6 +9,7 @@
 #include <mibase/MotorEstudi.h>
 #include <mibase/SinteIntern.h>
 #include <mibase/Sampler.h>
+#include <mibase/SubBass.h>
 #include "Kits.h"
 #include "BancGM.h"
 #include "Guitarres.h"
@@ -54,6 +55,28 @@ public:
             return e.instrument;
         }
         if (t.tipus != "midi") return nullptr;
+        if (mibase::subbass::esSubBass (t))
+        {
+            // 0.88: el SUB & BASS. El mateix objecte mentre la pista el tingui; si el projecte porta uns ajustos
+            // nous (desfer, obrir), s'hi posen sense parar el so.
+            auto& e = llista[t.id];
+            if (e.tipus != "subbass" || e.instrument == nullptr)
+            {
+                e.instrument = creaSubBass (t, fs, maxBloc);
+                e.tipus = "subbass";
+                e.fs = fs;
+                e.ultimEstat = t.estatInstrument;
+            }
+            else if (t.estatInstrument != e.ultimEstat)
+            {
+                if (auto* s = dynamic_cast<mibase::subbass::SubBass*> (e.instrument.get()))
+                    if (s->estat() != t.estatInstrument)   // si ja el té (l'acaba de desar la finestra), no cal
+                        s->posaEstat (t.estatInstrument.empty() ? inicialSubBass() : t.estatInstrument);
+                e.ultimEstat = t.estatInstrument;
+            }
+            e.fs = fs;
+            return e.instrument;
+        }
         if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
         {
             // 0.43: una guitarra d'un .sf2 (el banc es carrega el primer cop que una pista el fa servir)
@@ -115,6 +138,7 @@ public:
             if (mibase::esSampler (t)) return creaSampler (t, carpetaProjecte, fs, bloc, nullptr);
             if (mibase::esKit (t)) return kits::sampler (t, fs, bloc);
             if (t.tipus != "midi") return nullptr;
+            if (mibase::subbass::esSubBass (t)) return creaSubBass (t, fs, bloc);   // 0.88
             if (mibase::gm::RefSf2 ref; mibase::gm::llegeixRef (t.instrument, ref))
             {
                 auto s = creaSf2 (ref, fs, bloc);
@@ -134,6 +158,29 @@ public:
             const bool hiEs = std::any_of (p.pistes.begin(), p.pistes.end(), [&] (const mibase::Pista& t) { return t.id == it->first && mibase::esMidi (t); });
             it = hiEs ? std::next (it) : llista.erase (it);
         }
+    }
+
+    /** 0.88: el SUB & BASS viu d'una pista (nullptr si la pista no en té o encara no sona). */
+    std::shared_ptr<mibase::subbass::SubBass> subBass (const std::string& idPista)
+    {
+        auto it = llista.find (idPista);
+        if (it == llista.end()) return nullptr;
+        return std::dynamic_pointer_cast<mibase::subbass::SubBass> (it->second.instrument);
+    }
+
+    /** 0.88: copia els ajustos dels SUB & BASS vius al projecte (abans de desar, desfer o exportar). */
+    bool desaEstats (mibase::Projecte& p)
+    {
+        bool canvi = false;
+        for (auto& t : p.pistes)
+            if (mibase::subbass::esSubBass (t))
+                if (auto s = subBass (t.id))
+                {
+                    auto e = s->estat();
+                    if (e != t.estatInstrument) { t.estatInstrument = e; canvi = true; }
+                    llista[t.id].ultimEstat = t.estatInstrument;
+                }
+        return canvi;
     }
 
     /** 0.26: el samplejador d'una pista, si n'hi ha un de viu (per a l'editor: on és el capçal del so). */
@@ -184,6 +231,22 @@ private:
         return s;
     }
 
+    /** 0.88: el so d'un SUB & BASS nou: el primer preset «Analog Bass» (millor que el so inicial pla). */
+    static std::string inicialSubBass()
+    {
+        for (const auto& p : mibase::subbass::presetsFabrica())
+            if (p.categoria == "Analog Bass") return p.estat + ";pnom=" + p.nom;
+        return mibase::subbass::estatInicial();
+    }
+
+    static std::shared_ptr<mibase::Instrument> creaSubBass (const mibase::Pista& t, double fs, int bloc)
+    {
+        auto s = std::make_shared<mibase::subbass::SubBass>();
+        s->posaEstat (t.estatInstrument.empty() ? inicialSubBass() : t.estatInstrument);
+        s->prepara (fs, bloc);
+        return s;
+    }
+
     static std::shared_ptr<mibase::Instrument> creaSf2 (const mibase::gm::RefSf2& ref, double fs, int maxBloc)
     {
         auto s = std::make_shared<mibase::gm::SinteGM> (guitarres::banc (ref.fitxer), ref.programa, ref.banc);
@@ -211,6 +274,7 @@ private:
         std::shared_ptr<mibase::Instrument> instrument;
         std::string tipus;
         double fs = 0.0;
+        std::string ultimEstat;   // 0.88: els ajustos del projecte que ja té l'instrument
     };
     std::map<std::string, Entrada> llista;
 };

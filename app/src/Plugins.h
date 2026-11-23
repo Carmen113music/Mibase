@@ -178,6 +178,9 @@ public:
         encara no és viu, el crea (sense sonar). nullptr si no n'hi ha. */
     mibase::Parametritzable* parametres (const mibase::Insert& x);
     mibase::Parametritzable* parametresInstrument (const std::string& idPista);
+    /** 0.88: els instruments interns amb paràmetres (SUB & BASS): els posa PantallaEstudi. */
+    std::function<mibase::Parametritzable* (const std::string& idPista)> instrumentIntern;
+    std::function<bool (mibase::Projecte&)> desaInterns;
     /** 0.56: aquest insert accepta sidechain? (els interns, sí; un VST3, si té entrada lateral) */
     bool admetSidechain (const mibase::Insert& x);
 

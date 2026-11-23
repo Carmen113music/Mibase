@@ -3476,6 +3476,8 @@ void PianoRoll::actualitzaControlsPads()
         btSegueix.setToggleState (gm && segueixAcords(), juce::dontSendNotification);
         if (gm) selDuradaPads.setVisible (! segueixAcords());
         if (gm) { voicingPads.setVisible (false); btLlapisPads.setVisible (false); }
+        // 0.88: si el llapis («Edita») queda amagat (eina de patrons, Chord Pad tancat), deixa d'editar acords
+        if (! btLlapisPads.isVisible() && btLlapisPads.getToggleState()) btLlapisPads.setToggleState (false, juce::dontSendNotification);
         btForma.setVisible (gm && ! modePiano());   // 0.49
         btOctava.setVisible (gm && ! modePiano());  // 0.68
         btOctava.setToggleState (octavaGuitarra > 0, juce::dontSendNotification);

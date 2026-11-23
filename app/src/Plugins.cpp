@@ -355,6 +355,7 @@ bool GestorPlugins::desaEstats (mibase::Projecte& p)
         for (auto& x : t.inserts) if (! desaReverb (x)) desa (x.id, x.estat);
         if (esVst3 (t.instrument)) desa ("inst:" + t.id, t.estatInstrument);
     }
+    if (desaInterns && desaInterns (p)) canvi = true;   // 0.88: els instruments interns (SUB & BASS)
     return canvi;
 }
 
@@ -517,7 +518,8 @@ mibase::Parametritzable* GestorPlugins::parametres (const mibase::Insert& x)
 
 mibase::Parametritzable* GestorPlugins::parametresInstrument (const std::string& idPista)
 {
-    return viu ("inst:" + idPista);
+    if (auto* a = viu ("inst:" + idPista)) return a;
+    return instrumentIntern ? instrumentIntern (idPista) : nullptr;   // 0.88
 }
 
 bool GestorPlugins::admetSidechain (const mibase::Insert& x)

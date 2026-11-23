@@ -472,6 +472,7 @@ namespace mibase::midi
         if (i >= 0) return sonsInterns()[(size_t) i].nom;
         if (instrument.empty()) return "Cap";
         if (instrument == instrumentSampler) return "Samplejador";
+        if (instrument == "sinte:subbass") return "Mibase SUB & BASS";   // 0.88
         if (const int p = gm::programa (instrument); p >= 0) return std::string ("GM · ") + gm::nomPrograma (p);
         if (gm::RefSf2 ref; gm::llegeixRef (instrument, ref)) return ref.nom.empty() ? ref.fitxer : ref.nom;   // 0.43
         return instrument;
