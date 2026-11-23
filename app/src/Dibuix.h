@@ -12,7 +12,7 @@ namespace dibuix
                        Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
                        Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix,
                        Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes, Cadenat, Bucle,
-                       Encen, Canvia, Bateria, Finestra };
+                       Encen, Canvia, Bateria, Finestra, Elastic };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -133,6 +133,11 @@ namespace dibuix
                 p.startNewSubPath (10, 9); p.lineTo (10.5f, 5); p.lineTo (13.5f, 5); p.lineTo (14, 9);
                 p.startNewSubPath (12, 5); p.lineTo (12, 2.5f);
                 p.startNewSubPath (9, 14); p.lineTo (15, 14);
+                break;
+            case Icona::Elastic:   // 0.86: una molla entre dues vores
+                p.startNewSubPath (3, 5); p.lineTo (3, 19);
+                p.startNewSubPath (21, 5); p.lineTo (21, 19);
+                p.startNewSubPath (3, 12); p.lineTo (6, 8); p.lineTo (9, 16); p.lineTo (12, 8); p.lineTo (15, 16); p.lineTo (18, 8); p.lineTo (21, 12);
                 break;
             case Icona::Silenci:   // X
                 p.startNewSubPath (6, 6); p.lineTo (18, 18);

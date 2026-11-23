@@ -121,6 +121,14 @@ namespace mibase
         bool operator== (const BlocPatro&) const = default;
     };
 
+    /** 0.86: Elastic Audio. Un punt d'elasticitat (warp marker): el moment «font» del fitxer (segons) sona al moment
+        «desti» del clip (segons des de Clip::pos). Entre dos punts, el temps s'estira o s'encongeix sense canviar el to. */
+    struct PuntWarp
+    {
+        double font = 0.0, desti = 0.0;
+        bool operator== (const PuntWarp&) const = default;
+    };
+
     struct Clip
     {
         std::string presa;
@@ -147,6 +155,11 @@ namespace mibase
         std::vector<AcordClip> acordsFixos;   // 0.48: acords fixats a mà en un clip que segueix la pista d'Acords (manen sobre els de la pista)
         std::vector<VeuCompas> veus;    // 0.61: inversions / posicions CAGED per compàs
         bool acordsPropis = false;      // 0.46: aquest clip no segueix la pista d'Acords encara que la pista sí (fa servir «acords»)
+
+        /** 0.86: Elastic Audio. Buit = l'àudio original (el temps del clip és el del fitxer). Si n'hi ha, «inici» i «fi»
+            són temps del clip (ja estirat) i el primer punt és sempre el començament del fitxer (font 0, desti 0). */
+        std::vector<PuntWarp> warp;
+        int elastic = 0;   // algorisme: 0 general, 1 ritme (bateria), 2 veu / solista
 
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }

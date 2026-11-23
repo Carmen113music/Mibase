@@ -169,7 +169,7 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
-    void mouseExit (const juce::MouseEvent&) override { sobre = {}; tTisores = -1.0; repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { sobre = {}; sobreElastic = {}; tTisores = -1.0; repaint(); }
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void fileDragEnter (const juce::StringArray&, int, int y) override { filaDeixar = estat.pistaA (y); repaint(); }
@@ -191,7 +191,17 @@ protected:
 private:
     void pintaFilaCarpeta (juce::Graphics& g, int fila);
     enum class Mode { Res, Requadre, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
-                      Llapis, Goma, Cola, CompTria, CompVora };
+                      Llapis, Goma, Cola, CompTria, CompVora, ElasticVora, ElasticMarcador };
+    // ---- 0.86: Elastic Audio (eina 7) ----
+    /** zona: -1 / 1 vora esquerra / dreta (estirar), 2 un marcador, 3 el marcador del mig (encara no hi és), 4 dins el clip. */
+    struct LlocElastic { int pista = -1, clip = -1, zona = 0, marcador = -1; };
+    LlocElastic elasticA (juce::Point<int> p) const;
+    void mouseDownElastic (const juce::MouseEvent& e);
+    void dragElastic (double t);
+    void pintaElastic (juce::Graphics& g, int pista, int indexClip, const mibase::Clip& c, juce::Rectangle<float> r);
+    LlocElastic elastic0, sobreElastic;
+    double elasticT0 = 0.0;   // on era la vora o el marcador en començar
+    bool elasticMogut = false;
     // ---- 0.81: subpistes de preses i comping ----
     void pintaTakes (juce::Graphics& g, int pista);
     bool mouseDownLane (const juce::MouseEvent& e);
@@ -444,6 +454,7 @@ class PanellPista : public SeccioEstudi
 public:
     explicit PanellPista (EstatEstudi& e);
     std::function<void()> onDuplica, onTreu;
+    std::function<void (juce::Component&)> onElastic;   // 0.86: el menú d'Elastic Audio del clip triat
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -454,5 +465,6 @@ protected:
 private:
     Boto btDuplica { "Duplica", std::nullopt, Boto::Estil::Secundari };
     Boto btTreu { "Treu", std::nullopt, Boto::Estil::Secundari };
+    Boto btElastic { "Elastic Audio", dibuix::Icona::Elastic, Boto::Estil::Secundari };   // 0.86
     Boto btEstructura { "Estructura: lineal", std::nullopt, Boto::Estil::Secundari };   // 0.15: quina estructura sona
 };

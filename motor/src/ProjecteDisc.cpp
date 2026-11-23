@@ -518,6 +518,17 @@ namespace mibase::disc
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
                         c.acord = k.value ("acord", std::string());   // 0.36
+                        if (k.contains ("warp") && k["warp"].is_array())   // 0.86: Elastic Audio
+                        {
+                            for (auto& w : k["warp"])
+                                if (w.is_array() && w.size() >= 2 && w[0].is_number() && w[1].is_number())
+                                    c.warp.push_back ({ w[0].get<double>(), w[1].get<double>() });
+                            bool bo = c.warp.size() >= 2;
+                            for (size_t i = 1; bo && i < c.warp.size(); ++i)
+                                bo = c.warp[i].font > c.warp[i - 1].font && c.warp[i].desti > c.warp[i - 1].desti;
+                            if (! bo) c.warp.clear();
+                            c.elastic = std::clamp (k.value ("elastic", 0), 0, 2);
+                        }
 if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                             for (auto& b : k["blocs"])
                             {
@@ -804,6 +815,13 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                            { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
                            { "rgb", c.rgb } };
                 if (c.esAcord()) k["acord"] = c.acord;   // 0.36
+                if (! c.warp.empty())   // 0.86: Elastic Audio
+                {
+                    json ww = json::array();
+                    for (auto& w : c.warp) ww.push_back ({ w.font, w.desti });
+                    k["warp"] = ww;
+                    k["elastic"] = c.elastic;
+                }
                 if (! c.blocs.empty())   // 0.40
                 {
                     json bl = json::array();

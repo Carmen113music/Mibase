@@ -53,7 +53,7 @@ private:
 };
 
 /** Eines de la caixa d'eines de l'estudi. */
-enum class Eina { Fletxa = 0, Llapis, Goma, Tisores, Cola, Silenci };
+enum class Eina { Fletxa = 0, Llapis, Goma, Tisores, Cola, Silenci, Elastic };   // 0.86: Elastic Audio (7)
 
 /** Tot el que comparteixen les seccions de l'estudi: el projecte, el que hi ha triat i com es mira
     (zoom, desplaçament, alçada de les pistes, capçal). Quan alguna cosa canvia, avisa totes les seccions. */

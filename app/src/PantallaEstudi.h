@@ -23,6 +23,7 @@
 #include "PianoRoll.h"
 #include "Plugins.h"
 #include "ServeiAudio.h"
+#include "ServeiElastic.h"
 #include "VistesEstudi.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -146,6 +147,12 @@ private:
     void sincronitzaVeu();
     /** Recull el que el ServeiVeu ha acabat (anàlisis i so corregit). */
     void recullVeu();
+    /** 0.86: Elastic Audio. Demana el so estirat dels clips que en tenen i refà el mapa de sons per al pla
+        (Vocal Editor + Elastic). «ara»: els que falten es fan al moment (abans d'exportar o fer un Print). */
+    void sincronitzaElastic (bool ara = false);
+    void recullElastic();
+    /** El menú d'Elastic Audio del clip triat (algorisme, marcadors als cops, quantitzar, restaurar). */
+    void menuElastic (juce::Component& boto);
     // 0.24: solo dels editors.
     std::string pistaEditor() const;
     void commutaSoloEditor();
@@ -198,6 +205,9 @@ private:
     ServeiAudio& servei;
     EstatEstudi estat;
     ServeiVeu serveiVeu;       // 0.22: abans dels components que el fan servir
+    ServeiElastic serveiElastic;   // 0.86
+    mibase::MapaAudios mapaSo;     // 0.86: el que es dona al pla: preses del Vocal Editor i sons estirats
+    std::map<std::string, std::string> clauDeClip;   // 0.86: «pista#clip» -> la clau del darrer so estirat que s'ha fet
     Instruments instruments;   // els de les pistes MIDI (viu abans que el pla que els fa servir)
     GestorPlugins plugins { servei.escaner().llista() };   // 0.19: VST3 (inserts i instruments)
     juce::AudioFormatManager formats;

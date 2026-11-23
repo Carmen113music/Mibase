@@ -1,6 +1,7 @@
 #include "mibase/MotorEstudi.h"
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
+#include "mibase/Elastic.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -163,6 +164,13 @@ namespace mibase
                 if (auto it0 = audios.find (c.presa); it0 != audios.end()) au = &it0->second;
                 if (ambVeu)
                     if (auto ic = corregides->find (c.presa); ic != corregides->end() && ic->second != nullptr && ic->second->longitud > 0) au = &ic->second;
+                // 0.86: Elastic Audio: el so estirat (si ja està calculat; si no, l'original mentre s'acaba).
+                if (elastic::actiu (c) && corregides != nullptr && au != nullptr)
+                {
+                    const bool deVeu = ambVeu && corregides->count (c.presa) > 0;
+                    if (auto ie = corregides->find (elastic::clau (c, deVeu)); ie != corregides->end() && ie->second != nullptr && ie->second->longitud > 0)
+                        au = &ie->second;
+                }
                 if (au == nullptr || *au == nullptr || (*au)->longitud <= 0) continue;
                 const auto audio = *au;
                 Pla::Clip k;
@@ -1429,7 +1437,7 @@ namespace mibase
                 const Presa* s = nullptr;
                 for (const auto& x : p.preses) if (x.id == c.presa) s = &x;
                 if (s == nullptr) continue;
-                const double ini = c.pos + std::max (c.inici, 0.0), fi = c.pos + std::min (c.fi, s->durada);
+                const double ini = c.pos + std::max (c.inici, 0.0), fi = c.pos + std::min (c.fi, elastic::duradaClip (c, s->durada));
                 if (fi <= ini) continue;
                 a = std::min (a, ini);
                 b = std::max (b, fi);

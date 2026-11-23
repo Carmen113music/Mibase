@@ -98,6 +98,21 @@ Pestanya «Pool» del panell de la dreta (al costat de Clip i Biblioteca): tots 
 - **Botó dret**: escolta'l, on és a la taula, **canvia el nom** (el fitxer també; el projecte el continua trobant), obre la carpeta, **busca el fitxer** si falta (es copia a Àudios), o treu-lo del projecte si no es fa servir.
 - **Treu els que sobren**: els que no es fan servir enlloc surten del projecte i el fitxer va a **Àudios\Paperera**. Es pot desfer amb Ctrl+Z. El botó de la carpeta → **Buida la paperera…** els esborra del disc de debò (això no es pot desfer).
 
+### Elastic Audio (0.86)
+Canvia el temps d'un clip d'àudio **sense canviar-ne el to**: per corregir cops de bateria, notes de baix o de guitarra, síl·labes de la veu, o provar un altre groove. No es toca mai el fitxer: el so estirat es calcula a part (en un instant, sense aturar res) i Ctrl+Z ho desfà.
+- **Eina Elastic Audio (tecla 7)**, l'última de la caixa d'eines (la molla). Amb la fletxa, les cantonades continuen retallant com sempre: així no es confonen.
+- **Estirar el clip (mode A)**: amb l'eina 7, passa per sobre d'una **vora** del clip (surt una barra taronja) i arrossega-la. Cap enfora, el clip s'allarga i va més lent; cap endins, s'escurça i va més ràpid. L'altra vora no es mou. Mentre arrossegues, a dalt surt la durada i el percentatge («128 % (més lent)»). La vora s'enganxa a la graella (Compàs / Graella / Lliure).
+- **Marcador del mig (mode B)**: en un clip sense marcadors surt una **ratlla discontínua al mig**. Arrossega-la: les dues meitats es reparteixen el temps i el clip dura el mateix. Les vores queden fixes.
+- **Marcadors (mode C)**: un **clic** a l'ona posa un marcador allà (per exemple, a sobre d'un cop); **arrossegar** l'ona o un marcador mou aquell moment de la música i estira o encongeix el que hi ha entre els marcadors del costat (la resta no es mou). Els marcadors s'enganxen als temps o a la graella. **Doble clic** o **Alt+clic** en un marcador el treu.
+- Els trossos que van **més lents** es veuen **blaus** i els **més ràpids**, **taronja**, amb el percentatge a sota (100 % = l'original). Al nom del clip hi diu «elàstic».
+- **Botó «Elastic Audio»** del panell Clip (dreta, amb un clip d'àudio triat):
+  - **Algorisme**: *General* (guitarres, baix, teclats, mescles), *Ritme (bateria)* (atacs ben secs) o *Veu / solista* (notes lligades, sense talls).
+  - **Marcadors als cops**: detecta els atacs i hi posa un marcador (només els forts / normal / tots).
+  - **Quantitza els marcadors a la graella** (o al 50 %, més natural): per posar a temps una bateria o un baix.
+  - **Treu els marcadors** (es queda l'estirament de tot el clip) i **Restaura l'àudio original**.
+- Com sona: els atacs (cops, púes, consonants) no s'estiren mai: cada cop comença exactament on diu el marcador i només s'estira el que hi ha entre cops. Es pot anar de 4 vegades més ràpid a 4 vegades més lent, però el que sona més natural és quedar-se entre el 80 % i el 125 %.
+- Funciona amb tot: moure, copiar, tallar, crossfades, la bandera del primer temps, exportar, Print i la Cola. Si la pista té el Vocal Editor encès, s'estira la veu ja corregida.
+
 ### Exportar (0.83)
 Fitxer → Exporta obre una finestra amb les opcions:
 - **Què**: tota la mescla (tal com sona, amb mutes i solos), una mescla amb les pistes triades, **un fitxer per pista** (stems) o **un per carpeta**. Amb més d'un fitxer, tria la carpeta on van; tots comencen i acaben al mateix lloc (per posar-los junts en un altre programa).
@@ -431,6 +446,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **0.86.0** — **Elastic Audio**: canviar el temps dels clips d'àudio sense canviar el to. Eina nova (tecla 7): estirar el clip per les vores, el marcador del mig que reparteix el temps entre dues meitats, i tants marcadors com calgui (clic a l'ona, arrossegar, doble clic per treure'n). Botó «Elastic Audio» al panell del clip: algorisme (General, Ritme, Veu), marcadors als cops, quantitzar a la graella (100 % o 50 %), treure els marcadors i restaurar l'original. Trossos lents en blau i ràpids en taronja. Motor WSOLA amb mapa de temps variable que talla als cops (atacs intactes); el so estirat es calcula en un fil a part. No destructiu, amb Ctrl+Z.
 - **0.85.0** — **Pool** (pestanya nova del panell de la dreta): tots els àudios del projecte amb durada, mono/estèreo, freqüència i on es fan servir. Clic: tria a la taula tots els clips on surt; triangle o doble clic: escolta'l; arrossega'l a la taula per tornar-lo a posar (sense copiar res); ordre per nom, més nous, durada o sense fer servir; cerca; importar àudios sense posar-los a la taula; canviar el nom del fitxer; obrir la carpeta; els que falten surten en vermell i es poden buscar; treure els que sobren a la paperera del projecte (es pot desfer) i buidar-la.
 - **0.84.0** — Arreglat: desar un rasgueig propi amb un altre nom esborrava l'original (ara se'n fa un de nou; si el nom ja existeix, s'hi afegeix un número) i nova opció «Desa els canvis a…» per actualitzar el mateix. Cada pista queda una mica tenyida del seu color (fila, capçalera i preses). Corregit el text «Què» de la finestra d'exportar.
 - **0.83.0** — **Finestra d'exportar**: tota la mescla, una mescla de les pistes triades, un fitxer per pista (stems) o un per carpeta; tota la cançó (lineal o una estructura), el bucle o una part; amb o sense efectes; amb o sense màster; WAV 24 o 16 bits. Inclou la cua de reverbs i delays. **Print amb Kontakt i altres VST3**: les còpies per exportar treballen fora de temps real i s'espera que carreguin les mostres (si surt en silenci, es torna a provar esperant més). **Si Mibase es tanca de cop**, queda escrit on (al diagnòstic, «Darrer tancament inesperat»). «A pistes reals» explica per què no fa res si el Vocal Studio no té retorns, i si ho fa, la vista va a la carpeta nova.

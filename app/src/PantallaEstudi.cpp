@@ -227,8 +227,9 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         { dibuix::Icona::Tisores, "Tisores (4): talla un clip on cliques" },
         { dibuix::Icona::Cola,    "Cola (5): ajunta dos clips en una sola finestra" },
         { dibuix::Icona::Silenci, "X (6): silencia o fa sonar un clip" },
+        { dibuix::Icona::Elastic, "Elastic Audio (7): estira el clip per les vores o mou el temps amb marcadors, sense canviar el to" },
     };
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 7; ++i)
     {
         auto* b = eines.add (new Boto ({}, llista[i].icona, Boto::Estil::Tecla));
         b->setLlum (vintage::ledTaronja);
@@ -469,6 +470,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     pistes.arrossegaFora = [this] (juce::Point<int> q) { return editorSampler.isShowing() && editorSampler.getScreenBounds().contains (q); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
+    panell.onElastic = [this] (juce::Component& b) { menuElastic (b); };   // 0.86
 
     // Carpetes de pistes (0.11).
     addChildComponent (carpetes);
@@ -796,6 +798,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
     actualitzaBarres();
     repaint (zonaBarra);
     sincronitzaVeu();
+    sincronitzaElastic();   // 0.86
     seguixSoloEditor();
     publicaPla();
 }
@@ -967,7 +970,7 @@ void PantallaEstudi::resized()
     zonaBarra = getLocalBounds().removeFromTop (alcadaBarra);
     auto b = zonaBarra.reduced (14, 8);
 
-    zonaEines = b.removeFromLeft (6 * 40 + 5 * 3);
+    zonaEines = b.removeFromLeft (7 * 40 + 6 * 3);
     {
         auto e = zonaEines;
         for (auto* t : eines)
@@ -1137,7 +1140,7 @@ void PantallaEstudi::publicaPla()
     const auto errorAbans = plugins.getUltimError();
     servei.estudi().publica (construeixPla (estat.projecte, audioPreses,
         [this, fs, interns] (const mibase::Pista& t) { return GestorPlugins::esVst3 (t.instrument) ? plugins.instrument (t, fs, 2048) : interns (t); },
-        [this, fs] (const mibase::Insert& x) { return plugins.efecte (x, fs, 2048); }, &serveiVeu.corregides()));
+        [this, fs] (const mibase::Insert& x) { return plugins.efecte (x, fs, 2048); }, &mapaSo));
     if (instruments.avis.isNotEmpty())
     {
         historial.afegeix (instruments.avis);
@@ -1707,6 +1710,7 @@ void PantallaEstudi::tic()
         if (taulaEstructura.isVisible()) taulaEstructura.repaint();
     }
     recullVeu();
+    recullElastic();   // 0.86
     if (editorVeu.isVisible()) editorVeu.tic();
     if (editorSampler.isVisible()) editorSampler.tic();
     if (editorAuto.isVisible()) editorAuto.tic();
@@ -1831,6 +1835,7 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
 
     juce::StringArray fets, errors;
     juce::MouseCursor::showWaitCursor();
+    sincronitzaElastic (true);   // 0.86: els sons estirats, tots fets abans d'exportar
     for (auto& f : feines)
     {
         tancaments::pas ("exportant " + f.nom + ": preparant");
@@ -1850,7 +1855,7 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
                     return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
                 },
                 [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
-                &serveiVeu.corregides());
+                &mapaSo);
             tancaments::pas ("exportant " + f.nom + ": renderitzant");
             fet = mibase::exportaPla (*pla, fs, tros.first, tros.second, r.bits, cua, dibuix::cami (f.fitxer), error, {}, ! variosFitxers);
             tancaments::pas ("exportant " + f.nom + ": tancant les còpies dels plugins");
@@ -2247,11 +2252,12 @@ bool PantallaEstudi::renderitzaPista (const mibase::Pista& t, bool ambEfectes, d
     q.bucle.actiu = false;
 
     const auto temporal = desti.getSiblingFile (desti.getFileName() + ".tmp.wav");
+    sincronitzaElastic (true);   // 0.86
     auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
     bool fet = mibase::exportaMescla (*construeixPla (q, audioPreses,
                                           [this, fs, interns, escalfa] (const mibase::Pista& x) { return GestorPlugins::esVst3 (x.instrument) ? plugins.instrumentNou (x, fs, 4096, escalfa) : interns (x); },
                                           [this, fs, ambEfectes] (const mibase::Insert& x) { return ambEfectes && x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
-                                          &serveiVeu.corregides()),
+                                          &mapaSo),
                                       fs, ini, fi, dibuix::cami (temporal), error);
     frames = 0;
     if (fet)
@@ -2442,9 +2448,34 @@ void PantallaEstudi::consolida (int pista, int ia, int ib)
     juce::AudioBuffer<float> mescla (canals, total);
     mescla.clear();
 
+    sincronitzaElastic (true);   // 0.86
     for (const auto* c : { &a, &b })
     {
         if (c->presa.empty() || c->mut) continue;
+        if (mibase::elastic::actiu (*c))
+        {
+            // 0.86: un clip amb Elastic Audio: es llegeix el so estirat (en temps del clip).
+            const bool deVeu = mibase::veuActiva (*t) && serveiVeu.corregides().count (c->presa) > 0;
+            auto it = mapaSo.find (mibase::elastic::clau (*c, deVeu));
+            if (it != mapaSo.end() && it->second != nullptr && std::abs (it->second->fs - sr) < 0.5)
+            {
+                const auto& so = *it->second;
+                const double guany = std::pow (10.0, c->guanyDb / 20.0);
+                const double fa = juce::jmax (c->inici, 0.0), fb = juce::jmin (c->fi, so.durada());
+                for (long long i = (long long) std::round (fa * sr); i < (long long) std::round (fb * sr); ++i)
+                {
+                    const double tf = (double) i / sr;
+                    double env = 1.0;
+                    if (c->fadeIn > 0.0 && tf < c->inici + c->fadeIn) env = juce::jmax (0.0, (tf - c->inici) / c->fadeIn);
+                    if (c->fadeOut > 0.0 && tf > c->fi - c->fadeOut) env = juce::jmin (env, juce::jmax (0.0, (c->fi - tf) / c->fadeOut));
+                    const int k = (int) std::round ((c->pos + tf - ini) * sr);
+                    if (k < 0 || k >= total || i >= so.longitud) continue;
+                    for (int ch = 0; ch < canals; ++ch)
+                        mescla.addSample (ch, k, (float) (so.dades[juce::jmin (ch, so.canals - 1)][(size_t) i] * guany * env));
+                }
+                continue;
+            }
+        }
         auto& ona = *estat.ones[c->presa];
         const double guany = std::pow (10.0, c->guanyDb / 20.0);
         // Tros del fitxer que sona: [max(inici, 0), min(fi, durada)].
@@ -2817,7 +2848,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     }
     if (mods.isCommandDown() && (codi == 'S' || codi == 's')) { desaAra(); estat.info = "Desat"; estat.avisa(); return true; }
     if (mods.isCommandDown() && (codi == 'I' || codi == 'i')) { importaDeMenu(); return true; }
-    if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '6') { triaEina ((Eina) (codi - '1')); return true; }
+    if (! mods.isAnyModifierKeyDown() && codi >= '1' && codi <= '7') { triaEina ((Eina) (codi - '1')); return true; }
     if (codi == juce::KeyPress::escapeKey) { estat.triantFantasma = -1; estat.capTriat(); triaEina (Eina::Fletxa); tancaTot(); return true; }
     if (codi == juce::KeyPress::homeKey) { transport (0); return true; }
     if (codi == juce::KeyPress::spaceKey) { if (estat.transport == 0) reprodueix(); else atura(); return true; }
@@ -3148,6 +3179,8 @@ void PantallaEstudi::obreVeu (int pista, int clip)
     estat.triaClip (pista, clip);
     colocaSeccions();
     sincronitzaVeu();
+    if (mibase::elastic::actiu (*c))   // 0.86
+        estat.info = "Aquest clip té Elastic Audio: el Vocal Editor mostra la veu sense estirar (el so corregit sí que s'estira)"_ca;
     estat.avisa();
     editorVeu.grabKeyboardFocus();
 }
@@ -3220,6 +3253,7 @@ void PantallaEstudi::recullVeu()
         historial.afegeix ("Vocal Editor: "_ca + juce::String ((int) s->veu.notes.size()) + " notes a "_ca + dibuix::utf8 (s->nom));
         notesNoves = true;
     }
+    sincronitzaElastic();   // 0.86: el so corregit ha canviat (el mapa del pla el porta)
     if (notesNoves) estat.canviat ("Vocal Editor: notes detectades"_ca);
     else publicaPla();
     editorVeu.repaint();
@@ -3929,4 +3963,121 @@ void PantallaEstudi::deixaPresa (const std::string& id, int fila, double temps)
     estat.recalculaFiles();
     estat.triaClip (fila, (int) estat.projecte.pistes[(size_t) fila].clips.size() - 1);
     estat.canviat ("Pool: «"_ca + dibuix::utf8 (ed::presa (estat.projecte, id)->nom) + "» posat a la taula");
+}
+
+//==============================================================================
+// 0.86: Elastic Audio
+//==============================================================================
+void PantallaEstudi::sincronitzaElastic (bool araMateix)
+{
+    namespace el = mibase::elastic;
+    const auto& corr = serveiVeu.corregides();
+    mapaSo = corr;
+    std::set<std::string> vius;
+    std::map<std::string, std::string> nou;
+    for (const auto& t : estat.projecte.pistes)
+    {
+        if (mibase::esMidi (t)) continue;
+        const bool veu = mibase::veuActiva (t);
+        for (size_t k = 0; k < t.clips.size(); ++k)
+        {
+            const auto& c = t.clips[k];
+            if (! el::actiu (c) || c.presa.empty()) continue;
+            // Amb el Vocal Editor encès, s'estira la veu corregida (com fa el motor en triar-ne la clau).
+            std::shared_ptr<const mibase::AudioPresa> font;
+            bool deVeu = false;
+            if (auto ic = corr.find (c.presa); veu && ic != corr.end() && ic->second != nullptr) { font = ic->second; deVeu = true; }
+            else if (auto ia = audioPreses.find (c.presa); ia != audioPreses.end()) font = ia->second;
+            if (font == nullptr) continue;
+            const auto clau = el::clau (c, deVeu);
+            const auto lloc = t.id + "#" + std::to_string (k);
+            vius.insert (clau);
+            if (araMateix) serveiElastic.ara (clau, font, c.warp, c.elastic);
+            else serveiElastic.demana (clau, font, c.warp, c.elastic);
+            if (auto so = serveiElastic.fet (clau, font)) { mapaSo[clau] = so; nou[lloc] = clau; }
+            else if (auto ic = clauDeClip.find (lloc); ic != clauDeClip.end())
+                if (auto vell = serveiElastic.fet (ic->second))
+                {
+                    // Mentre es calcula el nou, sona el d'abans d'aquest clip (no l'original, que aniria a un altre temps).
+                    mapaSo[clau] = vell;
+                    nou[lloc] = ic->second;
+                    vius.insert (ic->second);
+                }
+        }
+    }
+    clauDeClip = std::move (nou);
+    serveiElastic.oblida (vius);
+}
+
+void PantallaEstudi::recullElastic()
+{
+    if (! serveiElastic.recull()) return;
+    sincronitzaElastic();
+    publicaPla();
+}
+
+void PantallaEstudi::menuElastic (juce::Component& boto)
+{
+    namespace el = mibase::elastic;
+    if (estat.triats.size() != 1) return;
+    const auto ref = estat.triats[0];
+    const auto* c = estat.clip (ref);
+    if (c == nullptr || c->midi || c->presa.empty()) return;
+    const bool ambMarcadors = ! el::marcadors (*c).empty();
+
+    juce::PopupMenu m, alg, cops;
+    for (int i = 0; i < 3; ++i) alg.addItem (10 + i, juce::String::fromUTF8 (el::nomMode (i)), true, c->elastic == i);
+    cops.addItem (20, "Només els cops forts"_ca);
+    cops.addItem (21, "Normal");
+    cops.addItem (22, "Tots (també els fluixos)"_ca);
+    m.addSectionHeader ("Elastic Audio");
+    m.addSubMenu ("Algorisme: "_ca + juce::String::fromUTF8 (el::nomMode (c->elastic)), alg);
+    m.addSeparator();
+    m.addSubMenu ("Marcadors als cops (detecta els atacs)"_ca, cops);
+    m.addItem (2, "Quantitza els marcadors a la graella"_ca, ambMarcadors);
+    m.addItem (3, "Quantitza al 50 % (més natural)"_ca, ambMarcadors);
+    m.addSeparator();
+    m.addItem (4, "Treu els marcadors (es queda l'estirament del clip)"_ca, ambMarcadors);
+    m.addItem (5, "Restaura l'àudio original"_ca, el::actiu (*c));
+    if (estat.eina != Eina::Elastic)
+    {
+        m.addSeparator();
+        m.addItem (6, "Agafa l'eina Elastic Audio   (7)"_ca);
+    }
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&boto), [this, ref] (int r)
+    {
+        auto* k = estat.clip (ref);
+        if (r <= 0 || k == nullptr || k->presa.empty()) return;
+        if (r == 6) { triaEina (Eina::Elastic); return; }
+        const auto* s = ed::presa (estat.projecte, k->presa);
+        if (s == nullptr) return;
+        auto copia = estat.projecte;
+        juce::String text;
+        if (r >= 10 && r <= 12)
+        {
+            if (k->elastic == r - 10) return;
+            k->elastic = r - 10;
+            text = "Elastic Audio: algorisme "_ca + juce::String::fromUTF8 (el::nomMode (k->elastic));
+        }
+        else if (r >= 20 && r <= 22)
+        {
+            auto ia = audioPreses.find (k->presa);
+            if (ia == audioPreses.end() || ia->second == nullptr) { estat.info = "Aquest clip no té l'àudio carregat"_ca; estat.avisa(); return; }
+            const auto trobats = el::cops (*ia->second, r == 20 ? 0.2 : r == 21 ? 0.5 : 0.85);
+            const int n = el::marcadorsAlsCops (*k, s->durada, trobats);
+            if (n == 0) { estat.projecte = std::move (copia); estat.info = "No s'hi ha trobat cap cop nou"_ca; estat.avisa(); return; }
+            text = "Elastic Audio: "_ca + juce::String (n) + (n == 1 ? " marcador" : " marcadors") + " als cops";
+        }
+        else if (r == 2 || r == 3)
+        {
+            const int n = el::quantitza (*k, estat.projecte, r == 2 ? 1.0 : 0.5);
+            if (n == 0) { estat.info = "Els marcadors ja són a la graella"_ca; estat.avisa(); return; }
+            text = "Elastic Audio: "_ca + juce::String (n) + (n == 1 ? " marcador quantitzat" : " marcadors quantitzats") + (r == 3 ? " (50 %)" : "");
+        }
+        else if (r == 4) { el::treuMarcadors (*k, s->durada); text = "Elastic Audio: marcadors trets"_ca; }
+        else if (r == 5) { el::restaura (*k); text = "Elastic Audio: àudio original"_ca; }
+        else return;
+        estat.desfes.abans (copia);
+        estat.canviat (text);
+    });
 }
