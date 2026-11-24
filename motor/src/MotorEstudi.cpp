@@ -504,6 +504,7 @@ namespace mibase
         masterFet = false;
         clic.reinicia();
         apagaNotes();
+        for (auto& s : slots) { s.tornat = false; s.senseMarge = false; }   // 0.98
         margeInici = true;
     }
 
@@ -514,7 +515,11 @@ namespace mibase
         masterFet = false;
         clic.reinicia();
         for (auto& s : slots)
-            if (s.inst != nullptr) s.apagarTou = true;
+        {
+            if (s.inst == nullptr) continue;
+            if (s.tornat) { s.tornat = false; s.senseMarge = true; }   // 0.98: ja ha tornat abans (PDC): res a apagar
+            else s.apagarTou = true;
+        }
         margeInici = true;
     }
 
@@ -574,19 +579,61 @@ namespace mibase
         if (es.apagarTou)   // 0.71: nota per nota, abans de les notes noves del mateix instant
         {
             es.apagarTou = false;
-            std::uint16_t canals = 0;
-            for (int k = 0; k < es.n; ++k)
-            {
-                afegeixEvent (0, (std::uint8_t) (0x80 | es.act[(size_t) k].canal), es.act[(size_t) k].to, 0);
-                canals = (std::uint16_t) (canals | (1u << (es.act[(size_t) k].canal & 15)));
-            }
-            for (int c = 0; c < 16; ++c)   // el pedal, amunt (si no, les notes es quedarien sostingudes)
-                if (canals & (1u << c)) afegeixEvent (0, (std::uint8_t) (0xB0 | c), 64, 0);
-            es.n = 0;
+            apagaTou (es, 0);
         }
+        // En directe (piano roll, teclat): al començament del bloc.
+        for (int k = 0; k < numDirecte; ++k)
+            if (directe[k].slot == t.slot)
+                afegeixEvent (0, directe[k].estat, directe[k].dada1, directe[k].dada2);
+
+        // després d'un salt, les notes que cauen una mica abans també sonen: 1 ms (arrodoniments) més el que la pista
+        // llegeix avançada (PDC): si no, en fer play just sobre una nota amb un plugin que retarda, no sonava
+        const long long ms1 = std::max (1LL, std::llround (fs * 0.001));
+        const long long marge = margeAra && ! es.senseMarge ? ms1 + std::max (0LL, pos - posReal) : 0;
+        es.senseMarge = false;
+        // 0.98: la pista llegeix avançada (PDC) i el bucle torna: el tros que passa del final es llegeix de l'inici.
+        const long long llargB = bucleFiS - bucleIniS;
+        if (llargB <= 0 || ! reproduint) es.tornat = false;   // sense bucle (o aturat): res a esperar
+        if (llargB > 0 && reproduint && pos > posReal && posReal < bucleFiS)
+        {
+            if (pos >= bucleFiS)
+            {
+                if (! es.tornat) { apagaTou (es, 0); es.tornat = true; }
+                llegeixMidi (t, es, bucleIniS + (pos - bucleFiS) % llargB, n, 0, reproduint, 0);
+                return;
+            }
+            if (pos + n > bucleFiS)
+            {
+                const int talla = (int) (bucleFiS - pos);
+                llegeixMidi (t, es, pos, talla, 0, reproduint, marge);
+                apagaTou (es, talla);
+                es.tornat = true;
+                llegeixMidi (t, es, bucleIniS, n - talla, talla, reproduint, ms1);
+                return;
+            }
+        }
+        llegeixMidi (t, es, pos, n, 0, reproduint, marge);
+    }
+
+    void Mesclador::apagaTou (EstatSlot& es, int off) noexcept
+    {
+        std::uint16_t canals = 0;
+        for (int k = 0; k < es.n; ++k)
+        {
+            afegeixEvent (off, (std::uint8_t) (0x80 | es.act[(size_t) k].canal), es.act[(size_t) k].to, 0);
+            canals = (std::uint16_t) (canals | (1u << (es.act[(size_t) k].canal & 15)));
+        }
+        for (int c = 0; c < 16; ++c)   // el pedal, amunt (si no, les notes es quedarien sostingudes)
+            if (canals & (1u << c)) afegeixEvent (off, (std::uint8_t) (0xB0 | c), 64, 0);
+        es.n = 0;
+    }
+
+    void Mesclador::llegeixMidi (const Pla::Pista& t, EstatSlot& es, long long pos, int n, int base, bool reproduint, long long marge) noexcept
+    {
+        if (n <= 0) return;
         // 0.71: després d'un salt (play, bucle, tram), les notes que cauen fins a 1 ms abans del punt també sonen
         // (per arrodoniments, una nota just a l'inici del bucle podia quedar una mostra abans i no sonar mai).
-        const long long desde = margeAra ? pos - std::max (1LL, std::llround (fs * 0.001)) : pos;
+        const long long desde = pos - marge;
 
         // Notes que s'acaben dins aquest bloc.
         for (int k = 0; k < es.n;)
@@ -594,17 +641,12 @@ namespace mibase
             auto& a = es.act[(size_t) k];
             if (a.fi < pos + n)
             {
-                afegeixEvent ((int) std::clamp (a.fi - pos, 0LL, (long long) n - 1), (std::uint8_t) (0x80 | a.canal), a.to, 0);
+                afegeixEvent (base + (int) std::clamp (a.fi - pos, 0LL, (long long) n - 1), (std::uint8_t) (0x80 | a.canal), a.to, 0);
                 es.act[(size_t) k] = es.act[(size_t) (es.n - 1)];
                 --es.n;
             }
             else ++k;
         }
-
-        // En directe (piano roll, teclat): al començament del bloc.
-        for (int k = 0; k < numDirecte; ++k)
-            if (directe[k].slot == t.slot)
-                afegeixEvent (0, directe[k].estat, directe[k].dada1, directe[k].dada2);
 
         if (reproduint)
         {
@@ -616,7 +658,7 @@ namespace mibase
                 {
                     const long long s = std::llround (it->t * fs);
                     if (s >= pos + n) break;
-                    afegeixEvent ((int) std::max (0LL, s - pos), it->estat, it->dada1, it->dada2);
+                    afegeixEvent (base + (int) std::max (0LL, s - pos), it->estat, it->dada1, it->dada2);
                 }
             }
             // Notes que comencen dins aquest bloc (si la pista no està silenciada).
@@ -628,7 +670,7 @@ namespace mibase
                 {
                     const long long s = std::max (pos, std::llround (it->ini * fs));
                     if (s >= pos + n) break;
-                    const int off = (int) (s - pos);
+                    const int off = base + (int) (s - pos);
                     const long long fi = std::max (s + 1, std::llround (it->fi * fs));
                     // La mateixa nota ja sona: s'apaga abans de tornar-la a tocar.
                     bool ja = false;
@@ -659,7 +701,7 @@ namespace mibase
                                 --es.n;
                                 break;
                             }
-                        afegeixEvent ((int) (fi - pos), (std::uint8_t) (0x80 | it->canal), it->to, 0);
+                        afegeixEvent (base + (int) (fi - pos), (std::uint8_t) (0x80 | it->canal), it->to, 0);
                     }
                 }
             }
@@ -720,11 +762,11 @@ namespace mibase
 
             if (canalsPista == 2)
             {
-                pL[(size_t) i] += (float) env * l;
-                pR[(size_t) i] += (float) env * r;
+                pL[(size_t) (escriuDes + i)] += (float) env * l;
+                pR[(size_t) (escriuDes + i)] += (float) env * r;
             }
             else
-                pL[(size_t) i] += (float) env * (a.canals > 1 ? 0.5f * (l + r) : l);
+                pL[(size_t) (escriuDes + i)] += (float) env * (a.canals > 1 ? 0.5f * (l + r) : l);
         }
     }
 
@@ -820,6 +862,7 @@ namespace mibase
     {
         if (n <= 0) return;
         margeAra = margeInici && reproduint;   // 0.71
+        posReal = pos;                          // 0.98
         if (reproduint) margeInici = false;
         n = std::min (n, (int) pL.size());
 
@@ -940,9 +983,19 @@ namespace mibase
                 std::fill (pL.begin(), pL.begin() + n, 0.0f);
                 if (t.canals == 2) std::fill (pR.begin(), pR.begin() + n, 0.0f);
                 if (reproduint && ! nomesCua)
+                {
+                    // 0.98: llegint avançat (PDC) amb el bucle: el tros que passa del final es llegeix de l'inici
+                    const long long llargB = bucleFiS - bucleIniS;
+                    const bool torna = llargB > 0 && posT > pos && pos < bucleFiS && posT + n > bucleFiS;
+                    const long long p0 = torna && posT >= bucleFiS ? bucleIniS + (posT - bucleFiS) % llargB : posT;
+                    const int talla = torna && posT < bucleFiS ? (int) (bucleFiS - posT) : n;
                     for (const auto& c : t.clips)
                         if (c.audio != nullptr)
-                            sonaClip (c, t.canals, posT, n);
+                        {
+                            sonaClip (c, t.canals, p0, talla);
+                            if (talla < n) { escriuDes = talla; sonaClip (c, t.canals, bucleIniS, n - talla); escriuDes = 0; }
+                        }
+                }
                 // 0.71: el que entra per la targeta (la guitarra, la veu), amb els efectes i el fader de la pista
                 if (t.escoltaEntrada >= 0 && entrades != nullptr && mapaEnt != nullptr)
                     for (int c = 0; c < t.canals; ++c)
@@ -1393,6 +1446,8 @@ namespace mibase
             std::fill (mixR.begin(), mixR.begin() + m, 0.0f);
             const bool ambClic = pla->clic || pos < compteFins;
             mesclador.setEntrades (entrades, numEntrades, mapaEntrades.data(), maxEntrades, fet);   // 0.71
+            if (potTornar) mesclador.setBucle ((long long) std::llround (pla->bucleIni * fs), fiBucle);   // 0.98
+            else mesclador.setBucle (-1, -1);
             mesclador.processa (*pla, pos, m, mixL.data(), mixR.data(), ambClic, vus.data(), true,
                                 fet == 0 ? directeBloc.data() : nullptr, fet == 0 ? numDirecte : 0);
 

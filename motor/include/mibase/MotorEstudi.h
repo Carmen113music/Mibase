@@ -231,6 +231,10 @@ namespace mibase
             una (note-off) en lloc d'«apaga-ho tot». Alguns VST3 apliquen l'«apaga-ho tot» després de les notes del mateix
             instant i es menjaven les notes del començament del bucle. */
         void reiniciaBucle() noexcept;
+        /** 0.98: el bucle que sona ara, en mostres ([ini, fi); fi <= ini: cap). Les pistes que llegeixen avançat per la
+            compensació de retard (PDC) han de tornar a l'inici del bucle abans que el capçal: si no, les notes i el so
+            dels primers mil·lisegons del bucle no es llegien mai (es llegia el que hi ha després del final). */
+        void setBucle (long long ini, long long fi) noexcept { bucleIniS = ini; bucleFiS = fi; }
         /** Pistes (slots) que no sonen al tram de l'estructura que sona ara (0.15). */
         void setSilenci (const std::bitset<128>& s) noexcept { silenciAra = s; }
         /** 0.83: exportant, la cua final: no comença res de nou (ni clips ni notes), però els efectes continuen sonant. */
@@ -257,7 +261,15 @@ namespace mibase
             int n = 0;
             bool apagar = false;
             bool apagarTou = false;   // 0.71
+            bool tornat = false;      // 0.98: la lectura avançada (PDC) ja ha tornat a l'inici del bucle
+            bool senseMarge = false;  // 0.98: després del salt real, no cal tornar a llegir el mil·lisegon d'abans
         };
+        long long bucleIniS = -1, bucleFiS = -1, posReal = 0;   // 0.98
+        int escriuDes = 0;                          // 0.98: on escriu sonaTram dins el bloc (per partir-lo en dos)
+        /** 0.98: llegeix les notes i els missatges de [pos, pos + n) i els posa a partir de l'offset «base». */
+        void llegeixMidi (const Pla::Pista& t, EstatSlot& es, long long pos, int n, int base, bool reproduint, long long marge) noexcept;
+        /** 0.98: apaga les notes que sonen (nota per nota) a l'offset «off». */
+        void apagaTou (EstatSlot& es, int off) noexcept;
         bool margeInici = false, margeAra = false;
         const float* const* entrades = nullptr;   // 0.71
         int numEntrades = 0, numMapaEnt = 0, offsetEnt = 0;
