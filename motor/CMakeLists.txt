@@ -57,6 +57,7 @@ add_library(mibase_motor STATIC
     src/Transitoris.cpp
     src/Multibanda.cpp
     src/LowEnd.cpp
+    src/Diagnosi.cpp
     src/FontInspiracio.cpp
     src/Convolucio.cpp
     src/Equalitzador.cpp

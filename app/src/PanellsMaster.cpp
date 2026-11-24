@@ -100,6 +100,255 @@ namespace
         if (out != nullptr) traca (*out, ambre, 1.6f);
     }
 
+    AnalitzadorMaster& analitzador() { static AnalitzadorMaster a; return a; }
+
+    // ------------------------------------------------------------------
+    /** 1.00: una troballa de l'informe, amb Aplica / A-B / Ignora. */
+    class Targeta : public juce::Component
+    {
+    public:
+        Targeta (std::shared_ptr<mibase::rack::Rack> r, mibase::diagnosi::Troballa t, std::function<void()> canviat)
+            : rk (std::move (r)), tr (std::move (t)), avisa (std::move (canviat))
+        {
+            const bool teAccio = tr.accio.tipus != mibase::diagnosi::Accio::Cap;
+            for (auto* b : { &btAplica, &btAB, &btIgnora }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }
+            btAplica.setVisible (teAccio);
+            btAB.setVisible (teAccio);
+            if (! teAccio) btIgnora.setButtonText ("Entesos");
+            btAplica.setTooltip ("Fa el canvi al Mastering Studio (si cal, hi afegeix el mòdul). Es pot desfer."_ca);
+            btAB.setTooltip ("Escolta la proposta: el primer clic la prova; els següents canvien entre abans i després."_ca);
+            btIgnora.setTooltip ("No ho vull: si l'havies provada o aplicada, torna a com estava."_ca);
+            btAplica.onClick = [this]
+            {
+                if (estat == Aplicada) { rk->posaEstat (abans); estat = Pendent; }
+                else if (estat == Provant) { rk->posaEstat (despres); estat = Aplicada; }
+                else { prova(); estat = Aplicada; }
+                refresca();
+            };
+            btAB.onClick = [this]
+            {
+                if (estat == Pendent) { prova(); estat = Provant; escoltaDespres = true; }
+                else { escoltaDespres = ! escoltaDespres; rk->posaEstat (escoltaDespres ? despres : abans); if (estat == Aplicada) estat = Provant; }
+                refresca();
+            };
+            btIgnora.onClick = [this]
+            {
+                if (estat == Provant || estat == Aplicada) rk->posaEstat (abans);
+                estat = Ignorada;
+                refresca();
+            };
+            refresca();
+        }
+        int alcada() const { return tr.culpables.empty() ? 196 : 214; }
+        void paint (juce::Graphics& g) override
+        {
+            using namespace mibase::diagnosi;
+            auto r = getLocalBounds().toFloat();
+            const juce::Colour c = tr.mena == Mena::Problema ? vintage::ledTaronja : tr.mena == Mena::Oportunitat ? ambre : tema::suau;
+            g.setColour (juce::Colours::black.withAlpha (estat == Ignorada ? 0.15f : 0.32f));
+            g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (c.withAlpha (estat == Ignorada ? 0.3f : 0.9f));
+            g.fillRoundedRectangle (r.withWidth (4.0f), 2.0f);
+            auto t = getLocalBounds().reduced (14, 8);
+            t.removeFromLeft (4);
+            const float alfa = estat == Ignorada ? 0.4f : 1.0f;
+            {
+                auto cap = t.removeFromTop (20);
+                g.setFont (dibuix::lletra (10.0f, true));
+                g.setColour (c.withAlpha (alfa));
+                g.drawText (u8 (nomMena (tr.mena)) + "  ·  confiança " + u8 (nomConfianca (tr.confianca))
+                            + (estat == Aplicada ? "  ·  APLICADA"_ca : estat == Provant ? (escoltaDespres ? "  ·  ESCOLTANT: DESPRÉS"_ca : "  ·  ESCOLTANT: ABANS"_ca) : estat == Ignorada ? "  ·  IGNORADA" : ""),
+                            cap.removeFromRight (360), juce::Justification::centredRight);
+                g.setFont (dibuix::lletra (14.0f, true));
+                g.setColour (tema::text.withAlpha (alfa));
+                g.drawText (u8 (tr.titol.c_str()), cap, juce::Justification::centredLeft);
+            }
+            t.removeFromBottom (34);
+            g.setFont (dibuix::lletra (11.5f));
+            auto linia = [&] (const juce::String& etiqueta, const std::string& text, int linies)
+            {
+                if (text.empty()) return;
+                auto l = t.removeFromTop (16 * linies);
+                g.setColour (tema::suau.withAlpha (alfa));
+                g.drawText (etiqueta, l.removeFromLeft (78).withHeight (16), juce::Justification::centredLeft);
+                g.setColour (tema::textMig.withAlpha (alfa));
+                g.drawFittedText (u8 (text.c_str()), l, juce::Justification::topLeft, linies, 0.9f);
+            };
+            linia ("On", tr.on, 1);
+            linia ("Per què"_ca, tr.perque, 3);
+            linia ("Eina", tr.eina, 1);
+            linia ("Proposta", tr.canvi, 2);
+            linia ("Objectiu", tr.objectiu, 1);
+            if (! tr.culpables.empty())
+            {
+                std::string s;
+                for (auto& x : tr.culpables) s += (s.empty() ? "" : " · ") + x.pista + " " + std::to_string ((int) std::lround (x.percent)) + " %";
+                linia ("Pistes", s, 1);
+            }
+        }
+        void resized() override
+        {
+            auto b = getLocalBounds().reduced (14, 8).removeFromBottom (28);
+            btIgnora.setBounds (b.removeFromRight (110));
+            b.removeFromRight (6);
+            btAB.setBounds (b.removeFromRight (110));
+            b.removeFromRight (6);
+            btAplica.setBounds (b.removeFromRight (110));
+        }
+    private:
+        enum Estat { Pendent, Provant, Aplicada, Ignorada };
+        void prova()
+        {
+            abans = rk->estat();
+            mibase::diagnosi::aplica (*rk, tr.accio);
+            despres = rk->estat();
+            escoltaDespres = true;
+        }
+        void refresca()
+        {
+            btAplica.setButtonText (estat == Aplicada ? "Desfés"_ca : "Aplica");
+            btAB.setButtonText (estat == Pendent ? "Escolta A/B" : escoltaDespres ? "A/B: després"_ca : "A/B: abans");
+            for (auto* b : { &btAplica, &btAB }) b->setEnabled (estat != Ignorada);
+            btIgnora.setEnabled (estat != Ignorada);
+            repaint();
+            if (avisa) avisa();
+        }
+        std::shared_ptr<mibase::rack::Rack> rk;
+        mibase::diagnosi::Troballa tr;
+        std::function<void()> avisa;
+        Estat estat = Pendent;
+        bool escoltaDespres = true;
+        std::string abans, despres;
+        Boto btAplica { "Aplica", std::nullopt, Boto::Estil::Primari };
+        Boto btAB { "Escolta A/B", std::nullopt, Boto::Estil::Secundari };
+        Boto btIgnora { "Ignora", std::nullopt, Boto::Estil::Secundari };
+    };
+
+    /** 1.00: l'informe sencer: resum, què faria un enginyer de màster, confiança i les troballes per menes. */
+    class PanellInforme : public juce::Component
+    {
+    public:
+        PanellInforme (std::shared_ptr<mibase::rack::Rack> r, std::shared_ptr<mibase::diagnosi::Informe> i) : rk (std::move (r)), inf (std::move (i))
+        {
+            addAndMakeVisible (vista);
+            vista.setViewedComponent (&contingut, false);
+            vista.setScrollBarsShown (true, false);
+            for (auto& t : inf->troballes) { auto c = std::make_unique<Targeta> (rk, t, nullptr); contingut.addAndMakeVisible (*c); targetes.push_back (std::move (c)); }
+            contingut.pinta = [this] (juce::Graphics& g) { pintaContingut (g); };
+            setSize (760, 820);
+        }
+        void paint (juce::Graphics& g) override { g.fillAll (tema::fons); }
+        void resized() override
+        {
+            vista.setBounds (getLocalBounds().reduced (6));
+            const int w = vista.getWidth() - vista.getScrollBarThickness() - 4;
+            int y = altCapcalera (w);
+            seccions.clear();
+            using namespace mibase::diagnosi;
+            int menaAnt = -1;
+            for (size_t k = 0; k < targetes.size(); ++k)
+            {
+                const int m = (int) inf->troballes[k].mena;
+                if (m != menaAnt) { seccions.push_back ({ y, m }); y += 30; menaAnt = m; }
+                targetes[k]->setBounds (14, y, w - 28, targetes[k]->alcada());
+                y += targetes[k]->alcada() + 10;
+            }
+            if (targetes.empty()) { seccions.push_back ({ y, -1 }); y += 60; }
+            contingut.setSize (w, y + 20);
+        }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+    private:
+        struct Contingut : public juce::Component
+        {
+            std::function<void (juce::Graphics&)> pinta;
+            void paint (juce::Graphics& g) override { if (pinta) pinta (g); }
+        };
+        int altCapcalera (int w) const
+        {
+            juce::ignoreUnused (w);
+            return 20 + 24 + 16 + 62 + 22 + 92 + 22 + 40 + 10;
+        }
+        void pintaContingut (juce::Graphics& g)
+        {
+            using namespace mibase::diagnosi;
+            const int w = contingut.getWidth();
+            auto r = juce::Rectangle<int> (14, 20, w - 28, 2000);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (19.0f, true));
+            g.drawText ("INFORME DEL MÀSTER"_ca, r.removeFromTop (24), juce::Justification::centredLeft);
+            g.setColour (ambre);
+            g.setFont (dibuix::lletra (10.0f, true));
+            g.drawText ("MIBASE · ANALYZE · "_ca + juce::String (inf->mix.segons / 60.0 >= 1.0 ? juce::String ((int) (inf->mix.segons / 60.0)) + " min " : juce::String())
+                        + juce::String ((int) std::fmod (inf->mix.segons, 60.0)) + " s escoltats"
+                        + (inf->pistesAnalitzades > 0 ? " · " + juce::String (inf->pistesAnalitzades) + " pistes" : juce::String()), r.removeFromTop (16), juce::Justification::centredLeft);
+            // resum: mix i màster
+            {
+                auto z = r.removeFromTop (62).reduced (0, 6);
+                g.setColour (juce::Colours::black.withAlpha (0.3f));
+                g.fillRoundedRectangle (z.toFloat(), 6.0f);
+                auto fila = [&] (juce::Rectangle<int> f, const juce::String& qui, const Analisi& a)
+                {
+                    g.setColour (tema::suau);
+                    g.setFont (dibuix::lletra (11.0f, true));
+                    g.drawText (qui, f.removeFromLeft (80).withTrimmedLeft (12), juce::Justification::centredLeft);
+                    g.setColour (tema::text);
+                    g.setFont (dibuix::lletra (11.5f));
+                    const float plr = a.loud.truePeakMax - a.loud.integrated;
+                    g.drawText (lufs (a.loud.integrated) + " LUFS  ·  LRA " + num (a.loud.lra) + " LU  ·  TP " + lufs (a.loud.truePeakMax) + " dBTP  ·  pics sobre el volum "
+                                + num (plr) + " dB  ·  correlació " + num (a.correlacio, 2), f, juce::Justification::centredLeft);
+                };
+                auto f1 = z.removeFromTop (z.getHeight() / 2);
+                fila (f1, "MIX", inf->mix);
+                if (inf->ambMaster) fila (z, "MÀSTER"_ca, inf->master);
+            }
+            r.removeFromTop (4);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawText ("QUÈ FARIA UN ENGINYER DE MÀSTER"_ca, r.removeFromTop (18), juce::Justification::centredLeft);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.0f));
+            g.drawFittedText (u8 (inf->enginyer.c_str()), r.removeFromTop (92), juce::Justification::topLeft, 6, 0.9f);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawText ("NIVELL DE CONFIANÇA: "_ca + juce::String (u8 (nomConfianca (inf->confianca))).toUpperCase(), r.removeFromTop (22), juce::Justification::bottomLeft);
+            g.setFont (dibuix::lletra (11.0f));
+            g.setColour (tema::textMig);
+            g.drawFittedText (u8 (inf->confiancaPerque.c_str()), r.removeFromTop (40), juce::Justification::topLeft, 3, 0.9f);
+            // títols de les seccions
+            for (auto& [y, m] : seccions)
+            {
+                g.setFont (dibuix::lletra (12.0f, true));
+                if (m < 0) { g.setColour (tema::suau); g.drawText ("Cap troballa: la mescla és a prop de la referència i del perfil."_ca, 14, y, w - 28, 24, juce::Justification::centredLeft); continue; }
+                g.setColour (m == 0 ? vintage::ledTaronja : m == 1 ? ambre : tema::suau);
+                g.drawText (m == 0 ? "PROBLEMES DETECTATS" : m == 1 ? "OPORTUNITATS DE MILLORA" : "PREFERÈNCIES ESTÈTIQUES (decideixes tu)"_ca, 14, y + 4, w - 28, 22, juce::Justification::centredLeft);
+            }
+        }
+        std::shared_ptr<mibase::rack::Rack> rk;
+        std::shared_ptr<mibase::diagnosi::Informe> inf;
+        juce::Viewport vista;
+        Contingut contingut;
+        std::vector<std::unique_ptr<Targeta>> targetes;
+        std::vector<std::pair<int, int>> seccions;
+    };
+
+    class FinestraInforme : public juce::DocumentWindow
+    {
+    public:
+        FinestraInforme (juce::Component* c, std::function<void()> enTancar)
+            : juce::DocumentWindow ("Mastering Studio · Informe"_ca, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton), tancar (std::move (enTancar))
+        {
+            setUsingNativeTitleBar (true);
+            setContentOwned (c, true);
+            setResizable (true, false);
+            centreWithSize (getWidth(), getHeight());
+            setVisible (true);
+        }
+        void closeButtonPressed() override { juce::MessageManager::callAsync ([t = tancar] { t(); }); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+    private:
+        std::function<void()> tancar;
+    };
+
     // ------------------------------------------------------------------
     /** El panell lateral del Mastering Studio. */
     class PanellMaster : public juce::Component, private juce::Timer
@@ -126,6 +375,13 @@ namespace
                 if (rk->lufsObjectiu() < -0.5f) rack::posaSostre (*rk, rk->truePeakObjectiu());   // 0.95: el sostre del limitador, el del perfil
                 refresca();
             };
+            addAndMakeVisible (btAnalitza);   // 1.00
+            addAndMakeVisible (btAmbPistes);
+            btAmbPistes.setClickingTogglesState (true);
+            btAmbPistes.setToggleState (true, juce::dontSendNotification);
+            btAnalitza.setTooltip ("Escolta tota la cançó (sense reproduir-la) i fa un informe: problemes, oportunitats i què faria un enginyer de màster."_ca);
+            btAmbPistes.setTooltip ("També escolta cada pista per separat, per dir d'on ve cada problema. Tarda més (una passada per pista)."_ca);
+            btAnalitza.onClick = [this] { analitza(); };
             addAndMakeVisible (btAjusta);   // 0.95
             btAjusta.setTooltip ("Ajusta el limitador perquè el màster arribi als LUFS i al true peak del perfil. Mentre ho fa, reprodueix la cançó o la tornada en bucle."_ca);
             btAjusta.onClick = [this]
@@ -261,6 +517,13 @@ namespace
                 cbObjectiu.setBounds (fl.withSizeKeepingCentre (fl.getWidth(), 26));
             }
             r.removeFromTop (6);
+            {
+                auto fa = r.removeFromTop (30);   // 1.00
+                btAmbPistes.setBounds (fa.removeFromRight (110));
+                fa.removeFromRight (6);
+                btAnalitza.setBounds (fa);
+            }
+            r.removeFromTop (6);
             btAjusta.setBounds (r.removeFromTop (30));
             zonaAssistent = r.removeFromTop (44).withTrimmedTop (4);
             r.removeFromTop (4);
@@ -349,6 +612,32 @@ namespace
         Boto btIgualat { "Igualat", std::nullopt, Boto::Estil::Tecla };
         Boto btReinicia { "Reinicia les mesures"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btAjusta { "Ajusta al perfil"_ca, std::nullopt, Boto::Estil::Primari };   // 0.95
+        Boto btAnalitza { "ANALITZA", std::nullopt, Boto::Estil::Primari };   // 1.00
+        Boto btAmbPistes { "i les pistes", std::nullopt, Boto::Estil::Tecla };
+        std::unique_ptr<juce::DocumentWindow> finestraInforme;
+        void analitza()
+        {
+            if (! analitzador()) { avisAssistent = "L'anàlisi només funciona quan el Mastering Studio és en un projecte obert."_ca; repaint(); return; }
+            mibase::diagnosi::Context ctx;
+            ctx.lufsObjectiu = rk->lufsObjectiu();
+            ctx.truePeakObjectiu = rk->truePeakObjectiu();
+            ctx.perfil = lo::objectius()[(size_t) juce::jlimit (0, (int) lo::objectius().size() - 1, rk->objectiu())].nom;
+            btAnalitza.setButtonText ("Analitzant…"_ca);
+            btAnalitza.setEnabled (false);
+            // un instant perquè el botó es pinti abans que la feina (que bloqueja) comenci
+            juce::Timer::callAfterDelay (60, [sp = juce::Component::SafePointer<PanellMaster> (this), ctx]
+            {
+                if (sp == nullptr) return;
+                auto inf = analitzador() (sp->btAmbPistes.getToggleState(), ctx);
+                if (sp == nullptr) return;
+                sp->btAnalitza.setButtonText ("ANALITZA");
+                sp->btAnalitza.setEnabled (true);
+                if (inf == nullptr) { sp->avisAssistent = "No s'ha pogut analitzar: no hi ha res que soni."_ca; sp->repaint(); return; }
+                sp->avisAssistent.clear();
+                sp->finestraInforme = std::make_unique<FinestraInforme> (new PanellInforme (sp->rk, inf),
+                    [sp] { if (sp != nullptr) sp->finestraInforme.reset(); });
+            });
+        }
         std::unique_ptr<Pom> pomLufs;
         rack::AssistentLoudness assistent;
         juce::String avisAssistent;
@@ -821,6 +1110,8 @@ juce::Component* creaPanellLowEnd (std::shared_ptr<mibase::EfecteIntern> e)
     };
     return new PanellModulSimple (std::move (e), std::move (d));
 }
+
+void posaAnalitzadorMaster (AnalitzadorMaster a) { analitzador() = std::move (a); }
 
 juce::Component* creaPanellMaster (std::shared_ptr<mibase::rack::Rack> r) { return new PanellMaster (std::move (r)); }
 juce::Component* creaPanellEstereo (std::shared_ptr<mibase::estereo::Estereo> e) { return new PanellEstereo (std::move (e)); }

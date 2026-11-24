@@ -1,4 +1,5 @@
 #pragma once
+#include <mibase/Diagnosi.h>
 #include "DialegExporta.h"
 
 #include <mibase/SeguimentCapcal.h>
@@ -57,6 +58,8 @@ public:
     void importaDeMenu();
     void exportaProjecte();
     void exportaMescla();
+    /** 1.00: l'ANALYZE del Mastering Studio: renderitza el mix (sense màster), el màster i, si cal, cada pista sola. */
+    std::shared_ptr<mibase::diagnosi::Informe> analitzaMaster (bool ambPistes, const mibase::diagnosi::Context& ctx);
     void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura, 4 play, 5 grava
     /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
     int estatTransport() const noexcept { return estat.transport; }

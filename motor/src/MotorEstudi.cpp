@@ -1710,6 +1710,46 @@ namespace mibase
         return true;
     }
 
+    void renderitzaPla (const Pla& pla, double fs, double desDe, double finsA, std::vector<float>& L, std::vector<float>& R,
+                        const std::function<void (double)>& progres)
+    {
+        L.clear(); R.clear();
+        struct Tros { long long ini, fi; std::bitset<128> silenci; };
+        std::vector<Tros> trossos;
+        if (! pla.ruta.empty())
+            for (const auto& t : pla.ruta)
+            {
+                const long long a = (long long) std::llround (t.ini * fs), b = (long long) std::llround (t.fi * fs);
+                if (b > a) trossos.push_back ({ a, b, t.silenci });
+            }
+        else if (finsA > desDe)
+            trossos.push_back ({ (long long) std::llround (desDe * fs), (long long) std::llround (finsA * fs), {} });
+        long long total = 0;
+        for (auto& t : trossos) total += t.fi - t.ini;
+        if (total <= 0) return;
+        L.reserve ((size_t) total); R.reserve ((size_t) total);
+        constexpr int bloc = 4096;
+        Mesclador m;
+        m.prepara (fs, bloc);
+        std::vector<float> bl (bloc), br (bloc);
+        for (size_t k = 0; k < trossos.size(); ++k)
+        {
+            const auto& t = trossos[k];
+            m.setSilenci (t.silenci);
+            if (k > 0) m.reiniciaBucle();
+            for (long long p = t.ini; p < t.fi; p += bloc)
+            {
+                const int n = (int) std::min ((long long) bloc, t.fi - p);
+                std::fill (bl.begin(), bl.end(), 0.0f);
+                std::fill (br.begin(), br.end(), 0.0f);
+                m.processa (pla, p, n, bl.data(), br.data(), false, nullptr);
+                L.insert (L.end(), bl.begin(), bl.begin() + n);
+                R.insert (R.end(), br.begin(), br.begin() + n);
+                if (progres) progres ((double) L.size() / (double) total);
+            }
+        }
+    }
+
     Projecte projectePerExportar (const Projecte& p, const OpcionsExport& o, const std::vector<int>& pistes, std::pair<double, double>& tros)
     {
         Projecte q = p;

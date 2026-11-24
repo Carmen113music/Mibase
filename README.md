@@ -268,7 +268,7 @@ Una eina a part (com els sintes) per passar de no tenir cap idea a una progressi
 - **ENVIA A LA PISTA D'ACORDS**: posa els acords a la pista d'Acords a partir del compàs on és el capçal (la crea si no n'hi ha). Si ja hi ha acords en aquell tros, pregunta si els substitueix. Es pot desfer amb Ctrl+Z de l'estudi. Les pistes que segueixen la pista d'Acords els toquen soles.
 - La fila es desa amb el projecte.
 
-### Mastering Studio de Mibase (0.94–0.99)
+### Mastering Studio de Mibase (0.94–1.00)
 - **+ Efecte → Mastering Studio (Mibase)**, normalment a la cadena del **màster** (també funciona en un bus). És el mateix rack que el Vocal Studio, però per a la mescla sencera. Neix amb el preset «Màster net».
 - **Mòduls**: EQ de màster (EQ Pro amb bandes de greus, cos, fang, presència i aire; Mid/Side i dinàmiques per banda), Compressor de màster (glue), **Multibanda** (0.99), De-esser de màster, **Low End Focus** (0.99), **Transient Shaper** (0.96), Saturació (cinta, consola, vàlvula), **Estèreo**, **Clipper** (0.96), Limitador (true peak) i **Loudness Meter** (només mesura). L'ordre de la cadena és el de dalt a baix i canvia el so de debò.
 - **Cada mòdul** mostra **quant actua** (reducció de guany o canvi de volum, amb una barreta) i **avisos en taronja** si està en una zona perillosa. **Botó dret**: *Restableix el mòdul* o *Duplica el mòdul*.
@@ -288,6 +288,13 @@ Una eina a part (com els sintes) per passar de no tenir cap idea a una progressi
 
   Triar un perfil posa el sostre del limitador al seu true peak (amb 0,2 dB de marge).
 - **Ajusta al perfil** (0.95): prem-lo i **reprodueix la cançó** (o la tornada en bucle). Escolta uns 10 s, corregeix el guany del limitador (i el macro Loudness) per arribar als LUFS del perfil, ho torna a escoltar i repeteix fins que hi és (±0,5 LU). Si per arribar-hi el limitador hauria de reduir més de 8 dB (perdries el cop), **s'atura i t'ho diu**: no força res. «Atura l'ajust» el para.
+- **ANALITZA** (1.00): escolta tota la cançó **sense reproduir-la** (com en exportar): el mix (abans del màster), el màster i, amb **«i les pistes»** encès, cada pista per separat (tarda més: una passada per pista; mentrestant Mibase espera). Obre l'**Informe del màster**:
+  - el resum del mix i del màster (LUFS, LRA, true peak, pics sobre el volum, correlació);
+  - **Què faria un enginyer de màster**: per ordre, i primer el que és millor arreglar a la mescla;
+  - el **nivell de confiança** (quanta música ha escoltat; el to es compara amb una corba de referència orientativa de pop/rock, no amb una norma);
+  - **Problemes detectats**, **Oportunitats de millora** i **Preferències estètiques**. Cada troballa diu on és, per què pot ser un problema, quina eina, quin canvi (calculat del que ha mesurat) i què se n'espera, i **quines pistes en tenen més part**: si una sola en té la majoria, diu que s'arregla millor a la pista.
+  - Botons: **Aplica** (fa el canvi al Mastering Studio, afegint el mòdul si cal; després es diu **Desfés**), **Escolta A/B** (el primer clic la prova; els següents canvien entre abans i després) i **Ignora** (torna a com estava). Millor d'un en un.
+  - Què mira: fang (200–400 Hz), greus i subgreus, ressonàncies als mitjos, presència i duresa (1,6–4 kHz), brillantor (5–8 kHz), aire, greus als costats, fase, amplada, mescla massa comprimida, marge abans del màster i, del màster, el loudness i el true peak respecte del perfil i si aixafa la cançó.
 - **Panell de la dreta**:
   - **A/B**: *Original* (el mix sense el Mastering Studio, alineat amb el retard de la cadena) i *Màster*, sense clics. **Igualat** (0.95: apagat per defecte): encén-lo per comparar només el so; el que sona més fort s'abaixa fins al volum de l'altre. En exportar no s'aplica mai.
   - **Analitzador**: LUFS Integrated (EBU R128), Short-Term, Momentary, els seus màxims, LRA, True Peak màx., pic màx., RMS, crest, correlació, **amplada** (Side respecte del Mid) i clips, del **mix** i del **màster** un al costat de l'altre, i l'historial del Short-Term.
@@ -559,6 +566,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **1.0.0** — Mastering Studio: **ANALITZA** i l'**Informe del màster**. Escolta tota la cançó sense reproduir-la (el mix, el màster i, si vols, cada pista), compara el to amb una referència orientativa i el loudness amb el perfil, i fa un informe amb problemes, oportunitats i preferències; cada troballa amb el canvi calculat, la confiança, les pistes que en tenen més part (i si és millor arreglar-ho a la mescla), i els botons Aplica / Escolta A/B / Ignora. També «Què faria un enginyer de màster» i el nivell de confiança.
 - **0.99.0** — Mastering Studio: mòduls nous **Multibanda** (2–4 bandes, encreuaments Linkwitz-Riley amb suma plana, una columna per banda amb solo, mute i reducció) i **Low End Focus** (Sub, Punch, Tight, Escalfor, Fang i Mono als greus), amb finestra pròpia. Preset nou «Greus controlats»; els macros Greus i Densitat els fan servir.
 - **0.98.0** — Correcció: amb el bucle i algun plugin que retarda (a la pista, al bus o al màster, per exemple un limitador o el Mastering Studio), en tornar a l'inici del bucle no sonaven les notes del primer temps (ni els primers mil·lisegons de l'àudio): la pista llegia avançada (compensació de retard) el que hi havia després del final del bucle. Ara també torna a l'inici. A més, en fer play just sobre una nota d'una pista amb retard, la nota sona.
 - **0.97.0** — **Font d'inspiració** (F9 o el botó de la font): una fila d'acords que es fa amb les fletxes, amb suggeriments segons la tonalitat i els acords veïns, que sona amb piano o guitarra de niló GM i quatre patrons per instrument, en bucle, i que s'envia a la pista d'Acords des del capçal. Durades i entrades amb Ctrl/Maj + fletxes o arrossegant, desfer propi, i la fila es desa amb el projecte.

@@ -474,6 +474,9 @@ namespace mibase
         silenci del final es treu, però mai abans de finsA o del final de l'estructura). bits: 16 (amb dither) o 24. */
     bool exportaPla (const Pla& pla, double fs, double desDe, double finsA, int bits, double cua, const std::filesystem::path& desti,
                      std::string& error, const std::function<void (double)>& progres = {}, bool retallaCua = true);
+    /** 1.00: com exportaPla, però a memòria i sense cua: torna l'estèreo (L i R separats) per analitzar-lo. */
+    void renderitzaPla (const Pla& pla, double fs, double desDe, double finsA, std::vector<float>& L, std::vector<float>& R,
+                        const std::function<void (double)>& progres = {});
     /** 0.83: opcions de la finestra d'exportar. */
     struct OpcionsExport
     {

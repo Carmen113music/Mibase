@@ -9,6 +9,7 @@
 #include "BancGM.h"
 #include "EscGlobal.h"
 #include "Inserts.h"
+#include "PanellsMaster.h"
 
 using namespace mibase;
 namespace ed = mibase::edicio;
@@ -133,6 +134,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     estat.altPista = juce::jmax (VistaPistes::alcadaMinima, ajustos.getIntValue ("estudi.altPista", 80));
     if (! estat.projecte.pistes.empty()) estat.pistaTriada = 0;
     if (auto* t = estat.pista (estat.pistaTriada)) idTriadaAbans = t->id;   // 0.72
+    posaAnalitzadorMaster ([this] (bool ambPistes, const mibase::diagnosi::Context& ctx) { return analitzaMaster (ambPistes, ctx); });   // 1.00
     // 0.78: «Implementa a pistes reals» / «Treu la cadena» des de la finestra del Vocal Studio
     plugins.onAccioRack = [this] (const std::string& idInsert, int accio) -> int
     {
@@ -646,6 +648,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
 PantallaEstudi::~PantallaEstudi()
 {
+    posaAnalitzadorMaster ({});   // 1.00
     inserts::obreVeu() = nullptr;
     inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;
@@ -1919,6 +1922,66 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
     if (! errors.isEmpty()) text << (text.isEmpty() ? "" : "\n\n") << "No s'ha pogut exportar:\n" << errors.joinIntoString ("\n");
     juce::AlertWindow::showMessageBoxAsync (errors.isEmpty() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
                                             "Exporta", text);
+}
+
+std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool ambPistes, const mibase::diagnosi::Context& ctx)
+{
+    // 1.00: es renderitza com en exportar (còpies dels plugins, sense reproduir) i s'analitza a memòria
+    const double fs = servei.estudi().getFs() > 0.0 ? servei.estudi().getFs() : 48000.0;
+    juce::MouseCursor::showWaitCursor();
+    sincronitzaElastic (true);
+    auto renderitza = [this, fs] (const std::vector<int>& pistes, bool ambMaster, std::vector<float>& L, std::vector<float>& R)
+    {
+        mibase::OpcionsExport o;
+        o.master = ambMaster;
+        std::pair<double, double> tros;
+        auto q = mibase::projectePerExportar (estat.projecte, o, pistes, tros);
+        L.clear(); R.clear();
+        if (tros.second <= tros.first) return;
+        const auto solo = ed::estatSolo (q);
+        std::vector<std::string> sonen;
+        for (size_t i = 0; i < q.pistes.size(); ++i) if (solo[i] != 0) sonen.push_back (q.pistes[i].id);
+        auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
+        auto pla = construeixPla (q, audioPreses,
+            [this, fs, interns, sonen] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
+            {
+                if (std::find (sonen.begin(), sonen.end(), t.id) == sonen.end()) return nullptr;
+                return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
+            },
+            [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
+            &mapaSo);
+        mibase::renderitzaPla (*pla, fs, tros.first, tros.second, L, R);
+    };
+    std::vector<float> L, R;
+    tancaments::pas ("analitzant: el mix");
+    renderitza ({}, false, L, R);
+    auto mix = mibase::diagnosi::analitza (L.data(), R.data(), L.size(), fs);
+    std::shared_ptr<mibase::diagnosi::Informe> inf;
+    if (mix.valid)
+    {
+        tancaments::pas ("analitzant: el màster");
+        renderitza ({}, true, L, R);
+        const auto master = mibase::diagnosi::analitza (L.data(), R.data(), L.size(), fs);
+        std::vector<std::pair<std::string, mibase::diagnosi::Analisi>> pistes;
+        if (ambPistes)
+        {
+            const auto solo = ed::estatSolo (estat.projecte);
+            for (int i = 0; i < estat.numPistes(); ++i)
+            {
+                const auto& t = estat.projecte.pistes[(size_t) i];
+                if (solo[(size_t) i] == 0 || t.clips.empty() || ! (t.tipus == "audio" || mibase::esMidi (t))) continue;
+                tancaments::pas ("analitzant: la pista " + t.nom);
+                renderitza ({ i }, false, L, R);
+                pistes.push_back ({ t.nom, mibase::diagnosi::analitza (L.data(), R.data(), L.size(), fs) });
+            }
+        }
+        L.clear(); L.shrink_to_fit(); R.clear(); R.shrink_to_fit();
+        inf = std::make_shared<mibase::diagnosi::Informe> (mibase::diagnosi::diagnostica (mix, &master, pistes, ctx));
+        historial.afegeix ("Analitzat el màster (ANALYZE)"_ca);
+    }
+    tancaments::pas ("anàlisi acabada");
+    juce::MouseCursor::hideWaitCursor();
+    return inf;
 }
 
 std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
