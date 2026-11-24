@@ -23,6 +23,7 @@ target_sources(Mibase PRIVATE
     src/FinestraSaturacio.cpp
     src/FinestraDrive.cpp
     src/FinestraSubBass.cpp
+    src/FinestraFont.cpp
     src/FinestraLead.cpp
     src/FinestraAtmos.cpp
     src/FinestraNeo.cpp

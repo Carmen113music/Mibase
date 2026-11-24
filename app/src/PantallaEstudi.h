@@ -227,6 +227,9 @@ private:
     BotoColor btColor;
     Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Secundari };
     Boto btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Secundari };
+    Boto btFont { {}, dibuix::Icona::Font, Boto::Estil::Tecla };   // 0.97: Font d'inspiració
+    std::unique_ptr<juce::DocumentWindow> finestraFont;
+    void obreFont();
     juce::Rectangle<int> zonaBarra, zonaEines, zonaInfo;
 
     // Seccions.

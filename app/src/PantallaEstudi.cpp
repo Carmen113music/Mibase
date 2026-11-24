@@ -3,6 +3,7 @@
 #include <mibase/ContextMusical.h>
 #include <array>
 #include "FinestraFlotant.h"
+#include "FinestraFont.h"
 #include "DialegExporta.h"
 #include "Tancaments.h"
 #include "BancGM.h"
@@ -297,6 +298,10 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btDesfes.onClick = [this] { desfes (false); };
     btRefes.setTooltip ("Refés (Ctrl+Y)"_ca);
     btRefes.onClick = [this] { desfes (true); };
+    btFont.setTooltip ("Font d'inspiració (F9): fes una progressió d'acords amb les fletxes i envia-la a la pista d'Acords"_ca);
+    btFont.setLlum (juce::Colour (0xff5fd4c4));
+    btFont.onClick = [this] { obreFont(); };
+    addAndMakeVisible (btFont);
 
     // Seccions.
     for (auto* sec : std::initializer_list<SeccioEstudi*> { &esquerra, &capcaleres, &regla, &pistes, &mescles, &panell })
@@ -1025,6 +1030,8 @@ void PantallaEstudi::resized()
     btDesfes.setBounds (b.removeFromLeft (40));
     b.removeFromLeft (3);
     btRefes.setBounds (b.removeFromLeft (40));
+    b.removeFromLeft (16);
+    btFont.setBounds (b.removeFromLeft (40));   // 0.97
     b.removeFromLeft (16);
     zonaInfo = b;
 
@@ -2820,6 +2827,7 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     const bool cap = ! mods.isAnyModifierKeyDown();
     auto lletra = [codi] (char c) { return codi == c || codi == c + 32; };
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { treu(); return true; }
+    if (codi == juce::KeyPress::F9Key) { obreFont(); return true; }   // 0.97
     if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
     if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
     if (cap && lletra ('X') && estat.rang.actiu) { fesCrossfade(); return true; }
@@ -3538,6 +3546,7 @@ void PantallaEstudi::tancaTot()
     plugins.tancaFinestres();
     esquerra.opcions.tancaFinestresSinte();
     finestraKits.reset();
+    if (finestraFont != nullptr) { finestraFont.reset(); btFont.setToggleState (false, juce::dontSendNotification); }   // 0.97
     if (estat.sampler.obert) tancaSampler();
     if (estat.veu.obert) tancaVeu();
     if (estat.pianoRoll) mostraPianoRoll (false);
@@ -4168,4 +4177,21 @@ void PantallaEstudi::treuAcords (const mibase::Clip& c0, const juce::String& nom
     estat.canviat (text);
     estat.info = text;
     estat.avisa();
+}
+
+//==============================================================================
+// 0.97: Font d'inspiració (una finestra a part, com els sintes). F9 o el botó l'obren i la tanquen.
+void PantallaEstudi::obreFont()
+{
+    if (finestraFont != nullptr)
+    {
+        finestraFont.reset();
+        btFont.setToggleState (false, juce::dontSendNotification);
+        return;
+    }
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    finestraFont = creaFinestraFont (estat, servei,
+        [jo] { if (jo != nullptr && jo->estat.transport != 0) jo->atura(); },
+        [jo] { if (jo != nullptr) { jo->finestraFont.reset(); jo->btFont.setToggleState (false, juce::dontSendNotification); } });
+    btFont.setToggleState (true, juce::dontSendNotification);
 }
