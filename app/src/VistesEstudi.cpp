@@ -4554,13 +4554,23 @@ void PanellPista::paint (juce::Graphics& g)
         }
         if (mibase::esMidi (*t) && t->segueixAcords)   // 0.92.1: si toca sola els acords o no, i per què
         {
-            bool notes = false, blocs = false;
-            for (auto& k : t->clips) if (k.midi) { notes |= ! k.notes.empty(); blocs |= ! k.blocs.empty(); }
             bool hiHaAcords = false;
             for (auto& x : p.pistes) if (mibase::esAcords (x)) for (auto& k : x.clips) hiHaAcords |= k.esAcord() && ! k.mut;
-            fila ("Acords", mibase::tocaAcordsSols (*t) ? (hiHaAcords ? "toca sola els de la pista d'Acords"_ca : "no hi ha acords a la pista d'Acords"_ca)
-                            : blocs ? "els segueixen els patrons"_ca
-                            : notes ? "té notes: sonen les notes"_ca : "no"_ca);
+            const auto ra = mibase::resumAcordsClips (*t);   // 0.94: per clips
+            juce::String txt;
+            if (ra.clips == 0) txt = hiHaAcords ? "toca sola els de la pista d'Acords"_ca : "no hi ha acords a la pista d'Acords"_ca;
+            else
+            {
+                juce::StringArray parts;
+                auto compte = [] (int n, const char* u, const char* m) { return juce::String (n) + " " + juce::String::fromUTF8 (n == 1 ? u : m); };
+                if (ra.acords > 0) parts.add (compte (ra.acords, "clip toca els acords", "clips toquen els acords"));
+                if (ra.notes > 0) parts.add (compte (ra.notes, "té notes", "tenen notes"));
+                if (ra.patrons > 0) parts.add (compte (ra.patrons, "té patrons", "tenen patrons"));
+                if (ra.muts > 0) parts.add (compte (ra.muts, "silenciat", "silenciats"));
+                txt = parts.joinIntoString (", ");
+                if (ra.acords > 0 && ! hiHaAcords) txt += " (no hi ha acords)"_ca;
+            }
+            fila ("Acords", txt);
         }
         if (ambTeclat())
         {

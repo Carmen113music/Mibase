@@ -109,18 +109,49 @@ namespace mibase
         }
     }
 
+    ResumAcordsClips resumAcordsClips (const Pista& t)
+    {
+        ResumAcordsClips r;
+        for (const auto& c : t.clips)
+        {
+            if (! c.midi) continue;
+            ++r.clips;
+            if (c.mut) ++r.muts;
+            else if (! c.blocs.empty()) ++r.patrons;
+            else if (! c.notes.empty()) ++r.notes;
+            else ++r.acords;
+        }
+        return r;
+    }
+
     bool tocaAcordsSols (const Pista& t)
     {
         if (! esMidi (t) || ! t.segueixAcords) return false;
-        for (const auto& c : t.clips)
-            if (c.midi && (! c.notes.empty() || ! c.blocs.empty())) return false;
-        return true;
+        const auto r = resumAcordsClips (t);
+        return r.clips == 0 || r.acords > 0;
     }
 
     std::vector<Pla::Nota> notesAcordsSols (const Projecte& p, const Pista& t)
     {
         std::vector<Pla::Nota> r;
         if (! tocaAcordsSols (t)) return r;
+        // 0.94: on poden sonar: tota la cançó (sense clips) o els trossos destapats dels clips buits
+        std::vector<std::pair<double, double>> zones;
+        {
+            std::vector<const Clip*> clips;
+            bool cap = true;
+            for (const auto& c : t.clips)
+                if (c.midi) { cap = false; if (! c.mut) clips.push_back (&c); }
+            if (cap) zones.push_back ({ -1.0e9, 1.0e9 });
+            for (size_t k = 0; k < clips.size(); ++k)
+            {
+                const auto& c = *clips[k];
+                if (! c.notes.empty() || ! c.blocs.empty()) continue;
+                std::vector<std::pair<double, double>> sobre;
+                for (size_t j = k + 1; j < clips.size(); ++j) sobre.push_back ({ clips[j]->iniciVisible(), clips[j]->fiVisible() });
+                for (auto& z : destapat (c.iniciVisible(), c.fiVisible(), sobre)) zones.push_back (z);
+            }
+        }
         struct T { double a, b; std::string acord; };
         std::vector<T> trams;
         for (const auto& ta : p.pistes)
@@ -131,8 +162,12 @@ namespace mibase
         }
         std::stable_sort (trams.begin(), trams.end(), [] (const T& x, const T& y) { return x.a < y.a; });
         for (size_t i = 0; i + 1 < trams.size(); ++i) trams[i].b = std::min (trams[i].b, trams[i + 1].a);   // el següent talla l'anterior
-        for (const auto& x : trams)
+        for (const auto& x0 : trams)
+          for (const auto& z : zones)
         {
+            T x = x0;
+            x.a = std::max (x.a, z.first);
+            x.b = std::min (x.b, z.second);
             if (x.b - x.a < 0.005) continue;
             auto notes = harmonia::notesPad (harmonia::llegeixAcord (x.acord), 4, harmonia::Voicing::Tancat);
             if (notes.empty()) continue;

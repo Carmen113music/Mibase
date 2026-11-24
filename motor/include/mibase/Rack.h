@@ -23,6 +23,7 @@
     - Encès, Mix, entrada, sortida i macros són atòmics: es poden moure des de qualsevol fil (també l'automatització).
     - Un mòdul amb latència (el Limitador) no fa barreja: sona sempre al 100 % (si no, sonaria desfasat). */
 namespace mibase { struct Projecte; }
+namespace mibase::loudness { class Mesurador; struct Mesures; }
 
 namespace mibase::rack
 {
@@ -43,6 +44,12 @@ namespace mibase::rack
     int treuDesplegament (Projecte& p, int pista);
     inline constexpr const char* idPlugin = "intern:vocalstudio";
     inline constexpr const char* nomPlugin = "Vocal Studio (Mibase)";
+    /** 0.94: el mateix motor per al «Mastering Studio (Mibase)»: una altra llista de mòduls, uns altres macros i presets,
+        i a més A/B amb el mix original (amb el volum igualat) i mesura de loudness completa a l'entrada i a la sortida. */
+    inline constexpr const char* idPluginMaster = "intern:masteringstudio";
+    inline constexpr const char* nomPluginMaster = "Mastering Studio (Mibase)";
+    enum class Tipus { Veu, Master };
+    inline bool esRack (const std::string& plugin) { return plugin == idPlugin || plugin == idPluginMaster; }
 
     constexpr int maxModuls = 24;     // 0.76: 24 entre la cadena principal i els retorns
     constexpr int maxRetorns = 4;     // 0.76: camins en paral·lel (reverb, delay, compressió paral·lela, dobles…)
@@ -59,6 +66,7 @@ namespace mibase::rack
         const char* descripcio;
     };
     const std::vector<TipusModul>& tipus();
+    const std::vector<TipusModul>& tipus (Tipus t);   // 0.94
     const TipusModul* busca (const std::string& clau);
     /** Crea un mòdul nou d'aquest tipus (amb el seu punt de partida). nullptr si la clau no existeix. */
     std::shared_ptr<EfecteIntern> creaModul (const std::string& clau, const std::atomic<double>* tempo);
@@ -71,10 +79,12 @@ namespace mibase::rack
         std::shared_ptr<EfecteIntern> fx;
         std::atomic<bool> on { true };
         std::atomic<float> mix { 1.0f };   // 0..1
+        std::atomic<float> canviDb { 0.0f };   // 0.94: quant canvia el volum (RMS sortida − entrada, dB): «quant actua»
         // fil d'àudio
         std::vector<float> secL, secR;
         float mixAnt = 1.0f;
         bool estavaOn = true;
+        float canviSuau = 0.0f;
     };
 
     /** Un macro mou un paràmetre d'un mòdul: amb el macro a 0, el paràmetre val «mn»; a 1, «mx» (normalitzats 0..1;
@@ -119,12 +129,35 @@ namespace mibase::rack
     const std::vector<Preset>& presetsFabrica();
     /** L'estat amb què neix un Vocal Studio nou (no comença mai buit). */
     const std::string& estatInicial();
+    // 0.94: els del Mastering Studio (RackMaster.cpp)
+    const std::vector<std::string>& categories (Tipus t);
+    const std::vector<Preset>& presetsFabrica (Tipus t);
+    const std::string& estatInicial (Tipus t);
 
     class Rack : public EfecteIntern
     {
     public:
-        Rack();
+        explicit Rack (Tipus t = Tipus::Veu);
         ~Rack() override;
+        Tipus tipusRack() const noexcept { return tipusR; }
+        bool esMaster() const noexcept { return tipusR == Tipus::Master; }
+
+        // ---- 0.94: només el Mastering Studio ----
+        /** A/B: escolta el mix original (sense el rack, alineat amb el retard de la cadena). Sense clics (fosa de 20 ms). */
+        void posaOriginal (bool o) noexcept { escoltaOriginal.store (o, std::memory_order_relaxed); }
+        bool original() const noexcept { return escoltaOriginal.load (std::memory_order_relaxed); }
+        /** Volum igualat: el que sona més fort (original o processat) s'abaixa fins al volum de l'altre (Short-Term). */
+        void posaIgualat (bool g) noexcept { igualatAB.store (g, std::memory_order_relaxed); ++canvis; }
+        bool igualat() const noexcept { return igualatAB.load (std::memory_order_relaxed); }
+        /** L'objectiu orientatiu de loudness (índex de loudness::objectius()). */
+        void posaObjectiu (int k) noexcept { objectiuLufs.store (k, std::memory_order_relaxed); ++canvis; }
+        int objectiu() const noexcept { return objectiuLufs.load (std::memory_order_relaxed); }
+        /** Mesures del mix que entra (abans del rack) i del màster que surt (el de debò, sense la compensació de l'A/B). */
+        const loudness::Mesures* loudnessEntrada() const noexcept;
+        const loudness::Mesures* loudnessSortida() const noexcept;
+        void reiniciaMesures() noexcept;
+        /** La compensació de l'A/B que s'aplica ara (dB, negatiu = s'abaixa el processat; positiu = s'abaixa l'original). */
+        float compensacioDb() const noexcept { return compDb.load (std::memory_order_relaxed); }
         void prepara (double fs, int maxBloc) override;
         void processa (float* L, float* R, int n) noexcept override;
         int latencia() const noexcept override;
@@ -227,5 +260,15 @@ namespace mibase::rack
         Mesures mes;
         float gIn = 1.0f, gOut = 1.0f;   // fil d'àudio (suavitzats)
         bool primerBloc = true;
+        // 0.94: Mastering Studio
+        Tipus tipusR = Tipus::Veu;
+        std::unique_ptr<loudness::Mesurador> lIn, lOut;
+        Linia liniaSec;
+        std::vector<float> secL, secR;
+        std::atomic<bool> escoltaOriginal { false }, igualatAB { true };
+        std::atomic<int> objectiuLufs { 1 };
+        std::atomic<float> compDb { 0.0f };
+        float gProc = 1.0f, gSec = 1.0f, fosa = 0.0f;
+        void processaMaster (float* L, float* R, int n) noexcept;
     };
 }

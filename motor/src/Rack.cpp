@@ -3,6 +3,8 @@
 #include "mibase/Doubler.h"
 #include "mibase/Drive.h"
 #include "mibase/Equalitzador.h"
+#include "mibase/Estereo.h"
+#include "mibase/Loudness.h"
 #include "mibase/Harmonitzador.h"
 #include "mibase/Limitador.h"
 #include "mibase/Reverb.h"
@@ -40,9 +42,25 @@ namespace mibase::rack
         return t;
     }
 
+    const std::vector<TipusModul>& tipus (Tipus q)
+    {
+        // 0.94: els mòduls del Mastering Studio (mateixos efectes, amb un punt de partida de màster)
+        static const std::vector<TipusModul> m {
+            { "eqm", eq::idPlugin, "EQ de màster", "Correcció i to: greus, fang, presència i aire, amb Mid/Side i bandes dinàmiques." },
+            { "glue", dinamica::idPlugin, "Compressor de màster", "Cohesió (glue): 1–3 dB de reducció, atac lent perquè passi el cop." },
+            { "deessm", dinamica::idPlugin, "De-esser de màster", "Calma les S i els plats que punxen al mix sencer (6–9 kHz)." },
+            { "colorm", saturacio::idPlugin, "Saturació (color)", "Cinta, consola o vàlvula: escalfor i densitat, suau i en paral·lel." },
+            { "estereo", estereo::idPlugin, "Estèreo", "Amplada per bandes, mono als greus, Mid/Side i correlació." },
+            { "limitm", limitador::idPlugin, "Limitador", "L'últim: puja el volum sense que cap pic passi del sostre (true peak)." },
+            { "loudness", loudness::idPlugin, "Loudness Meter", "Només mesura: LUFS, true peak, LRA, crest i correlació." },
+        };
+        return q == Tipus::Master ? m : tipus();
+    }
+
     const TipusModul* busca (const std::string& clau)
     {
         for (const auto& t : tipus()) if (clau == t.clau) return &t;
+        for (const auto& t : tipus (Tipus::Master)) if (clau == t.clau) return &t;
         return nullptr;
     }
 
@@ -86,6 +104,32 @@ namespace mibase::rack
             r->posa (reverb::Alg, reverb::Plate); r->posa (reverb::Mix, 15); r->posa (reverb::Decay, 1.4f); r->posa (reverb::PreDelay, 30);
             return r;
         }
+        // ---- 0.94: Mastering Studio ----
+        if (clau == "eqm")
+        {
+            auto q = std::make_shared<eq::Equalitzador>();
+            eq::Banda b; b.usada = true; b.tipus = eq::HighPass; b.freq = 25.0f;
+            q->posaBanda (0, b);
+            return q;
+        }
+        if (clau == "glue" || clau == "deessm")
+        {
+            auto d = std::make_shared<dinamica::Dinamica>();
+            using namespace dinamica;
+            if (clau == "glue") { d->posa (ModeP, Compressor); d->posa (Llindar, -18); d->posa (Ratio, 2); d->posa (Atac, 30); d->posa (Alliberament, 150);
+                                  d->posa (Genoll, 6); d->posa (FiltreGreus, 100); d->posa (Detector, 1); d->posa (Guany, 1); }
+            else { d->posa (ModeP, DeEsser); d->posa (FreqDeEsser, 7500); d->posa (Llindar, -30); d->posa (Ratio, 3); d->posa (Atac, 1); d->posa (Alliberament, 80); }
+            return d;
+        }
+        if (clau == "colorm")
+        {
+            auto s = std::make_shared<saturacio::Saturacio>();
+            s->posa (saturacio::EstilP, saturacio::A); s->posa (saturacio::Drive, 1.5f); s->posa (saturacio::Mix, 40.0f); s->posa (saturacio::LowCut, 20.0f);
+            return s;
+        }
+        if (clau == "estereo") return std::make_shared<estereo::Estereo>();
+        if (clau == "loudness") return std::make_shared<loudness::Modul>();
+        if (clau == "limitm") { auto l = std::make_shared<limitador::Limitador>(); l->posa (limitador::Gain, 3); l->posa (limitador::Ceiling, -1); l->posa (limitador::TruePeak, 1); return l; }
         if (clau == "limitador") { auto l = std::make_shared<limitador::Limitador>(); l->posa (limitador::Gain, 0); l->posa (limitador::Ceiling, -1); return l; }
         return nullptr;
     }
@@ -103,15 +147,21 @@ namespace mibase::rack
 
     // ------------------------------------------------------------------
 
-    Rack::Rack()
+    Rack::Rack (Tipus t) : tipusR (t)
     {
         for (int i = 0; i < numParams; ++i) { float mn, mx, def; rangParam (i, mn, mx, def); par[(size_t) i].store (def); }
         static const char* const nomsDefecte[numMacros] = { "Cos", "Presència", "Aire", "Compressió", "Escalfor", "Doble", "Espai", "Eco" };
-        for (int m = 0; m < numMacros; ++m) noms[(size_t) m] = nomsDefecte[m];
+        static const char* const nomsMaster[numMacros] = { "Escalfor", "Presència", "Punch", "Amplada", "Greus", "Densitat", "Aire", "Loudness" };   // 0.94
+        for (int m = 0; m < numMacros; ++m) noms[(size_t) m] = esMaster() ? nomsMaster[m] : nomsDefecte[m];
+        if (esMaster()) { lIn = std::make_unique<loudness::Mesurador>(); lOut = std::make_unique<loudness::Mesurador>(); }
         publica (std::make_shared<Cadena>());
     }
 
     Rack::~Rack() { actual.store (nullptr); }
+
+    const loudness::Mesures* Rack::loudnessEntrada() const noexcept { return lIn != nullptr ? &lIn->mesures() : nullptr; }
+    const loudness::Mesures* Rack::loudnessSortida() const noexcept { return lOut != nullptr ? &lOut->mesures() : nullptr; }
+    void Rack::reiniciaMesures() noexcept { if (lIn != nullptr) lIn->reinicia(); if (lOut != nullptr) lOut->reinicia(); }
 
     void rangParam (int p, float& mn, float& mx, float& def)
     {
@@ -171,6 +221,16 @@ namespace mibase::rack
             retR[(size_t) k].assign ((size_t) maxBloc, 0.0f);
         }
         primerBloc = true;
+        if (esMaster())   // 0.94
+        {
+            lIn->prepara (fs);
+            lOut->prepara (fs);
+            liniaSec.prepara ((int) (0.25 * fs) + maxBloc);
+            secL.assign ((size_t) maxBloc, 0.0f);
+            secR.assign ((size_t) maxBloc, 0.0f);
+            gProc = gSec = 1.0f;
+            fosa = escoltaOriginal.load() ? 1.0f : 0.0f;
+        }
     }
 
     void Rack::preparaModul (Modul& m)
@@ -209,7 +269,12 @@ namespace mibase::rack
     void Rack::processa (float* L, float* R, int n) noexcept
     {
         // 0.76: els retorns fan servir buffers de «maxBloc»: un bloc més gran es fa a trossos
-        for (int o = 0; o < n; o += maxBloc) processaBloc (L + o, R + o, std::min (maxBloc, n - o));
+        for (int o = 0; o < n; o += maxBloc)
+        {
+            const int k = std::min (maxBloc, n - o);
+            if (esMaster() && (int) secL.size() >= k) processaMaster (L + o, R + o, k);   // 0.94
+            else processaBloc (L + o, R + o, k);
+        }
         if (n <= 0) epoca.fetch_add (1, std::memory_order_release);
     }
 
@@ -221,11 +286,27 @@ namespace mibase::rack
         if (objectiu <= 0.0f && m.mixAnt <= 0.0f)
         {
             if (m.estavaOn) { m.fx->buida(); m.estavaOn = false; }   // apagat del tot: la cua vella, fora
+            m.canviSuau = 0.0f;
+            m.canviDb.store (0.0f, std::memory_order_relaxed);
             return;
         }
         m.estavaOn = true;
+        // 0.94: quant canvia el volum aquest mòdul (RMS de sortida respecte d'entrada), per a la vista compacta
+        double eIn = 0.0;
+        for (int i = 0; i < n; ++i) eIn += (double) L[i] * L[i] + (double) R[i] * R[i];
+        auto mesuraCanvi = [&m, L, R, n, eIn]
+        {
+            double eOut = 0.0;
+            for (int i = 0; i < n; ++i) eOut += (double) L[i] * L[i] + (double) R[i] * R[i];
+            if (eIn > 1.0e-9 * n)
+            {
+                const float d = (float) std::clamp (10.0 * std::log10 (std::max (eOut, 1.0e-20) / eIn), -24.0, 24.0);
+                m.canviSuau += (d - m.canviSuau) * 0.05f;
+                m.canviDb.store (m.canviSuau, std::memory_order_relaxed);
+            }
+        };
         const int cap = (int) m.secL.size();
-        if (objectiu >= 0.9999f && m.mixAnt >= 0.9999f) { m.fx->processa (L, R, n); m.mixAnt = 1.0f; return; }
+        if (objectiu >= 0.9999f && m.mixAnt >= 0.9999f) { m.fx->processa (L, R, n); m.mixAnt = 1.0f; mesuraCanvi(); return; }
         for (int ofs = 0; ofs < n; ofs += std::max (1, cap))
         {
             const int k = std::min (n - ofs, cap);
@@ -245,6 +326,7 @@ namespace mibase::rack
             }
         }
         m.mixAnt = objectiu;
+        mesuraCanvi();
     }
 
     void Rack::processaBloc (float* L, float* R, int n) noexcept
@@ -352,6 +434,46 @@ namespace mibase::rack
             if (pic > mes.sortida.load (std::memory_order_relaxed)) mes.sortida.store (pic, std::memory_order_relaxed);
         }
         epoca.fetch_add (1, std::memory_order_release);
+    }
+
+    void Rack::processaMaster (float* L, float* R, int n) noexcept
+    {
+        // l'original: es copia abans del rack i es retarda tant com la cadena, perquè l'A/B no salti en el temps
+        std::copy_n (L, n, secL.data());
+        std::copy_n (R, n, secR.data());
+        processaBloc (L, R, n);
+        liniaSec.passa (secL.data(), secR.data(), n, latencia());
+        lIn->processa (secL.data(), secR.data(), n);
+        lOut->processa (L, R, n);
+        // volum igualat: el que sona més fort baixa fins a l'altre (Short-Term), lentament perquè no bombi
+        float tProc = 1.0f, tSec = 1.0f;
+        if (igualatAB.load (std::memory_order_relaxed))
+        {
+            const float a = lIn->mesures().shortTerm.load (std::memory_order_relaxed), b = lOut->mesures().shortTerm.load (std::memory_order_relaxed);
+            if (a > -60.0f && b > -60.0f)
+            {
+                const float d = std::clamp (b - a, -24.0f, 24.0f);
+                if (d > 0.0f) tProc = dbALin (-d); else tSec = dbALin (d);
+                compDb.store (-d, std::memory_order_relaxed);
+            }
+        }
+        else compDb.store (0.0f, std::memory_order_relaxed);
+        const float tFosa = escoltaOriginal.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
+        const float kG = 1.0f - std::exp (-(float) n / (0.4f * (float) fs));
+        const float kF = 1.0f - std::exp (-(float) n / (0.02f * (float) fs));
+        const float p0 = gProc, s0 = gSec, f0 = fosa;
+        gProc += (tProc - gProc) * kG;
+        gSec += (tSec - gSec) * kG;
+        fosa += (tFosa - fosa) * kF;
+        if (std::abs (fosa - tFosa) < 1.0e-4f) fosa = tFosa;
+        const float inv = 1.0f / (float) n;
+        for (int i = 0; i < n; ++i)
+        {
+            const float t = (float) (i + 1) * inv;
+            const float gp = p0 + (gProc - p0) * t, gs = s0 + (gSec - s0) * t, f = f0 + (fosa - f0) * t;
+            L[i] = L[i] * gp * (1.0f - f) + secL[(size_t) i] * gs * f;
+            R[i] = R[i] * gp * (1.0f - f) + secR[(size_t) i] * gs * f;
+        }
     }
 
     // ---- paràmetres ----
@@ -584,6 +706,7 @@ namespace mibase::rack
         for (auto& m : ui->moduls) m->fx->buida();
         liniaPrincipal.buida();
         for (auto& l : liniesRetorn) l.buida();
+        liniaSec.buida();
         envClau = 0.0f;
     }
 
@@ -592,6 +715,7 @@ namespace mibase::rack
     {
         nlohmann::ordered_json j;
         j["mibase-rack"] = 1;
+        if (esMaster()) { j["tipus"] = "master"; j["igualat"] = igualatAB.load(); j["objectiu"] = objectiuLufs.load(); }   // 0.94
         j["entrada"] = par[Entrada].load();
         j["sortida"] = par[Sortida].load();
         auto mac = nlohmann::ordered_json::array();
@@ -621,7 +745,7 @@ namespace mibase::rack
 
     void Rack::posaEstat (const std::string& s)
     {
-        if (s.empty()) { posaEstat (estatInicial()); return; }
+        if (s.empty()) { posaEstat (estatInicial (tipusR)); return; }
         nlohmann::json j;
         try { j = nlohmann::json::parse (s); }
         catch (...) { return; }
@@ -648,6 +772,11 @@ namespace mibase::rack
                 c->camins.push_back (std::clamp (x.value ("cami", 0), 0, maxRetorns));
             }
             presetNom = j.value ("preset", std::string());   // 0.79
+            if (esMaster())   // 0.94
+            {
+                igualatAB.store (j.value ("igualat", true));
+                objectiuLufs.store (std::clamp (j.value ("objectiu", 1), 0, (int) loudness::objectius().size() - 1));
+            }
             presetMod = j.value ("presetModificat", false);
             const auto rets = j.value ("retorns", nlohmann::json::array());   // 0.76
             for (int k = 0; k < maxRetorns; ++k)

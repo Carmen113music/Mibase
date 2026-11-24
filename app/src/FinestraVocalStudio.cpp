@@ -13,6 +13,7 @@
 #include "FinestraReverb.h"
 #include "FinestraSaturacio.h"
 #include "NavegadorPresets.h"
+#include "PanellsMaster.h"
 #include "Pom.h"
 #include "Tema.h"
 #include "Text.h"
@@ -37,18 +38,19 @@ namespace
     const juce::Colour turquesa { 0xff59d0d6 };   // el color de la veu (com a Riffs)
 
     // Presets propis i favorits (Documents\Mibase\Vocal Studio\presets.json)
-    juce::File fitxerBiblioteca()
+    // 0.94: els del Mastering Studio, a part (Documents\Mibase\Mastering Studio\presets.json)
+    juce::File fitxerBiblioteca (bool master = false)
     {
-        return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Mibase").getChildFile ("Vocal Studio").getChildFile ("presets.json");
+        return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Mibase").getChildFile (master ? "Mastering Studio" : "Vocal Studio").getChildFile ("presets.json");
     }
-    BibliotecaPresets& biblioteca()
+    BibliotecaPresets& biblioteca (bool master = false)
     {
-        static BibliotecaPresets b;
-        static bool carregada = false;
-        if (! carregada) { carregada = true; b.carrega (dibuix::cami (fitxerBiblioteca())); }
-        return b;
+        static BibliotecaPresets b[2];
+        static bool carregada[2] {};
+        if (! carregada[master ? 1 : 0]) { carregada[master ? 1 : 0] = true; b[master ? 1 : 0].carrega (dibuix::cami (fitxerBiblioteca (master))); }
+        return b[master ? 1 : 0];
     }
-    void desaBiblioteca() { biblioteca().desa (dibuix::cami (fitxerBiblioteca())); }
+    void desaBiblioteca (bool master = false) { biblioteca (master).desa (dibuix::cami (fitxerBiblioteca (master))); }
 
     juce::String nomDe (const Modul& m) { return u8 (nomModul (m.clau, m.fx.get())); }
     juce::String nomParam (const Modul& m, int p) { return u8 (m.fx->infoParametre (p).nom); }
@@ -540,7 +542,7 @@ namespace
         Boto btTreu { {}, dibuix::Icona::Tanca, Boto::Estil::Subtil };
         BotoFletxa btAmunt { true }, btAvall { false };
         std::unique_ptr<Pom> pomMix;
-        juce::Rectangle<int> zonaNom;
+        juce::Rectangle<int> zonaNom, zonaAct;   // 0.94: quant actua
     };
 
     /** 0.76: la capçalera d'un camí: «Cadena principal» o un retorn (nom, Envia, Retorn, Pan, Ducking, + mòdul, treu). */
@@ -622,17 +624,27 @@ namespace
             btRetorn.setTooltip ("Un camí en paral·lel: reverb, delay, compressió paral·lela, dobles o harmonies, amb el seu volum i ducking"_ca);
             btRetorn.onClick = [this] { menuRetorn(); };
             setSize (900, 700);
-            if (rk->nomPreset().empty() && ! presetsFabrica().empty())
+            if (esM())   // 0.94: Mastering Studio: sense retorns, «A pistes reals» ni solo; amb el panell del màster
             {
-                Rack inicial;
-                inicial.posaEstat (estatInicial());
-                if (inicial.estat() == rk->estat()) rk->posaNomPreset (presetsFabrica().front().nom);
+                for (auto* b : { &btRetorn, &btPistes, &btTreuCadena, &btSolo }) b->setVisible (false);
+                panellMaster.reset (creaPanellMaster (rk));
+                addAndMakeVisible (*panellMaster);
+                btPreset.setTooltip ("Clica per veure tots els presets del màster (bàsics, objectiu sonor, gèneres, Carmen 113)"_ca);
+                btDesa.setTooltip ("Desa tot el Mastering Studio (mòduls, ajustos, macros i objectiu) com un preset teu"_ca);
+                setSize (1180, 760);
+            }
+            if (rk->nomPreset().empty() && ! presetsFabrica (rk->tipusRack()).empty())
+            {
+                Rack inicial (rk->tipusRack());
+                inicial.posaEstat (estatInicial (rk->tipusRack()));
+                if (inicial.estat() == rk->estat()) rk->posaNomPreset (presetsFabrica (rk->tipusRack()).front().nom);
             }
             refesFiles();
             refresca();
             startTimerHz (25);
         }
         ~PanellVocalStudio() override { stopTimer(); finestresModuls.clear(); }
+        bool esM() const { return rk->esMaster(); }   // 0.94: Mastering Studio
 
         // ---- per a les files ----
         void obreModul (int i)
@@ -651,6 +663,10 @@ namespace
             else if (auto dl = std::dynamic_pointer_cast<mibase::delay::Delay> (fx)) w = creaFinestraDelay (dl, t, tanca);
             else if (auto rv = std::dynamic_pointer_cast<mibase::reverb::Reverb> (fx)) w = creaFinestraReverb (rv, t, tanca);
             else if (auto lm = std::dynamic_pointer_cast<mibase::limitador::Limitador> (fx)) w = creaFinestraLimitador (lm, t, tanca);
+            else if (auto st = std::dynamic_pointer_cast<mibase::estereo::Estereo> (fx))   // 0.94
+                w = std::make_unique<FinestraSimple> (t, creaPanellEstereo (st), tanca);
+            else if (auto ld = std::dynamic_pointer_cast<mibase::loudness::Modul> (fx))
+                w = std::make_unique<FinestraSimple> (t, creaPanellLoudness (ld), tanca);
             else if (auto h = std::dynamic_pointer_cast<mibase::harmonitzador::Harmonitzador> (fx))   // 0.73
                 w = std::make_unique<FinestraSimple> (t, new PanellHarmonitzador (h), tanca);
             else if (auto tu = std::dynamic_pointer_cast<mibase::tune::Tune> (fx))   // 0.79
@@ -688,13 +704,20 @@ namespace
         void menuMouACami (int i)
         {
             juce::PopupMenu m;
-            m.addSectionHeader ("Mou el mòdul a…"_ca);
-            m.addItem (1, "Cadena principal"_ca, rk->cami (i) != 0, rk->cami (i) == 0);
-            for (int k = 0; k < maxRetorns; ++k)
-                if (rk->retorn (k).actiu) m.addItem (2 + k, "Retorn "_ca + juce::String (k + 1) + " · " + u8 (rk->retorn (k).nom), rk->cami (i) != k + 1, rk->cami (i) == k + 1);
+            m.addItem (100, "Restableix el mòdul"_ca);   // 0.94
+            m.addItem (101, "Duplica el mòdul"_ca, rk->numModuls() < maxModuls);
+            if (! esM())
+            {
+                m.addSectionHeader ("Mou el mòdul a…"_ca);
+                m.addItem (1, "Cadena principal"_ca, rk->cami (i) != 0, rk->cami (i) == 0);
+                for (int k = 0; k < maxRetorns; ++k)
+                    if (rk->retorn (k).actiu) m.addItem (2 + k, "Retorn "_ca + juce::String (k + 1) + " · " + u8 (rk->retorn (k).nom), rk->cami (i) != k + 1, rk->cami (i) == k + 1);
+            }
             m.showMenuAsync ({}, [sp = juce::Component::SafePointer<PanellVocalStudio> (this), i] (int r)
             {
                 if (sp == nullptr || r <= 0) return;
+                if (r == 100) { sp->restableixModul (i); return; }
+                if (r == 101) { juce::MessageManager::callAsync ([sp, i] { if (sp != nullptr) sp->duplicaModul (i); }); return; }
                 sp->rk->posaCami (i, r - 1);
                 sp->haCanviat(); sp->refesFiles(); sp->refresca();
             });
@@ -718,12 +741,12 @@ namespace
         {
             juce::PopupMenu m;
             int id = 1;
-            for (const auto& t : tipus())
+            for (const auto& t : tipus (rk->tipusRack()))
                 m.addItem (id++, u8 (t.nom) + "  ·  "_ca + u8 (t.descripcio));
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [sp = juce::Component::SafePointer<PanellVocalStudio> (this), cami] (int r)
             {
-                if (sp == nullptr || r <= 0 || r > (int) tipus().size()) return;
-                const int nou = sp->rk->afegeix (tipus()[(size_t) r - 1].clau, -1, cami);
+                if (sp == nullptr || r <= 0 || r > (int) tipus (sp->rk->tipusRack()).size()) return;
+                const int nou = sp->rk->afegeix (tipus (sp->rk->tipusRack())[(size_t) r - 1].clau, -1, cami);
                 if (nou < 0) return;
                 if (cami > 0) sp->al100 (nou);
                 sp->haCanviat(); sp->refesFiles(); sp->refresca();
@@ -783,6 +806,26 @@ namespace
             });
         }
         void haCanviat() { rk->marcaModificat(); }   // 0.79: el nom es queda (amb «· modificat»)
+        juce::Colour color() const { return esM() ? juce::Colour (0xffffb84a) : turquesa; }   // 0.94: ambre per al màster
+        /** 0.94: restableix un mòdul (els valors amb què neix) o el duplica just a sota. */
+        void restableixModul (int i)
+        {
+            auto* m = rk->modul (i);
+            if (m == nullptr) return;
+            if (auto nou = creaModul (m->clau, nullptr)) { m->fx->posaEstat (nou->estat()); rk->posaMix (i, 1.0f); haCanviat(); refresca(); }
+        }
+        void duplicaModul (int i)
+        {
+            auto* m = rk->modul (i);
+            if (m == nullptr || rk->numModuls() >= maxModuls) return;
+            const auto clau = m->clau;
+            const auto estatFx = m->fx->estat();
+            const float mix = m->mix.load();
+            const bool on = m->on.load();
+            const int nou = rk->afegeix (clau, i + 1, rk->cami (i));
+            if (auto* d = rk->modul (nou)) { d->fx->posaEstat (estatFx); rk->posaMix (nou, mix); rk->posaOn (nou, on); }
+            haCanviat(); refesFiles(); refresca();
+        }
 
         void refresca()
         {
@@ -828,10 +871,10 @@ namespace
             auto t = cap.reduced (14.0f, 9.0f).removeFromLeft (200.0f);
             g.setColour (tema::text);
             g.setFont (dibuix::lletra (19.0f, true));
-            g.drawText ("VOCAL STUDIO", t.removeFromTop (24.0f), juce::Justification::centredLeft);
-            g.setColour (turquesa);
+            g.drawText (esM() ? "MASTERING STUDIO" : "VOCAL STUDIO", t.removeFromTop (24.0f).withWidth (260.0f), juce::Justification::centredLeft);
+            g.setColour (color());
             g.setFont (dibuix::lletra (10.0f, true));
-            g.drawText ("MIBASE · RACK DE VEU"_ca, t, juce::Justification::centredLeft);
+            g.drawText (esM() ? "MIBASE · RACK DE MÀSTER"_ca : "MIBASE · RACK DE VEU"_ca, t.withWidth (260.0f), juce::Justification::centredLeft);
             // vúmetres d'entrada i sortida
             auto& ms = rk->mesures();
             auto nivell = [] (float v) { return v > 1e-5f ? juce::jlimit (0.0f, 1.0f, (20.0f * std::log10 (v) + 48.0f) / 48.0f) : 0.0f; };
@@ -841,7 +884,7 @@ namespace
                 g.setColour (juce::Colours::black.withAlpha (0.55f));
                 g.fillRoundedRectangle (b, 2.0f);
                 const float a = nivell (v);
-                g.setColour (v > 0.98f ? vintage::ledVermell : turquesa);
+                g.setColour (v > 0.98f ? vintage::ledVermell : color());
                 g.fillRoundedRectangle (b.withTop (b.getBottom() - b.getHeight() * a), 2.0f);
             }
             juce::ignoreUnused (ms);
@@ -855,7 +898,8 @@ namespace
             // a baix: latència
             const int lat = rk->latencia();
             juce::String txt = lat > 0 ? "Retard del rack: "_ca + juce::String (lat * 1000.0 / 48000.0, 1).replaceCharacter ('.', ',') + " ms (Mibase el compensa). "_ca : juce::String();
-            txt << "Doble clic a un mòdul o «Obre» per veure'l sencer."_ca;
+            txt << (esM() ? "Doble clic o «Obre» per veure un mòdul. Botó dret: restableix o duplica. Compara sempre amb «Igualat»."_ca
+                          : "Doble clic a un mòdul o «Obre» per veure'l sencer."_ca);
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (11.0f));
             g.drawFittedText (txt, zonaText, juce::Justification::centredLeft, 1, 0.85f);
@@ -889,6 +933,12 @@ namespace
             }
             if (navegador != nullptr) navegador->setBounds (getLocalBounds());
             r.reduce (14, 0);
+            if (panellMaster != nullptr)   // 0.94
+            {
+                auto d = r.removeFromRight (310);
+                panellMaster->setBounds (d.withTrimmedBottom (8).withTrimmedTop (4));
+                r.removeFromRight (12);
+            }
             r.removeFromTop (22);
             zonaMacros = r.removeFromTop (118);
             {
@@ -945,6 +995,7 @@ namespace
             vuOut = juce::jmax (ms.sortida.exchange (0.0f), vuOut * 0.82f);
             repaint (zonaVuIn.expanded (2));
             repaint (zonaVuOut.expanded (2));
+            if (++tic % 3 == 0) for (auto& f : files) f->repaint();   // 0.94: quant actua cada mòdul i els avisos
             // les finestres dels mòduls que ja no hi són
             for (auto it = finestresModuls.begin(); it != finestresModuls.end();)
             {
@@ -1094,21 +1145,21 @@ namespace
         std::vector<const Preset*> totsPresets()
         {
             std::vector<const Preset*> v;
-            for (auto& p : biblioteca().usuari) v.push_back (&p);
-            for (auto& p : presetsFabrica()) v.push_back (&p);
+            for (auto& p : biblioteca (esM()).usuari) v.push_back (&p);
+            for (auto& p : presetsFabrica (rk->tipusRack())) v.push_back (&p);
             return v;
         }
         bool esFavorit (const juce::String& nom)
         {
             const auto n = nom.toStdString();
-            return biblioteca().esFavorit (biblioteca().busca (n) != nullptr ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
+            return biblioteca (esM()).esFavorit (biblioteca (esM()).busca (n) != nullptr ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
         }
         void commutaFavoritActual()
         {
             const auto nom = rk->nomPreset();
             if (nom.empty()) { btFav.setToggleState (false, juce::dontSendNotification); return; }
-            biblioteca().commutaFavorit (biblioteca().busca (nom) != nullptr ? BibliotecaPresets::clauUsuari (nom) : BibliotecaPresets::clauFabrica (nom));
-            desaBiblioteca();
+            biblioteca (esM()).commutaFavorit (biblioteca (esM()).busca (nom) != nullptr ? BibliotecaPresets::clauUsuari (nom) : BibliotecaPresets::clauFabrica (nom));
+            desaBiblioteca (esM());
             refresca();
         }
         void aplicaPreset (const Preset& p)
@@ -1132,16 +1183,16 @@ namespace
         void desaPreset()
         {
             const auto actual = u8 (rk->nomPreset());
-            const bool meu = biblioteca().busca (actual.toStdString()) != nullptr;
-            const auto proposta = meu ? actual : u8 (biblioteca().nomLliure ((actual.isEmpty() ? juce::String ("La meva veu") : actual + " (meu)"_ca).toStdString()));
+            const bool meu = biblioteca (esM()).busca (actual.toStdString()) != nullptr;
+            const auto proposta = meu ? actual : u8 (biblioteca (esM()).nomLliure ((actual.isEmpty() ? juce::String (esM() ? "El meu màster"_ca : "La meva veu") : actual + " (meu)"_ca).toStdString()));
             dialeg = std::make_unique<DialegText> ("Desa el preset"_ca, "Nom del preset (si ja en tens un amb aquest nom, se substitueix)."_ca, "Desa"_ca,
                 [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom."_ca : juce::String(); },
                 [this] (const juce::String& t)
                 {
                     const auto nom = t.trim().toStdString();
-                    const auto* ja = biblioteca().busca (nom);
-                    biblioteca().desaPreset ({ nom, ja != nullptr ? ja->categoria : std::string ("Meus"), "", rk->estat() });
-                    desaBiblioteca();
+                    const auto* ja = biblioteca (esM()).busca (nom);
+                    biblioteca (esM()).desaPreset ({ nom, ja != nullptr ? ja->categoria : std::string ("Meus"), "", rk->estat() });
+                    desaBiblioteca (esM());
                     rk->posaNomPreset (nom);
                     refresca();
                 }, proposta);
@@ -1154,13 +1205,13 @@ namespace
             navegador->setBounds (getLocalBounds());
             navegador->grabKeyboardFocus();
         }
-        juce::StringArray categoriesFabrica() override { juce::StringArray a; for (auto& c : categories()) a.add (u8 (c)); return a; }
-        juce::StringArray carpetesUsuari() override { juce::StringArray a; for (auto& c : biblioteca().carpetes()) a.add (u8 (c)); return a; }
+        juce::StringArray categoriesFabrica() override { juce::StringArray a; for (auto& c : categories (rk->tipusRack())) a.add (u8 (c)); return a; }
+        juce::StringArray carpetesUsuari() override { juce::StringArray a; for (auto& c : biblioteca (esM()).carpetes()) a.add (u8 (c)); return a; }
         std::vector<EntradaPreset> entrades() override
         {
             std::vector<EntradaPreset> v;
             const auto tots = totsPresets();
-            const int nu = (int) biblioteca().usuari.size();
+            const int nu = (int) biblioteca (esM()).usuari.size();
             for (int i = 0; i < (int) tots.size(); ++i)
             {
                 const auto& p = *tots[(size_t) i];
@@ -1169,7 +1220,7 @@ namespace
                 for (size_t a = p.estat.find ("\"clau\""); a != std::string::npos; a = p.estat.find ("\"clau\"", a + 1)) ++n;
                 const bool usuari = i < nu;
                 v.push_back ({ u8 (p.nom), u8 (p.categoria), u8 (p.descripcio), juce::String (n) + (n == 1 ? " mòdul"_ca : " mòduls"_ca), usuari,
-                               biblioteca().esFavorit (usuari ? BibliotecaPresets::clauUsuari (p.nom) : BibliotecaPresets::clauFabrica (p.nom)), i });
+                               biblioteca (esM()).esFavorit (usuari ? BibliotecaPresets::clauUsuari (p.nom) : BibliotecaPresets::clauFabrica (p.nom)), i });
             }
             return v;
         }
@@ -1182,22 +1233,22 @@ namespace
         void commutaFavorit (const EntradaPreset& e) override
         {
             const auto n = e.nom.toStdString();
-            biblioteca().commutaFavorit (e.usuari ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
-            desaBiblioteca();
+            biblioteca (esM()).commutaFavorit (e.usuari ? BibliotecaPresets::clauUsuari (n) : BibliotecaPresets::clauFabrica (n));
+            desaBiblioteca (esM());
             refresca();
         }
-        bool existeixMeu (const juce::String& nom) override { return biblioteca().busca (nom.toStdString()) != nullptr; }
+        bool existeixMeu (const juce::String& nom) override { return biblioteca (esM()).busca (nom.toStdString()) != nullptr; }
         void reanomena (const juce::String& vell, const juce::String& nou) override
         {
-            if (biblioteca().reanomena (vell.toStdString(), nou.toStdString()))
+            if (biblioteca (esM()).reanomena (vell.toStdString(), nou.toStdString()))
             {
-                desaBiblioteca();
+                desaBiblioteca (esM());
                 if (u8 (rk->nomPreset()) == vell) rk->posaNomPreset (nou.toStdString(), rk->presetModificat());
             }
             refresca();
         }
-        void mou (const juce::String& nom, const juce::String& carpeta) override { biblioteca().mou (nom.toStdString(), carpeta.toStdString()); desaBiblioteca(); }
-        void esborra (const juce::String& nom) override { biblioteca().esborra (nom.toStdString()); desaBiblioteca(); refresca(); }
+        void mou (const juce::String& nom, const juce::String& carpeta) override { biblioteca (esM()).mou (nom.toStdString(), carpeta.toStdString()); desaBiblioteca (esM()); }
+        void esborra (const juce::String& nom) override { biblioteca (esM()).esborra (nom.toStdString()); desaBiblioteca (esM()); refresca(); }
         void tancaNavegador() override
         {
             juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<PanellVocalStudio> (this)] { if (sp != nullptr) { sp->navegador.reset(); sp->grabKeyboardFocus(); } });
@@ -1232,6 +1283,8 @@ namespace
         juce::Rectangle<int> zonaMacros, zonaRack, zonaText, zonaVuIn, zonaVuOut;
         float vuIn = 0.0f, vuOut = 0.0f;
         unsigned versioVista = 0;
+        unsigned tic = 0;
+        std::unique_ptr<juce::Component> panellMaster;   // 0.94
         std::string vist;
         juce::TooltipWindow tips { this, 500 };
     };
@@ -1289,7 +1342,7 @@ namespace
             g.fillEllipse (r.getRight() - 11.0f, y, 5.0f, 5.0f);
         }
         // franja de color
-        g.setColour ((on ? turquesa : tema::suau).withAlpha (on ? 0.9f : 0.35f));
+        g.setColour ((on ? (rk->esMaster() ? juce::Colour (0xffffb84a) : turquesa) : tema::suau).withAlpha (on ? 0.9f : 0.35f));
         g.fillRect (r.getX() + 16.0f, r.getY() + 8.0f, 3.0f, r.getHeight() - 16.0f);
         auto z = zonaNom.toFloat();
         g.setColour (on ? tema::text : tema::suau);
@@ -1301,7 +1354,25 @@ namespace
         if (auto* t = busca (m->clau)) desc = u8 (t->descripcio);
         if (m->fx->latencia() > 0)   // 0.73: el retard de debò de cada mòdul (Limitador 5 ms, Harmonitzador i Octava uns 36 ms)
             desc = "Sempre al 100 % (retarda "_ca + juce::String (juce::roundToInt (1000.0 * m->fx->latencia() / 48000.0)) + " ms, Mibase ho compensa)."_ca;
+        // 0.94: avisos (en taronja) si el mòdul és en una zona perillosa
+        const auto avis = avisModul (*m, rk->esMaster());
+        if (avis.isNotEmpty()) { g.setColour (vintage::ledTaronja); desc = avis; }
         g.drawFittedText (desc, z.toNearestInt(), juce::Justification::topLeft, 1, 0.85f);
+        // 0.94: quant actua (reducció de guany o canvi de volum) amb una barreta
+        float quant = 0.0f;
+        const auto act = activitatModul (*m, quant);
+        if (act.isNotEmpty())
+        {
+            auto a = zonaAct.toFloat();
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f));
+            g.drawText (act, a.removeFromTop (a.getHeight() * 0.55f), juce::Justification::centredRight);
+            auto b = a.withSizeKeepingCentre (a.getWidth(), 5.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.5f));
+            g.fillRoundedRectangle (b, 2.0f);
+            g.setColour ((quant > 0.5f ? vintage::ledTaronja : (rk->esMaster() ? juce::Colour (0xffffb84a) : turquesa)).withAlpha (0.85f));
+            g.fillRoundedRectangle (b.withWidth (b.getWidth() * quant), 2.0f);
+        }
     }
 
     void FilaModul::resized()
@@ -1319,6 +1390,8 @@ namespace
         r.removeFromRight (10);
         pomMix->setBounds (r.removeFromRight (62).withTrimmedTop (-4).withTrimmedBottom (-4));
         r.removeFromRight (10);
+        zonaAct = r.removeFromRight (96).reduced (0, 10);   // 0.94
+        r.removeFromRight (8);
         zonaNom = r;
     }
 

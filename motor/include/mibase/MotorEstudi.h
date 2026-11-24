@@ -161,8 +161,15 @@ namespace mibase
 
     /** 0.91: una pista MIDI que segueix els acords però no té cap nota escrita (ni patró) toca sola l'acord de cada
         moment de la pista d'Acords, sostingut (de cap a fi de l'acord). Aquestes són aquestes notes (en segons). */
+    /** 0.94: per clips. Pista sense cap clip MIDI: els acords a tota la cançó. Amb clips, cada clip es val per ell
+        mateix: un clip MIDI buit (sense notes ni patrons) toca els acords del seu tros (retallats als seus límits i
+        tapats pels clips de sobre); un clip amb notes o patrons fa el seu; un clip silenciat, res; fora dels clips, res.
+        tocaAcordsSols: si en algun lloc de la pista sonen els acords sols. */
     bool tocaAcordsSols (const Pista& t);
     std::vector<Pla::Nota> notesAcordsSols (const Projecte& p, const Pista& t);
+    /** 0.94: per a «Info → Pista triada»: quants clips MIDI toquen els acords, quants tenen notes i quants patrons. */
+    struct ResumAcordsClips { int clips = 0, acords = 0, notes = 0, patrons = 0, muts = 0; };
+    ResumAcordsClips resumAcordsClips (const Pista& t);
 
     /** Un missatge MIDI en directe (del piano roll o del teclat) per a l'instrument d'una pista. */
     struct EventDirecte
