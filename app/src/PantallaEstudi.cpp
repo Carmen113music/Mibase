@@ -2,6 +2,7 @@
 #include <mibase/DeteccioAcords.h>
 #include <mibase/ContextMusical.h>
 #include <array>
+#include <set>
 #include "FinestraFlotant.h"
 #include "FinestraFont.h"
 #include "DialegExporta.h"
@@ -9,6 +10,7 @@
 #include "BancGM.h"
 #include "EscGlobal.h"
 #include "Inserts.h"
+#include "EditorEnLinia.h"
 #include "PanellsMaster.h"
 
 using namespace mibase;
@@ -266,29 +268,20 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     btClicMenu.setTooltip ("Volum i so de la claqueta"_ca);
     btClicMenu.onClick = [this] { menuClaqueta(); };
-    btTempo.setTooltip ("Canvia el tempo"_ca);
+    btTempo.setTooltip ("Clic: tempo i compàs. Doble clic: escriu el tempo. Arrossega amunt o avall per canviar-lo (amb Maj, de 0,1 en 0,1)."_ca);
+    btTempo.addMouseListener (this, false);   // 1.3: arrossegar i doble clic
     btTempo.onClick = [this]
     {
-        // 0.27: tempo i compàs
-        juce::PopupMenu m;
-        m.addItem (1, "Tempo… ("_ca + juce::String ((int) std::round (estat.projecte.tempo)) + " bpm)");
-        m.addSeparator();
-        m.addSectionHeader ("Compàs"_ca);
-        static const int compassos[][2] = { { 2, 4 }, { 3, 4 }, { 4, 4 }, { 5, 4 }, { 6, 8 }, { 7, 8 }, { 9, 8 }, { 12, 8 } };
-        for (int i = 0; i < 8; ++i)
-            m.addItem (10 + i, juce::String (compassos[i][0]) + "/" + juce::String (compassos[i][1]), true,
-                       estat.projecte.compasNum == compassos[i][0] && estat.projecte.compasDen == compassos[i][1]);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btTempo), [this] (int r)
+        // 1.3: s'espera un moment per si és un doble clic (llavors s'edita al lloc) o si s'ha arrossegat
+        if (tempoArrossegat) { tempoArrossegat = false; return; }
+        if (++clicsTempo > 1) return;
+        juce::Timer::callAfterDelay (260, [sp = juce::Component::SafePointer<PantallaEstudi> (this)]
         {
-            if (r == 1) { canviaTempo(); return; }
-            if (r < 10 || r > 17) return;
-            const int num = compassos[r - 10][0], den = compassos[r - 10][1];
-            if (num == estat.projecte.compasNum && den == estat.projecte.compasDen) return;
-            estat.desfes.abans (estat.projecte);
-            estat.projecte.compasNum = num;
-            estat.projecte.compasDen = den;
-            servei.motor().tempsPerCompasClic = num;
-            estat.canviat ("Compàs: "_ca + juce::String (num) + "/" + juce::String (den));
+            if (sp == nullptr) return;
+            const int n = sp->clicsTempo;
+            sp->clicsTempo = 0;
+            if (n >= 2) sp->editaTempoEnLinia();
+            else sp->menuTempo();
         });
     };
     snap.setTriat ((int) estat.projecte.snap);
@@ -312,7 +305,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         sec->onRoda = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { roda (e, w); };
     }
     mescles.onRoda = nullptr;
-    capcaleres.onCanviaNom = [this] (int i) { canviaNom (i); };
+    capcaleres.onCanviaNom = [this] (int i) { canviaNomEnLinia (i); };   // 1.3: al mateix lloc
     mescles.onCanviaNom = [this] (int i) { canviaNom (i); };
     mescles.onBusNou = [this] (bool fx, int pista, bool comSortida) { busNou (fx, pista, comSortida); };
     capcaleres.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
@@ -1872,6 +1865,7 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
     const double cua = 4.0;   // reverbs, delays i notes que s'apaguen
 
     juce::StringArray fets, errors;
+    std::vector<std::pair<juce::String, mibase::ComprovacioExport>> comprovacions;   // 1.3
     juce::MouseCursor::showWaitCursor();
     sincronitzaElastic (true);   // 0.86: els sons estirats, tots fets abans d'exportar
     for (auto& f : feines)
@@ -1895,7 +1889,9 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
                 [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
                 &mapaSo);
             tancaments::pas ("exportant " + f.nom + ": renderitzant");
-            fet = mibase::exportaPla (*pla, fs, tros.first, tros.second, r.bits, cua, dibuix::cami (f.fitxer), error, {}, ! variosFitxers);
+            mibase::ComprovacioExport comp;
+            fet = mibase::exportaPla (*pla, fs, tros.first, tros.second, r.bits, cua, dibuix::cami (f.fitxer), error, {}, ! variosFitxers, &comp);
+            if (fet) comprovacions.push_back ({ f.fitxer.getFileName(), comp });
             tancaments::pas ("exportant " + f.nom + ": tancant les còpies dels plugins");
         }
         tancaments::pas ("exportació acabada");
@@ -1920,7 +1916,39 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
              << (fets.size() == 1 ? juce::String (":\n") + (variosFitxers ? desti.getChildFile (fets[0]) : desti).getFullPathName()
                                   : juce::String (": ") + juce::String (fets.size()) + " fitxers a\n" + desti.getFullPathName());
     if (! errors.isEmpty()) text << (text.isEmpty() ? "" : "\n\n") << "No s'ha pogut exportar:\n" << errors.joinIntoString ("\n");
-    juce::AlertWindow::showMessageBoxAsync (errors.isEmpty() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
+    // 1.3: comprovació final de cada fitxer (silencis, fades, true peak, clips, loudness, dither) i del sample rate
+    bool hiHaAvisos = false;
+    if (! comprovacions.empty())
+    {
+        text << "\n\nCOMPROVACIÓ"_ca << " (" << juce::String (fs / 1000.0, 1).replaceCharacter ('.', ',') << " kHz, " << juce::String (r.bits) << " bits)";
+        std::set<double> altres;
+        for (const auto& t : estat.projecte.pistes)
+            for (const auto& c : t.clips)
+                if (auto a = audioPreses.find (c.presa); a != audioPreses.end() && a->second != nullptr && std::abs (a->second->fs - fs) > 1.0) altres.insert (a->second->fs);
+        if (! altres.empty())
+        {
+            juce::StringArray f;
+            for (double x : altres) f.add (juce::String (x / 1000.0, 1).replaceCharacter ('.', ',') + " kHz");
+            text << "\n- Alguns àudios eren a "_ca << f.joinIntoString (", ") << " i s'han convertit a " << juce::String (fs / 1000.0, 1).replaceCharacter ('.', ',') << " kHz.";
+            hiHaAvisos = true;
+        }
+        const bool unSol = comprovacions.size() == 1;
+        for (const auto& [nom, c] : comprovacions)
+        {
+            if (unSol)
+            {
+                for (const auto& a : c.avisos) { text << "\n- " << juce::String::fromUTF8 (a.c_str()); hiHaAvisos = true; }
+                for (const auto& b : c.be) text << "\n  OK: " << juce::String::fromUTF8 (b.c_str());
+                continue;
+            }
+            // diversos fitxers (stems): els silencis són normals (van alineats); només clips i true peak
+            if (c.clips > 0) { text << "\n- " << nom << ": " << juce::String (c.clips) << " mostres a 0 dBFS o més."_ca; hiHaAvisos = true; }
+            else if (c.truePeak > -0.1f) { text << "\n- " << nom << ": true peak de " << juce::String (c.truePeak, 1).replaceCharacter ('.', ',') << " dBTP."; hiHaAvisos = true; }
+        }
+        if (! unSol && ! hiHaAvisos) text << "\nTots els fitxers, bé (sense clips ni pics per sobre de 0 dBTP)."_ca;
+        if (! unSol) text << "\n" << (comprovacions.front().second.dither ? "Dither aplicat una sola vegada a cada fitxer (16 bits)."_ca : "Sense dither (24 bits)."_ca);
+    }
+    juce::AlertWindow::showMessageBoxAsync (errors.isEmpty() && ! hiHaAvisos ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
                                             "Exporta", text);
 }
 
@@ -1986,21 +2014,14 @@ std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool 
 
 namespace
 {
-    /** 1.2: «La», «Fa#», «Sib»… (amb l'ortografia de la tonalitat). */
-    juce::String nomSolfeig (int to, const mibase::Tonalitat& t)
-    {
-        const auto en = mibase::harmonia::nomTo (to, t);
-        static const std::pair<char, const char*> m[] = { { 'C', "Do" }, { 'D', "Re" }, { 'E', "Mi" }, { 'F', "Fa" }, { 'G', "Sol" }, { 'A', "La" }, { 'B', "Si" } };
-        juce::String s;
-        for (auto& [l, n] : m) if (! en.empty() && en[0] == l) s = n;
-        return s + juce::String::fromUTF8 (en.substr (1).c_str());
-    }
-    /** {gran, petit}: «La m» / «Mi M»; les altres escales, la nota a dalt i el nom de l'escala a sota. */
+    /** 1.3: notació anglesa, com la resta de Mibase: «A», «F#», «Bb»… (amb l'ortografia de la tonalitat). */
+    juce::String nomNota (int to, const mibase::Tonalitat& t) { return juce::String::fromUTF8 (mibase::harmonia::nomTo (to, t).c_str()); }
+    /** {gran, petit}: «Am» / «E» (com els acords); les altres escales, la nota a dalt i el nom de l'escala a sota. */
     std::pair<juce::String, juce::String> textCurt (const mibase::Tonalitat& t)
     {
-        const auto n = nomSolfeig (t.to, t);
-        if (t.escala == 0) return { n + " M", {} };
-        if (t.escala == 1) return { n + " m", {} };
+        const auto n = nomNota (t.to, t);
+        if (t.escala == 0) return { n, {} };
+        if (t.escala == 1) return { n + "m", {} };
         return { n, juce::String::fromUTF8 (mibase::harmonia::escales()[(size_t) juce::jlimit (0, (int) mibase::harmonia::escales().size() - 1, t.escala)].nom) };
     }
 }
@@ -2039,7 +2060,7 @@ void PantallaEstudi::menuTonalitat (juce::Rectangle<int> zona)
         juce::PopupMenu sub;
         for (int e = 2; e < (int) hm::escales().size(); ++e)
             sub.addItem (1000 + to * 100 + e, juce::String::fromUTF8 (hm::escales()[(size_t) e].nom), true, ! estat.projecte.tonalitatAuto && ara.to == to && ara.escala == e);
-        altres.addSubMenu (nomSolfeig (to, { to, 0 }), sub);
+        altres.addSubMenu (nomNota (to, { to, 0 }), sub);
     }
     m.addSubMenu ("Majors", maj);
     m.addSubMenu ("Menors", men);
@@ -2163,6 +2184,24 @@ void PantallaEstudi::busNou (bool fx, int pista, bool comSortida)
             estat.canviat ((fx ? "Retorn d'efectes nou: «"_ca : "Bus de grup nou: «"_ca) + t.trim() + "»"_ca);
         }, proposat);
     DialegText::mostra (*this, dialeg);
+}
+
+void PantallaEstudi::canviaNomEnLinia (int pista)
+{
+    // 1.3: el nom es torna editable al mateix lloc (Enter o clicar fora desa; Esc cancel·la)
+    if (estat.pista (pista) == nullptr || ! capcaleres.isShowing()) { canviaNom (pista); return; }
+    const auto zona = capcaleres.rectNom (pista);
+    if (! capcaleres.getLocalBounds().intersects (zona)) { canviaNom (pista); return; }
+    const auto id = estat.projecte.pistes[(size_t) pista].id;
+    const auto actual = dibuix::utf8 (estat.projecte.pistes[(size_t) pista].nom);
+    EditorEnLinia::obre (capcaleres, zona, actual, [this, id, actual] (const juce::String& t)
+    {
+        const int i = ed::pistaPerId (estat.projecte, id);
+        if (i < 0 || t.trim().isEmpty() || t.trim() == actual) return;
+        estat.desfes.abans (estat.projecte);
+        estat.projecte.pistes[(size_t) i].nom = t.trim().toStdString();
+        estat.canviat ("Pista «"_ca + actual + "» ara es diu «"_ca + t.trim() + "»"_ca);
+    });
 }
 
 void PantallaEstudi::canviaNom (int pista)
@@ -4331,4 +4370,86 @@ void PantallaEstudi::obreFont()
         [jo] { if (jo != nullptr && jo->estat.transport != 0) jo->atura(); },
         [jo] { if (jo != nullptr) { jo->finestraFont.reset(); jo->btFont.setToggleState (false, juce::dontSendNotification); } });
     btFont.setToggleState (true, juce::dontSendNotification);
+}
+
+void PantallaEstudi::editaTempoEnLinia()
+{
+    EditorEnLinia::obre (*this, getLocalArea (btTempo.getParentComponent(), btTempo.getBounds()), juce::String (estat.projecte.tempo, 1).replaceCharacter ('.', ','),
+        [this] (const juce::String& t)
+        {
+            const double bpm = t.trim().replaceCharacter (',', '.').getDoubleValue();
+            if (bpm < 30.0 || bpm > 300.0 || std::abs (bpm - estat.projecte.tempo) < 0.001) return;
+            estat.desfes.abans (estat.projecte);
+            const double abans = estat.projecte.tempo;
+            midi::canviaTempo (estat.projecte, bpm);
+            servei.motor().tempoClic = bpm;
+            estat.canviat ("Tempo de "_ca + juce::String (abans, 1) + " a " + juce::String (bpm, 1) + " bpm");
+        },
+        [] (const juce::String& t) -> juce::String
+        {
+            const auto v = t.trim().replaceCharacter (',', '.');
+            if (v.isEmpty() || ! v.containsOnly ("0123456789.")) return "Escriu només el número."_ca;
+            const double bpm = v.getDoubleValue();
+            return (bpm < 30.0 || bpm > 300.0) ? juce::String ("Ha de ser entre 30 i 300.") : juce::String();
+        }, 13.0f);
+}
+
+void PantallaEstudi::mouseDrag (const juce::MouseEvent& e)
+{
+    if (e.eventComponent != &btTempo) return;
+    const int dy = e.getDistanceFromDragStartY();
+    if (! arrossegantTempo)
+    {
+        if (std::abs (dy) < 4) return;
+        arrossegantTempo = true;
+        tempoInicial = estat.projecte.tempo;
+        projecteAbansTempo = estat.projecte;
+        estat.desfes.abans (estat.projecte);
+        tempoArrossegat = true;   // el clic que arriba en deixar anar no obre el menú
+    }
+    const bool fi = e.mods.isShiftDown();
+    double bpm = tempoInicial - (double) dy * (fi ? 0.05 : 0.5);
+    bpm = juce::jlimit (30.0, 300.0, fi ? std::round (bpm * 10.0) / 10.0 : std::round (bpm));
+    if (std::abs (bpm - estat.projecte.tempo) < 0.001) return;
+    estat.projecte = projecteAbansTempo;
+    midi::canviaTempo (estat.projecte, bpm);
+    servei.motor().tempoClic = bpm;
+    estat.avisa();
+}
+
+void PantallaEstudi::mouseUp (const juce::MouseEvent& e)
+{
+    if (e.eventComponent != &btTempo || ! arrossegantTempo) return;
+    arrossegantTempo = false;
+    tempoArrossegat = true;   // que el clic no obri el menú
+    juce::Timer::callAfterDelay (400, [sp = juce::Component::SafePointer<PantallaEstudi> (this)] { if (sp != nullptr) sp->tempoArrossegat = false; });
+    if (std::abs (estat.projecte.tempo - tempoInicial) < 0.001) return;
+    estat.canviat ("Tempo de "_ca + juce::String (tempoInicial, 1) + " a " + juce::String (estat.projecte.tempo, 1) + " bpm (arrossegant)");
+}
+
+void PantallaEstudi::menuTempo()
+{
+    {
+        // 0.27: tempo i compàs
+        juce::PopupMenu m;
+        m.addItem (1, "Tempo… ("_ca + juce::String ((int) std::round (estat.projecte.tempo)) + " bpm)");
+        m.addSeparator();
+        m.addSectionHeader ("Compàs"_ca);
+        static const int compassos[][2] = { { 2, 4 }, { 3, 4 }, { 4, 4 }, { 5, 4 }, { 6, 8 }, { 7, 8 }, { 9, 8 }, { 12, 8 } };
+        for (int i = 0; i < 8; ++i)
+            m.addItem (10 + i, juce::String (compassos[i][0]) + "/" + juce::String (compassos[i][1]), true,
+                       estat.projecte.compasNum == compassos[i][0] && estat.projecte.compasDen == compassos[i][1]);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btTempo), [this] (int r)
+        {
+            if (r == 1) { canviaTempo(); return; }
+            if (r < 10 || r > 17) return;
+            const int num = compassos[r - 10][0], den = compassos[r - 10][1];
+            if (num == estat.projecte.compasNum && den == estat.projecte.compasDen) return;
+            estat.desfes.abans (estat.projecte);
+            estat.projecte.compasNum = num;
+            estat.projecte.compasDen = den;
+            servei.motor().tempsPerCompasClic = num;
+            estat.canviat ("Compàs: "_ca + juce::String (num) + "/" + juce::String (den));
+        });
+    }
 }

@@ -176,6 +176,16 @@ private:
     juce::File sampleEscoltat;               // 0.40: el sample de la biblioteca que s'està escoltant
     juce::uint32 sampleEscoltatFins = 0;     // fins quan sona (ms del comptador)
     void canviaTempo();
+    // 1.3: tempo i nom de pista editables al mateix lloc
+    void canviaNomEnLinia (int pista);
+    void editaTempoEnLinia();
+    void menuTempo();
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    int clicsTempo = 0;
+    bool arrossegantTempo = false, tempoArrossegat = false;
+    double tempoInicial = 120.0;
+    mibase::Projecte projecteAbansTempo;
     void demanaImportar (int pista, double on);
     void importa (const juce::StringArray& fitxers, int pista, double on);
     bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);

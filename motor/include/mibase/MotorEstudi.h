@@ -472,8 +472,22 @@ namespace mibase
     /** 0.83: com exportaMescla, amb opcions. Si el pla té estructura (pla.ruta), en segueix els trams per ordre (desDe i
         finsA no compten); si no, de desDe a finsA. «cua»: segons de més al final perquè s'apaguin reverbs i notes (el
         silenci del final es treu, però mai abans de finsA o del final de l'estructura). bits: 16 (amb dither) o 24. */
+    /** 1.3: el que es comprova d'un fitxer exportat (abans d'escriure'l): silencis, inici i final de cop, pics, clips, loudness
+        i el dither. `avisos`: el que convé mirar, en frases curtes; `bé`: el que està bé. */
+    struct ComprovacioExport
+    {
+        double segons = 0.0, silenciInici = 0.0, silenciFinal = 0.0;
+        bool deCopInici = false, deCopFinal = false;
+        float truePeak = -100.0f, samplePeak = -100.0f, integrated = -100.0f, lra = 0.0f;
+        int clips = 0, bits = 24;
+        bool dither = false;
+        std::vector<std::string> avisos, be;
+    };
+    ComprovacioExport comprovaExport (const float* intercalat, long long frames, double fs, int bits);
+
     bool exportaPla (const Pla& pla, double fs, double desDe, double finsA, int bits, double cua, const std::filesystem::path& desti,
-                     std::string& error, const std::function<void (double)>& progres = {}, bool retallaCua = true);
+                     std::string& error, const std::function<void (double)>& progres = {}, bool retallaCua = true,
+                     ComprovacioExport* comprovacio = nullptr);
     /** 1.00: com exportaPla, però a memòria i sense cua: torna l'estèreo (L i R separats) per analitzar-lo. */
     void renderitzaPla (const Pla& pla, double fs, double desDe, double finsA, std::vector<float>& L, std::vector<float>& R,
                         const std::function<void (double)>& progres = {});

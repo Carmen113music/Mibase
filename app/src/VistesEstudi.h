@@ -249,6 +249,8 @@ private:
 class Capcaleres : public SeccioEstudi
 {
 public:
+    /** 1.3: on és el nom d'una pista (per editar-lo al mateix lloc). */
+    juce::Rectangle<int> rectNom (int fila) const { return { 10, estat.yPista (fila) + 4, juce::jmax (80, getWidth() - 40), 24 }; }
     using SeccioEstudi::SeccioEstudi;
     std::function<void (int pista)> onCanviaNom;
     std::function<void (const juce::String& tipus, int canals)> onPistaNova;

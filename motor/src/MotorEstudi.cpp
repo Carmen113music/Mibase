@@ -1,4 +1,5 @@
 #include "mibase/MotorEstudi.h"
+#include "mibase/Loudness.h"
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
 #include "mibase/Elastic.h"
@@ -1638,8 +1639,51 @@ namespace mibase
         return d;
     }
 
+    ComprovacioExport comprovaExport (const float* x, long long frames, double fs, int bits)
+    {
+        ComprovacioExport c;
+        c.bits = bits;
+        c.dither = bits == 16;
+        if (x == nullptr || frames <= 0 || fs <= 0.0) return c;
+        c.segons = (double) frames / fs;
+        auto nom = [] (double v, int d = 1) { char b[32]; std::snprintf (b, sizeof b, "%.*f", d, v); std::string s (b); for (auto& ch : s) if (ch == '.') ch = ','; return s; };
+        // silencis (per sota de -60 dBFS)
+        const float llindar = 0.001f;
+        long long a = 0, b = frames - 1;
+        while (a < frames && std::abs (x[2 * a]) < llindar && std::abs (x[2 * a + 1]) < llindar) ++a;
+        while (b > a && std::abs (x[2 * b]) < llindar && std::abs (x[2 * b + 1]) < llindar) --b;
+        c.silenciInici = (double) a / fs;
+        c.silenciFinal = (double) (frames - 1 - b) / fs;
+        // de cop: el so comença o s'acaba ja fort (els primers o els últims 5 ms passen de -30 dBFS)
+        const long long w = std::max<long long> (1, (long long) (0.005 * fs));
+        float pi = 0.0f, pf = 0.0f;
+        for (long long i = 0; i < std::min (w, frames); ++i) pi = std::max (pi, std::max (std::abs (x[2 * i]), std::abs (x[2 * i + 1])));
+        for (long long i = std::max (0LL, frames - w); i < frames; ++i) pf = std::max (pf, std::max (std::abs (x[2 * i]), std::abs (x[2 * i + 1])));
+        c.deCopInici = pi > 0.0316f;
+        c.deCopFinal = pf > 0.01f;
+        // loudness, pics i clips
+        std::vector<float> L ((size_t) frames), R ((size_t) frames);
+        for (long long i = 0; i < frames; ++i) { L[(size_t) i] = x[2 * i]; R[(size_t) i] = x[2 * i + 1]; }
+        const auto r = loudness::analitza (L.data(), R.data(), (size_t) frames, fs);
+        c.truePeak = r.truePeakMax; c.samplePeak = r.samplePeakMax; c.integrated = r.integrated; c.lra = r.lra; c.clips = r.clips;
+        // frases
+        if (c.silenciInici > 2.0) c.avisos.push_back ("Comença amb " + nom (c.silenciInici) + " s de silenci: potser cal retallar-lo.");
+        else c.be.push_back ("Inici: " + nom (c.silenciInici, 2) + " s de silenci.");
+        if (c.deCopInici && c.silenciInici < 0.001) c.avisos.push_back ("Comença de cop (el so ja és fort al primer instant): si no és volgut, posa-hi un fade d'entrada curt.");
+        if (c.silenciFinal > 3.0) c.avisos.push_back ("S'acaba amb " + nom (c.silenciFinal) + " s de silenci.");
+        if (c.deCopFinal) c.avisos.push_back ("S'acaba de cop (encara sona a l'últim instant): posa-hi un fade de sortida o deixa més cua.");
+        else c.be.push_back ("Final net (s'apaga sol).");
+        if (c.clips > 0) c.avisos.push_back ("Hi ha " + std::to_string (c.clips) + " mostres a 0 dBFS o més: es retallaran al fitxer. Baixa el sostre del limitador.");
+        if (c.truePeak > -0.1f) c.avisos.push_back ("True peak de " + nom (c.truePeak) + " dBTP: pot distorsionar en passar a MP3/AAC. Millor -1 dBTP.");
+        else if (c.truePeak > -1.0f) c.avisos.push_back ("True peak de " + nom (c.truePeak) + " dBTP: per a plataformes de streaming, millor -1 dBTP o menys (per a CD, d'acord).");
+        else c.be.push_back ("True peak " + nom (c.truePeak) + " dBTP.");
+        if (c.integrated > -70.0f) c.be.push_back ("Loudness " + nom (c.integrated) + " LUFS, LRA " + nom (c.lra) + " LU.");
+        c.be.push_back (c.dither ? "Dither triangular aplicat una sola vegada, al final (16 bits)." : "Sense dither: a " + std::to_string (bits) + " bits no cal.");
+        return c;
+    }
+
     bool exportaPla (const Pla& pla, double fs, double desDe, double finsA, int bits, double cua, const std::filesystem::path& desti,
-                     std::string& error, const std::function<void (double)>& progres, bool retallaCua)
+                     std::string& error, const std::function<void (double)>& progres, bool retallaCua, ComprovacioExport* comprovacio)
     {
         struct Tros { long long ini, fi; std::bitset<128> silenci; };
         std::vector<Tros> trossos;
@@ -1689,6 +1733,7 @@ namespace mibase
         m.setNomesCua (false);
         while (retallaCua && frames > minim && std::abs (tot[(size_t) (2 * frames - 1)]) < 3.0e-5f && std::abs (tot[(size_t) (2 * frames - 2)]) < 3.0e-5f) --frames;
         if (retallaCua) frames = std::min ((long long) (tot.size() / 2), frames + (long long) (0.05 * fs));
+        if (comprovacio != nullptr) *comprovacio = comprovaExport (tot.data(), frames, fs, bits);   // 1.3: abans del dither
         if (bits == 16)
         {
             // Dither triangular (TPDF) d'1 LSB: sense distorsió als finals que s'apaguen
