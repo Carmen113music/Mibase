@@ -143,6 +143,7 @@ namespace mibase::diagnosi
             return inf;
         }
         const auto c = mix.corba();
+        auto referencia = [&ctx] (int b) { return ctx.ambReferencia ? ctx.corbaRef[(size_t) b] : diagnosi::referencia (b); };   // 1.01
         auto desv = [&] (const Zona& z) { float s = 0; for (int b = z.a; b <= z.b; ++b) s += c[(size_t) b] - referencia (b); return s / (float) (z.b - z.a + 1); };
         auto pic = [&] (const Zona& z, bool maxim)
         {
@@ -485,7 +486,8 @@ namespace mibase::diagnosi
         if (mix.segons >= 60.0) { inf.confianca = Confianca::Alta; inf.confiancaPerque = "S'ha escoltat tota la cançó (" + std::to_string ((int) mix.segons) + " s)."; }
         else if (mix.segons >= 20.0) { inf.confianca = Confianca::Mitjana; inf.confiancaPerque = "Només " + std::to_string ((int) mix.segons) + " s de música."; }
         else { inf.confianca = Confianca::Baixa; inf.confiancaPerque = "Molt poca música (" + std::to_string ((int) mix.segons) + " s)."; }
-        inf.confiancaPerque += " El to es compara amb una corba de referència orientativa (pop/rock d'avui): és un punt de partida, no una norma.";
+        if (ctx.ambReferencia) inf.confiancaPerque += " El to es compara amb la teva referència, «" + ctx.nomRef + "» (al mateix volum).";
+        else inf.confiancaPerque += " El to es compara amb una corba de referència orientativa (pop/rock d'avui): és un punt de partida, no una norma.";
         if (inf.pistesAnalitzades == 0) inf.confiancaPerque += " Sense les pistes, no pot dir d'on ve cada problema.";
 
         // què faria un enginyer de màster
@@ -545,6 +547,52 @@ namespace mibase::diagnosi
             if (i < 0) i = r.afegeix ("eqm", 0);
             return i >= 0 ? dynamic_cast<eq::Equalitzador*> (r.modul (i)->fx.get()) : nullptr;
         }
+    }
+
+    float freqOctava (int o)
+    {
+        static const float f[numOctaves] = { 40, 80, 160, 315, 630, 1250, 2500, 5000, 12500 };
+        return f[std::clamp (o, 0, numOctaves - 1)];
+    }
+
+    std::array<float, numOctaves> diferencia (const Analisi& master, const Analisi& ref)
+    {
+        std::array<float, numOctaves> d {};
+        if (! master.valid || ! ref.valid) return d;
+        const auto cm = master.corba(), cr = ref.corba();
+        for (int o = 0; o < numOctaves; ++o)
+        {
+            const int b0 = 3 * o, b1 = o == numOctaves - 1 ? numBandes - 1 : 3 * o + 2;
+            float s = 0;
+            for (int b = b0; b <= b1; ++b) s += cr[(size_t) b] - cm[(size_t) b];
+            d[(size_t) o] = s / (float) (b1 - b0 + 1);
+        }
+        return d;
+    }
+
+    void aplicaMatching (rack::Rack& r, const Analisi& master, const Analisi& ref, float quantitat)
+    {
+        int i = troba (r, "eqmatch");
+        if (quantitat <= 0.0f) { if (i >= 0) { r.treu (i); r.marcaModificat(); } return; }
+        const auto d = diferencia (master, ref);
+        std::array<float, numOctaves> abans {};
+        if (i < 0)
+        {
+            const int e = troba (r, "eqm");
+            i = r.afegeix ("eqmatch", e >= 0 ? e + 1 : 0);
+        }
+        auto* q = i >= 0 ? dynamic_cast<eq::Equalitzador*> (r.modul (i)->fx.get()) : nullptr;
+        if (q == nullptr) return;
+        for (int o = 0; o < numOctaves; ++o) { const auto b = q->banda (o); if (b.usada && b.tipus == eq::Bell) abans[(size_t) o] = b.guany; }
+        for (int o = 0; o < numOctaves; ++o)
+        {
+            eq::Banda b;
+            b.usada = true; b.tipus = eq::Bell; b.freq = freqOctava (o); b.q = 1.4f;
+            b.guany = clampf (quantitat * (d[(size_t) o] + abans[(size_t) o]), -6.0f, 6.0f);
+            q->posaBanda (o, b);
+        }
+        r.posaOn (i, true);
+        r.marcaModificat();
     }
 
     bool aplica (rack::Rack& r, const Accio& a)

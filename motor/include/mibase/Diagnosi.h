@@ -65,7 +65,15 @@ namespace mibase::diagnosi
         float gravetat = 0.0f;             // per ordenar
     };
 
-    struct Context { float lufsObjectiu = 0.0f, truePeakObjectiu = -1.0f; std::string perfil; };
+    struct Context
+    {
+        float lufsObjectiu = 0.0f, truePeakObjectiu = -1.0f;
+        std::string perfil;
+        /** 1.01: si hi ha una referència, el to es compara amb la seva corba (i no amb la de referència orientativa). */
+        bool ambReferencia = false;
+        std::array<float, numBandes> corbaRef {};
+        std::string nomRef;
+    };
 
     struct Informe
     {
@@ -79,6 +87,17 @@ namespace mibase::diagnosi
     };
 
     Informe diagnostica (const Analisi& mix, const Analisi* master, const std::vector<std::pair<std::string, Analisi>>& pistes, const Context& ctx);
+
+    // ---- 1.01: comparació amb la referència i matching ----
+    /** Les 9 octaves del matching (centres: 40, 80, 160, 315, 630, 1250, 2500, 5000 i 12500 Hz). */
+    constexpr int numOctaves = 9;
+    float freqOctava (int o);
+    /** Referència − màster, per octaves (dB, amb les corbes relatives a 500 Hz–2 kHz). Positiu: a la referència n'hi ha més. */
+    std::array<float, numOctaves> diferencia (const Analisi& master, const Analisi& ref);
+    /** Posa (o actualitza) el mòdul «EQ matching» (clau «eqmatch», un EQ Pro de 9 campanes d'una octava) perquè el màster
+        s'acosti a la referència: quantitat 0–1, cada banda limitada a ±6 dB. Si el mòdul ja hi era, compta el que ja feia
+        (el màster analitzat ja el porta), de manera que tornar-lo a aplicar no el duplica. Quantitat 0: el treu. */
+    void aplicaMatching (rack::Rack& r, const Analisi& master, const Analisi& ref, float quantitat);
 
     /** Aplica l'acció d'una troballa al Mastering Studio. Torna fals si no hi ha res a fer. */
     bool aplica (rack::Rack& r, const Accio& a);

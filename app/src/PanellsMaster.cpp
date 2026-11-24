@@ -1,4 +1,5 @@
 #include "PanellsMaster.h"
+#include "PanellReferencies.h"
 
 #include "Controls.h"
 #include "Dibuix.h"
@@ -356,7 +357,17 @@ namespace
     public:
         explicit PanellMaster (std::shared_ptr<rack::Rack> r) : rk (std::move (r))
         {
-            for (auto* b : { &btOriginal, &btProcessat, &btIgualat }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }
+            for (auto* b : { &btOriginal, &btProcessat, &btRef, &btIgualat, &btReferencies }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }
+            btRef.setTooltip ("Escolta la cançó de referència (al mateix volum que el màster, si a Referències hi ha «Volum igualat»)."_ca);   // 1.01
+            btReferencies.setTooltip ("Tria cançons de referència, compara-les amb el màster i acosta-hi el to (EQ matching)."_ca);
+            btRef.onClick = [this] { if (rk->referencia() != nullptr) rk->posaEscolta (mibase::rack::EscoltaReferencia); refresca(); };
+            btReferencies.onClick = [this]
+            {
+                if (finestraRef != nullptr) { finestraRef->toFront (true); return; }
+                finestraRef = creaFinestraReferencies (rk, [sp = juce::Component::SafePointer<PanellMaster> (this)] { if (sp != nullptr) { sp->finestraRef.reset(); sp->refresca(); } });
+            };
+            if (rk->referencia() == nullptr && rk->refActiva >= 0)
+                juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<PanellMaster> (this)] { if (sp != nullptr && carregaReferenciaActiva (*sp->rk)) sp->refresca(); });
             btOriginal.setTooltip ("Escolta el mix tal com entra (sense el Mastering Studio). Tecla ràpida: clica i torna."_ca);
             btProcessat.setTooltip ("Escolta el màster (amb tota la cadena)."_ca);
             btIgualat.setTooltip ("Iguala el volum entre l'original i el màster per comparar només el so: més fort no vol dir millor. Les mesures sempre són les del màster de debò."_ca);
@@ -408,8 +419,10 @@ namespace
 
         void refresca()
         {
-            btOriginal.setToggleState (rk->original(), juce::dontSendNotification);
-            btProcessat.setToggleState (! rk->original(), juce::dontSendNotification);
+            btOriginal.setToggleState (rk->escolta() == mibase::rack::EscoltaOriginal, juce::dontSendNotification);
+            btProcessat.setToggleState (rk->escolta() == mibase::rack::EscoltaMaster, juce::dontSendNotification);
+            btRef.setToggleState (rk->escolta() == mibase::rack::EscoltaReferencia, juce::dontSendNotification);   // 1.01
+            btRef.setEnabled (rk->referencia() != nullptr);
             btIgualat.setToggleState (rk->igualat(), juce::dontSendNotification);
             cbObjectiu.setSelectedId (rk->objectiu() + 1, juce::dontSendNotification);
             const auto& o = lo::objectius()[(size_t) juce::jlimit (0, (int) lo::objectius().size() - 1, rk->objectiu())];
@@ -433,7 +446,9 @@ namespace
             g.setFont (dibuix::lletra (11.0f));
             const float c = rk->compensacioDb();
             juce::String tc;
-            if (! rk->igualat()) tc = "Igualat apagat: encén-lo per comparar només el so."_ca;
+            if (rk->escolta() == mibase::rack::EscoltaReferencia && rk->referencia() != nullptr)   // 1.01
+                tc = "Referència: "_ca + juce::String::fromUTF8 (rk->referencia()->nom.c_str()) + (rk->igualaReferencia() ? " (" + signe (rk->guanyRefDb()) + " dB)" : juce::String());
+            else if (! rk->igualat()) tc = "Igualat apagat: encén-lo per comparar només el so."_ca;
             else if (std::abs (c) < 0.1f) tc = "Igualat (encara mesurant…)"_ca;
             else tc = (c < 0 ? "Màster abaixat "_ca : "Original abaixat "_ca) + num (std::abs (c)) + " dB per comparar"_ca;
             g.setColour (rk->igualat() ? tema::textMig : tema::suau);
@@ -496,13 +511,17 @@ namespace
         void resized() override
         {
             auto r = getLocalBounds().reduced (12, 10);
-            zonaTitolAB = r.removeFromTop (16);
+            zonaTitolAB = r.removeFromTop (22);
+            btReferencies.setBounds (zonaTitolAB.removeFromRight (120));   // 1.01
+            r.removeFromTop (4);
             {
                 auto b = r.removeFromTop (30);
-                const int a = (b.getWidth() - 8) / 3;
+                const int a = (b.getWidth() - 12) / 4;
                 btOriginal.setBounds (b.removeFromLeft (a));
                 b.removeFromLeft (4);
                 btProcessat.setBounds (b.removeFromLeft (a));
+                b.removeFromLeft (4);
+                btRef.setBounds (b.removeFromLeft (a));
                 b.removeFromLeft (4);
                 btIgualat.setBounds (b);
             }
@@ -602,7 +621,8 @@ namespace
             if (const auto* in = rk->loudnessEntrada()) hIn.afegeix (in->shortTerm.load());
             if (const auto* out = rk->loudnessSortida()) hOut.afegeix (out->shortTerm.load());
             if (const auto* out = rk->loudnessSortida(); out != nullptr && out->segons.load() < 0.2) { hIn.buida(); hOut.buida(); }
-            if (btOriginal.getToggleState() != rk->original() || btIgualat.getToggleState() != rk->igualat() || cbObjectiu.getSelectedId() != rk->objectiu() + 1) refresca();
+            if (btRef.getToggleState() != (rk->escolta() == mibase::rack::EscoltaReferencia) || btRef.isEnabled() != (rk->referencia() != nullptr) ||
+                btOriginal.getToggleState() != rk->original() || btIgualat.getToggleState() != rk->igualat() || cbObjectiu.getSelectedId() != rk->objectiu() + 1) refresca();
             repaint();
         }
 
@@ -613,15 +633,15 @@ namespace
         Boto btReinicia { "Reinicia les mesures"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btAjusta { "Ajusta al perfil"_ca, std::nullopt, Boto::Estil::Primari };   // 0.95
         Boto btAnalitza { "ANALITZA", std::nullopt, Boto::Estil::Primari };   // 1.00
+        Boto btRef { "Ref.", std::nullopt, Boto::Estil::Tecla };   // 1.01
+        Boto btReferencies { "Referències…"_ca, std::nullopt, Boto::Estil::Secundari };
+        std::unique_ptr<juce::DocumentWindow> finestraRef;
         Boto btAmbPistes { "i les pistes", std::nullopt, Boto::Estil::Tecla };
         std::unique_ptr<juce::DocumentWindow> finestraInforme;
         void analitza()
         {
             if (! analitzador()) { avisAssistent = "L'anàlisi només funciona quan el Mastering Studio és en un projecte obert."_ca; repaint(); return; }
-            mibase::diagnosi::Context ctx;
-            ctx.lufsObjectiu = rk->lufsObjectiu();
-            ctx.truePeakObjectiu = rk->truePeakObjectiu();
-            ctx.perfil = lo::objectius()[(size_t) juce::jlimit (0, (int) lo::objectius().size() - 1, rk->objectiu())].nom;
+            const auto ctx = contextDe (*rk);   // 1.01: amb la referència, si n'hi ha
             btAnalitza.setButtonText ("Analitzant…"_ca);
             btAnalitza.setEnabled (false);
             // un instant perquè el botó es pinti abans que la feina (que bloqueja) comenci
@@ -1112,6 +1132,24 @@ juce::Component* creaPanellLowEnd (std::shared_ptr<mibase::EfecteIntern> e)
 }
 
 void posaAnalitzadorMaster (AnalitzadorMaster a) { analitzador() = std::move (a); }
+std::shared_ptr<mibase::diagnosi::Informe> analitzaAra (bool ambPistes, const mibase::diagnosi::Context& ctx)
+{
+    return analitzador() ? analitzador() (ambPistes, ctx) : nullptr;
+}
+mibase::diagnosi::Context contextDe (const mibase::rack::Rack& r)
+{
+    mibase::diagnosi::Context ctx;
+    ctx.lufsObjectiu = r.lufsObjectiu();
+    ctx.truePeakObjectiu = r.truePeakObjectiu();
+    ctx.perfil = lo::objectius()[(size_t) juce::jlimit (0, (int) lo::objectius().size() - 1, r.objectiu())].nom;
+    if (auto ref = r.referencia(); ref != nullptr && ref->analisi.valid)   // 1.01
+    {
+        ctx.ambReferencia = true;
+        ctx.corbaRef = ref->analisi.corba();
+        ctx.nomRef = ref->nom;
+    }
+    return ctx;
+}
 
 juce::Component* creaPanellMaster (std::shared_ptr<mibase::rack::Rack> r) { return new PanellMaster (std::move (r)); }
 juce::Component* creaPanellEstereo (std::shared_ptr<mibase::estereo::Estereo> e) { return new PanellEstereo (std::move (e)); }

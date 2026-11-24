@@ -51,6 +51,7 @@ namespace mibase::rack
         // 0.94: els mòduls del Mastering Studio (mateixos efectes, amb un punt de partida de màster)
         static const std::vector<TipusModul> m {
             { "eqm", eq::idPlugin, "EQ de màster", "Correcció i to: greus, fang, presència i aire, amb Mid/Side i bandes dinàmiques." },
+            { "eqmatch", eq::idPlugin, "EQ matching", "Acosta el to a la cançó de referència (el fa la finestra de Referències; es pot retocar) (1.01)." },
             { "glue", dinamica::idPlugin, "Compressor de màster", "Cohesió (glue): 1–3 dB de reducció, atac lent perquè passi el cop." },
             { "multibanda", multibanda::idPlugin, "Multibanda", "Comprimeix 2, 3 o 4 bandes per separat: greus que s'escapen, mitjos tapats, aguts que punxen (0.99)." },
             { "deessm", dinamica::idPlugin, "De-esser de màster", "Calma les S i els plats que punxen al mix sencer (6–9 kHz)." },
@@ -136,6 +137,7 @@ namespace mibase::rack
             return s;
         }
         if (clau == "estereo") return std::make_shared<estereo::Estereo>();
+        if (clau == "eqmatch") return std::make_shared<eq::Equalitzador>();   // 1.01: sense bandes (les posa el matching)
         if (clau == "multibanda") return std::make_shared<multibanda::Multibanda>();   // 0.99
         if (clau == "lowend") { auto g = std::make_shared<lowend::LowEnd>(); g->posa (lowend::Mono, 120); return g; }
         if (clau == "transitoris") { auto t = std::make_shared<transitoris::Transitoris>(); t->posa (transitoris::Atac, 20); return t; }   // 0.96
@@ -253,7 +255,11 @@ namespace mibase::rack
             secL.assign ((size_t) maxBloc, 0.0f);
             secR.assign ((size_t) maxBloc, 0.0f);
             gProc = gSec = 1.0f;
-            fosa = escoltaOriginal.load() ? 1.0f : 0.0f;
+            fosa = escoltaMode.load() == EscoltaOriginal ? 1.0f : 0.0f;
+            refL.assign ((size_t) maxBloc, 0.0f);   // 1.01
+            refR.assign ((size_t) maxBloc, 0.0f);
+            const int e = escoltaMode.load();
+            wP = e == EscoltaMaster ? 1.0f : 0.0f; wO = e == EscoltaOriginal ? 1.0f : 0.0f; wR = e == EscoltaReferencia ? 1.0f : 0.0f;
         }
     }
 
@@ -482,22 +488,71 @@ namespace mibase::rack
             }
         }
         else compDb.store (0.0f, std::memory_order_relaxed);
-        const float tFosa = escoltaOriginal.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
+        // 1.01: la referència (si n'hi ha): sona només mentre entra música (si no, s'hauria de sentir amb el transport aturat)
+        const auto* ref = refAudio.load (std::memory_order_acquire);
+        float pic = 0.0f;
+        for (int i = 0; i < n; ++i) pic = std::max (pic, std::max (std::abs (secL[(size_t) i]), std::abs (secR[(size_t) i])));
+        senseSenyal = pic > 1.0e-4f ? 0 : senseSenyal + n;
+        const bool sona = senseSenyal < (long long) (1.5 * fs);
+        if (ref != nullptr && demanaRefInici.exchange (false)) posRef = std::min ((double) refInici.load() * ref->fs, (double) ref->L.size());
+        float tRef = 1.0f;
+        if (ref != nullptr && ! ref->L.empty())
+        {
+            const double pas = ref->fs / fs, mida = (double) ref->L.size();
+            const double inici = std::min ((double) refInici.load() * ref->fs, mida - 1.0);
+            for (int i = 0; i < n; ++i)
+            {
+                if (! sona) { refL[(size_t) i] = refR[(size_t) i] = 0.0f; continue; }
+                if (posRef >= mida - 1.0) posRef = inici;
+                const size_t k = (size_t) posRef;
+                const float t = (float) (posRef - (double) k);
+                refL[(size_t) i] = ref->L[k] + (ref->L[k + 1] - ref->L[k]) * t;
+                refR[(size_t) i] = ref->R[k] + (ref->R[k + 1] - ref->R[k]) * t;
+                posRef += pas;
+            }
+            posRefSeg.store ((float) (posRef / ref->fs), std::memory_order_relaxed);
+            if (igualaRef.load (std::memory_order_relaxed))
+            {
+                const auto& mo = lOut->mesures();
+                const float objectiu = mo.segons.load() >= 10.0 && mo.integrated.load() > -60.0f ? mo.integrated.load() : mo.shortTerm.load();
+                if (objectiu > -60.0f && ref->analisi.loud.integrated > -70.0f)
+                    tRef = dbALin (std::clamp (objectiu - ref->analisi.loud.integrated, -24.0f, 24.0f));
+            }
+        }
+        else std::fill (refL.begin(), refL.begin() + n, 0.0f), std::fill (refR.begin(), refR.begin() + n, 0.0f);
+        gRefDb.store (20.0f * std::log10 (std::max (gRef, 1.0e-6f)), std::memory_order_relaxed);
+
+        const int mode = escoltaMode.load (std::memory_order_relaxed);
         const float kG = 1.0f - std::exp (-(float) n / (0.4f * (float) fs));
         const float kF = 1.0f - std::exp (-(float) n / (0.02f * (float) fs));
-        const float p0 = gProc, s0 = gSec, f0 = fosa;
+        const float p0 = gProc, s0 = gSec, r0 = gRef, a0 = wP, b0 = wO, c0 = wR;
         gProc += (tProc - gProc) * kG;
         gSec += (tSec - gSec) * kG;
-        fosa += (tFosa - fosa) * kF;
-        if (std::abs (fosa - tFosa) < 1.0e-4f) fosa = tFosa;
+        gRef += (tRef - gRef) * kG;
+        auto apropa = [kF] (float& w, float t) { w += (t - w) * kF; if (std::abs (w - t) < 1.0e-4f) w = t; };
+        apropa (wP, mode == EscoltaMaster ? 1.0f : 0.0f);
+        apropa (wO, mode == EscoltaOriginal ? 1.0f : 0.0f);
+        apropa (wR, mode == EscoltaReferencia ? 1.0f : 0.0f);
+        fosa = wO;
         const float inv = 1.0f / (float) n;
         for (int i = 0; i < n; ++i)
         {
             const float t = (float) (i + 1) * inv;
-            const float gp = p0 + (gProc - p0) * t, gs = s0 + (gSec - s0) * t, f = f0 + (fosa - f0) * t;
-            L[i] = L[i] * gp * (1.0f - f) + secL[(size_t) i] * gs * f;
-            R[i] = R[i] * gp * (1.0f - f) + secR[(size_t) i] * gs * f;
+            const float gp = (p0 + (gProc - p0) * t) * (a0 + (wP - a0) * t);
+            const float gs = (s0 + (gSec - s0) * t) * (b0 + (wO - b0) * t);
+            const float gr = (r0 + (gRef - r0) * t) * (c0 + (wR - c0) * t);
+            L[i] = L[i] * gp + secL[(size_t) i] * gs + refL[(size_t) i] * gr;
+            R[i] = R[i] * gp + secR[(size_t) i] * gs + refR[(size_t) i] * gr;
         }
+    }
+
+    void Rack::posaReferencia (std::shared_ptr<const Referencia> r)
+    {
+        refActual = r;
+        if (r != nullptr) refsVives.push_back (r);
+        refAudio.store (r.get(), std::memory_order_release);
+        demanaRefInici.store (true);
+        while (refsVives.size() > 3) refsVives.erase (refsVives.begin());   // les velles: ja no les llegeix ningú
     }
 
     // ---- paràmetres ----
@@ -739,7 +794,13 @@ namespace mibase::rack
     {
         nlohmann::ordered_json j;
         j["mibase-rack"] = 1;
-        if (esMaster()) { j["tipus"] = "master"; j["igualat"] = igualatAB.load(); j["objectiu"] = objectiuLufs.load(); j["lufsPersonal"] = lufsPers.load(); }   // 0.94; 0.95
+        if (esMaster()) { j["tipus"] = "master"; j["igualat"] = igualatAB.load(); j["objectiu"] = objectiuLufs.load(); j["lufsPersonal"] = lufsPers.load();   // 0.94; 0.95
+                          if (! referencies.empty())   // 1.01 (si no n'hi ha, no s'escriu: els presets no esborren les referències)
+                          {
+                              auto refs = nlohmann::json::array();
+                              for (auto& x : referencies) refs.push_back ({ { "nom", x.nom }, { "cami", x.cami } });
+                              j["referencies"] = refs; j["refActiva"] = refActiva; j["refInici"] = refInici.load(); j["igualaRef"] = igualaRef.load();
+                          } }
         j["entrada"] = par[Entrada].load();
         j["sortida"] = par[Sortida].load();
         auto mac = nlohmann::ordered_json::array();
@@ -801,6 +862,14 @@ namespace mibase::rack
                 igualatAB.store (j.value ("igualat", false));   // 0.95
                 objectiuLufs.store (std::clamp (j.value ("objectiu", 1), 0, (int) loudness::objectius().size() - 1));
                 lufsPers.store (std::clamp (j.value ("lufsPersonal", -10.0f), -24.0f, -5.0f));   // 0.95
+                if (j.contains ("referencies") && j["referencies"].is_array())   // 1.01 (un preset no en porta: es queden les que hi ha)
+                {
+                    referencies.clear();
+                    for (auto& x : j["referencies"]) referencies.push_back ({ x.value ("nom", std::string()), x.value ("cami", std::string()) });
+                    refActiva = std::clamp (j.value ("refActiva", -1), -1, (int) referencies.size() - 1);
+                    refInici.store (std::max (0.0f, j.value ("refInici", 0.0f)));
+                    igualaRef.store (j.value ("igualaRef", true));
+                }
             }
             presetMod = j.value ("presetModificat", false);
             const auto rets = j.value ("retorns", nlohmann::json::array());   // 0.76

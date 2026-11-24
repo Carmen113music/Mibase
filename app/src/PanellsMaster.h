@@ -26,6 +26,9 @@ juce::Component* creaPanellLowEnd (std::shared_ptr<mibase::EfecteIntern> g);
 /** 1.00: qui fa l'anàlisi (la PantallaEstudi, que sap renderitzar el projecte): torna l'informe, o nul si no pot. */
 using AnalitzadorMaster = std::function<std::shared_ptr<mibase::diagnosi::Informe> (bool ambPistes, const mibase::diagnosi::Context& ctx)>;
 void posaAnalitzadorMaster (AnalitzadorMaster a);
+/** 1.01: fa l'anàlisi ara (nul si no hi ha cap projecte obert o res que soni) i el context del rack (perfil i referència). */
+std::shared_ptr<mibase::diagnosi::Informe> analitzaAra (bool ambPistes, const mibase::diagnosi::Context& ctx);
+mibase::diagnosi::Context contextDe (const mibase::rack::Rack& r);
 
 /** Un avís curt i explicat si el mòdul està en una zona perillosa (buit si no n'hi ha). «master»: llindars de màster. */
 juce::String avisModul (const mibase::rack::Modul& m, bool master);
