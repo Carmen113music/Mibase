@@ -811,7 +811,8 @@ namespace
                 btRetorn.setEnabled (lliure && rk->numModuls() < maxModuls);
                 bool hiHa = false;
                 for (int k = 0; k < maxRetorns; ++k) hiHa = hiHa || rk->retorn (k).actiu;
-                btPistes.setEnabled (hiHa && accioPistes != nullptr);   // 0.78
+                btPistes.setEnabled (accioPistes != nullptr);   // 0.83: sense retorns, explica per què (abans semblava que no feia res)
+                juce::ignoreUnused (hiHa);
                 btSolo.setEnabled (accioPistes != nullptr);
                 btSolo.setToggleState (accioPistes != nullptr && accioPistes (3) > 0, juce::dontSendNotification);
                 btTreuCadena.setEnabled (accioPistes != nullptr && accioPistes (0) > 0);

@@ -53,7 +53,7 @@ private:
 };
 
 /** Eines de la caixa d'eines de l'estudi. */
-enum class Eina { Fletxa = 0, Llapis, Goma, Tisores, Cola, Silenci };
+enum class Eina { Fletxa = 0, Llapis, Goma, Tisores, Cola, Silenci, Elastic };   // 0.86: Elastic Audio (7)
 
 /** Tot el que comparteixen les seccions de l'estudi: el projecte, el que hi ha triat i com es mira
     (zoom, desplaçament, alçada de les pistes, capçal). Quan alguna cosa canvia, avisa totes les seccions. */
@@ -197,6 +197,7 @@ public:
         juce::String nom;
         bool perArrossegar = false; // es posa arrossegant (s'esborra quan s'amolla, caigui on caigui)
         std::string acordBloc;                // 0.41: si no és buit, a l'eina de patrons es posa aquest acord al clip (a mà)
+        std::string acord;                    // 0.92: el nom de l'acord (per deixar-lo en un pad del Chord Pad o en un bloc de patró)
         std::vector<mibase::Nota> rasgueig;   // 0.29: si n'hi ha, es posen aquestes notes (ticks des de l'inici) en lloc de l'acord en bloc
         bool actiu() const noexcept { return ! notes.empty(); }
     } segell;
@@ -487,7 +488,26 @@ public:
         if (files.size() != projecte.pistes.size()) files = mibase::edicio::filesVisibles (projecte);
         return files[(size_t) i];
     }
-    int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista; }
+    // 0.81: les subpistes de les preses (takes), sota la pista, quan estan desplegades
+    int altLane() const noexcept              { return juce::jmax (30, altPista * 3 / 5); }
+    int numLanes (int i) const noexcept
+    {
+        if (i < 0 || i >= numPistes() || modeFila (i) != 1) return 0;
+        const auto& t = projecte.pistes[(size_t) i];
+        return t.takesObertes ? (int) t.takes.size() : 0;
+    }
+    int altDe (int i) const noexcept          { return modeFila (i) == 0 ? 0 : altPista + numLanes (i) * altLane(); }
+    /** 0.81: a quina subpista cau «y»: {pista, presa}, o {-1, -1} si no és cap subpista. */
+    std::pair<int, int> laneA (int y) const noexcept
+    {
+        const int i = pistaA (y);
+        if (i < 0 || i >= numPistes() || numLanes (i) == 0) return { -1, -1 };
+        const int dins = y - yPista (i) - altPista;
+        if (dins < 0) return { -1, -1 };
+        const int k = dins / altLane();
+        return k < numLanes (i) ? std::pair<int, int> { i, k } : std::pair<int, int> { -1, -1 };
+    }
+    int yLane (int i, int k) const noexcept   { return yPista (i) + altPista + k * altLane(); }
     bool filaCarpeta (int i) const noexcept   { return modeFila (i) == 2; }
     // 0.17: la primera fila és la del màster (pistaTriada == master quan és la triada).
     static constexpr int master = -2;

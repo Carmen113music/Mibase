@@ -13,6 +13,14 @@
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraGuitarra.h"
+#include "FinestraSubBass.h"
+#include "FinestraLead.h"
+#include "FinestraAtmos.h"
+#include "FinestraNeo.h"
+#include <mibase/SubBass.h>
+#include <mibase/Lead.h>
+#include <mibase/Atmos.h>
+#include <mibase/Neo.h>
 
 /** Opcions de la pista triada (o del màster), a la columna esquerra sobre el fader (0.16).
     Pista d'instrument (MIDI): instrument (sinte intern o VST3), so i teclat MIDI, i els inserts.
@@ -79,6 +87,9 @@ public:
     /** 0.20: obre la finestra dels kits de bateria (per a la pista triada). */
     std::function<void()> onObreKits;
     std::function<void()> onObreSampler;   // 0.26
+    /** 0.88: el SUB & BASS viu d'una pista (el crea si encara no sona) i les notes del teclat de pantalla. */
+    std::function<std::shared_ptr<mibase::sinte::Base> (const std::string& idPista)> sinte;
+    std::function<void (const std::string& idPista, std::uint8_t, std::uint8_t, std::uint8_t)> onDirecte;
 
     /** Alçada que necessita per a la pista triada. */
     int alcada() const
@@ -128,13 +139,22 @@ public:
             // 0.20: només el nom (al costat hi ha el botó per obrir-lo); el detall, a la bafarada.
             btInstrument.setButtonText (bateria ? "Kit de bateria"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str()) : sampler ? "Samplejador"_ca
                                         : mibase::gm::programa (t->instrument) >= 0 ? "General MIDI"_ca
-                                        : guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false) : "Sinte intern"_ca);   // 0.43
-            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sinte intern, General MIDI, samplejador, kit de bateria o VST3)"_ca);
-            if (sampler)
+                                        : mibase::subbass::esSubBass (*t) ? "SUB & BASS"_ca   // 0.88
+                                        : mibase::lead::esLead (*t) ? "LEAD"_ca   // 0.89
+                                        : mibase::atmos::esAtmos (*t) ? "ATMOS"_ca   // 0.90
+                                        : mibase::neo::esNeo (*t) ? "NEO"_ca   // 0.93
+                                        : guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false) : "LEAD"_ca);   // 0.43
+            btInstrument.setTooltip ("Instrument de la pista: clica per canviar-lo (sintes de Mibase, General MIDI, guitarres, samplejador, kit de bateria o VST3)"_ca);
+            if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t) || mibase::neo::esNeo (*t))   // 0.88: el preset que sona
+            {
+                auto s = sinte ? sinte (t->id) : nullptr;
+                btSo.setButtonText ("Preset: "_ca + (s != nullptr && ! s->nomPreset.empty() ? juce::String::fromUTF8 (s->nomPreset.c_str()) : "(propi)"_ca));
+            }
+            else if (sampler)
                 btSo.setButtonText ("Sample: "_ca + (t->sampler.nom.empty() ? "cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str())));
             else
                 btSo.setButtonText ("So: "_ca + (guitarres::part (t->instrument, true).isNotEmpty() ? guitarres::part (t->instrument, true)
-                                     : juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "intern:piano" : t->instrument).c_str())));
+                                     : juce::String::fromUTF8 (mibase::midi::nomInstrument (t->instrument.empty() || vst ? "sinte:lead" : t->instrument).c_str())));
             btTeclat.setButtonText ("Teclat: "_ca + (t->entradaMidi.empty() ? "qualsevol"_ca : juce::String::fromUTF8 (t->entradaMidiNom.c_str())));
         }
         if (master)
@@ -251,24 +271,47 @@ public:
             quedaSobreMibase (*finestresGuitarra[id]);   // 0.70
             return;
         }
-        if (auto f = finestresSinte.find (id); f != finestresSinte.end()) { f->second->toFront (true); return; }
-        finestresSinte[id] = std::make_unique<FinestraSinte> (estat, id, juce::String::fromUTF8 (t->nom.c_str()) + " · sinte intern"_ca,
-                                                              [this, id] { finestresSinte.erase (id); });
-        quedaSobreMibase (*finestresSinte[id]);   // 0.70
+        obreSinteMibase (id);   // 0.88 / 0.89: SUB & BASS o LEAD (el sinte bàsic ja no hi és)
     }
+    /** 0.88 / 0.89: la finestra del sinte de Mibase d'una pista (SUB & BASS o LEAD; si ja és oberta, la porta al davant). */
+    void obreSinteMibase (const std::string& id)
+    {
+        if (auto f = finestresSubBass.find (id); f != finestresSubBass.end()) { f->second->toFront (true); return; }
+        auto* t = estat.pista (mibase::edicio::pistaPerId (estat.projecte, id));
+        auto s = sinte ? sinte (id) : nullptr;
+        if (t == nullptr || s == nullptr) return;
+        auto directe = [this, id] (std::uint8_t e, std::uint8_t d1, std::uint8_t d2) { if (onDirecte) onDirecte (id, e, d1, d2); };
+        auto tanca = [this, id] { finestresSubBass.erase (id); };
+        if (auto sb = std::dynamic_pointer_cast<mibase::subbass::SubBass> (s))
+            finestresSubBass[id] = creaFinestraSubBass (sb, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · SUB & BASS"_ca, directe, tanca);
+        else if (auto ld = std::dynamic_pointer_cast<mibase::lead::Lead> (s))
+            finestresSubBass[id] = creaFinestraLead (ld, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · LEAD"_ca, directe, tanca);
+        else if (auto at = std::dynamic_pointer_cast<mibase::atmos::Atmos> (s))   // 0.90
+            finestresSubBass[id] = creaFinestraAtmos (at, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · ATMOS"_ca, directe, tanca);
+        else if (auto ne = std::dynamic_pointer_cast<mibase::neo::Neo> (s))   // 0.93
+            finestresSubBass[id] = creaFinestraNeo (ne, estat, plugins, id, juce::String::fromUTF8 (t->nom.c_str()) + " · NEO"_ca, directe, tanca);
+        else return;
+        quedaSobreMibase (*finestresSubBass[id]);
+    }
+    void obreSubBass (const std::string& id) { obreSinteMibase (id); }
 private:
     void menuInstrument()
     {
         auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return;
         const bool vst = GestorPlugins::esVst3 (t->instrument);
+        const bool sb = mibase::subbass::esSubBass (*t);   // 0.88
         auto tipus = std::make_shared<juce::Array<juce::PluginDescription>>();
         juce::PopupMenu m;
         if (vst) { m.addItem (2, "Obre la finestra del plugin"); m.addSeparator(); }
         const bool sampler = mibase::esSampler (*t);
         const int gm = mibase::gm::programa (t->instrument);
         const bool kit = mibase::esKit (*t);
-        m.addItem (1, "Sinte intern", true, ! vst && ! sampler && gm < 0 && ! kit);
+        m.addItem (1, "Mibase LEAD (sinte de solistes)"_ca, true, mibase::lead::esLead (*t));   // 0.89 (abans, el sinte bàsic)
+        m.addItem (5, "Mibase SUB & BASS (sinte de baixos)"_ca, true, sb);   // 0.88
+        m.addItem (6, "Mibase ATMOS (pads i atmosferes)"_ca, true, mibase::atmos::esAtmos (*t));   // 0.90
+        m.addItem (7, "Mibase NEO (síntesi híbrida, disseny de so)"_ca, true, mibase::neo::esNeo (*t));   // 0.93
+        m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.addItem (3, "Samplejador"_ca, true, sampler);
@@ -280,11 +323,37 @@ private:
             if (p == nullptr) return;
             const auto id = p->id;
             if (r == 2) obreInstrument();
+            else if (r == 5)
+            {
+                if (! mibase::subbass::esSubBass (*p))
+                    canvia ([] (mibase::Pista& q) { q.instrument = mibase::subbass::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                            "Instrument: Mibase SUB & BASS"_ca);
+                juce::MessageManager::callAsync ([this] { obreInstrument(); });
+            }
+            else if (r == 7)   // 0.93
+            {
+                if (! mibase::neo::esNeo (*p))
+                    canvia ([] (mibase::Pista& q) { q.instrument = mibase::neo::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                            "Instrument: Mibase NEO"_ca);
+                juce::MessageManager::callAsync ([this] { obreInstrument(); });
+            }
+            else if (r == 6)   // 0.90
+            {
+                if (! mibase::atmos::esAtmos (*p))
+                    canvia ([] (mibase::Pista& q) { q.instrument = mibase::atmos::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                            "Instrument: Mibase ATMOS"_ca);
+                juce::MessageManager::callAsync ([this] { obreInstrument(); });
+            }
             else if (r >= 500 && r < 628) triaGM (r - 500);
             else if (r >= 7000 && r < 12000) triaGuitarra (r - 7000);
             else if (r == 4) { if (! mibase::esKit (*p)) canvia ([] (mibase::Pista& q) { q.instrument = mibase::instrumentKit; q.nomInstrument.clear(); q.estatInstrument.clear(); q.canals = 2; kits::posaKit (q, q.kit.empty() ? kits::ultimKit() : q.kit); }, "Instrument: kit de bateria"_ca); }
-            else if (r == 1 && (GestorPlugins::esVst3 (p->instrument) || mibase::esSampler (*p) || mibase::esKit (*p) || mibase::gm::programa (p->instrument) >= 0))
-                canvia ([] (mibase::Pista& q) { q.instrument = "intern:piano"; q.nomInstrument.clear(); q.estatInstrument.clear(); }, "Instrument: sinte intern"_ca);
+            else if (r == 1)
+            {
+                if (! mibase::lead::esLead (*p))
+                    canvia ([] (mibase::Pista& q) { q.instrument = mibase::lead::idInstrument; q.nomInstrument.clear(); q.estatInstrument.clear(); },
+                            "Instrument: Mibase LEAD"_ca);
+                juce::MessageManager::callAsync ([this] { obreInstrument(); });
+            }
             else if (r == 3)
             {
                 if (! mibase::esSampler (*p))
@@ -328,12 +397,9 @@ private:
         auto* t = estat.pista (estat.pistaTriada);
         if (t == nullptr) return;
         if (mibase::esSampler (*t)) { if (onObreSampler) onObreSampler(); return; }
+        if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t) || mibase::neo::esNeo (*t)) { obreSinteMibase (t->id); return; }   // 0.88: els presets són a la seva finestra
         juce::PopupMenu m;
-        const int actual = juce::jmax (0, mibase::midi::soIntern (t->instrument.empty() ? "intern:piano" : t->instrument));
         const int gm = mibase::gm::programa (t->instrument);
-        for (int k = 0; k < (int) mibase::midi::sonsInterns().size(); ++k)
-            m.addItem (k + 1, juce::String::fromUTF8 (mibase::midi::sonsInterns()[(size_t) k].nom), true, actual == k && gm < 0);
-        m.addSeparator();
         m.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (500, gm), true, juce::Image(), gm >= 0);   // 0.31
         m.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t->instrument), true, juce::Image(), t->instrument.rfind ("sf2:", 0) == 0);   // 0.43
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSo), [this] (int r)
@@ -341,8 +407,6 @@ private:
             if (r <= 0) return;
             if (r >= 500 && r < 628) { triaGM (r - 500); return; }
             if (r >= 7000 && r < 12000) { triaGuitarra (r - 7000); return; }
-            const std::string id = mibase::midi::sonsInterns()[(size_t) (r - 1)].id;
-            canvia ([id] (mibase::Pista& p) { p.instrument = "intern:" + id; }, {});
         });
     }
 
@@ -379,8 +443,9 @@ private:
     juce::OwnedArray<FilaInsert> inserts;
     std::map<std::string, std::unique_ptr<FinestraSinte>> finestresSinte;
     std::map<std::string, std::unique_ptr<FinestraGuitarra>> finestresGuitarra;   // 0.44
+    std::map<std::string, std::unique_ptr<juce::DocumentWindow>> finestresSubBass;   // 0.88
 public:
-    void tancaFinestresSinte() { finestresSinte.clear(); finestresGuitarra.clear(); }   // 0.27: Esc
+    void tancaFinestresSinte() { finestresSinte.clear(); finestresGuitarra.clear(); finestresSubBass.clear(); }   // 0.27: Esc
 private:
     int yTitol = 0;
 };

@@ -754,15 +754,20 @@ void PianoRoll::resized()
         }
         const int resta = 84 + 10 + 6 + voicingPads.ampladaIdeal() + 6 + selDuradaPads.ampladaIdeal() + 6 + (padsGuitarra() ? 200 : 84 + 6 + 110);
         const int lliure = f.getWidth() - resta - 22;
-        const int wi = juce::jlimit (84, 140, lliure / 4);
-        btPresetPads.setBounds (f.removeFromLeft (juce::jlimit (110, 300, lliure - 2 * wi))); f.removeFromLeft (6);
+        const int wi = juce::jlimit (60, 140, lliure / 4);   // 0.93: amb l'editor estret, es fan més petits (abans tallaven «Mov. mínim»)
+        btPresetPads.setBounds (f.removeFromLeft (juce::jlimit (70, 300, lliure - 2 * wi))); f.removeFromLeft (6);
         btInstrPads.setBounds (f.removeFromLeft (wi)); f.removeFromLeft (6);
         btSoPads.setBounds (f.removeFromLeft (wi)); f.removeFromLeft (10);
         btLlapisPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (10);
         if (! padsGuitarra()) { octavaPads.setBounds (f.removeFromLeft (84)); f.removeFromLeft (6); }
         voicingPads.setBounds (f.removeFromLeft (voicingPads.ampladaIdeal())); f.removeFromLeft (6);
         selDuradaPads.setBounds (f.removeFromLeft (selDuradaPads.ampladaIdeal())); f.removeFromLeft (6);
-        if (! padsGuitarra()) btMinimPads.setBounds (f.removeFromLeft (110));
+        if (! padsGuitarra())
+        {
+            const int wm = juce::jlimit (0, 110, f.getWidth());
+            btMinimPads.setButtonText (wm < 96 ? "Mín."_ca : "Mov. mínim"_ca);
+            btMinimPads.setBounds (f.removeFromLeft (wm));
+        }
     }
     actualitzaBarres();
 }
@@ -1429,6 +1434,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
                 arrossegaAcord (*this, estat, notesPadPremut, juce::String::fromUTF8 (padsActuals()[(size_t) i].c_str()), duradaPads(),
                                 btMinimPads.getToggleState(), {});   // 0.38.1: al Chord Pad, l'acord sencer
                 if (modeGuitarra()) estat.segell.acordBloc = padsActuals()[(size_t) i];   // 0.40: a l'eina de patrons, un bloc amb el rasgueig
+                estat.segell.acord = padsActuals()[(size_t) i];   // 0.92: també es pot deixar en un altre pad
                 repaint();
             }
             return;
@@ -1909,7 +1915,7 @@ void PianoRoll::pintaBarra (juce::Graphics& g)
         auto r = zonaInfo;
         juce::String titol = "PIANO ROLL";
         if (const auto* t = const_cast<PianoRoll*> (this)->pista())
-            titol = dibuix::utf8 (t->nom) + " · "_ca + dibuix::utf8 (midi::nomInstrument (t->instrument.empty() ? "intern:piano" : t->instrument));
+            titol = dibuix::utf8 (t->nom) + " · "_ca + dibuix::utf8 (midi::nomInstrument (t->instrument.empty() ? "sinte:lead" : t->instrument));
         if (index >= 0 && index < (int) estat.editors.size() && estat.editors[(size_t) index].bloquejat) titol += " · bloquejat"_ca;
         g.setFont (dibuix::lletra (12.5f, true));
         g.setColour (tema::text);
@@ -2540,6 +2546,24 @@ void PianoRoll::itemDropped (const SourceDetails& d)
         return;
     }
     const auto p = d.localPosition.toFloat();
+    if (modePads() && zonaPads().toFloat().contains (p) && ! estat.segell.acord.empty())
+    {
+        // 0.92: un acord deixat damunt d'un pad del Chord Pad: el pad passa a ser aquest acord
+        const int i = padA (d.localPosition);
+        const auto ac = estat.segell.acord;
+        estat.segell = {};
+        if (i >= 0)
+        {
+            desaPad (i, ac);
+            info = "Pad "_ca + juce::String (i + 1) + ": "_ca + juce::String::fromUTF8 (harmonia::nomPad (harmonia::llegeixAcord (ac)).c_str());
+        }
+        ratoli = { -1.0f, -1.0f };
+        estat.avisa();
+        repaint();
+        return;
+    }
+    if (modeGuitarra() && estat.segell.acordBloc.empty() && ! estat.segell.acord.empty())
+        estat.segell.acordBloc = estat.segell.acord;   // 0.92: un acord de la pista d'Acords a l'eina de patrons: el bloc amb aquest acord
     if (zonaGraella().toFloat().contains (p) || (modeGuitarra() && zonaBlocs().toFloat().contains (p)))
     {
         if (estat.editorActiu != index) { estat.editorActiu = index; if (onActiu) onActiu(); }
@@ -3453,10 +3477,10 @@ void PianoRoll::actualitzaControlsPads()
             const bool smp = mibase::esSampler (*t), kit = mibase::esKit (*t), vst = t->instrument.rfind ("vst3:", 0) == 0;
             btInstrPads.setButtonText (guitarres::part (t->instrument, false).isNotEmpty() ? guitarres::part (t->instrument, false)   // 0.46: la guitarra virtual
                                        : kit ? "Kit de bateria"_ca : smp ? "Samplejador"_ca : vst ? juce::String::fromUTF8 (t->nomInstrument.c_str())
-                                       : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte intern"_ca);
+                                       : mibase::gm::programa (t->instrument) >= 0 ? juce::String ("General MIDI") : "Sinte de Mibase"_ca);
             btSoPads.setButtonText (kit ? "Kit: "_ca + juce::String::fromUTF8 ((t->kit.empty() ? std::string ("Intern") : t->kit).c_str()) : smp ? (t->sampler.nom.empty() ? "Sample: cap"_ca : juce::String::fromUTF8 (t->sampler.nom.c_str()))
                                     : vst ? "So: el del plugin"_ca
-                                    : juce::String::fromUTF8 (midi::nomInstrument (t->instrument.empty() ? "intern:piano" : t->instrument).c_str()));
+                                    : juce::String::fromUTF8 (midi::nomInstrument (t->instrument.empty() ? "sinte:lead" : t->instrument).c_str()));
         }
     }
     for (auto* b : std::initializer_list<juce::Component*> { &btPresetPads, &btLlapisPads, &octavaPads, &voicingPads, &selDuradaPads, &btMinimPads })
@@ -3476,6 +3500,8 @@ void PianoRoll::actualitzaControlsPads()
         btSegueix.setToggleState (gm && segueixAcords(), juce::dontSendNotification);
         if (gm) selDuradaPads.setVisible (! segueixAcords());
         if (gm) { voicingPads.setVisible (false); btLlapisPads.setVisible (false); }
+        // 0.88: si el llapis («Edita») queda amagat (eina de patrons, Chord Pad tancat), deixa d'editar acords
+        if (! btLlapisPads.isVisible() && btLlapisPads.getToggleState()) btLlapisPads.setToggleState (false, juce::dontSendNotification);
         btForma.setVisible (gm && ! modePiano());   // 0.49
         btOctava.setVisible (gm && ! modePiano());  // 0.68
         btOctava.setToggleState (octavaGuitarra > 0, juce::dontSendNotification);

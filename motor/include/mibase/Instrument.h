@@ -95,6 +95,10 @@ namespace mibase
         /** Fil d'àudio, just abans de processa(): el so de la cadena lateral per a les n mostres que venen
             (nullptr: cap font connectada; l'efecte fa servir el seu propi so, com sempre). */
         virtual void posaSidechain (const float*, const float*) noexcept {}
+
+        /** 0.81: fil d'àudio, abans de latencia() i processa(): la pista està armada i se sent l'entrada en directe.
+            Un efecte que retarda molt (el Tune) pot deixar passar el so en sec i no retardar (s'afina en reproduir). */
+        virtual void posaDirecte (bool) noexcept {}
     };
 
     /** 0.56: un efecte intern de Mibase (Reverb, Dinàmica): els ajustos són text i es poden buidar les cues. */

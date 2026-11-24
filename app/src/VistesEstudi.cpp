@@ -1,10 +1,16 @@
 #include "VistesEstudi.h"
+#include <mibase/SubBass.h>
+#include <mibase/Lead.h>
+#include <mibase/Atmos.h>
+#include <mibase/Neo.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraAcords.h"
+#include "PianoRoll.h"
 #include "TempoPart.h"
 
 #include <mibase/Midi.h>
+#include <mibase/Elastic.h>
 
 using namespace mibase;
 namespace ed = mibase::edicio;
@@ -26,6 +32,17 @@ namespace
         const auto e = ed::estatSolo (p);
         const auto i = (size_t) (&t - p.pistes.data());
         return i < e.size() ? e[i] == 2 : ! t.mut;
+    }
+
+    /** 0.91: la «M» encesa també quan la pista queda callada perquè una altra és en solo (sense tocar el seu mute:
+        en treure el solo torna a com estava). */
+    bool mutAra (const Projecte& p, const Pista& t)
+    {
+        if (t.mut) return true;
+        if (std::none_of (p.pistes.begin(), p.pistes.end(), [] (const Pista& x) { return x.solo; })) return false;
+        const int i = ed::pistaPerId (p, t.id);
+        const auto e = ed::estatSolo (p);
+        return i >= 0 && (size_t) i < e.size() && e[(size_t) i] == 0;
     }
 
     void pintaCapcal (juce::Graphics& g, float x, float alt, int transport = 0)
@@ -64,7 +81,7 @@ namespace
     [[maybe_unused]] juce::String textPistaCurt (const Pista& t)
     {
         if (mibase::esKit (t)) return juce::String::fromUTF8 (("Bateria · " + (t.kit.empty() ? std::string ("Intern") : t.kit)).c_str());
-        if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "intern:piano" : t.instrument)).c_str());
+        if (t.tipus == "midi") return juce::String::fromUTF8 (("MIDI · " + midi::nomInstrument (t.instrument.empty() ? "sinte:lead" : t.instrument)).c_str());
         return textCanals (t) + juce::String::fromUTF8 (" · ") + EstatEstudi::textEntrada (t);
     }
 }
@@ -546,8 +563,8 @@ juce::MouseCursor VistaPistes::cursor (Eina e)
         return it->second;
 
     const dibuix::Icona icones[] = { dibuix::Icona::Fletxa2, dibuix::Icona::Llapis, dibuix::Icona::Goma,
-                                     dibuix::Icona::Tisores, dibuix::Icona::Cola, dibuix::Icona::Silenci };
-    const juce::Point<int> punts[] = { { 6, 3 }, { 4, 25 }, { 8, 23 }, { 14, 14 }, { 14, 26 }, { 14, 14 } };
+                                     dibuix::Icona::Tisores, dibuix::Icona::Cola, dibuix::Icona::Silenci, dibuix::Icona::Elastic };
+    const juce::Point<int> punts[] = { { 6, 3 }, { 4, 25 }, { 8, 23 }, { 14, 14 }, { 14, 26 }, { 14, 14 }, { 14, 14 } };
 
     juce::Image img (juce::Image::ARGB, 28, 28, true);
     {
@@ -600,6 +617,17 @@ VistaPistes::Lloc VistaPistes::llocA (juce::Point<int> p) const
 
     if (estat.eina == Eina::Fletxa)
     {
+        // 0.86: pista d'Acords: el final de la línia de durada d'un acord s'agafa on es veu (abans, només força per sota).
+        if (mibase::esAcords (t))
+            for (int i = (int) t.clips.size(); --i >= 0;)
+            {
+                const auto& c = t.clips[(size_t) i];
+                if (! c.esAcord()) continue;
+                const auto r = rectClip (fila, c);
+                const juce::Rectangle<float> zona (r.getRight() - 10.0f, r.getY() + r.getHeight() * 0.45f, 15.0f, r.getHeight() * 0.55f + 3.0f);
+                if (zona.contains (pf)) { l.clip = i; l.maneta = Maneta::RetallFi; return l; }
+            }
+
         // Manetes del clip triat (només si n'hi ha un).
         if (estat.triats.size() == 1 && estat.triats[0].pista == fila)
         {
@@ -634,7 +662,7 @@ VistaPistes::Lloc VistaPistes::llocA (juce::Point<int> p) const
             const auto& c = t.clips[(size_t) i];
             if (! ed::banderaVisible (estat.projecte, c)) continue;
             const auto r = rectClip (fila, c);
-            const float xb = estat.x (c.pos + ed::presa (estat.projecte, c.presa)->primer);
+            const float xb = estat.x (ed::puntSnap (estat.projecte, c));   // 0.86: amb Elastic Audio, on cau de debò
             if (juce::Rectangle<float> (xb - 4.0f, r.getY(), 14.0f, 12.0f).contains (pf))
             {
                 l.clip = i;
@@ -700,6 +728,9 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
     g.setColour (color.withAlpha (0.35f));
     g.fillRect (juce::Rectangle<float> (r.getX(), mig - 0.5f, r.getWidth(), 1.0f));
 
+    // 0.86: Elastic Audio: la forma d'ona es dibuixa a través del mapa de temps (temps del clip -> temps del fitxer).
+    // Sense punts, el mapa és la identitat i tot queda igual que abans.
+    namespace el = mibase::elastic;
     auto envolupant = [&c] (double tf)
     {
         double env = 1.0;
@@ -708,10 +739,11 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
         return env;
     };
 
-    // Part visible, dins el fitxer.
+    // Part visible, en temps del clip.
     const double tIni = juce::jmax (c.inici, 0.0, estat.t (juce::jmax (r.getX(), 0.0f)) - c.pos);
-    const double tFi = juce::jmin (c.fi, s.durada, estat.t (juce::jmin (r.getRight(), (float) getWidth())) - c.pos);
+    const double tFi = juce::jmin (c.fi, el::duradaClip (c, s.durada), estat.t (juce::jmin (r.getRight(), (float) getWidth())) - c.pos);
     if (tFi <= tIni || ona.longitud <= 0) return;
+    const double fIni = el::aFont (c, tIni), fFi = el::aFont (c, tFi);   // el mateix, en temps del fitxer
 
     const double mostresPerPx = ona.sr / estat.pxPerSegon;
     const auto colorOna = color.withAlpha (0.9f);
@@ -719,14 +751,14 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
     if (mostresPerPx < 1.0)
     {
         // Molt de zoom: es veu cada mostra, unides amb una línia (i un puntet a cada mostra si hi cap).
-        const auto a = (juce::int64) std::floor (tIni * ona.sr), b = (juce::int64) std::ceil (tFi * ona.sr);
+        const auto a = (juce::int64) std::floor (fIni * ona.sr), b = (juce::int64) std::ceil (fFi * ona.sr);
         const int n = (int) juce::jmin ((juce::int64) 200000, b - a + 1);
         const float* m = ona.mostres (a, n);
         if (m == nullptr) return;
         juce::Path linia;
         for (int i = 0; i < n; ++i)
         {
-            const double tf = (double) (a + i) / ona.sr;
+            const double tf = el::aClip (c, (double) (a + i) / ona.sr);
             const float x = estat.x (c.pos + tf);
             const float y = mig - (float) (m[i] * guany * envolupant (tf)) * amp;
             if (i == 0) linia.startNewSubPath (x, y); else linia.lineTo (x, y);
@@ -736,7 +768,7 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
         if (1.0 / mostresPerPx >= 7.0)
             for (int i = 0; i < n; ++i)
             {
-                const double tf = (double) (a + i) / ona.sr;
+                const double tf = el::aClip (c, (double) (a + i) / ona.sr);
                 g.fillEllipse (estat.x (c.pos + tf) - 2.0f, mig - (float) (m[i] * guany * envolupant (tf)) * amp - 2.0f, 4.0f, 4.0f);
             }
         return;
@@ -751,8 +783,8 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
     juce::int64 cruIni = 0;
     if (mostresPerPx < OnaPresa::bloc)
     {
-        cruIni = (juce::int64) std::floor (tIni * ona.sr);
-        const int n = (int) juce::jmin ((juce::int64) 2000000, (juce::int64) std::ceil ((tFi - tIni) * ona.sr) + 2);
+        cruIni = (juce::int64) std::floor (fIni * ona.sr);
+        const int n = (int) juce::jmin ((juce::int64) 2000000, (juce::int64) std::ceil ((fFi - fIni) * ona.sr) + 2);
         cru = ona.mostres (cruIni, n);
     }
 
@@ -760,7 +792,7 @@ void VistaPistes::pintaOna (juce::Graphics& g, const Clip& c, const Presa& s, On
     {
         const double ta = tIni + (double) i / estat.pxPerSegon;
         const double tb = juce::jmin (tFi, ta + 1.0 / estat.pxPerSegon);
-        auto sa = (juce::int64) (ta * ona.sr), sb = juce::jmax (sa + 1, (juce::int64) (tb * ona.sr));
+        auto sa = (juce::int64) (el::aFont (c, ta) * ona.sr), sb = juce::jmax (sa + 1, (juce::int64) (el::aFont (c, tb) * ona.sr));
         float mn = 0.0f, mx = 0.0f;
         if (cru != nullptr)
         {
@@ -811,7 +843,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
     {
         // 0.36: un bloc de la pista d'Acords: l'etiqueta amb el nom i una barra fins on dura (com la Chord Track de Cubase)
         const bool triatA = estat.clipTriat (pista, indexClip);
-        const auto col = c.mut ? tema::suau : juce::Colour (0xffa98bff);
+        const auto col = c.mut ? tema::suau : juce::Colour (0xffa98bff).withMultipliedAlpha (c.dubtos ? 0.5f : 1.0f);   // 0.87: dubtós, més apagat
         auto barra = r.withTrimmedTop (r.getHeight() * 0.62f).withTrimmedBottom (r.getHeight() * 0.2f);
         g.setColour (col.withAlpha (triatA ? 0.55f : 0.30f));
         g.fillRoundedRectangle (barra.withTrimmedRight (3.0f), 2.0f);
@@ -819,7 +851,7 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
         g.fillRect (r.getX(), r.getY() + 4.0f, 2.0f, r.getHeight() - 8.0f);
         g.setFont (dibuix::lletra (juce::jlimit (12.0f, 20.0f, r.getHeight() * 0.36f), true));
         const auto net = mibase::harmonia::nomPad (mibase::harmonia::llegeixAcord (c.acord));   // sense la «^n» de la inversió
-        const auto nom = juce::String::fromUTF8 ((net.empty() ? c.acord : net).c_str());
+        const auto nom = juce::String::fromUTF8 ((net.empty() ? c.acord : net).c_str()) + (c.dubtos ? "?" : "");
         const float w = juce::jmin (r.getWidth() - 6.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), nom) + 14.0f);
         auto etiqueta = juce::Rectangle<float> (r.getX() + 4.0f, r.getY() + 6.0f, juce::jmax (8.0f, w), r.getHeight() * 0.5f - 4.0f);
         g.setColour (triatA ? col : col.withAlpha (0.85f));
@@ -923,13 +955,17 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
 
         if (ed::banderaVisible (p, c))
         {
-            const float xb = estat.x (c.pos + s->primer);
+            const float xb = estat.x (ed::puntSnap (p, c));
             g.setColour (tema::accent);
             g.fillRect (juce::Rectangle<float> (xb - 0.75f, r.getY(), 1.5f, r.getHeight()));
             juce::Path tri;
             tri.addTriangle (xb, r.getY(), xb + 10.0f, r.getY() + 4.5f, xb, r.getY() + 9.0f);
             g.fillPath (tri);
         }
+
+        // 0.86: Elastic Audio: trossos més ràpids o més lents i els marcadors.
+        if (! c.midi && s != nullptr && (mibase::elastic::actiu (c) || estat.eina == Eina::Elastic))
+            pintaElastic (g, pista, indexClip, c, r);
 
         // Nom.
         g.setColour (actiu ? tema::text : tema::suau);
@@ -942,7 +978,8 @@ void VistaPistes::pintaClip (juce::Graphics& g, int pista, int indexClip, const 
                              : (s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Finestra buida"));
             if (c.midi && estat.pianoRoll && estat.editorDe ({ pista, indexClip }) >= 0) nom += "  (Piano Roll)";
             if (c.mut) nom = "(silenciat) " + nom;
-            const bool banderaAprop = ed::banderaVisible (p, c) && std::abs (estat.x (c.pos + s->primer) - xn) < 14.0f;
+            if (mibase::elastic::actiu (c)) nom += "  · elàstic"_ca;   // 0.86
+            const bool banderaAprop = ed::banderaVisible (p, c) && std::abs (estat.x (ed::puntSnap (p, c)) - xn) < 14.0f;
             g.drawText (nom, juce::Rectangle<float> (xn + (banderaAprop ? 12.0f : 0.0f), r.getY() + 3.0f, r.getRight() - xn - 6.0f, 16.0f),
                         juce::Justification::centredLeft, true);
         }
@@ -1053,6 +1090,12 @@ void VistaPistes::paint (juce::Graphics& g)
         if (estat.filaCarpeta (i)) g.setColour (juce::Colour (0xff1d1d23));
         g.fillRect (0, y, getWidth(), estat.altPista);
         const auto& t = estat.projecte.pistes[(size_t) i];
+        if (! estat.filaCarpeta (i) && ! mibase::esBus (t) && ! mibase::esAcords (t))
+        {
+            // 0.84: tota la fila, una mica tenyida del color de la pista (per distingir-les d'un cop d'ull)
+            g.setColour (EstatEstudi::colorPista (t).withAlpha (0.075f));
+            g.fillRect (0, y, getWidth(), estat.altPista);
+        }
         if (mibase::esAcords (t))
         {
             g.setColour (juce::Colour (0xffa98bff).withAlpha (0.05f));   // 0.36: la pista d'Acords
@@ -1116,7 +1159,7 @@ void VistaPistes::paint (juce::Graphics& g)
             for (const auto& c : t.clips)
             {
                 if (! c.midi || ! c.acordsPropis || c.blocs.empty()) continue;
-                auto r = juce::Rectangle<float> (estat.x (c.iniciVisible()), (float) estat.yPista (i) + 5.0f, estat.x (c.fiVisible()) - estat.x (c.iniciVisible()), (float) estat.altDe (i) - 10.0f);
+                auto r = juce::Rectangle<float> (estat.x (c.iniciVisible()), (float) estat.yPista (i) + 5.0f, estat.x (c.fiVisible()) - estat.x (c.iniciVisible()), (float) estat.altPista - 10.0f);
                 if (r.getRight() < 0.0f || r.getX() > w) continue;
                 juce::Graphics::ScopedSaveState guarda (g);
                 g.reduceClipRegion (r.toNearestInt());
@@ -1132,6 +1175,8 @@ void VistaPistes::paint (juce::Graphics& g)
                 const double ta = juce::jmax (t.clips[(size_t) a].iniciVisible(), t.clips[(size_t) b].iniciVisible());
                 const double tb = juce::jmin (t.clips[(size_t) a].fiVisible(), t.clips[(size_t) b].fiVisible());
                 if (tb - ta <= 1.0e-6) continue;
+                // 0.81: el crossfade curt entre dos trossos de preses del comp no és una trepitjada
+                if (tb - ta <= ed::crossfadeComp + 1.0e-6 && ed::takeDe (t, t.clips[(size_t) a]) >= 0 && ed::takeDe (t, t.clips[(size_t) b]) >= 0) continue;
                 auto r = juce::Rectangle<float> (estat.x (ta), (float) estat.yPista (i) + 5.0f, estat.x (tb) - estat.x (ta), (float) estat.altPista - 10.0f);
                 if (r.getRight() < 0.0f || r.getX() > w) continue;
                 juce::Graphics::ScopedSaveState guarda (g);
@@ -1156,6 +1201,9 @@ void VistaPistes::paint (juce::Graphics& g)
                 }
             }
     }
+
+    for (int i = 0; i < estat.numPistes(); ++i)   // 0.81: les subpistes de les preses
+        if (estat.numLanes (i) > 0) pintaTakes (g, i);
 
     // Tros triat (requadre en mode «només el que queda dins»).
     if (estat.rang.actiu)
@@ -1228,13 +1276,17 @@ void VistaPistes::paint (juce::Graphics& g)
     }
 
     // Gravant: la zona que s'està gravant, a la pista amb el botó encès.
-    if (estat.transport == 3 && estat.capcal > estat.cursorGravacio)
+    // 0.81: gravant en bucle, després de tornar a l'inici, la zona va de l'inici del bucle al capçal
+    double desDeGrav = estat.cursorGravacio;
+    if (estat.transport == 3 && estat.capcal < desDeGrav && estat.projecte.bucle.marcat && estat.projecte.bucle.actiu)
+        desDeGrav = ed::iniciBucle (estat.projecte);
+    if (estat.transport == 3 && estat.capcal > desDeGrav)
     {
         for (int i = 0; i < estat.numPistes(); ++i)
         {
             if (! estat.projecte.pistes[(size_t) i].grava || estat.altDe (i) == 0) continue;
-            auto r = juce::Rectangle<float> (estat.x (estat.cursorGravacio), (float) estat.yPista (i) + 5.0f,
-                                             estat.x (estat.capcal) - estat.x (estat.cursorGravacio), (float) estat.altPista - 10.0f);
+            auto r = juce::Rectangle<float> (estat.x (desDeGrav), (float) estat.yPista (i) + 5.0f,
+                                             estat.x (estat.capcal) - estat.x (desDeGrav), (float) estat.altPista - 10.0f);
             g.setColour (vintage::ledVermell.withAlpha (0.18f));
             g.fillRoundedRectangle (r, 6.0f);
             g.setColour (vintage::ledVermell.withAlpha (0.8f));
@@ -1266,6 +1318,14 @@ void VistaPistes::paint (juce::Graphics& g)
 
 void VistaPistes::mouseMove (const juce::MouseEvent& e)
 {
+    if (const auto [pl, kl] = estat.laneA (e.y); pl >= 0 && estat.triantFantasma < 0)   // 0.81
+    {
+        std::pair<double, double> z;
+        const int v = voraZona (pl, kl, (float) e.x, z);
+        setMouseCursor (v == -1 || v == 1 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::IBeamCursor);
+        if (sobre.pista >= 0 || sobre.clip >= 0) { sobre = {}; repaint(); }
+        return;
+    }
     if (estat.triantFantasma >= 0)
     {
         static const juce::MouseCursor cursorFantasma = []
@@ -1287,6 +1347,19 @@ void VistaPistes::mouseMove (const juce::MouseEvent& e)
         repaint();
     }
 
+    if (estat.eina == Eina::Elastic)   // 0.86
+    {
+        const auto le = elasticA (e.getPosition());
+        if (le.pista != sobreElastic.pista || le.clip != sobreElastic.clip || le.zona != sobreElastic.zona || le.marcador != sobreElastic.marcador)
+        {
+            sobreElastic = le;
+            repaint();
+        }
+        setMouseCursor (l.pistaNova ? juce::MouseCursor::PointingHandCursor
+                        : le.zona == -1 || le.zona == 1 || le.zona == 2 || le.zona == 3 ? juce::MouseCursor::LeftRightResizeCursor
+                        : cursor (estat.eina));
+        return;
+    }
     if (estat.eina != Eina::Fletxa)
     {
         setMouseCursor (l.pistaNova ? juce::MouseCursor::PointingHandCursor : cursor (estat.eina));
@@ -1338,7 +1411,7 @@ void VistaPistes::menuAcords (int pista, int clip, double t)
             if (clip >= 0 && clip < (int) p.pistes[(size_t) pista].clips.size())
             {
                 if (mibase::harmonia::llegeixAcord (nom).buit()) return;
-                p.pistes[(size_t) pista].clips[(size_t) clip].acord = nom;
+                { p.pistes[(size_t) pista].clips[(size_t) clip].acord = nom; p.pistes[(size_t) pista].clips[(size_t) clip].dubtos = false; }   // 0.87: revisat
             }
             else
             {
@@ -1384,7 +1457,7 @@ void VistaPistes::obreFinestraAcords (int pista, int clip, double t, juce::Point
             jo->restaura();
             auto& p = jo->estat.projecte;
             auto& clips = p.pistes[(size_t) pista].clips;
-            if (clip >= 0 && clip < (int) clips.size()) clips[(size_t) clip].acord = nom;
+            if (clip >= 0 && clip < (int) clips.size()) { clips[(size_t) clip].acord = nom; clips[(size_t) clip].dubtos = false; }   // 0.87: revisat
             else if (fi > t + 0.02) ed::posaAcord (p, t, fi, nom);   // 0.42: el tros que s'ha dibuixat
             else
             {
@@ -1527,6 +1600,191 @@ void VistaPistes::menuClip (int pista, int clip, double t)
     });
 }
 
+// ---- 0.81: subpistes de preses (takes) i comping ----
+void VistaPistes::pintaTakes (juce::Graphics& g, int pista)
+{
+    const auto& p = estat.projecte;
+    const auto& t = p.pistes[(size_t) pista];
+    const auto zones = ed::zonesTakes (p, pista);
+    const auto col = EstatEstudi::colorPista (t);
+    const int h = estat.altLane();
+    const float w = (float) getWidth();
+    for (int k = 0; k < estat.numLanes (pista) && k < (int) t.takes.size(); ++k)
+    {
+        const int y = estat.yLane (pista, k);
+        if (y > getHeight() || y + h < 0) continue;
+        g.setColour (juce::Colour (0xff131317));
+        g.fillRect (0, y, getWidth(), h);
+        g.setColour (col.withAlpha (0.05f));   // 0.84
+        g.fillRect (0, y, getWidth(), h);
+        g.setColour (col.withAlpha (0.25f));
+        g.fillRect (0, y, 3, h);
+        g.setColour (tema::linia.withAlpha (0.4f));
+        g.fillRect (0, y + h - 1, getWidth(), 1);
+
+        const auto& tk = t.takes[(size_t) k];
+        auto r = juce::Rectangle<float> (estat.x (tk.iniciVisible()), (float) y + 3.0f,
+                                         estat.x (tk.fiVisible()) - estat.x (tk.iniciVisible()), (float) h - 6.0f);
+        const bool sona = k < (int) zones.size() && ! zones[(size_t) k].empty();
+        if (r.getRight() >= 0.0f && r.getX() <= w)
+        {
+            g.setColour (col.withAlpha (0.08f));
+            g.fillRoundedRectangle (r, 4.0f);
+            g.setColour (col.withAlpha (0.35f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+            const auto* s = ed::presa (p, tk.presa);
+            auto it = estat.ones.find (tk.presa);
+            const bool ambOna = s != nullptr && it != estat.ones.end() && it->second != nullptr;
+            if (ambOna)
+            {
+                juce::Graphics::ScopedSaveState guarda (g);
+                g.reduceClipRegion (r.toNearestInt());
+                pintaOna (g, tk, *s, *it->second, r, tema::suau.withAlpha (0.55f));
+            }
+            // on sona aquesta presa al comp: ressaltat amb el color de la pista
+            if (k < (int) zones.size())
+                for (auto z : zones[(size_t) k])
+                {
+                    auto rz = juce::Rectangle<float> (estat.x (z.first), r.getY(), estat.x (z.second) - estat.x (z.first), r.getHeight());
+                    if (rz.getRight() < 0.0f || rz.getX() > w) continue;
+                    g.setColour (col.withAlpha (0.30f));
+                    g.fillRect (rz);
+                    if (ambOna)
+                    {
+                        juce::Graphics::ScopedSaveState guarda (g);
+                        g.reduceClipRegion (rz.toNearestInt());
+                        pintaOna (g, tk, *s, *it->second, r, col.brighter (0.35f));
+                    }
+                    g.setColour (col);
+                    g.drawRect (rz, 1.5f);
+                }
+        }
+        // l'etiqueta, sempre a la vista
+        auto et = juce::Rectangle<float> (juce::jlimit (6.0f, juce::jmax (6.0f, w - 80.0f), r.getX() + 6.0f), (float) y + 4.0f, 70.0f, 15.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (et, 3.0f);
+        g.setColour (sona ? col.brighter (0.4f) : tema::suau);
+        g.setFont (dibuix::lletra (10.5f, true));
+        g.drawText ("Presa "_ca + juce::String (k + 1), et.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
+    }
+
+    // el tros que s'està triant (o la vora que es mou)
+    if ((mode == Mode::CompTria || mode == Mode::CompVora) && compPista == pista && compTakeIdx >= 0 && compTakeIdx < estat.numLanes (pista))
+    {
+        const double a = juce::jmin (compA, compB), b = juce::jmax (compA, compB);
+        const int y = estat.yLane (pista, compTakeIdx);
+        auto r = juce::Rectangle<float> (estat.x (a), (float) y + 2.0f, juce::jmax (1.0f, estat.x (b) - estat.x (a)), (float) h - 4.0f);
+        g.setColour (tema::accent.withAlpha (0.22f));
+        g.fillRect (r);
+        g.setColour (tema::accent);
+        g.drawRect (r, 1.5f);
+        // i a la pista principal, on anirà
+        auto rp = juce::Rectangle<float> (r.getX(), (float) estat.yPista (pista) + 5.0f, r.getWidth(), (float) estat.altPista - 10.0f);
+        g.setColour (tema::accent.withAlpha (0.12f));
+        g.fillRect (rp);
+    }
+}
+
+int VistaPistes::voraZona (int pista, int take, float x, std::pair<double, double>& zona) const
+{
+    const auto zones = ed::zonesTakes (estat.projecte, pista);
+    if (take < 0 || take >= (int) zones.size()) return 2;
+    for (auto z : zones[(size_t) take])
+    {
+        const float xa = estat.x (z.first), xb = estat.x (z.second);
+        const float marge = juce::jmin (6.0f, (xb - xa) / 3.0f);
+        if (std::abs (x - xa) <= marge) { zona = z; return -1; }
+        if (std::abs (x - xb) <= marge) { zona = z; return 1; }
+        if (x > xa && x < xb) { zona = z; return 0; }
+    }
+    return 2;
+}
+
+bool VistaPistes::mouseDownLane (const juce::MouseEvent& e)
+{
+    const auto [pista, k] = estat.laneA (e.y);
+    if (pista < 0) return false;
+    grabKeyboardFocus();
+    const double t = estat.t ((float) e.x);
+    if (e.mods.isPopupMenu()) { menuLane (pista, k, t); return true; }
+    if (estat.pistaTriada != pista) { estat.pistaTriada = pista; estat.avisa(); }
+    compPista = pista;
+    compTakeIdx = k;
+    inici = e.getPosition();
+    std::pair<double, double> z;
+    const int v = voraZona (pista, k, (float) e.x, z);
+    if (v == -1 || v == 1)
+    {
+        mode = Mode::CompVora;
+        compVoraEsq = v == -1;
+        compZona0 = z;
+        compA = z.first;
+        compB = z.second;
+    }
+    else
+    {
+        mode = Mode::CompTria;
+        compA = compB = tEina (t);
+    }
+    repaint();
+    return true;
+}
+
+void VistaPistes::menuLane (int pista, int take, double t)
+{
+    std::pair<double, double> z { 0.0, 0.0 };
+    const bool dins = voraZona (pista, take, estat.x (t), z) != 2;
+    juce::PopupMenu m;
+    m.addSectionHeader ("Presa "_ca + juce::String (take + 1));
+    m.addItem (1, "Fes sonar tota la presa   (doble clic)"_ca);
+    m.addItem (2, "Treu aquest tros del comp"_ca, dins);
+    m.addSeparator();
+    m.addItem (3, "Plega les preses"_ca);
+    m.addItem (4, "Consolida el comp: un àudio nou amb els trossos triats"_ca);
+    m.addItem (6, "Print: un àudio nou amb els efectes aplicats"_ca);
+    m.addSeparator();
+    m.addItem (5, "Esborra aquesta presa"_ca);
+    juce::Component::SafePointer<VistaPistes> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, pista, take, z] (int r)
+    {
+        if (jo == nullptr || r <= 0) return;
+        auto& estat = jo->estat;
+        if (pista >= estat.numPistes()) return;
+        auto& p = estat.projecte;
+        const auto nom = "Presa "_ca + juce::String (take + 1);
+        if (r == 1)
+        {
+            estat.desfes.abans (p);
+            if (ed::compTakeSencera (p, pista, take)) estat.canviat ("Comp: "_ca + nom + " sencera");
+        }
+        else if (r == 2)
+        {
+            estat.desfes.abans (p);
+            ed::treuDelComp (p, pista, z.first, z.second);
+            estat.canviat ("Comp: tret un tros de la "_ca + nom);
+        }
+        else if (r == 3)
+        {
+            p.pistes[(size_t) pista].takesObertes = false;
+            estat.canviat();
+        }
+        else if (r == 4)
+        {
+            if (jo->onConsolidaComp) jo->onConsolidaComp (pista);
+        }
+        else if (r == 6)
+        {
+            if (jo->onPrint) jo->onPrint (pista);
+        }
+        else if (r == 5)
+        {
+            estat.desfes.abans (p);
+            ed::treuTake (p, pista, take);
+            estat.canviat ("Esborrada la "_ca + nom + " (el fitxer es conserva)");
+        }
+    });
+}
+
 void VistaPistes::mouseDown (const juce::MouseEvent& e)
 {
     if (estat.triantFantasma >= 0)
@@ -1546,6 +1804,7 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
         estat.avisa();
         return;
     }
+    if (mouseDownLane (e)) return;   // 0.81: subpista d'una presa
     grabKeyboardFocus();
     inici = e.getPosition();
     rang0 = estat.rang;   // 0.29: per si el clic és per arrossegar el tros triat al samplejador
@@ -1640,6 +1899,10 @@ void VistaPistes::mouseDown (const juce::MouseEvent& e)
             estat.avisa();
             return;
 
+        case Eina::Elastic:   // 0.86
+            mouseDownElastic (e);
+            return;
+
         case Eina::Silenci:
             if (lloc0.clip < 0) return;
             comencaCanvi();
@@ -1708,7 +1971,10 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
         switch (lloc0.maneta)
         {
             case Maneta::RetallInici: mode = Mode::RetallInici; break;
-            case Maneta::RetallFi:    mode = Mode::RetallFi; break;
+            case Maneta::RetallFi:
+                mode = Mode::RetallFi;
+                if (c.esAcord() && ! estat.clipTriat (lloc0.pista, lloc0.clip)) estat.triaClip (lloc0.pista, lloc0.clip);   // 0.86
+                break;
             case Maneta::FadeIn:      mode = Mode::FadeIn; break;
             case Maneta::FadeOut:     mode = Mode::FadeOut; break;
             case Maneta::Guany:       mode = Mode::Guany; guany0 = c.guanyDb; break;
@@ -1764,7 +2030,7 @@ void VistaPistes::mouseDownFletxa (const juce::MouseEvent& e)
 
     const auto& c = t.clips[(size_t) lloc0.clip];
     punt0 = ed::puntSnap (estat.projecte, c);
-    bandera0 = ed::banderaVisible (estat.projecte, c) ? c.pos + ed::presa (estat.projecte, c.presa)->primer : -1.0;
+    bandera0 = ed::banderaVisible (estat.projecte, c) ? ed::puntSnap (estat.projecte, c) : -1.0;
     comencaCanvi();
     triatsOriginals = estat.triats;
     mode = Mode::Decidint;
@@ -1841,6 +2107,13 @@ void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
 void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu()) return;
+    if (mode == Mode::CompTria || mode == Mode::CompVora)   // 0.81
+    {
+        const double t = juce::jmax (0.0, tEina (estat.t ((float) e.x)));
+        if (mode == Mode::CompTria || ! compVoraEsq) compB = t; else compA = t;
+        repaint();
+        return;
+    }
     if (dibuixaAcord)
     {
         acordT1 = juce::jmax (0.0, ed::enganxa (estat.projecte, estat.t ((float) e.x), estat.projecte.snap));
@@ -1854,9 +2127,14 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
     const auto clipFora = [&]
     {
         if (! (mode == Mode::Decidint || mode == Mode::MouTemps || mode == Mode::MouPista || (mode == Mode::Requadre && lloc0.clip >= 0 && ! nomesSeleccio))) return false;
-        if (! arrossegaFora || ! arrossegaFora (e.getScreenPosition())) return false;
         // movent, el projecte bo és la còpia d'abans de moure; fent un requadre, no s'ha mogut res
         const auto& pr = mode == Mode::Requadre ? estat.projecte : copiaInici;
+        // 0.92.1: un acord de la pista d'Acords surt de la taula cap a qualsevol lloc (Piano Roll, Chord Pad, patrons)
+        const bool esAcordFora = lloc0.pista >= 0 && lloc0.pista < (int) pr.pistes.size() && lloc0.clip >= 0
+                                 && lloc0.clip < (int) pr.pistes[(size_t) lloc0.pista].clips.size()
+                                 && pr.pistes[(size_t) lloc0.pista].clips[(size_t) lloc0.clip].esAcord()
+                                 && ! getScreenBounds().contains (e.getScreenPosition());
+        if (! esAcordFora && (! arrossegaFora || ! arrossegaFora (e.getScreenPosition()))) return false;
         return lloc0.pista >= 0 && lloc0.pista < (int) pr.pistes.size() && lloc0.clip >= 0
                && lloc0.clip < (int) pr.pistes[(size_t) lloc0.pista].clips.size() && ! mibase::esMidi (pr.pistes[(size_t) lloc0.pista]);
     };
@@ -1882,6 +2160,20 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
             mode = Mode::Res;
             const int pi = lloc0.pista, ci = lloc0.clip;
             const auto& t2 = estat.projecte.pistes[(size_t) pi];
+            if (const auto& ka = t2.clips[(size_t) ci]; ka.esAcord())
+            {
+                // 0.92: un acord de la pista d'Acords arrossegat fora: al Piano Roll (notes), a un pad del Chord Pad o a un bloc de patró
+                const auto pad = mibase::harmonia::llegeixAcord (ka.acord);
+                const auto notesA = mibase::harmonia::notesPad (pad, 4);
+                const long long dur = std::llround (mibase::midi::ticks (estat.projecte, ka.fiVisible()) - mibase::midi::ticks (estat.projecte, ka.iniciVisible()));
+                const auto nomA = juce::String::fromUTF8 (mibase::harmonia::nomPad (pad).c_str());
+                repaint();
+                PianoRoll::arrossegaAcord (*this, estat, notesA, nomA, juce::jmax (1LL, dur), false, {});
+                estat.segell.acord = ka.acord;
+                estat.info = "Deixa "_ca + nomA + " al Piano Roll, en un pad del Chord Pad o en un patró"_ca;
+                estat.avisa();
+                return;
+            }
             const auto* s = ed::presa (estat.projecte, t2.clips[(size_t) ci].presa);
             const auto nom = s != nullptr ? dibuix::utf8 (s->nom) : juce::String ("Clip");
             juce::Image im (juce::Image::ARGB, 160, 28, true);
@@ -1903,6 +2195,12 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
     switch (mode)
     {
         case Mode::Res:
+            return;
+
+        case Mode::ElasticVora:       // 0.86
+        case Mode::ElasticMarcador:
+            if (! elasticMogut && e.getDistanceFromDragStart() < 3) return;
+            dragElastic (t);
             return;
 
         case Mode::Requadre:
@@ -1988,6 +2286,21 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
         {
             restaura();
             const int fila = juce::jlimit (0, estat.numPistes() - 1, estat.pistaA (e.y));
+            // 0.87: un sol clip d'àudio a sobre de la pista d'Acords: no es mou; en deixar-lo, se'n treuen els acords.
+            filaAcordsDeixar = -1;
+            if (mibase::esAcords (p.pistes[(size_t) fila]) && triatsOriginals.size() == 1)
+                if (const auto* c = estat.clip (triatsOriginals[0]); c != nullptr && ! c->midi && ! c->esAcord() && ! c->presa.empty())
+                {
+                    canviFet = false;
+                    estat.triats = triatsOriginals;
+                    estat.pistaTriada = lloc0.pista;
+                    filaAcordsDeixar = fila;
+                    filaDeixar = fila;
+                    estat.info = "Deixa'l aquí: Mibase n'escoltarà els acords i els posarà a la pista d'Acords"_ca;
+                    estat.avisa();
+                    return;
+                }
+            if (filaDeixar >= 0) filaDeixar = -2;
             const int d = fila - lloc0.pista;
             estat.triats = ed::mouDePista (p, triatsOriginals, d);
             if (estat.triats == triatsOriginals) canviFet = false;
@@ -2036,10 +2349,10 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
                 case Mode::Bandera:
                     ed::posaBandera (p, c, t);
                     if (const auto* s = ed::presa (p, c.presa))
-                        estat.info = "Bandera: "_ca + posicio (p, c.pos + s->primer, true);
+                        estat.info = "Bandera: "_ca + posicio (p, c.pos + mibase::elastic::aClip (c, s->primer), true);
                     break;
                 case Mode::Res: case Mode::Requadre: case Mode::Decidint: case Mode::MouTemps: case Mode::MouPista:
-                case Mode::Llapis: case Mode::Goma: case Mode::Cola:
+                case Mode::Llapis: case Mode::Goma: case Mode::Cola: case Mode::ElasticVora: case Mode::ElasticMarcador:
                     break;
             }
             estat.avisa();
@@ -2050,6 +2363,39 @@ void VistaPistes::mouseDrag (const juce::MouseEvent& e)
 
 void VistaPistes::mouseUp (const juce::MouseEvent& e)
 {
+    if (mode == Mode::CompTria || mode == Mode::CompVora)   // 0.81: el tros triat passa al comp
+    {
+        const auto m = mode;
+        mode = Mode::Res;
+        auto& p = estat.projecte;
+        const double a = juce::jmin (compA, compB), b = juce::jmax (compA, compB);
+        const auto nom = "Presa "_ca + juce::String (compTakeIdx + 1);
+        if (compPista >= 0 && compPista < estat.numPistes())
+        {
+            if (m == Mode::CompTria)
+            {
+                if (std::abs (e.x - inici.x) >= 3 && b - a >= ed::longitudMinima)
+                {
+                    auto copia = p;
+                    if (ed::compTake (p, compPista, compTakeIdx, a, b))
+                    {
+                        estat.desfes.abans (copia);
+                        estat.canviat ("Comp: "_ca + nom + " de " + dibuix::utf8 (ed::textPosicio (p, a)) + " a " + dibuix::utf8 (ed::textPosicio (p, b)));
+                    }
+                }
+            }
+            else if (std::abs (a - compZona0.first) > 1.0e-6 || std::abs (b - compZona0.second) > 1.0e-6)
+            {
+                estat.desfes.abans (p);
+                ed::treuDelComp (p, compPista, compZona0.first, compZona0.second);
+                if (b - a >= ed::longitudMinima) ed::compTake (p, compPista, compTakeIdx, a, b);
+                estat.canviat ("Comp: canviat el tros de la "_ca + nom);
+            }
+        }
+        compPista = compTakeIdx = -1;
+        repaint();
+        return;
+    }
     if (dibuixaAcord)
     {
         // 0.42: finestra dibuixada (o un clic sol: fins al final del compàs, com abans); ara, quin acord hi va
@@ -2163,6 +2509,31 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
         case Mode::MouTemps: case Mode::MouPista: case Mode::RetallInici: case Mode::RetallFi:
         case Mode::FadeIn: case Mode::FadeOut: case Mode::Guany: case Mode::Bandera:
             acabaCanvi();
+            if (mode == Mode::MouPista && filaAcordsDeixar >= 0 && triatsOriginals.size() == 1)   // 0.87
+            {
+                filaDeixar = -2;
+                filaAcordsDeixar = -1;
+                const auto ref = triatsOriginals[0];
+                if (onAcordsDeClip) onAcordsDeClip (ref.pista, ref.clip);
+            }
+            filaAcordsDeixar = -1;
+            break;
+
+        case Mode::ElasticVora:   // 0.86
+            acabaCanvi (elasticMogut ? "Elastic Audio: clip estirat"_ca : juce::String());
+            break;
+
+        case Mode::ElasticMarcador:
+            if (! elasticMogut && (elastic0.zona == 3 || elastic0.zona == 4) && elastic0.pista >= 0)
+            {
+                // Un clic sense arrossegar: un marcador nou allà (per exemple, a sobre d'un cop).
+                restaura();
+                auto& c = estat.projecte.pistes[(size_t) elastic0.pista].clips[(size_t) elastic0.clip];
+                const auto* s = ed::presa (estat.projecte, c.presa);
+                if (s == nullptr || mibase::elastic::afegeixMarcador (c, s->durada, elasticT0) < 0) canviFet = false;
+                acabaCanvi ("Elastic Audio: marcador nou"_ca);
+            }
+            else acabaCanvi (elasticMogut ? "Elastic Audio: marcador mogut"_ca : juce::String());
             break;
     }
     triatsOriginals.clear();
@@ -2172,6 +2543,26 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
 
 void VistaPistes::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    if (const auto [pl, kl] = estat.laneA (e.y); pl >= 0)   // 0.81: doble clic a una presa: sona sencera
+    {
+        mode = Mode::Res;
+        estat.desfes.abans (estat.projecte);
+        if (ed::compTakeSencera (estat.projecte, pl, kl)) estat.canviat ("Comp: Presa "_ca + juce::String (kl + 1) + " sencera");
+        return;
+    }
+    if (estat.eina == Eina::Elastic)   // 0.86: doble clic a un marcador: es treu
+    {
+        const auto le = elasticA (e.getPosition());
+        if (le.zona == 2)
+        {
+            mode = Mode::Res;
+            comencaCanvi();
+            restaura();
+            mibase::elastic::treuMarcador (estat.projecte.pistes[(size_t) le.pista].clips[(size_t) le.clip], le.marcador);
+            acabaCanvi ("Elastic Audio: marcador tret"_ca);
+        }
+        return;
+    }
     if (const int fila = estat.pistaA (e.y); fila >= 0 && fila < estat.numPistes() && estat.filaCarpeta (fila))
     {
         if (auto* c = ed::carpeta (estat.projecte, estat.projecte.pistes[(size_t) fila].carpeta)) c->plegada = false;
@@ -2374,7 +2765,7 @@ void Capcaleres::paint (juce::Graphics& g)
             g.setColour (tema::text);
             g.setFont (dibuix::lletra (14.0f, true));
             g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
-            dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", t.mut, vintage::ledBlau);
+            dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", mutAra (p, t), vintage::ledBlau);
             dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
             const int d = ed::pistaPerId (p, t.sortida);
             g.setColour (tema::suau);
@@ -2400,6 +2791,8 @@ void Capcaleres::paint (juce::Graphics& g)
             g.setColour (tema::triat);
             g.fillRect (r);
         }
+        g.setColour (EstatEstudi::colorPista (t).withAlpha (0.09f));   // 0.84: la capçalera, també tenyida
+        g.fillRect (r);
         g.setColour (sona (p, t) ? EstatEstudi::colorPista (t) : tema::suau);
         g.fillRect (r.getX(), r.getY() + 4, 4, r.getHeight() - 8);
 
@@ -2408,11 +2801,25 @@ void Capcaleres::paint (juce::Graphics& g)
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
         g.drawText (juce::String (i + 1), fila.removeFromLeft (22), juce::Justification::centredLeft);
+        if (const auto rp = rectPreses (i); ! rp.isEmpty())
+        {
+            // 0.81: «▸ 3 preses» / «▾ 3 preses»
+            fila.setRight (juce::jmin (fila.getRight(), rp.getX() - 4));
+            vintage::tecla (g, rp.toFloat(), t.takesObertes, false, EstatEstudi::colorPista (t));
+            juce::Path f;
+            const float fx = (float) rp.getX() + 6.0f, fy = (float) rp.getCentreY();
+            if (t.takesObertes) f.addTriangle (fx, fy - 2.5f, fx + 7.0f, fy - 2.5f, fx + 3.5f, fy + 3.0f);
+            else f.addTriangle (fx + 1.0f, fy - 4.0f, fx + 1.0f, fy + 4.0f, fx + 6.5f, fy);
+            g.setColour (tema::text);
+            g.fillPath (f);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawFittedText (juce::String ((int) t.takes.size()) + " preses"_ca, rp.withTrimmedLeft (16).withTrimmedRight (3), juce::Justification::centredLeft, 1, 0.8f);
+        }
         g.setColour (tema::text);
         g.setFont (dibuix::lletra (14.0f, true));
         g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
 
-        dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", t.mut, vintage::ledBlau);
+        dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", mutAra (p, t), vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 2), {}, t.grava, vintage::ledVermell, true);
 
@@ -2477,6 +2884,31 @@ void Capcaleres::paint (juce::Graphics& g)
 
         g.setColour (tema::linia.withAlpha (0.6f));
         g.fillRect (0, r.getBottom() - 1, getWidth(), 1);
+
+        if (const int nl = estat.numLanes (i); nl > 0)
+        {
+            // 0.81: el nom de cada subpista i un llum si sona al comp
+            const auto zones = ed::zonesTakes (p, i);
+            const auto col = EstatEstudi::colorPista (t);
+            for (int k = 0; k < nl; ++k)
+            {
+                const auto rl = juce::Rectangle<int> (0, estat.yLane (i, k), getWidth(), estat.altLane());
+                g.setColour (juce::Colour (0xff131317));
+                g.fillRect (rl);
+                g.setColour (col.withAlpha (0.35f));
+                g.fillRect (rl.getX() + 14, rl.getY() + 4, 2, rl.getHeight() - 8);
+                const bool sona = k < (int) zones.size() && ! zones[(size_t) k].empty();
+                g.setColour (sona ? col : juce::Colours::black.withAlpha (0.6f));
+                g.fillEllipse ((float) rl.getX() + 24.0f, (float) rl.getCentreY() - 4.0f, 8.0f, 8.0f);
+                g.setColour (col.withAlpha (0.7f));
+                g.drawEllipse ((float) rl.getX() + 24.0f, (float) rl.getCentreY() - 4.0f, 8.0f, 8.0f, 1.0f);
+                g.setColour (sona ? tema::text : tema::suau);
+                g.setFont (dibuix::lletra (12.0f, sona));
+                g.drawText ("Presa "_ca + juce::String (k + 1), rl.withTrimmedLeft (40).withTrimmedRight (24), juce::Justification::centredLeft, true);
+                g.setColour (tema::linia.withAlpha (0.4f));
+                g.fillRect (0, rl.getBottom() - 1, getWidth(), 1);
+            }
+        }
     }
 
     {
@@ -2509,13 +2941,13 @@ void Capcaleres::menu (int pista)
     juce::PopupMenu sons;
     if (t.tipus == "midi")
     {
-        const int actual = juce::jmax (0, midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument));
-        for (int k = 0; k < (int) midi::sonsInterns().size(); ++k)
-            sons.addItem (60 + k, juce::String::fromUTF8 (midi::sonsInterns()[(size_t) k].nom), true, actual == k && midi::soIntern (t.instrument.empty() ? "intern:piano" : t.instrument) >= 0);
-        sons.addSeparator();
+        sons.addItem (56, "Mibase LEAD (sinte de solistes)"_ca, true, mibase::lead::esLead (t));   // 0.89 (abans, els sons del sinte bàsic)
         sons.addSubMenu ("General MIDI (128 sons)"_ca, bancgm::menu (200, mibase::gm::programa (t.instrument)), true, juce::Image(), mibase::gm::programa (t.instrument) >= 0);   // 0.31
         sons.addSubMenu ("Guitarres (SoundFonts)"_ca, guitarres::menu (7000, t.instrument), true, juce::Image(), t.instrument.rfind ("sf2:", 0) == 0);   // 0.43
         sons.addItem (58, "Samplejador"_ca, true, mibase::esSampler (t));
+        sons.addItem (57, "Mibase SUB & BASS (sinte de baixos)"_ca, true, mibase::subbass::esSubBass (t));   // 0.88
+        sons.addItem (60, "Mibase ATMOS (pads i atmosferes)"_ca, true, mibase::atmos::esAtmos (t));   // 0.90
+        sons.addItem (61, "Mibase NEO (síntesi híbrida, disseny de so)"_ca, true, mibase::neo::esNeo (t));   // 0.93
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
     }
@@ -2530,6 +2962,17 @@ void Capcaleres::menu (int pista)
     {
         m.addItem (3, t.canals == 2 ? "Fes-la mono" : "Fes-la estèreo"_ca);
         m.addSubMenu ("Entrada per gravar"_ca, entrades);
+        if (! t.takes.empty())   // 0.81
+        {
+            m.addSeparator();
+            m.addItem (12, t.takesObertes ? "Plega les preses"_ca : "Desplega les preses ("_ca + juce::String ((int) t.takes.size()) + ")");
+            m.addItem (13, "Consolida el comp: un àudio nou amb els trossos triats"_ca);
+        }
+    }
+    if (! mibase::esBus (t) && ! mibase::esAcords (t))   // 0.82: també les pistes MIDI
+    {
+        m.addSeparator();
+        m.addItem (14, "Print: un àudio nou amb els efectes aplicats"_ca, ed::rangClips (t).second > ed::rangClips (t).first);
     }
     m.addSeparator();
     m.addItem (2, "Esborra la pista");
@@ -2541,6 +2984,9 @@ void Capcaleres::menu (int pista)
         if (r == 0 || pista >= estat.numPistes()) return;
         if (r == 1) { if (onCanviaNom) onCanviaNom (pista); return; }
         if (r == 11) { if (onAutomatitzacio) onAutomatitzacio (pista); return; }   // 0.56
+        if (r == 12) { auto& tt = estat.projecte.pistes[(size_t) pista]; tt.takesObertes = ! tt.takesObertes; estat.canviat(); return; }   // 0.81
+        if (r == 13) { if (onConsolidaComp) onConsolidaComp (pista); return; }
+        if (r == 14) { if (onPrint) onPrint (pista); return; }   // 0.82
         if (r == 9)
         {
             VistaPistes::menuPistaNova (*this, [this] (const juce::String& tipus, int canals) { if (onPistaNova) onPistaNova (tipus, canals); });
@@ -2557,6 +3003,12 @@ void Capcaleres::menu (int pista)
             estat.capTriat();
         }
         else if (r == 3) tt.canals = tt.canals == 2 ? 1 : 2;
+        else if (r == 57 && ! mibase::subbass::esSubBass (tt))   // 0.88
+        {
+            tt.instrument = mibase::subbass::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase SUB & BASS"_ca;
+        }
         else if (r == 58)
         {
             tt.instrument = mibase::instrumentSampler;
@@ -2579,15 +3031,39 @@ void Capcaleres::menu (int pista)
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (r - 200));
             juce::MessageManager::callAsync ([this] { bancgm::assegura (this, {}); });
         }
-        else if (r >= 60 && r < 200)
+        else if (r == 61 && ! mibase::neo::esNeo (tt))   // 0.93
         {
-            tt.instrument = std::string ("intern:") + midi::sonsInterns()[(size_t) (r - 60)].id;
-            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: so "_ca + juce::String::fromUTF8 (midi::sonsInterns()[(size_t) (r - 60)].nom);
+            tt.instrument = mibase::neo::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase NEO"_ca;
+        }
+        else if (r == 60 && ! mibase::atmos::esAtmos (tt))   // 0.90
+        {
+            tt.instrument = mibase::atmos::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase ATMOS"_ca;
+        }
+        else if (r == 56 && ! mibase::lead::esLead (tt))   // 0.89
+        {
+            tt.instrument = mibase::lead::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase LEAD"_ca;
         }
         else if (EstatEstudi::aplicaEntrada (tt, r, 1000)) evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: entrada "_ca + EstatEstudi::textEntrada (tt);
         else if (r >= 20 && r < 40) { tt.color = r - 20; tt.rgb = 0; }
         acabaCanvi (evolucio);
     });
+}
+
+juce::Rectangle<int> Capcaleres::rectPreses (int fila) const
+{
+    // 0.81: plega / desplega les subpistes de les preses (al costat del nom)
+    if (fila < 0 || fila >= estat.numPistes() || estat.modeFila (fila) != 1) return {};
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (t.takes.empty() || mibase::esMidi (t) || mibase::esBus (t)) return {};
+    const int w = juce::jmin (70, getWidth() - 120);
+    if (w < 40) return {};
+    return { getWidth() - 24 - w, estat.yPista (fila) + 6, w, 19 };
 }
 
 juce::Rectangle<int> Capcaleres::zonaES (int fila) const
@@ -2675,6 +3151,14 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
         return;
     }
     if (fila < 0 || fila >= estat.numPistes()) return;
+    if (rectPreses (fila).contains (e.getPosition()))   // 0.81: plega / desplega les preses
+    {
+        auto& tt = estat.projecte.pistes[(size_t) fila];
+        tt.takesObertes = ! tt.takesObertes;
+        estat.canviat();
+        return;
+    }
+    if (estat.laneA (e.y).first >= 0) return;   // 0.81: el nom d'una subpista (les preses es trien a la taula)
 
     if (estat.filaCarpeta (fila))
     {
@@ -3045,7 +3529,7 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     const int ample = 28, sep = 4;
     auto tecles = zonaTecles.withSizeKeepingCentre (ample * 3 + sep * 2, 26);
-    dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), "M", t->mut, vintage::ledBlau);
+    dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), "M", mutAra (estat.projecte, *t), vintage::ledBlau);
     tecles.removeFromLeft (sep);
     dibuixEstudi::teclaPetita (g, tecles.removeFromLeft (ample), "S", t->solo, vintage::ledGroc);
     tecles.removeFromLeft (sep);
@@ -3347,7 +3831,7 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
         g.setFont (dibuix::mono (11.5f));
         g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
 
-        dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", t->mut, vintage::ledBlau);
+        dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", mutAra (estat.projecte, *t), vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
         if (! mibase::esBus (*t)) dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
 
@@ -3822,6 +4306,36 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
     addChildComponent (btTreu);
     btDuplica.onClick = [this] { if (onDuplica) onDuplica(); };
     btTreu.onClick = [this] { if (onTreu) onTreu(); };
+    addChildComponent (btElastic);   // 0.86
+    btElastic.setTooltip ("Elastic Audio del clip: algorisme, marcadors als cops, quantitzar i tornar a l'original"_ca);
+    btElastic.onClick = [this] { if (onElastic) onElastic (btElastic); };
+    addChildComponent (btAcords);   // 0.87
+    btAcords.setTooltip ("Escolta el clip i posa'n els acords a la pista d'Acords (els dubtosos surten amb un «?»). També pots arrossegar el clip a la pista d'Acords."_ca);
+    btAcords.onClick = [this] { if (onAcords) onAcords(); };
+    // 0.87: notes de la pista triada
+    addAndMakeVisible (notes);
+    notes.setMultiLine (true, true);
+    notes.setReturnKeyStartsNewLine (true);
+    notes.setScrollbarsShown (true);
+    notes.setFont (dibuix::lletra (13.0f));
+    notes.setTextToShowWhenEmpty ("Notes de la pista (què falta, quin so, idees…)"_ca, tema::suau);
+    notes.setColour (juce::TextEditor::backgroundColourId, tema::superficie);
+    notes.setColour (juce::TextEditor::outlineColourId, tema::linia);
+    notes.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+    notes.setColour (juce::TextEditor::textColourId, tema::text);
+    notes.onFocusLost = [this] { desaNotes(); };
+    notes.onEscapeKey = [this] { desaNotes(); unfocusAllComponents(); };
+    addChildComponent (modesTeclat);   // 0.92
+    modesTeclat.setTooltip ("Com toca el teclat MIDI aquesta pista. Visual: tal qual (al Piano Roll es ressalta l'escala). Assistit: una tecla fora de l'escala toca la més propera. Bloquejat: les tecles fora de l'escala no sonen."_ca);
+    modesTeclat.onCanvi = [this] (int i)
+    {
+        auto* t = estat.pista (estat.pistaTriada);
+        if (t == nullptr) return;
+        comencaCanvi();
+        restaura();
+        if (auto* q = estat.pista (estat.pistaTriada)) { q->modeEscala = i; q->escalaTeclat = true; }
+        acabaCanvi();
+    };
     addAndMakeVisible (btEstructura);
     btEstructura.setTooltip ("Quina estructura sona en fer play: la línia de temps tal com és (lineal) o una de la taula d'estructura"_ca);
     btEstructura.onClick = [this]
@@ -3845,11 +4359,40 @@ PanellPista::PanellPista (EstatEstudi& e) : SeccioEstudi (e)
     };
 }
 
+bool PanellPista::ambTeclat() const
+{
+    const auto* t = estat.pista (estat.pistaTriada);
+    return t != nullptr && mibase::esMidi (*t) && ! mibase::esKit (*t);
+}
+
 void PanellPista::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     const bool hiHaClips = ! estat.triats.empty() || estat.rang.actiu;
     btDuplica.setVisible (hiHaClips);
     btTreu.setVisible (hiHaClips);
+    {
+        const auto* c = estat.clipUnicTriat();   // 0.86: només per a un clip d'àudio
+        btElastic.setVisible (c != nullptr && ! c->midi && ! c->esAcord() && ! c->presa.empty());
+        btAcords.setVisible (btElastic.isVisible());
+    }
+    {
+        // 0.87: si ha canviat la pista triada, es desen les notes de l'anterior i es mostren les de la nova
+        const auto* t = estat.pista (estat.pistaTriada);
+        const std::string id = t != nullptr ? t->id : std::string();
+        if (id != idNotes)
+        {
+            desaNotes();
+            idNotes = id;
+            notes.setText (t != nullptr ? juce::String::fromUTF8 (t->notes.c_str()) : juce::String(), juce::dontSendNotification);
+        }
+        else if (t != nullptr && ! notes.hasKeyboardFocus (true) && notes.getText().toStdString() != t->notes)
+            notes.setText (juce::String::fromUTF8 (t->notes.c_str()), juce::dontSendNotification);   // desfer / refer
+        notes.setVisible (t != nullptr);
+        modesTeclat.setVisible (ambTeclat());
+        if (t != nullptr && ambTeclat())
+            modesTeclat.setTriat (t->escalaTeclat ? (int) mibase::modeEscalaDe (estat.projecte, *t) : 0);
+        resized();
+    }
     {
         const auto* e = ed::estructura (estat.projecte, estat.projecte.estructuraActiva);
         btEstructura.setButtonText (e == nullptr ? "Estructura: lineal"_ca : "Estructura: "_ca + dibuix::utf8 (e->nom));
@@ -3863,6 +4406,26 @@ void PanellPista::resized()
     btDuplica.setBounds (botons.removeFromLeft (botons.getWidth() / 2 - 5));
     botons.removeFromLeft (10);
     btTreu.setBounds (botons);
+    {
+        auto fila = getLocalBounds().reduced (18, 16).withTrimmedTop (274).withHeight (32);   // 0.86 / 0.87
+        btElastic.setBounds (fila.removeFromLeft (fila.getWidth() / 2 - 5));
+        fila.removeFromLeft (10);
+        btAcords.setBounds (fila);
+    }
+    // 0.87: la pista triada: títol i 4 línies d'informació, i a sota les notes (0.92: targetes separades i el teclat)
+    yPista = 16 + (btElastic.isVisible() ? 320 : 280) + 18;
+    {
+        int notesY = yPista + 30 + 4 * 22 + 6;
+        if (const auto* tp = estat.pista (estat.pistaTriada); tp != nullptr && mibase::esMidi (*tp) && tp->segueixAcords) notesY += 22;   // 0.92.1: la línia «Acords»
+        if (ambTeclat())
+        {
+            modesTeclat.setBounds (18 + 74, notesY, getWidth() - 36 - 74, 28);
+            notesY += 36;
+        }
+        const int baix = getHeight() - 16 - 34 - 10;
+        notes.setBounds (18, notesY, getWidth() - 36, juce::jlimit (40, 160, baix - notesY));
+        fiPista = notes.getBottom() + 12;
+    }
     btEstructura.setBounds (getLocalBounds().reduced (18, 16).removeFromBottom (34));
 }
 
@@ -3873,12 +4436,28 @@ void PanellPista::paint (juce::Graphics& g)
     g.fillRect (0, 0, 1, getHeight());
 
     auto r = getLocalBounds().reduced (18, 16);
-    auto info = r.withHeight (220);
     auto* c = estat.clipUnicTriat();
     const auto& p = estat.projecte;
 
-    dibuix::pintaEtiquetaSeccio (g, c != nullptr ? "Clip triat" : "Clips", info.removeFromTop (20));
-    info.removeFromTop (4);
+    // 0.92: dues targetes ben separades, cadascuna amb el seu títol: el clip triat i la pista triada
+    auto targeta = [&] (int y0, int y1, const juce::String& titol, juce::Colour color)
+    {
+        auto b = juce::Rectangle<int> (8, y0, getWidth() - 16, y1 - y0).toFloat();
+        g.setColour (tema::superficie.withAlpha (0.55f));
+        g.fillRoundedRectangle (b, 8.0f);
+        g.setColour (tema::linia);
+        g.drawRoundedRectangle (b, 8.0f, 1.0f);
+        auto cap = b.removeFromTop (28.0f);
+        g.setColour (color);
+        g.fillRoundedRectangle (cap.getX() + 10.0f, cap.getCentreY() - 7.0f, 4.0f, 14.0f, 2.0f);
+        g.setColour (tema::text);
+        g.setFont (dibuix::lletra (13.5f, true));
+        g.drawText (titol.toUpperCase(), cap.withTrimmedLeft (22.0f), juce::Justification::centredLeft);
+    };
+    targeta (8, yPista - 10, c != nullptr ? "Clip triat"_ca : "Clips", tema::accent);
+    if (estat.pista (estat.pistaTriada) != nullptr) targeta (yPista - 2, fiPista, "Pista triada"_ca, vintage::ledVerd);
+    r.removeFromTop (26);
+    auto info = r.withHeight (204);
     if (c != nullptr)
     {
         const auto* s = ed::presa (p, c->presa);
@@ -3912,8 +4491,18 @@ void PanellPista::paint (juce::Graphics& g)
         linia ("Llargada", juce::String (c->longitud(), 2).replaceCharacter ('.', ',') + " s");
         linia ("Fades", ms (c->fadeIn) + " / " + ms (c->fadeOut));
         linia ("Volum", EstatEstudi::textDb (c->guanyDb) + (c->mut ? " · silenciat"_ca : ""));
-        linia ("Bandera", s && ed::banderaVisible (p, *c) ? posicio (p, c->pos + s->primer, true)
+        linia ("Bandera", s && ed::banderaVisible (p, *c) ? posicio (p, ed::puntSnap (p, *c), true)
                                                           : (s && s->primer >= 0 ? juce::String ("fora del clip") : juce::String ("no en té"_ca)));
+        if (s != nullptr)   // 0.86
+        {
+            namespace el = mibase::elastic;
+            const double f0 = el::aFont (*c, c->inici), f1 = el::aFont (*c, c->fi);
+            const int n = (int) el::marcadors (*c).size();
+            linia ("Elastic", ! el::actiu (*c) ? juce::String ("original")
+                              : juce::String (juce::roundToInt (f1 > f0 ? c->longitud() / (f1 - f0) * 100.0 : 100.0)) + " %"
+                                + (n > 0 ? " · "_ca + juce::String (n) + (n == 1 ? " marcador" : " marcadors") : juce::String())
+                                + " · "_ca + juce::String::fromUTF8 (el::nomMode (c->elastic)));
+        }
         }
     }
     else
@@ -3927,12 +4516,68 @@ void PanellPista::paint (juce::Graphics& g)
                           info.removeFromTop (60), juce::Justification::topLeft, 3);
     }
 
-    r.removeFromTop (290);
+    // 0.87: la pista triada (sense haver d'obrir la taula de mescles)
+    if (const auto* t = estat.pista (estat.pistaTriada))
+    {
+        auto zona = juce::Rectangle<int> (18, yPista + 30, getWidth() - 36, 4 * 22 + 40);
+        auto fila = [&] (const juce::String& etiqueta, const juce::String& valor)
+        {
+            auto f = zona.removeFromTop (22);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (12.0f));
+            g.drawText (etiqueta, f.removeFromLeft (74), juce::Justification::centredLeft);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.5f));
+            g.drawText (valor, f, juce::Justification::centredLeft, true);
+        };
+        auto nomPista = [&] (const std::string& id) -> juce::String
+        {
+            for (auto& x : p.pistes) if (x.id == id) return dibuix::utf8 (x.nom);
+            return "?";
+        };
+        const juce::String tipus = mibase::esAcords (*t) ? "acords"_ca : mibase::esBus (*t) ? (t->tipus == "fx" ? "retorn d'efectes"_ca : "grup"_ca)
+                                 : mibase::esKit (*t) ? "bateria (MIDI)"_ca : mibase::esMidi (*t) ? "instrument (MIDI)"_ca
+                                 : (t->canals == 2 ? "àudio estèreo"_ca : "àudio mono"_ca);
+        fila ("Pista", dibuix::utf8 (t->nom) + "  · "_ca + tipus);
+        if (! mibase::esAcords (*t))
+        {
+            const juce::String entrada = mibase::esBus (*t) ? juce::String ("busos i enviaments")
+                                       : mibase::esMidi (*t) ? (t->entradaMidiNom.empty() ? juce::String ("teclat de la pista triada") : dibuix::utf8 (t->entradaMidiNom))
+                                       : juce::String (t->entrada + 1) + (t->canals == 2 ? "-" + juce::String (t->entrada + 2) : juce::String());
+            fila ("E / S", entrada + "  >  "_ca + (t->sortida.empty() ? juce::String ("Màster"_ca) : nomPista (t->sortida)));
+            juce::StringArray efectes;
+            for (auto& x : t->inserts) efectes.add (dibuix::utf8 (x.nom) + (x.actiu ? "" : " (apagat)"));
+            fila ("Efectes", efectes.isEmpty() ? juce::String ("cap") : efectes.joinIntoString (", "));
+            juce::StringArray env;
+            for (auto& x : t->enviaments) env.add (nomPista (x.desti) + " " + EstatEstudi::textDb (x.nivellDb));
+            fila ("Enviaments", env.isEmpty() ? juce::String ("cap") : env.joinIntoString (", "));
+        }
+        if (mibase::esMidi (*t) && t->segueixAcords)   // 0.92.1: si toca sola els acords o no, i per què
+        {
+            bool notes = false, blocs = false;
+            for (auto& k : t->clips) if (k.midi) { notes |= ! k.notes.empty(); blocs |= ! k.blocs.empty(); }
+            bool hiHaAcords = false;
+            for (auto& x : p.pistes) if (mibase::esAcords (x)) for (auto& k : x.clips) hiHaAcords |= k.esAcord() && ! k.mut;
+            fila ("Acords", mibase::tocaAcordsSols (*t) ? (hiHaAcords ? "toca sola els de la pista d'Acords"_ca : "no hi ha acords a la pista d'Acords"_ca)
+                            : blocs ? "els segueixen els patrons"_ca
+                            : notes ? "té notes: sonen les notes"_ca : "no"_ca);
+        }
+        if (ambTeclat())
+        {
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (12.0f));
+            g.drawText ("Teclat", juce::Rectangle<int> (18, modesTeclat.getY(), 74, modesTeclat.getHeight()), juce::Justification::centredLeft);
+        }
+        r = r.withTop (fiPista + 14);
+    }
+    else r.removeFromTop (btElastic.isVisible() ? 330 : 290);
+    if (r.getHeight() < 80) return;
     dibuix::pintaEtiquetaSeccio (g, "Eines", r.removeFromTop (20));
     const char* linies[] = {
         "Fletxa (1): tria i mou. Arrossega en un lloc buit per fer un requadre. Cantonades: retallar i fades; punt del mig: volum.",
         "Llapis (2): clica i arrossega per fer una finestra; sense arrossegar, d'un compàs.",
         "Goma (3) · Tisores (4) · Cola (5): clica un clip i arrossega fins al del costat · Silenci (6).",
+        "Elastic Audio (7): vores = estirar sense canviar el to. A l'ona: clic = marcador, arrossegar = moure el temps. Doble clic o Alt+clic al marcador: el treu.",
         "M: silencia el triat. Ctrl+C / Ctrl+X / Ctrl+V: copia, retalla i enganxa al capçal. Insert: enganxar inserint o trepitjant.",
         "Z: tot el projecte a la pantalla · Maj+Z: el que hi ha triat. Q / W / E: graella Compàs / Temps / Lliure.",
         "Botó dret en un lloc buit: fletxa. El capçal es mou clicant la regla.",
@@ -3945,4 +4590,241 @@ void PanellPista::paint (juce::Graphics& g)
         g.setColour (tema::suau);
         g.drawFittedText (juce::String::fromUTF8 (l), r.removeFromTop (46), juce::Justification::topLeft, 3, 0.9f);
     }
+}
+
+//==============================================================================
+// 0.86: Elastic Audio (eina 7)
+//==============================================================================
+namespace
+{
+    /** «112 % (més lent)»: la durada d'un tros comparada amb l'original. */
+    juce::String textRitme (double ratio)
+    {
+        const int pc = juce::roundToInt (ratio * 100.0);
+        return juce::String (pc) + " %" + (pc > 100 ? " (més lent)"_ca : pc < 100 ? " (més ràpid)"_ca : " (original)"_ca);
+    }
+
+    const juce::Colour colorLent { 0xff6fa8ff }, colorRapid { 0xffff8a2a };
+}
+
+VistaPistes::LlocElastic VistaPistes::elasticA (juce::Point<int> p) const
+{
+    namespace el = mibase::elastic;
+    LlocElastic l;
+    const int fila = estat.pistaA (p.y);
+    if (fila < 0 || fila >= estat.numPistes() || estat.filaCarpeta (fila)) return l;
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (mibase::esMidi (t) || mibase::esBus (t)) return l;
+    const auto pf = p.toFloat();
+    for (int i = (int) t.clips.size(); --i >= 0;)
+    {
+        const auto& c = t.clips[(size_t) i];
+        if (c.midi || c.esAcord() || c.presa.empty() || ed::presa (estat.projecte, c.presa) == nullptr) continue;
+        const auto r = rectClip (fila, c);
+        if (! r.expanded (6.0f, 0.0f).contains (pf)) continue;
+        l.pista = fila;
+        l.clip = i;
+        const float vora = juce::jmin (8.0f, r.getWidth() / 4.0f);
+        if (std::abs (pf.x - r.getX()) <= vora) { l.zona = -1; return l; }
+        if (std::abs (pf.x - r.getRight()) <= vora) { l.zona = 1; return l; }
+        float millor = 7.0f;
+        for (int m : el::marcadors (c))
+        {
+            const float d = std::abs (estat.x (c.pos + c.warp[(size_t) m].desti) - pf.x);
+            if (d <= millor) { millor = d; l.zona = 2; l.marcador = m; }
+        }
+        if (l.zona == 2) return l;
+        if (el::marcadors (c).empty() && std::abs ((r.getX() + r.getRight()) / 2.0f - pf.x) <= 7.0f) { l.zona = 3; return l; }
+        l.zona = 4;
+        return l;
+    }
+    return l;
+}
+
+void VistaPistes::mouseDownElastic (const juce::MouseEvent& e)
+{
+    namespace el = mibase::elastic;
+    elastic0 = elasticA (e.getPosition());
+    elasticMogut = false;
+    if (elastic0.clip < 0)
+    {
+        estat.capTriat();
+        if (lloc0.pista >= 0) estat.pistaTriada = lloc0.pista;
+        estat.avisa();
+        return;
+    }
+    estat.triaClip (elastic0.pista, elastic0.clip);
+    estat.pistaTriada = elastic0.pista;
+    const auto& c = estat.projecte.pistes[(size_t) elastic0.pista].clips[(size_t) elastic0.clip];
+    if (elastic0.zona == 2 && e.mods.isAltDown())   // Alt+clic: treu el marcador
+    {
+        comencaCanvi();
+        restaura();
+        el::treuMarcador (estat.projecte.pistes[(size_t) elastic0.pista].clips[(size_t) elastic0.clip], elastic0.marcador);
+        acabaCanvi ("Elastic Audio: marcador tret"_ca);
+        return;
+    }
+    comencaCanvi();
+    switch (elastic0.zona)
+    {
+        case -1: case 1:
+            mode = Mode::ElasticVora;
+            elasticT0 = elastic0.zona < 0 ? c.iniciVisible() : c.fiVisible();
+            estat.info = "Elastic Audio: arrossega per estirar o escurçar el clip (el to no canvia)"_ca;
+            break;
+        case 2:
+            mode = Mode::ElasticMarcador;
+            elasticT0 = c.pos + c.warp[(size_t) elastic0.marcador].desti;
+            break;
+        case 3:
+            mode = Mode::ElasticMarcador;
+            elasticT0 = (c.iniciVisible() + c.fiVisible()) / 2.0;
+            estat.info = "Elastic Audio: el marcador del mig reparteix el temps entre les dues meitats"_ca;
+            break;
+        default:
+            mode = Mode::ElasticMarcador;
+            elasticT0 = t0;
+            break;
+    }
+    estat.avisa();
+}
+
+void VistaPistes::dragElastic (double t)
+{
+    namespace el = mibase::elastic;
+    if (elastic0.pista < 0 || elastic0.clip < 0) return;
+    restaura();
+    auto& p = estat.projecte;
+    auto& c = p.pistes[(size_t) elastic0.pista].clips[(size_t) elastic0.clip];
+    const auto* s = ed::presa (p, c.presa);
+    if (s == nullptr) return;
+    elasticMogut = true;
+    const double desti = elasticT0 + (t - t0);
+    if (mode == Mode::ElasticVora)
+    {
+        el::estiraVora (c, s->durada, elastic0.zona > 0, ed::enganxa (p, desti, p.snap));
+        const double f0 = el::aFont (c, c.inici), f1 = el::aFont (c, c.fi);
+        estat.info = "Elastic Audio: "_ca + juce::String (c.longitud(), 2).replaceCharacter ('.', ',') + " s · "_ca
+                   + textRitme (f1 > f0 ? c.longitud() / (f1 - f0) : 1.0);
+    }
+    else
+    {
+        int m = elastic0.marcador;
+        if (m < 0)
+        {
+            m = el::afegeixMarcador (c, s->durada, elasticT0);
+            if (m < 0) { canviFet = false; estat.avisa(); return; }
+        }
+        // Els marcadors s'enganxen a la graella (si és «Compàs», als temps: un compàs sencer és massa gros).
+        const auto snap = p.snap == mibase::Snap::Compas ? mibase::Snap::Temps : p.snap;
+        const double on = el::mouMarcador (c, m, ed::enganxa (p, desti, snap));
+        estat.info = "Marcador: "_ca + posicio (p, on, true) + " · abans "_ca + textRitme (el::ratioTros (c.warp, (size_t) m - 1))
+                   + " · després "_ca + textRitme (el::ratioTros (c.warp, (size_t) m));
+    }
+    estat.avisa();
+}
+
+void VistaPistes::pintaElastic (juce::Graphics& g, int pista, int indexClip, const mibase::Clip& c, juce::Rectangle<float> r)
+{
+    namespace el = mibase::elastic;
+    const bool eina = estat.eina == Eina::Elastic;
+    const bool aquest = sobreElastic.pista == pista && sobreElastic.clip == indexClip;
+    const bool triat = estat.clipTriat (pista, indexClip);
+    const bool arrossegant = (mode == Mode::ElasticVora || mode == Mode::ElasticMarcador) && elastic0.pista == pista && elastic0.clip == indexClip;
+
+    // Els trossos que van més lents (blau) o més ràpids (taronja).
+    if (el::actiu (c))
+        for (size_t i = 0; i + 1 < c.warp.size(); ++i)
+        {
+            const double ratio = el::ratioTros (c.warp, i);
+            if (std::abs (ratio - 1.0) < 0.005) continue;
+            const double a = juce::jmax (c.warp[i].desti, c.inici), b = juce::jmin (c.warp[i + 1].desti, c.fi);
+            if (b <= a) continue;
+            const float x0 = estat.x (c.pos + a), x1 = estat.x (c.pos + b);
+            const auto col = ratio > 1.0 ? colorLent : colorRapid;
+            const float forca = (float) juce::jlimit (0.3, 1.0, std::abs (std::log2 (ratio)) * 2.0);
+            g.setColour (col.withAlpha ((eina ? 0.16f : 0.08f) * forca + 0.03f));
+            g.fillRect (juce::Rectangle<float> (x0, r.getY(), x1 - x0, r.getHeight()));
+            if (eina && x1 - x0 > 44.0f && r.getHeight() > 34.0f)
+            {
+                g.setColour (col.withAlpha (0.95f));
+                g.setFont (dibuix::lletra (11.0f, true));
+                g.drawText (juce::String (juce::roundToInt (ratio * 100.0)) + " %", juce::Rectangle<float> (x0, r.getBottom() - 16.0f, x1 - x0, 14.0f),
+                            juce::Justification::centred, false);
+            }
+        }
+
+    // Els marcadors (i, amb l'eina, les vores fixes).
+    if (el::actiu (c))
+        for (size_t i = 0; i < c.warp.size(); ++i)
+        {
+            const double d = c.warp[i].desti;
+            if (d < c.inici - 1.0e-9 || d > c.fi + 1.0e-9) continue;
+            const float x = estat.x (c.pos + d);
+            if (el::esVora (c, i) || i == 0 || i + 1 == c.warp.size())
+            {
+                if (! eina || ! (triat || aquest)) continue;
+                g.setColour (tema::accent.withAlpha (0.6f));   // vora fixa: un claudàtor petit
+                const float dx = std::abs (x - r.getX()) < 2.0f ? 1.0f : -1.0f;
+                g.fillRect (juce::Rectangle<float> (x - (dx < 0 ? 2.0f : 0.0f), r.getY() + 2.0f, 2.0f, 10.0f));
+                g.fillRect (juce::Rectangle<float> (dx > 0 ? x : x - 6.0f, r.getY() + 2.0f, 6.0f, 2.0f));
+                continue;
+            }
+            const bool destacat = (aquest && sobreElastic.zona == 2 && sobreElastic.marcador == (int) i)
+                                  || (arrossegant && mode == Mode::ElasticMarcador && (elastic0.marcador == (int) i || elastic0.marcador < 0));
+            g.setColour (tema::accent.withAlpha (eina ? (destacat ? 1.0f : 0.85f) : 0.35f));
+            g.fillRect (juce::Rectangle<float> (x - (destacat ? 1.0f : 0.6f), r.getY(), destacat ? 2.0f : 1.2f, r.getHeight()));
+            if (eina)
+            {
+                juce::Path tri;
+                tri.addTriangle (x - 5.0f, r.getY(), x + 5.0f, r.getY(), x, r.getY() + 8.0f);
+                g.fillPath (tri);
+            }
+        }
+
+    if (! eina) return;
+
+    // Mode B: el marcador del mig, a punt per arrossegar (encara no hi és).
+    if (el::marcadors (c).empty() && (triat || aquest) && ! arrossegant && r.getWidth() > 40.0f)
+    {
+        const float x = (r.getX() + r.getRight()) / 2.0f;
+        const bool sobreMig = aquest && sobreElastic.zona == 3;
+        g.setColour (tema::accent.withAlpha (sobreMig ? 0.95f : 0.55f));
+        const float guions[] = { 4.0f, 4.0f };
+        g.drawDashedLine (juce::Line<float> (x, r.getY() + 9.0f, x, r.getBottom()), guions, 2, sobreMig ? 2.0f : 1.2f);
+        juce::Path tri;
+        tri.addTriangle (x - 5.0f, r.getY(), x + 5.0f, r.getY(), x, r.getY() + 8.0f);
+        g.strokePath (tri, juce::PathStrokeType (1.4f));
+    }
+
+    // Les vores: es poden estirar (una barra de color, diferent de les manetes de retallar de la fletxa).
+    if (aquest && (sobreElastic.zona == -1 || sobreElastic.zona == 1) && ! arrossegant)
+    {
+        const float x = sobreElastic.zona < 0 ? r.getX() : r.getRight() - 4.0f;
+        g.setColour (tema::accent.withAlpha (0.9f));
+        g.fillRect (juce::Rectangle<float> (x, r.getY(), 4.0f, r.getHeight()));
+    }
+    if (arrossegant && mode == Mode::ElasticVora)
+    {
+        const float x = elastic0.zona < 0 ? r.getX() : r.getRight() - 4.0f;
+        g.setColour (tema::accent);
+        g.fillRect (juce::Rectangle<float> (x, r.getY(), 4.0f, r.getHeight()));
+    }
+}
+
+void PanellPista::desaNotes()
+{
+    // 0.87: les notes de la pista es desen en sortir del quadre (o en canviar de pista), amb Ctrl+Z
+    if (idNotes.empty()) return;
+    const auto text = notes.getText().toStdString();
+    for (int i = 0; i < estat.numPistes(); ++i)
+        if (estat.projecte.pistes[(size_t) i].id == idNotes)
+        {
+            if (estat.projecte.pistes[(size_t) i].notes == text) return;
+            comencaCanvi();
+            restaura();
+            estat.projecte.pistes[(size_t) i].notes = text;
+            acabaCanvi ("Notes de la pista «"_ca + dibuix::utf8 (estat.projecte.pistes[(size_t) i].nom) + "»");
+            return;
+        }
 }

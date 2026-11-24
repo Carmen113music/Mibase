@@ -128,6 +128,8 @@ namespace mibase::rack
         void prepara (double fs, int maxBloc) override;
         void processa (float* L, float* R, int n) noexcept override;
         int latencia() const noexcept override;
+        /** 0.81: ho passa a tots els mòduls (el Tune deixa passar en sec mentre es grava). */
+        void posaDirecte (bool d) noexcept override;
 
         int numParametres() const override { return numParams; }
         InfoParametre infoParametre (int i) const override;

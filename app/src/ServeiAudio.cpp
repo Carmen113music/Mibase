@@ -1,4 +1,5 @@
 #include "ServeiAudio.h"
+#include "Tancaments.h"
 #include <mibase/ContextMusical.h>
 
 namespace
@@ -35,6 +36,9 @@ ServeiAudio::ServeiAudio (Historial& h) : historial (h)
     gestor.addMidiInputDeviceCallback ({}, this);   // tots els teclats activats
 
     historial.afegeix ("Mibase " MIBASE_VERSIO " en marxa.");
+    if (tancaments::nou())   // 0.83
+        historial.afegeix ("Compte: Mibase es va tancar de cop la darrera vegada. Al diagnòstic hi ha on va petar (copia'l i passa'l a Claude)."_ca);
+    tancaments::pas ("en marxa");
     actualitzaMidi();
     changeListenerCallback (nullptr);
 }

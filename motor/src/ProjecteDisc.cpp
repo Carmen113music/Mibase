@@ -381,6 +381,7 @@ namespace mibase::disc
                 t.pads = pads::adapta (t.pads, t.presetPads);   // la 0.9 en desava 16
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
+                t.notes = e.value ("notes", std::string());   // 0.87
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
                 t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
@@ -518,6 +519,18 @@ namespace mibase::disc
                         c.rgb = k.value ("rgb", (std::uint32_t) 0);
                         c.midi = k.value ("midi", false);
                         c.acord = k.value ("acord", std::string());   // 0.36
+                        c.dubtos = k.value ("dubtos", false);   // 0.87
+                        if (k.contains ("warp") && k["warp"].is_array())   // 0.86: Elastic Audio
+                        {
+                            for (auto& w : k["warp"])
+                                if (w.is_array() && w.size() >= 2 && w[0].is_number() && w[1].is_number())
+                                    c.warp.push_back ({ w[0].get<double>(), w[1].get<double>() });
+                            bool bo = c.warp.size() >= 2;
+                            for (size_t i = 1; bo && i < c.warp.size(); ++i)
+                                bo = c.warp[i].font > c.warp[i - 1].font && c.warp[i].desti > c.warp[i - 1].desti;
+                            if (! bo) c.warp.clear();
+                            c.elastic = std::clamp (k.value ("elastic", 0), 0, 2);
+                        }
 if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                             for (auto& b : k["blocs"])
                             {
@@ -593,6 +606,24 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                         t.clips.push_back (c);
                     }
                 }
+                // 0.81: preses alternatives (només àudio)
+                if (e.contains ("takes") && e["takes"].is_array())
+                    for (auto& k : e["takes"])
+                    {
+                        if (! k.is_object()) continue;
+                        Clip c;
+                        c.presa = k.value ("presa", std::string());
+                        c.pos = k.value ("pos", 0.0);
+                        c.inici = k.value ("inici", 0.0);
+                        c.fi = k.value ("fi", c.inici + 1.0);
+                        c.guanyDb = k.value ("guanyDb", 0.0);
+                        c.rgb = k.value ("rgb", (std::uint32_t) 0);
+                        if (c.presa.empty()) continue;
+                        if (c.fi <= c.inici) c.fi = c.inici + edicio::longitudMinima;
+                        t.takes.push_back (c);
+                    }
+                if (t.takes.size() <= 1) t.takes.clear();
+                t.takesObertes = e.value ("takesObertes", true);
                 if (t.id.empty()) t.id = "t" + std::to_string (++p.comptador);
                 p.pistes.push_back (t);
             }
@@ -786,6 +817,14 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                            { "fadeIn", c.fadeIn }, { "fadeOut", c.fadeOut }, { "guanyDb", c.guanyDb }, { "mut", c.mut },
                            { "rgb", c.rgb } };
                 if (c.esAcord()) k["acord"] = c.acord;   // 0.36
+                if (c.esAcord() && c.dubtos) k["dubtos"] = true;   // 0.87
+                if (! c.warp.empty())   // 0.86: Elastic Audio
+                {
+                    json ww = json::array();
+                    for (auto& w : c.warp) ww.push_back ({ w.font, w.desti });
+                    k["warp"] = ww;
+                    k["elastic"] = c.elastic;
+                }
                 if (! c.blocs.empty())   // 0.40
                 {
                     json bl = json::array();
@@ -841,11 +880,22 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                            { "mut", t.mut }, { "solo", t.solo },
                            { "grava", t.grava }, { "faderDb", t.faderDb }, { "pan", t.pan }, { "entrada", t.entrada }, { "escolta", t.escolta }, { "rgb", t.rgb },
                            { "clips", clips } };
+            if (! t.takes.empty())   // 0.81
+            {
+                json tk = json::array();
+                for (auto& c : t.takes)
+                    tk.push_back ({ { "presa", c.presa }, { "pos", c.pos }, { "inici", c.inici }, { "fi", c.fi },
+                                    { "guanyDb", c.guanyDb }, { "rgb", c.rgb } });
+                pista["takes"] = tk;
+                pista["takesObertes"] = t.takesObertes;
+            }
             if (! t.instrument.empty()) pista["instrument"] = t.instrument;
             if (! t.nomInstrument.empty()) { pista["nomInstrument"] = t.nomInstrument; pista["estatInstrument"] = t.estatInstrument; }
+            else if (! t.estatInstrument.empty()) pista["estatInstrument"] = t.estatInstrument;   // 0.88: el SUB & BASS (sense nom de plugin)
             if (! t.inserts.empty()) pista["inserts"] = insertsAJson (t.inserts);
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
+            if (! t.notes.empty()) pista["notes"] = t.notes;   // 0.87
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
             if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
             if (! t.enviaments.empty())
@@ -1119,6 +1169,10 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         std::vector<std::string> usades;
         for (auto& t : projecte.pistes)
             for (auto& c : t.clips)
+                if (! c.presa.empty() && std::find (usades.begin(), usades.end(), c.presa) == usades.end())
+                    usades.push_back (c.presa);
+        for (auto& t : projecte.pistes)   // 0.81: les preses alternatives també
+            for (auto& c : t.takes)
                 if (! c.presa.empty() && std::find (usades.begin(), usades.end(), c.presa) == usades.end())
                     usades.push_back (c.presa);
 

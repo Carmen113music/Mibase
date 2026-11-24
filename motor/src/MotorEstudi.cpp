@@ -1,6 +1,8 @@
 #include "mibase/MotorEstudi.h"
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
+#include "mibase/Elastic.h"
+#include "mibase/Harmonia.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -100,9 +102,55 @@ namespace mibase
                     pp.events.push_back (pe);
                 }
             }
+            if (tocaAcordsSols (t))   // 0.91
+                for (const auto& n : notesAcordsSols (p, t)) pp.notes.push_back (n);
             std::stable_sort (pp.notes.begin(), pp.notes.end(), [] (const Pla::Nota& a, const Pla::Nota& b) { return a.ini < b.ini; });
             std::stable_sort (pp.events.begin(), pp.events.end(), [] (const Pla::Event& a, const Pla::Event& b) { return a.t < b.t; });
         }
+    }
+
+    bool tocaAcordsSols (const Pista& t)
+    {
+        if (! esMidi (t) || ! t.segueixAcords) return false;
+        for (const auto& c : t.clips)
+            if (c.midi && (! c.notes.empty() || ! c.blocs.empty())) return false;
+        return true;
+    }
+
+    std::vector<Pla::Nota> notesAcordsSols (const Projecte& p, const Pista& t)
+    {
+        std::vector<Pla::Nota> r;
+        if (! tocaAcordsSols (t)) return r;
+        struct T { double a, b; std::string acord; };
+        std::vector<T> trams;
+        for (const auto& ta : p.pistes)
+        {
+            if (! esAcords (ta)) continue;
+            for (const auto& k : ta.clips)
+                if (k.esAcord() && ! k.mut && k.fiVisible() - k.iniciVisible() > 0.01) trams.push_back ({ k.iniciVisible(), k.fiVisible(), k.acord });
+        }
+        std::stable_sort (trams.begin(), trams.end(), [] (const T& x, const T& y) { return x.a < y.a; });
+        for (size_t i = 0; i + 1 < trams.size(); ++i) trams[i].b = std::min (trams[i].b, trams[i + 1].a);   // el següent talla l'anterior
+        for (const auto& x : trams)
+        {
+            if (x.b - x.a < 0.005) continue;
+            auto notes = harmonia::notesPad (harmonia::llegeixAcord (x.acord), 4, harmonia::Voicing::Tancat);
+            if (notes.empty()) continue;
+            // al voltant del do central, com la mà dreta d'un pianista
+            int mx = 0; for (int n : notes) mx = std::max (mx, n);
+            if (mx > 76) for (auto& n : notes) n -= 12;
+            for (int n : notes)
+            {
+                Pla::Nota pn;
+                pn.ini = x.a;
+                pn.fi = x.b - 0.002;   // un bri abans, perquè l'acord següent torni a atacar
+                pn.to = (std::uint8_t) std::clamp (n, 0, 127);
+                pn.vel = 90;
+                pn.canal = 0;
+                r.push_back (pn);
+            }
+        }
+        return r;
     }
 
     std::unique_ptr<Pla> construeixPla (const Projecte& p, const MapaAudios& audios, const ProveidorInstruments& instruments,
@@ -163,6 +211,13 @@ namespace mibase
                 if (auto it0 = audios.find (c.presa); it0 != audios.end()) au = &it0->second;
                 if (ambVeu)
                     if (auto ic = corregides->find (c.presa); ic != corregides->end() && ic->second != nullptr && ic->second->longitud > 0) au = &ic->second;
+                // 0.86: Elastic Audio: el so estirat (si ja està calculat; si no, l'original mentre s'acaba).
+                if (elastic::actiu (c) && corregides != nullptr && au != nullptr)
+                {
+                    const bool deVeu = ambVeu && corregides->count (c.presa) > 0;
+                    if (auto ie = corregides->find (elastic::clau (c, deVeu)); ie != corregides->end() && ie->second != nullptr && ie->second->longitud > 0)
+                        au = &ie->second;
+                }
                 if (au == nullptr || *au == nullptr || (*au)->longitud <= 0) continue;
                 const auto audio = *au;
                 Pla::Clip k;
@@ -530,7 +585,7 @@ namespace mibase
                 }
             }
             // Notes que comencen dins aquest bloc (si la pista no està silenciada).
-            if (t.sona && ! silenciAra[(size_t) (t.slot % maxSlots)])
+            if (t.sona && ! silenciAra[(size_t) (t.slot % maxSlots)] && ! nomesCua)
             {
                 auto it = std::lower_bound (t.notes.begin(), t.notes.end(), desde, [this] (const Pla::Nota& x, long long p)
                                             { return std::llround (x.ini * fs) < p; });
@@ -786,6 +841,9 @@ namespace mibase
             long long posT = pos;   // 0.68: on llegeix aquesta pista (avançada pel retard del seu camí)
             if (! esBus)
             {
+                // 0.81: armada i escoltant l'entrada: els efectes que ho saben fer (el Tune) passen en sec, sense retard
+                const bool directeEntrada = t.escoltaEntrada >= 0;
+                for (const auto& e : t.inserts) if (e != nullptr) e->posaDirecte (directeEntrada);
                 const int av = (t.instrument != nullptr ? std::clamp (t.instrument->latencia(), 0, 1 << 20) : 0)
                              + retardDe (t.inserts, minim && enDirecte, &saltats, &t.encesAmbRM, llindar)
                              + (t.desti >= 0 && t.desti < nb && t.desti < maxBusos ? latCami[(size_t) t.desti] : 0) + latMaster;
@@ -846,7 +904,7 @@ namespace mibase
             {
                 std::fill (pL.begin(), pL.begin() + n, 0.0f);
                 if (t.canals == 2) std::fill (pR.begin(), pR.begin() + n, 0.0f);
-                if (reproduint)
+                if (reproduint && ! nomesCua)
                     for (const auto& c : t.clips)
                         if (c.audio != nullptr)
                             sonaClip (c, t.canals, posT, n);
@@ -1197,6 +1255,9 @@ namespace mibase
                     preContinus = 0;
                     iniciFitxer.store (o.t, std::memory_order_release);
                     puntGravacio.store (o.t2, std::memory_order_release);
+                    mostresFitxer = 0;   // 0.81
+                    voltesGrav.store (0, std::memory_order_release);
+                    primeraVolta.store (-1.0, std::memory_order_release);
                     mesclador.setSilenci ({});
                     mesclador.reinicia();
                     estat.store ((int) (pos < compteFins ? Estat::Comptant : Estat::Gravant), std::memory_order_release);
@@ -1212,6 +1273,9 @@ namespace mibase
                     if (audio && grav.activa() && preEntradaVista == o.a && preCanalsVists == canalsGrava)
                         previ = std::min (preContinus, preMida);
                     if (previ > 0) escriuPregravacio (previ);
+                    mostresFitxer = audio ? previ : 0;   // 0.81
+                    voltesGrav.store (0, std::memory_order_release);
+                    primeraVolta.store (-1.0, std::memory_order_release);
                     if (tramRuta >= 0) { tramRuta = -1; mesclador.setSilenci ({}); }   // gravant, sempre lineal
                     compteFins = pos;
                     iniciFitxer.store ((double) (pos - previ) / fs, std::memory_order_release);
@@ -1278,7 +1342,9 @@ namespace mibase
             int m = std::min (n - fet, maxBloc);
             // El bucle (no mentre es grava): el tros acaba al final del bucle i torna a l'inici.
             const long long fiBucle = (long long) std::llround (pla->bucleFi * fs);
-            const bool potTornar = pla->bucle && ! gravant && pos < fiBucle;
+            // 0.81: gravant àudio (no durant el compte d'entrada), també torna: cada volta serà una presa
+            const bool gravaBucle = gravant && ara == Estat::Gravant && grav.activa();
+            const bool potTornar = pla->bucle && (! gravant || gravaBucle) && pos < fiBucle;
             if (potTornar && pos + m > fiBucle)
                 m = (int) (fiBucle - pos);
             if (gravant && pos < compteFins && pos + m > compteFins)
@@ -1306,6 +1372,7 @@ namespace mibase
                 }
                 if (canalsGrava == 2 && canals[1] == nullptr) canals[1] = canals[0];
                 grav.escriu (canals, m);
+                mostresFitxer += m;   // 0.81
             }
 
             sumaSortida (sortides, numSortides, fet, m);
@@ -1332,6 +1399,17 @@ namespace mibase
             }
             if (potTornar && pos >= fiBucle)
             {
+                if (gravaBucle)   // 0.81: una volta més de la gravació en bucle
+                {
+                    const long long ini = (long long) std::llround (pla->bucleIni * fs);
+                    if (voltesGrav.load (std::memory_order_relaxed) == 0)
+                    {
+                        primeraVolta.store ((double) mostresFitxer / fs, std::memory_order_release);
+                        llargVolta.store ((double) (fiBucle - ini) / fs, std::memory_order_release);
+                        iniciVolta.store ((double) ini / fs, std::memory_order_release);
+                    }
+                    voltesGrav.fetch_add (1, std::memory_order_acq_rel);
+                }
                 pos = (long long) std::llround (pla->bucleIni * fs);
                 preContinus = 0;
                 mesclador.reiniciaBucle();
@@ -1406,7 +1484,7 @@ namespace mibase
                 const Presa* s = nullptr;
                 for (const auto& x : p.preses) if (x.id == c.presa) s = &x;
                 if (s == nullptr) continue;
-                const double ini = c.pos + std::max (c.inici, 0.0), fi = c.pos + std::min (c.fi, s->durada);
+                const double ini = c.pos + std::max (c.inici, 0.0), fi = c.pos + std::min (c.fi, elastic::duradaClip (c, s->durada));
                 if (fi <= ini) continue;
                 a = std::min (a, ini);
                 b = std::max (b, fi);
@@ -1460,5 +1538,130 @@ namespace mibase
             return false;
         }
         return true;
+    }
+
+    double duradaExportacio (const Pla& pla, double desDe, double finsA)
+    {
+        if (pla.ruta.empty()) return std::max (0.0, finsA - desDe);
+        double d = 0.0;
+        for (const auto& t : pla.ruta) d += std::max (0.0, t.fi - t.ini);
+        return d;
+    }
+
+    bool exportaPla (const Pla& pla, double fs, double desDe, double finsA, int bits, double cua, const std::filesystem::path& desti,
+                     std::string& error, const std::function<void (double)>& progres, bool retallaCua)
+    {
+        struct Tros { long long ini, fi; std::bitset<128> silenci; };
+        std::vector<Tros> trossos;
+        if (! pla.ruta.empty())
+            for (const auto& t : pla.ruta)
+            {
+                const long long a = (long long) std::llround (t.ini * fs), b = (long long) std::llround (t.fi * fs);
+                if (b > a) trossos.push_back ({ a, b, t.silenci });
+            }
+        else if (finsA > desDe)
+            trossos.push_back ({ (long long) std::llround (desDe * fs), (long long) std::llround (finsA * fs), {} });
+        if (trossos.empty())
+        {
+            error = "No hi ha res que soni per exportar.";
+            return false;
+        }
+        const long long llargCua = (long long) std::llround (std::max (0.0, cua) * fs);
+        long long total = llargCua;
+        for (auto& t : trossos) total += t.fi - t.ini;
+        const long long minim = total - llargCua;   // mai es talla abans d'aquí
+
+        constexpr int bloc = 4096;
+        Mesclador m;
+        m.prepara (fs, bloc);
+        std::vector<float> L (bloc), R (bloc);
+        std::vector<float> tot;   // tot en memòria per poder treure el silenci del final (una cançó de 5 min: ~100 MB)
+        tot.reserve ((size_t) (total * 2));
+        for (size_t k = 0; k < trossos.size(); ++k)
+        {
+            const auto& t = trossos[k];
+            m.setSilenci (t.silenci);
+            if (k > 0) m.reiniciaBucle();
+            const long long fi = t.fi + (k + 1 == trossos.size() ? llargCua : 0);
+            for (long long p = t.ini; p < fi; p += bloc)
+            {
+                const int n = (int) std::min ((long long) bloc, std::min (fi, p < t.fi ? t.fi : fi) - p);   // el bloc no passa del final
+                m.setNomesCua (p >= t.fi);   // després del final: només s'apaguen els efectes
+                std::fill (L.begin(), L.end(), 0.0f);
+                std::fill (R.begin(), R.end(), 0.0f);
+                m.processa (pla, p, n, L.data(), R.data(), false, nullptr);
+                for (int i = 0; i < n; ++i) { tot.push_back (L[(size_t) i]); tot.push_back (R[(size_t) i]); }
+                if (progres) progres ((double) (tot.size() / 2) / (double) total);
+            }
+        }
+        // La cua: fins on encara se sent (-90 dB), més 50 ms
+        long long frames = (long long) (tot.size() / 2);
+        m.setNomesCua (false);
+        while (retallaCua && frames > minim && std::abs (tot[(size_t) (2 * frames - 1)]) < 3.0e-5f && std::abs (tot[(size_t) (2 * frames - 2)]) < 3.0e-5f) --frames;
+        if (retallaCua) frames = std::min ((long long) (tot.size() / 2), frames + (long long) (0.05 * fs));
+        if (bits == 16)
+        {
+            // Dither triangular (TPDF) d'1 LSB: sense distorsió als finals que s'apaguen
+            std::uint32_t llavor = 22222u;
+            auto aleatori = [&llavor] { llavor = llavor * 1664525u + 1013904223u; return (float) (llavor >> 8) / 16777216.0f; };
+            for (long long i = 0; i < frames * 2; ++i) tot[(size_t) i] += (aleatori() - aleatori()) / 32768.0f;
+        }
+        EscriptorWav wav;
+        if (! wav.obre (desti, 2, fs, bits == 16 ? 16 : 24))
+        {
+            error = "No s'ha pogut crear el fitxer.";
+            return false;
+        }
+        if (! wav.escriu (tot.data(), frames) || ! wav.tanca())
+        {
+            error = "No s'ha pogut escriure al disc.";
+            return false;
+        }
+        return true;
+    }
+
+    Projecte projectePerExportar (const Projecte& p, const OpcionsExport& o, const std::vector<int>& pistes, std::pair<double, double>& tros)
+    {
+        Projecte q = p;
+        q.clic = false;
+        if (o.tros == OpcionsExport::Canco)
+        {
+            q.estructuraActiva = o.estructura;
+            if (! o.estructura.empty() && edicio::estructuraActiva (q) == nullptr) q.estructuraActiva.clear();
+            q.bucle.actiu = false;
+        }
+        else
+        {
+            q.estructuraActiva.clear();
+            if (o.tros == OpcionsExport::Part) q.bucle.actiu = false;
+        }
+        if (! pistes.empty())
+        {
+            // Només sonen les triades (com si estiguessin en solo: els busos que alimenten també)
+            for (auto& t : q.pistes) t.solo = false;
+            for (int i : pistes)
+                if (i >= 0 && i < (int) q.pistes.size()) { q.pistes[(size_t) i].solo = true; q.pistes[(size_t) i].mut = false; }
+        }
+        if (! o.efectes)
+            for (auto& t : q.pistes)
+            {
+                std::erase_if (t.inserts, [] (const Insert& x) { return ! esInsertVeu (x); });   // el Vocal Editor no és un efecte
+                t.enviaments.clear();
+            }
+        if (! o.master) q.insertsMaster.clear();
+
+        tros = { 0.0, 0.0 };
+        if (o.tros == OpcionsExport::Bucle)
+        {
+            if (q.bucle.marcat && q.bucle.a > q.bucle.de) tros = { edicio::iniciBucle (q), edicio::fiBucle (q) };
+        }
+        else if (o.tros == OpcionsExport::Part)
+        {
+            for (const auto& pt : q.parts)
+                if (pt.id == o.part && pt.a > pt.de) tros = { edicio::segonsDeCompas (q, pt.de), edicio::segonsDeCompas (q, pt.a) };
+        }
+        else
+            tros = trosPerExportar (q);
+        return q;
     }
 }

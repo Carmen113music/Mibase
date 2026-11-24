@@ -121,6 +121,14 @@ namespace mibase
         bool operator== (const BlocPatro&) const = default;
     };
 
+    /** 0.86: Elastic Audio. Un punt d'elasticitat (warp marker): el moment «font» del fitxer (segons) sona al moment
+        «desti» del clip (segons des de Clip::pos). Entre dos punts, el temps s'estira o s'encongeix sense canviar el to. */
+    struct PuntWarp
+    {
+        double font = 0.0, desti = 0.0;
+        bool operator== (const PuntWarp&) const = default;
+    };
+
     struct Clip
     {
         std::string presa;
@@ -140,6 +148,7 @@ namespace mibase
             No sona: és la guia de la cançó. Ocupa de iniciVisible() a fiVisible(). */
         std::string acord;
         bool esAcord() const noexcept { return ! acord.empty(); }
+        bool dubtos = false;   // 0.87: acord proposat per la detecció d'un àudio i poc segur (cal revisar-lo)
         std::vector<Nota> notes;
         std::vector<EventMidi> events;
         std::vector<BlocPatro> blocs;   // 0.40: per ordre d'inici, sense trepitjar-se
@@ -147,6 +156,11 @@ namespace mibase
         std::vector<AcordClip> acordsFixos;   // 0.48: acords fixats a mà en un clip que segueix la pista d'Acords (manen sobre els de la pista)
         std::vector<VeuCompas> veus;    // 0.61: inversions / posicions CAGED per compàs
         bool acordsPropis = false;      // 0.46: aquest clip no segueix la pista d'Acords encara que la pista sí (fa servir «acords»)
+
+        /** 0.86: Elastic Audio. Buit = l'àudio original (el temps del clip és el del fitxer). Si n'hi ha, «inici» i «fi»
+            són temps del clip (ja estirat) i el primer punt és sempre el començament del fitxer (font 0, desti 0). */
+        std::vector<PuntWarp> warp;
+        int elastic = 0;   // algorisme: 0 general, 1 ritme (bateria), 2 veu / solista
 
         double iniciVisible() const noexcept { return pos + inici; }
         double fiVisible() const noexcept    { return pos + fi; }
@@ -288,6 +302,7 @@ namespace mibase
         int canals = 1;                 // 1 mono, 2 estèreo
         int color = 0;                  // índex de la paleta de colors de pista
         std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta
+        std::string notes;   // 0.87: anotacions d'en Roger sobre la pista (panell de la dreta)
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6
@@ -310,6 +325,11 @@ namespace mibase
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
         std::vector<Automatitzacio> autos;         // 0.56: automatització
+        // ---- 0.81: preses alternatives (takes) d'una pista d'àudio ----
+        /** Cada gravació que competeix amb una altra al mateix tros, sencera i per ordre de gravació. No sonen:
+            el que sona són els clips de la pista (el «comp»), que són finestres d'aquestes preses al mateix lloc. */
+        std::vector<Clip> takes;
+        bool takesObertes = true;                  // les subpistes es veuen (desplegades)
     };
 
     /** 0.20: és una pista de notes MIDI (instrument o bateria). */

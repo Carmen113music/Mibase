@@ -106,9 +106,10 @@ public:
 
     /** 0.27: un sample de la biblioteca deixat a la taula (fila -1: sota les pistes). */
     std::function<void (const juce::File&, int fila, double temps)> onSample;
+    std::function<void (const std::string& presa, int fila, double temps)> onPresa;   // 0.85: del Pool
     bool isInterestedInDragSource (const SourceDetails& d) override
     {
-        return d.description.toString().startsWith ("mibase-sample:")
+        return d.description.toString().startsWith ("mibase-sample:") || d.description.toString().startsWith ("mibase-presa:")   // 0.85: del Pool
             || (d.description.toString() == "mibase-acord" && estat.segell.actiu());   // 0.36: acords del Chord Pad a la pista d'Acords
     }
     void itemDragMove (const SourceDetails& d) override { const int f = estat.pistaA (d.localPosition.y); if (f != filaDeixar) { filaDeixar = f < estat.numPistes() ? f : -1; repaint(); } }
@@ -119,6 +120,13 @@ public:
         filaDeixar = -2;
         int fila = estat.pistaA (d.localPosition.y);
         if (fila >= 0 && fila < estat.numPistes() && mibase::esBus (estat.projecte.pistes[(size_t) fila])) fila = -1;   // 0.34: a un bus no
+        if (d.description.toString().startsWith ("mibase-presa:"))   // 0.85: un àudio del Pool
+        {
+            if (onPresa) onPresa (d.description.toString().fromFirstOccurrenceOf ("mibase-presa:", false, false).toStdString(),
+                                  (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
+            repaint();
+            return;
+        }
         const juce::File f (d.description.toString().fromFirstOccurrenceOf ("mibase-sample:", false, false));
         if (onSample) onSample (f, (fila >= 0 && fila < estat.numPistes()) ? fila : -1, juce::jmax (0.0, tEina (estat.t ((float) d.localPosition.x))));
         repaint();
@@ -146,6 +154,10 @@ public:
     std::function<bool (juce::Point<int> pantalla)> arrossegaFora;   // 0.29: si el ratolí és a sobre d'on es pot deixar un clip (el samplejador)
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
     std::function<void (int pista, int a, int b)> onConsolida;
+    std::function<void (int pista)> onConsolidaComp;   // 0.81
+    std::function<void (int pista)> onPrint;           // 0.82
+    /** 0.87: un clip d'àudio deixat a la pista d'Acords: se'n treuen els acords. */
+    std::function<void (int pista, int clip)> onAcordsDeClip;
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;
@@ -159,7 +171,7 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
-    void mouseExit (const juce::MouseEvent&) override { sobre = {}; tTisores = -1.0; repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { sobre = {}; sobreElastic = {}; tTisores = -1.0; repaint(); }
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void fileDragEnter (const juce::StringArray&, int, int y) override { filaDeixar = estat.pistaA (y); repaint(); }
@@ -181,7 +193,28 @@ protected:
 private:
     void pintaFilaCarpeta (juce::Graphics& g, int fila);
     enum class Mode { Res, Requadre, Decidint, MouTemps, MouPista, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera,
-                      Llapis, Goma, Cola };
+                      Llapis, Goma, Cola, CompTria, CompVora, ElasticVora, ElasticMarcador };
+    // ---- 0.86: Elastic Audio (eina 7) ----
+    /** zona: -1 / 1 vora esquerra / dreta (estirar), 2 un marcador, 3 el marcador del mig (encara no hi és), 4 dins el clip. */
+    struct LlocElastic { int pista = -1, clip = -1, zona = 0, marcador = -1; };
+    LlocElastic elasticA (juce::Point<int> p) const;
+    void mouseDownElastic (const juce::MouseEvent& e);
+    void dragElastic (double t);
+    void pintaElastic (juce::Graphics& g, int pista, int indexClip, const mibase::Clip& c, juce::Rectangle<float> r);
+    LlocElastic elastic0, sobreElastic;
+    double elasticT0 = 0.0;   // on era la vora o el marcador en començar
+    bool elasticMogut = false;
+    int filaAcordsDeixar = -1;   // 0.87: s'arrossega un clip d'àudio a sobre de la pista d'Acords
+    // ---- 0.81: subpistes de preses i comping ----
+    void pintaTakes (juce::Graphics& g, int pista);
+    bool mouseDownLane (const juce::MouseEvent& e);
+    void menuLane (int pista, int take, double t);
+    /** La zona del comp (de la presa) on cau «x», si n'és a prop de la vora: -1 esquerra, 1 dreta, 0 dins, 2 fora. */
+    int voraZona (int pista, int take, float x, std::pair<double, double>& zona) const;
+    int compPista = -1, compTakeIdx = -1;
+    double compA = 0.0, compB = 0.0;
+    std::pair<double, double> compZona0 { 0.0, 0.0 };
+    bool compVoraEsq = false;
     enum class Maneta { Cap, RetallInici, RetallFi, FadeIn, FadeOut, Guany, Bandera };
 
     struct Lloc { int pista = -1, clip = -1; Maneta maneta = Maneta::Cap; bool pistaNova = false; };
@@ -231,6 +264,9 @@ public:
     bool esEstreta (int fila) const;
     juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
+    juce::Rectangle<int> rectPreses (int fila) const;   // 0.81: plega / desplega les preses
+    std::function<void (int pista)> onConsolidaComp;      // 0.81
+    std::function<void (int pista)> onPrint;              // 0.82
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -421,6 +457,8 @@ class PanellPista : public SeccioEstudi
 public:
     explicit PanellPista (EstatEstudi& e);
     std::function<void()> onDuplica, onTreu;
+    std::function<void (juce::Component&)> onElastic;   // 0.86: el menú d'Elastic Audio del clip triat
+    std::function<void()> onAcords;                       // 0.87: els acords del clip triat a la pista d'Acords
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -431,5 +469,16 @@ protected:
 private:
     Boto btDuplica { "Duplica", std::nullopt, Boto::Estil::Secundari };
     Boto btTreu { "Treu", std::nullopt, Boto::Estil::Secundari };
+    Boto btElastic { "Elastic Audio", dibuix::Icona::Elastic, Boto::Estil::Secundari };   // 0.86
+    Boto btAcords { "Treu els acords", std::nullopt, Boto::Estil::Secundari };            // 0.87
+    // ---- 0.87: la pista triada i les seves notes ----
+    juce::TextEditor notes;
+    std::string idNotes;     // de quina pista són les notes que hi ha escrites
+    void desaNotes();
+    int yPista = 0;          // on comença la secció de la pista (es calcula a resized)
+    // ---- 0.92: el teclat MIDI de la pista d'instrument (Visual / Assistit / Bloquejat) ----
+    Segmentat modesTeclat { { "Visual", "Assistit", "Bloquejat" } };
+    bool ambTeclat() const;
+    int fiPista = 0;         // on acaba la targeta de la pista
     Boto btEstructura { "Estructura: lineal", std::nullopt, Boto::Estil::Secundari };   // 0.15: quina estructura sona
 };

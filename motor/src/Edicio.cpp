@@ -1,4 +1,5 @@
 #include "mibase/Edicio.h"
+#include "mibase/Elastic.h"
 #include "mibase/Harmonia.h"
 #include "mibase/Midi.h"
 
@@ -150,13 +151,15 @@ namespace mibase::edicio
     bool banderaVisible (const Projecte& p, const Clip& c)
     {
         const auto* s = presa (p, c.presa);
-        return s != nullptr && s->primer >= 0.0 && s->primer >= c.inici && s->primer <= c.fi;
+        if (s == nullptr || s->primer < 0.0) return false;
+        const double b = elastic::aClip (c, s->primer);   // 0.86: amb Elastic Audio, la bandera també s'estira
+        return b >= c.inici && b <= c.fi;
     }
 
     double puntSnap (const Projecte& p, const Clip& c)
     {
         if (banderaVisible (p, c))
-            return c.pos + presa (p, c.presa)->primer;   // banderaVisible ja comprova que la presa existeix
+            return c.pos + elastic::aClip (c, presa (p, c.presa)->primer);   // banderaVisible ja comprova que la presa existeix
         return c.iniciVisible();
     }
 
@@ -629,7 +632,8 @@ namespace mibase::edicio
         }
         else if (a.presa == b.presa && std::abs (a.pos - b.pos) < 1e-6 && std::abs (a.guanyDb - b.guanyDb) < 1e-6
                  && a.mut == b.mut && std::abs (a.fiVisible() - b.iniciVisible()) < 0.001
-                 && a.fadeOut <= 0.0 && b.fadeIn <= 0.0)
+                 && a.fadeOut <= 0.0 && b.fadeIn <= 0.0
+                 && a.warp == b.warp && a.elastic == b.elastic)   // 0.86: amb Elastic Audio diferent, cal un fitxer nou
         {
             resultat = a;
             resultat.fi = b.fi;
@@ -1008,8 +1012,9 @@ namespace mibase::edicio
         auto* s = presa (p, c.presa);
         if (s == nullptr)
             return false;
-        const double primer = banderaAbs - posNova;
-        if (primer < c.inici || primer > c.fi || primer < 0.0 || primer > s->durada)
+        const double alClip = banderaAbs - posNova;
+        const double primer = elastic::aFont (c, alClip);   // 0.86
+        if (alClip < c.inici || alClip > c.fi || primer < 0.0 || primer > s->durada)
             return false;
         c.pos = posNova;
         s->primer = primer;
@@ -1114,7 +1119,7 @@ namespace mibase::edicio
     void posaBandera (Projecte& p, const Clip& c, double abs)
     {
         if (auto* s = presa (p, c.presa))
-            s->primer = abs < 0.0 ? -1.0 : std::clamp (abs - c.pos, 0.0, s->durada);
+            s->primer = abs < 0.0 ? -1.0 : std::clamp (elastic::aFont (c, abs - c.pos), 0.0, s->durada);   // 0.86
     }
 
     int compasA (const Projecte& p, double t)

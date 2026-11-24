@@ -857,6 +857,13 @@ namespace mibase::tune
     void Tune::processa (float* L, float* R, int n) noexcept
     {
         if (secL.empty()) return;
+        // 0.81: en directe (gravant o escoltant l'entrada) passa en sec, sense retard; en sortir, comença net.
+        if (directe.load (std::memory_order_relaxed))
+        {
+            if (! eraDirecte) { eraDirecte = true; detectada.store (-1.0f, std::memory_order_relaxed); desti.store (-1, std::memory_order_relaxed); correccio.store (0.0f, std::memory_order_relaxed); }
+            return;
+        }
+        if (eraDirecte) { eraDirecte = false; demanaBuidar.store (true); }
         if (demanaBuidar.exchange (false))
         {
             an.buida();

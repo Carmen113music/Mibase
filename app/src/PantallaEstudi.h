@@ -1,4 +1,5 @@
 #pragma once
+#include "DialegExporta.h"
 
 #include <mibase/SeguimentCapcal.h>
 #include "DialegText.h"
@@ -7,6 +8,7 @@
 #include "EditorAutomatitzacio.h"
 #include "Inserts.h"
 #include "PanellBiblioteca.h"
+#include "PanellPool.h"
 #include "FinestraProgres.h"
 #include "CarregaPreses.h"
 #include "EstatEstudi.h"
@@ -21,6 +23,7 @@
 #include "PianoRoll.h"
 #include "Plugins.h"
 #include "ServeiAudio.h"
+#include "ServeiElastic.h"
 #include "VistesEstudi.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -144,6 +147,14 @@ private:
     void sincronitzaVeu();
     /** Recull el que el ServeiVeu ha acabat (anàlisis i so corregit). */
     void recullVeu();
+    /** 0.86: Elastic Audio. Demana el so estirat dels clips que en tenen i refà el mapa de sons per al pla
+        (Vocal Editor + Elastic). «ara»: els que falten es fan al moment (abans d'exportar o fer un Print). */
+    void sincronitzaElastic (bool ara = false);
+    void recullElastic();
+    /** El menú d'Elastic Audio del clip triat (algorisme, marcadors als cops, quantitzar, restaurar). */
+    void menuElastic (juce::Component& boto);
+    /** 0.87: escolta el clip d'àudio i en posa els acords a la pista d'Acords (els dubtosos, marcats). */
+    void treuAcords (const mibase::Clip& c, const juce::String& nom);
     // 0.24: solo dels editors.
     std::string pistaEditor() const;
     void commutaSoloEditor();
@@ -163,6 +174,12 @@ private:
     void importa (const juce::StringArray& fitxers, int pista, double on);
     bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);
     void consolida (int pista, int a, int b);
+    void consolidaComp (int pista);   // 0.81
+    void printPista (int pista);      // 0.82: amb els efectes aplicats
+    void fesExportacio (const DialegExporta::Resultat& r, const juce::File& desti);   // 0.83
+    std::unique_ptr<DialegExporta> dialegExporta;                                     // 0.83
+    bool renderitzaPista (const mibase::Pista& t, bool ambEfectes, double ini, double fi, int canals, const juce::File& desti,
+                          double minFi, long long& frames, std::string& error, double escalfa = 0.0, float* pic = nullptr);
     void carregaOna (const mibase::Presa& s);
     std::function<void (double)> progresOna;   // 0.28: mentre es llegeix un àudio (0..1)
     juce::File fitxerPresa (const mibase::Presa& s) const;
@@ -190,6 +207,9 @@ private:
     ServeiAudio& servei;
     EstatEstudi estat;
     ServeiVeu serveiVeu;       // 0.22: abans dels components que el fan servir
+    ServeiElastic serveiElastic;   // 0.86
+    mibase::MapaAudios mapaSo;     // 0.86: el que es dona al pla: preses del Vocal Editor i sons estirats
+    std::map<std::string, std::string> clauDeClip;   // 0.86: «pista#clip» -> la clau del darrer so estirat que s'ha fet
     Instruments instruments;   // els de les pistes MIDI (viu abans que el pla que els fa servir)
     GestorPlugins plugins { servei.escaner().llista() };   // 0.19: VST3 (inserts i instruments)
     juce::AudioFormatManager formats;
@@ -230,8 +250,21 @@ private:
     Focus focusEditor, focusPistes;
     PanellPista panell { estat };
     PanellBiblioteca biblioteca { ajustos };                          // 0.27
-    Segmentat pestDreta { { "Clip", "Biblioteca" } };
-    bool dretaBiblioteca = false;
+    Segmentat pestDreta { { "Info", "Biblioteca", "Pool" } };   // 0.92: «Clip» → «Info» (clip i pista)
+    int dreta = 0;                                                    // 0.85: 0 clip, 1 biblioteca, 2 Pool
+    PanellPool pool { estat };                                        // 0.85
+    std::string presaEscoltada;                                       // 0.85
+    juce::uint32 presaEscoltadaFins = 0;
+    void escoltaPresa (const std::string& id);
+    void localitzaPresa (const std::string& id);
+    void canviaNomPresa (const std::string& id);
+    void buscaPresa (const std::string& id);
+    void aLaPaperera (const std::vector<std::string>& ids);
+    void buidaPaperera();
+    void importaAlPool();
+    void deixaPresa (const std::string& id, int fila, double temps);
+    std::string copiaAlPool (const juce::File& f, const juce::String& nomBase, juce::String& error);
+    juce::File paperera() const { return audios().getChildFile ("Paperera"); }
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };

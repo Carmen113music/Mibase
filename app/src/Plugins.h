@@ -143,7 +143,11 @@ public:
     std::shared_ptr<mibase::Instrument> instrument (const mibase::Pista& t, double fs, int maxBloc);
     /** Còpies noves (per exportar sense tocar els que sonen), amb els ajustos d'ara. */
     std::shared_ptr<mibase::Efecte> efecteNou (const mibase::Insert& x, double fs, int bloc);
-    std::shared_ptr<mibase::Instrument> instrumentNou (const mibase::Pista& t, double fs, int bloc);
+    /** Un instrument nou per exportar o fer un Print. 0.83: en mode fora de temps real i, si és VST3, esperant «escalfa»
+        segons perquè carregui les mostres (el Kontakt les carrega en segon pla: si no, el començament surt en silenci). */
+    std::shared_ptr<mibase::Instrument> instrumentNou (const mibase::Pista& t, double fs, int bloc, double escalfa = 0.0);
+    /** 0.83: segons d'espera recomanats abans d'exportar (si hi ha instruments VST3). */
+    static constexpr double escalfamentVst3 = 4.0;
 
     /** Copia els ajustos dels plugins vius al projecte. Torna cert si n'ha canviat algun. */
     bool desaEstats (mibase::Projecte& p);
@@ -174,6 +178,9 @@ public:
         encara no és viu, el crea (sense sonar). nullptr si no n'hi ha. */
     mibase::Parametritzable* parametres (const mibase::Insert& x);
     mibase::Parametritzable* parametresInstrument (const std::string& idPista);
+    /** 0.88: els instruments interns amb paràmetres (SUB & BASS): els posa PantallaEstudi. */
+    std::function<mibase::Parametritzable* (const std::string& idPista)> instrumentIntern;
+    std::function<bool (mibase::Projecte&)> desaInterns;
     /** 0.56: aquest insert accepta sidechain? (els interns, sí; un VST3, si té entrada lateral) */
     bool admetSidechain (const mibase::Insert& x);
 
@@ -190,7 +197,7 @@ public:
     double latenciaMs (const std::string& idInsert) const { return latencia (idInsert) * 1000.0 / (ultimFs > 1000.0 ? ultimFs : 48000.0); }
 
 private:
-    std::shared_ptr<AdaptadorPlugin> crea (const std::string& id, const std::string& estat, double fs, int maxBloc);
+    std::shared_ptr<AdaptadorPlugin> crea (const std::string& id, const std::string& estat, double fs, int maxBloc, bool foraTempsReal = false);
     AdaptadorPlugin* viu (const std::string& clau);
 
     const juce::KnownPluginList& plugins;

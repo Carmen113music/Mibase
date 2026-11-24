@@ -13,7 +13,9 @@
 #include "mibase/Wav.h"
 #include "mibase/SinteSenzill.h"
 #include "mibase/Midi.h"
-#include "mibase/SinteIntern.h"
+#include "mibase/SubBass.h"
+#include "mibase/Lead.h"
+#include <functional>
 #include "mibase/Harmonia.h"
 #include "mibase/Guitarra.h"
 #include "mibase/Piano.h"
@@ -21,6 +23,8 @@
 #include "mibase/PresetsPads.h"
 #include "mibase/TeclatAcords.h"
 #include "mibase/Bateria.h"
+#include "mibase/Elastic.h"
+#include "mibase/DeteccioAcords.h"
 #include "mibase/PatronsBateria.h"
 #include "mibase/SeguimentCapcal.h"
 #include "mibase/Reverb.h"
@@ -181,6 +185,16 @@ namespace
 #include "proves_070.inc"
 #include "proves_071.inc"
 #include "proves_073.inc"
+#include "proves_081.inc"
+#include "proves_083.inc"
+#include "proves_085.inc"
+#include "proves_086.inc"
+#include "proves_087.inc"
+#include "proves_088.inc"
+#include "proves_089.inc"
+#include "proves_090.inc"
+#include "proves_091.inc"
+#include "proves_093.inc"
 
 int main()
 {
@@ -1571,53 +1585,20 @@ int main()
         comprova (v.size() == 2 && std::abs (v[0].t - 1.0) < 0.011 && std::abs (v[1].t - 1.5) < 0.011, "es grava amb el temps de la línia de temps");
     });
 
-    prova ("Sinte intern: sona, s'apaga, pedal i tots els sons", []
+    prova ("0.89 sinte bàsic retirat: els projectes antics passen al LEAD i al SUB & BASS", []
     {
-        const double fs = 48000.0;
-        for (int so = 0; so < (int) midi::sonsInterns().size(); ++so)
-        {
-            SinteIntern s (so);
-            s.prepara (fs, 512);
-            std::vector<float> L ((size_t) fs * 5), R ((size_t) fs * 5);
-            EventInstrument on { 0, 0x90, 60, 110 };
-            s.processa (&on, 1, L.data(), R.data(), (int) fs);
-            EventInstrument off { 0, 0x80, 60, 0 };
-            s.processa (&off, 1, L.data() + (size_t) fs, R.data() + (size_t) fs, (int) fs);
-            for (int k = 2; k < 5; ++k)
-                s.processa (nullptr, 0, L.data() + (size_t) (k * fs), R.data() + (size_t) (k * fs), (int) fs);
-            const auto nom = std::string (midi::sonsInterns()[(size_t) so].nom);
-            comprova (totFinit (L) && totFinit (R), nom + ": sense valors estranys");
-            comprova (pic (L, 0, 24000) > 0.02f, nom + ": sona");
-            comprova (pic (L, 0, L.size()) < 1.0f, nom + ": no satura");
-            comprova (pic (L, (size_t) (4.5 * fs), L.size()) < 0.0005f && ! s.fentSo(), nom + ": s'apaga del tot");
-        }
-        SinteIntern s (2);   // orgue: sosté mentre la tecla és premuda
-        s.prepara (fs, 512);
-        std::vector<float> L (48000), R (48000);
-        EventInstrument ev[] = { { 0, 0xB0, 64, 127 }, { 0, 0x90, 60, 100 }, { 100, 0x80, 60, 0 } };
-        s.processa (ev, 3, L.data(), R.data(), 24000);
-        s.processa (nullptr, 0, L.data() + 24000, R.data() + 24000, 24000);
-        comprova (pic (L, 40000, 48000) > 0.02f, "amb el pedal, la nota continua després d'amollar la tecla");
-        EventInstrument peu { 0, 0xB0, 64, 0 };
-        s.processa (&peu, 1, L.data(), R.data(), 24000);
-        s.processa (nullptr, 0, L.data(), R.data(), 24000);
-        comprova (! s.fentSo(), "sense pedal, s'apaga");
-        EventInstrument tres[] = { { 0, 0x90, 60, 100 }, { 0, 0x90, 64, 100 }, { 0, 0x90, 67, 100 } };
-        s.processa (tres, 3, L.data(), R.data(), 4800);
-        comprova (s.veusSonant() == 3, "tres notes, tres veus");
-        s.apagaTot();
-        s.processa (nullptr, 0, L.data(), R.data(), 4800);
-        comprova (! s.fentSo(), "apagaTot: silenci de seguida");
-        comprova (pic (L, 2400, 4800) < 0.001f, "sense clic (s'apaga amb una caiguda curta)");
-        SinteIntern gran (0);
-        gran.prepara (fs, 512);
-        std::vector<EventInstrument> acordGran;
-        for (int n : harmonia::acord (48, 10, 0, harmonia::Voicing::Tancat, 2, true)) acordGran.push_back ({ 0, 0x90, (std::uint8_t) n, 127 });
-        gran.processa (acordGran.data(), (int) acordGran.size(), L.data(), R.data(), 24000);
-        comprova (pic (L, 0, 24000) <= 1.0f && pic (L, 0, 24000) > 0.3f, "un acord de 11 notes fort no passa d'1 (limitador suau)");
+        Projecte p;
+        afegeixPista (p, "Piano", "midi"); afegeixPista (p, "Baix", "midi"); afegeixPista (p, "Res", "midi"); afegeixPista (p, "Bateria", "midi");
+        p.pistes[0].instrument = "intern:piano"; p.pistes[1].instrument = "intern:baix"; p.pistes[2].instrument.clear(); p.pistes[3].instrument = instrumentKit;
+        comprova (lead::migraSintesAntics (p) == 3, "tres pistes canviades (el kit no)");
+        comprova (lead::esLead (p.pistes[0]) && subbass::esSubBass (p.pistes[1]) && lead::esLead (p.pistes[2]) && p.pistes[3].instrument == instrumentKit, "a on toca");
+        lead::Lead l;
+        l.posaEstat (p.pistes[0].estatInstrument);
+        comprova (l.nomPreset == "Pluck" && l.valor (lead::Mode) == 2.0f, "el piano és un preset poli");
+        comprova (lead::migraSintesAntics (p) == 0, "un projecte ja passat no canvia");
     });
 
-    prova ("MIDI: exportar la mescla amb el sinte intern", []
+    prova ("MIDI: exportar la mescla amb un sinte", []
     {
         namespace fs = std::filesystem;
         Projecte p;
@@ -1632,7 +1613,8 @@ int main()
         comprova (std::abs (tros.first) < 1e-9 && tros.second > 1.0 && tros.second <= 3.0, "el tros va de la primera nota a l'última (més la cua)");
         auto pla = construeixPla (p, {}, [] (const Pista& x)
         {
-            auto s = std::make_shared<SinteIntern> (std::max (0, midi::soIntern (x.instrument)));
+            (void) x;
+            auto s = std::make_shared<lead::Lead>();
             s->prepara (48000.0, 4096);
             return s;
         });
@@ -2414,6 +2396,16 @@ int main()
     proves071();
     proves071b();
     proves073();
+    proves081();
+    proves083();
+    proves085();
+    proves086();
+    proves087();
+    proves088();
+    proves089();
+    proves090();
+    proves091();
+    proves093();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;
