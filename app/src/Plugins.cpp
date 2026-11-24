@@ -298,6 +298,11 @@ std::shared_ptr<mibase::Efecte> GestorPlugins::efecteNou (const mibase::Insert& 
         auto r = creaIntern (y);
         if (auto* rv = dynamic_cast<mibase::reverb::Reverb*> (r.get()))
             rv->posa (mibase::reverb::FreezeOn, 0.0f);   // exportant no té sentit començar congelat
+        if (auto* rk = dynamic_cast<mibase::rack::Rack*> (r.get()))   // 0.95: l'A/B del Mastering Studio és només per escoltar
+        {
+            rk->posaOriginal (false);
+            rk->posaIgualat (false);
+        }
         r->prepara (fs, bloc);
         return r;
     }
@@ -435,7 +440,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraTune (tu, titol, [this, clau] { finestres.erase (clau); });
         else if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (r->second))   // 0.70
             finestres[clau] = creaFinestraVocalStudio (rk, titol, [this, clau] { finestres.erase (clau); },
-                                                       [this, clau] (int a) { return onAccioRack ? onAccioRack (clau, a) : 0; });
+                                                       rk->esMaster() ? std::function<int (int)>()   // 0.94: el màster no té «A pistes reals» ni solo
+                                                                      : std::function<int (int)> ([this, clau] (int a) { return onAccioRack ? onAccioRack (clau, a) : 0; }));
         if (auto f = finestres.find (clau); f != finestres.end() && f->second != nullptr) quedaSobreMibase (*f->second);   // 0.70
         return;
     }
@@ -454,9 +460,9 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
     else if (x.plugin == mibase::drive::idPlugin) r = std::make_shared<mibase::drive::Drive>();               // 0.67
     else if (x.plugin == mibase::limitador::idPlugin) r = std::make_shared<mibase::limitador::Limitador>();   // 0.69
     else if (x.plugin == mibase::tune::idPlugin) r = std::make_shared<mibase::tune::Tune>();   // 0.80: el Tune sol, fora del Vocal Studio
-    else if (x.plugin == mibase::rack::idPlugin)   // 0.70
+    else if (mibase::rack::esRack (x.plugin))   // 0.70; 0.94: també el Mastering Studio
     {
-        auto rk = std::make_shared<mibase::rack::Rack>();
+        auto rk = std::make_shared<mibase::rack::Rack> (x.plugin == mibase::rack::idPluginMaster ? mibase::rack::Tipus::Master : mibase::rack::Tipus::Veu);
         rk->posaTempo (&RellotgePlugins::global().tempo);
         r = rk;
     }
@@ -493,7 +499,7 @@ void GestorPlugins::restauraRacks (const mibase::Projecte& p)
 {
     auto fes = [this] (const mibase::Insert& x)
     {
-        if (x.plugin != mibase::rack::idPlugin) return;
+        if (! mibase::rack::esRack (x.plugin)) return;
         auto it = reverbs.find (x.id);
         if (it == reverbs.end() || it->second == nullptr) return;
         if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (it->second))
@@ -562,12 +568,13 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
               << juce::String (d->mesures().reduccio.load(), 1) << " dB" << (d->mesures().sidechain.load() ? " · amb sidechain" : "") << "\n";
             return;
         }
-        if (x.plugin == mibase::rack::idPlugin)   // 0.70
+        if (mibase::rack::esRack (x.plugin))   // 0.70; 0.94: Mastering Studio
         {
+            const juce::String qui = x.plugin == mibase::rack::idPluginMaster ? "Mastering Studio" : "Vocal Studio";
             auto r = reverbs.find (x.id);
             auto* d = r != reverbs.end() ? dynamic_cast<mibase::rack::Rack*> (r->second.get()) : nullptr;
-            if (d == nullptr) { t << "intern (Vocal Studio), encara no creat\n"_ca; return; }
-            t << "intern (Vocal Studio) · "_ca << d->numModuls() << " mòduls:"_ca;
+            if (d == nullptr) { t << "intern (" << qui << "), encara no creat\n"_ca; return; }
+            t << "intern (" << qui << ") · "_ca << d->numModuls() << " mòduls:"_ca;
             for (int i = 0; i < d->numModuls(); ++i)
                 t << " " << juce::String::fromUTF8 (mibase::rack::nomModul (d->modul (i)->clau, d->modul (i)->fx.get()).c_str()) << (d->modul (i)->on.load() ? "" : " (apagat)"_ca);
             t << " · latència "_ca << d->latencia() << " mostres\n";

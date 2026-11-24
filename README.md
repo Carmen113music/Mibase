@@ -256,6 +256,37 @@ Efecte intern per a qualsevol pista, bus, retorn d'efectes o el màster: **+ Efe
 - **Presets**: 100 de fàbrica en 9 categories, cercador (sense accents ni majúscules), filtres Tots / Favorits / Fàbrica / Meus. Un clic l'escolta, doble clic el posa i tanca. Els teus presets es poden reanomenar, moure de carpeta i esborrar; es desen a `Documents\Mibase\Reverb\presets.json`.
 - Els ajustos es desen amb el projecte (com els d'un VST3).
 
+### Mastering Studio de Mibase (0.94–0.96)
+- **+ Efecte → Mastering Studio (Mibase)**, normalment a la cadena del **màster** (també funciona en un bus). És el mateix rack que el Vocal Studio, però per a la mescla sencera. Neix amb el preset «Màster net».
+- **Mòduls**: EQ de màster (EQ Pro amb bandes de greus, cos, fang, presència i aire; Mid/Side i dinàmiques per banda), Compressor de màster (glue), De-esser de màster, **Transient Shaper** (0.96), Saturació (cinta, consola, vàlvula), **Estèreo**, **Clipper** (0.96), Limitador (true peak) i **Loudness Meter** (només mesura). L'ordre de la cadena és el de dalt a baix i canvia el so de debò.
+- **Cada mòdul** mostra **quant actua** (reducció de guany o canvi de volum, amb una barreta) i **avisos en taronja** si està en una zona perillosa. **Botó dret**: *Restableix el mòdul* o *Duplica el mòdul*.
+- **8 macros**: Escalfor, Presència, Punch, Amplada, Greus, Densitat, Aire i Loudness.
+- **Perfils de màster** (0.95), orientatius, no obligatoris (les plataformes normalitzen el volum però no exigeixen cap nivell al fitxer):
+
+  | Perfil | LUFS | True Peak |
+  |---|---|---|
+  | Streaming Standard | -14 | -1 dBTP |
+  | Streaming Loud | -11 | -1,5 dBTP |
+  | Streaming Dynamic | -16 | -1 dBTP |
+  | Indie Rock / Pop | -10 | -1 dBTP |
+  | Rock potent | -9 | -1 dBTP |
+  | Electrònica / Dance | -8 | -1 dBTP |
+  | CD Master | els tries tu (pom LUFS) | -0,3 dBTP |
+  | Broadcast (EBU R128) | -23 | -1 dBTP |
+
+  Triar un perfil posa el sostre del limitador al seu true peak (amb 0,2 dB de marge).
+- **Ajusta al perfil** (0.95): prem-lo i **reprodueix la cançó** (o la tornada en bucle). Escolta uns 10 s, corregeix el guany del limitador (i el macro Loudness) per arribar als LUFS del perfil, ho torna a escoltar i repeteix fins que hi és (±0,5 LU). Si per arribar-hi el limitador hauria de reduir més de 8 dB (perdries el cop), **s'atura i t'ho diu**: no força res. «Atura l'ajust» el para.
+- **Panell de la dreta**:
+  - **A/B**: *Original* (el mix sense el Mastering Studio, alineat amb el retard de la cadena) i *Màster*, sense clics. **Igualat** (0.95: apagat per defecte): encén-lo per comparar només el so; el que sona més fort s'abaixa fins al volum de l'altre. En exportar no s'aplica mai.
+  - **Analitzador**: LUFS Integrated (EBU R128), Short-Term, Momentary, els seus màxims, LRA, True Peak màx., pic màx., RMS, crest, correlació, **amplada** (Side respecte del Mid) i clips, del **mix** i del **màster** un al costat de l'altre, i l'historial del Short-Term.
+  - **Lectura**: què veuen les mesures i què pot voler dir (true peak per sobre del perfil, pic a 0 dBFS, més fort o més fluix que el perfil, crest baix, rang perdut, correlació baixa, massa ample…).
+  - **Reinicia les mesures** i reprodueix la cançó sencera per tenir l'Integrated i l'LRA de tota la cançó.
+- **Transient Shaper** (0.96, finestra pròpia): **Atac** (+ més cop, − el suavitza), **Sustain** (+ cua més llarga, − més sec), Velocitat, **Focus** (quina zona escolta el detector: tot, el bombo, la caixa o els plats), Mix i Sortida. Mostra el canvi de volum en directe.
+- **Clipper** (0.96, finestra pròpia, just abans del limitador): retalla els pics més curts perquè el limitador no aixafi el cop. Modes Soft, Hard, Analog, Smooth i Modern; Drive, Ceiling, Shape, **Oversampling x4** (12 mostres de retard, compensades), Link, Mix i Sortida. Mostra quants dB retalla i avisa si passa de 3 dB.
+- El macro **Punch** mou també l'Atac del Transient Shaper i el macro **Loudness** reparteix la feina entre el limitador i el Drive del Clipper (també quan ho fa «Ajusta al perfil»).
+- **Estèreo** (finestra pròpia): amplada general i per bandes (greus, mitjos, aguts), **Mono als greus**, Mid, Side, balanç, **Escolta en mono**, sortida, i la correlació d'entrada i sortida. Amb tot al 100 %, el so surt igual que entra.
+- **Presets**: 20 de fàbrica en 3 carpetes: **Bàsics** (Màster net, Només limitador, Dinàmica natural), **Objectiu sonor** (Càlid, Brillant, Punchy, Ample, Dens, Transparent, Vintage, Fort, Veu al davant, Guitarres al davant, Fosc i íntim) i **Gèneres** (Indie rock, Pop rock, Rock contundent, Folk i acústic, Synth pop, Balada). Cada un diu per a què és i què cal vigilar. Els teus es desen a `Documents\Mibase\Mastering Studio\presets.json`.
+
 ### Vocal Studio de Mibase (0.70)
 - **+ Efecte → Vocal Studio (Mibase)**: un rack de veu sencer en un sol insert. Neix amb el preset «Veu neta» (EQ, compressor, de-esser i plate): mai comença buit.
 - **Mòduls** (fins a 12), un rere l'altre de dalt a baix: EQ Pro, Compressor, De-esser, Porta, Decapitor, Drive, **Doubler** (dues còpies desafinades als costats, com una veu doblada; des de la 0.75, amb **Variació**: cada còpia s'avança i s'endarrereix a l'atzar com una segona presa de debò), Delay, Reverb, Limitador i, des de la 0.73, **Harmonitzador** i **Octava i formant**. Cada mòdul: botó d'encès, **Mix** (en paral·lel amb el que li arriba), fletxes per canviar l'ordre, ✕ per treure'l i **Obre** (o doble clic) per veure la seva finestra de sempre. El Limitador, l'Harmonitzador i l'Octava sonen sempre al 100 % (retarden 5 ms i uns 36 ms; Mibase ho compensa).
@@ -512,6 +543,10 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 
 ## Historial de versions
 *(el més recent a dalt)*
+
+- **0.96.0** — Mastering Studio: mòduls nous **Clipper** (5 formes, oversampling x4, mesura del retall) i **Transient Shaper** (Atac, Sustain, Velocitat, Focus), amb finestra pròpia. Els fan servir els presets Punchy, Fort, Rock contundent i Synth pop; el macro Punch mou l'Atac i el macro Loudness, el Drive del clipper. A la pantalla del loudness, l'objectiu es llegeix més clar («Objectiu -10 LUFS · 0,4 per sobre») i ja no es trepitja amb l'etiqueta.
+- **0.95.0** — Mastering Studio: **perfils de màster** (Streaming Standard, Loud i Dynamic, Indie Rock / Pop, Rock potent, Electrònica / Dance, CD Master amb els LUFS que triïs, Broadcast) i **Ajusta al perfil**: escolta el màster, ajusta el limitador fins als LUFS i el true peak del perfil i s'atura si hauria de limitar massa. Analitzador amb els màxims de Short-Term i Momentary i l'amplada estèreo. Fora els presets de Carmen 113. **Arreglat**: amb «Igualat» encès, el màster sonava al volum del mix i s'hauria exportat així; ara Igualat comença apagat i a l'exportar no s'aplica mai.
+- **0.94.0** — **Mastering Studio**, primera fase: el rack del Vocal Studio per al màster, amb mòduls de màster, 8 macros (Escalfor, Presència, Punch, Amplada, Greus, Densitat, Aire, Loudness), **A/B amb el mix original i volum igualat**, **mesura de loudness completa** (Integrated, Short-Term, Momentary, LRA, True Peak, RMS, crest, correlació, clips) del mix i del màster, objectiu orientatiu, historial i lectura de les mesures. Mòduls nous: **Estèreo** (amplada per bandes, mono als greus, Mid/Side, correlació) i **Loudness Meter**. Cada mòdul mostra quant actua i avisa si està en zona perillosa; botó dret per restablir-lo o duplicar-lo (també al Vocal Studio). 26 presets (Bàsics, Objectiu sonor, Gèneres, Carmen 113). **Acords per clips**: una pista MIDI que segueix els acords i té clips toca els acords només dins dels clips buits (els clips amb notes o patrons fan el seu; fora dels clips, silenci); sense cap clip, a tota la cançó. «Info → Pista triada» ho resumeix per clips.
 
 - **0.93.0** — **Mibase NEO**, el quart sinte de Mibase: síntesi híbrida (wavetable, analògic, harmònic, FM, granular i soroll; deformació de fase, ring, unison avançat, plec, filtres formant i comb, ressonadors), 4 LFO, seqüenciador de passos, matriu de 12 vies amb modulació a ritme d'àudio, 8 macros, rack de 7 efectes i 168 presets en 21 categories. De passada: als sintes, els selectors amb moltes opcions (taules, destins de la matriu…) ara són desplegables llegibles (també a l'ATMOS); al Chord Pad amb l'editor estret, la barra ja no talla «Mov. mínim».
 - **0.92.1** — Arreglat: els acords de la pista d'Acords no es podien arrossegar enlloc (només sortien de la taula cap al samplejador). Ara, amb la fletxa, s'estiren fora de la taula cap al Piano Roll, el Chord Pad o els patrons. **Info → Pista triada**: a les pistes d'instrument que segueixen els acords, una línia **Acords** diu si la pista toca sola els acords o per què no (té notes, té patrons o no hi ha acords).

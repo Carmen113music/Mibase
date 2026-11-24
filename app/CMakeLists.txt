@@ -28,6 +28,7 @@ target_sources(Mibase PRIVATE
     src/FinestraNeo.cpp
     src/FinestraLimitador.cpp
     src/FinestraVocalStudio.cpp
+    src/PanellsMaster.cpp
     src/FinestraFlotant.cpp
     src/FinestraEq.cpp
     src/EditorAutomatitzacio.cpp
