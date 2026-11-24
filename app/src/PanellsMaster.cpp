@@ -9,7 +9,9 @@
 #include "Vintage.h"
 #include <cmath>
 #include <deque>
+#include <mibase/Clipper.h>
 #include <mibase/Dinamica.h>
+#include <mibase/Transitoris.h>
 #include <mibase/Equalitzador.h>
 #include <mibase/Limitador.h>
 #include <mibase/Saturacio.h>
@@ -183,8 +185,13 @@ namespace
             const float objL = rk->lufsObjectiu();
             juce::String petit = "Integrated · "_ca + juce::String (out->segons.load() / 60.0 >= 1.0 ? juce::String ((int) (out->segons.load() / 60.0)) + " min " : juce::String())
                                  + juce::String ((int) std::fmod (out->segons.load(), 60.0)) + " s";
-            if (objL < -0.5f && valid (integ)) petit = signe (integ - objL) + " LU respecte de l'objectiu ("_ca + num (objL) + ")";
-            vintage::lcd (g, zonaLcd.toFloat(), lufs (integ) + " LUFS", petit, "MÀSTER"_ca);
+            if (objL < -0.5f && valid (integ))   // 0.96: més clar (abans semblava que la distància fos el -10)
+            {
+                const float d = integ - objL;
+                petit = "Objectiu "_ca + num (objL, objL == std::round (objL) ? 0 : 1) + " LUFS · "
+                        + (std::abs (d) < 0.05f ? juce::String ("just al punt") : num (std::abs (d)) + (d > 0 ? " per sobre"_ca : " per sota"_ca));
+            }
+            vintage::lcd (g, zonaLcd.toFloat(), lufs (integ) + " LUFS", petit);
             // taula: mix | màster
             auto t = zonaTaula;
             g.setFont (dibuix::lletra (10.0f, true));
@@ -472,7 +479,7 @@ namespace
             g.fillAll (tema::fons);
             vintage::panell (g, getLocalBounds().toFloat().reduced (6.0f), 6.0f);
             const auto& m = mod->mesurador().mesures();
-            vintage::lcd (g, zonaLcd.toFloat(), lufs (m.integrated.load()) + " LUFS", "Integrated · " + juce::String ((int) m.segons.load()) + " s", "LOUDNESS");
+            vintage::lcd (g, zonaLcd.toFloat(), lufs (m.integrated.load()) + " LUFS", "Integrated · " + juce::String ((int) m.segons.load()) + " s");
             auto t = zonaTaula;
             const int alt = t.getHeight() / (int) files().size();
             g.setFont (dibuix::lletra (12.0f));
@@ -507,6 +514,141 @@ namespace
     };
 }
 
+namespace
+{
+    /** 0.96: una finestra senzilla per a un mòdul de màster: una fila de poms, una barra de quant actua i un consell. */
+    class PanellModulSimple : public juce::Component, private juce::Timer
+    {
+    public:
+        struct Def
+        {
+            juce::String titol, subtitol;
+            std::function<juce::String (int)> ajuda;
+            std::function<float (int)> perDefecte;      // en unitats
+            std::function<bool (int)> bipolar;
+            std::function<juce::String (float& quant)> mesura;   // text i 0..1
+            std::function<juce::String()> consell;
+            std::function<void (int, float)> posa;      // en unitats (per al doble clic)
+        };
+        PanellModulSimple (std::shared_ptr<mibase::EfecteIntern> e, Def d) : fx (std::move (e)), def (std::move (d))
+        {
+            for (int p = 0; p < fx->numParametres(); ++p)
+            {
+                auto pom = std::make_unique<Pom> (juce::String::fromUTF8 (fx->infoParametre (p).nom.c_str()), 0.0, 1.0, (double) fx->parametre (p), def.bipolar (p),
+                                                  [this, p] (double v) { return juce::String::fromUTF8 (fx->textParametre (p, (float) v).c_str()); });
+                pom->setTooltip (def.ajuda (p));
+                pom->onCanvi = [this, p] (double v) { fx->posaParametre (p, (float) v); };
+                pom->onReinicia = [this, p] { def.posa (p, def.perDefecte (p)); };
+                addAndMakeVisible (*pom);
+                poms.push_back (std::move (pom));
+            }
+            setSize (juce::jmax (520, 96 * (int) poms.size() + 40), 300);
+            startTimerHz (20);
+        }
+        ~PanellModulSimple() override { stopTimer(); }
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (tema::fons);
+            vintage::panell (g, getLocalBounds().toFloat().reduced (6.0f), 6.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (17.0f, true));
+            g.drawText (def.titol, zonaTitol, juce::Justification::centredLeft);
+            g.setColour (ambre);
+            g.setFont (dibuix::lletra (10.0f, true));
+            g.drawText (def.subtitol, zonaTitol.translated (0, 18), juce::Justification::centredLeft);
+            float quant = 0.0f;
+            const auto txt = def.mesura (quant);
+            auto b = zonaBarra.toFloat();
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.5f));
+            g.drawText (txt, b.removeFromRight (190.0f), juce::Justification::centredRight);
+            b = b.withSizeKeepingCentre (b.getWidth() - 10.0f, 8.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.5f));
+            g.fillRoundedRectangle (b, 3.0f);
+            g.setColour (quant > 0.6f ? vintage::ledTaronja : ambre);
+            g.fillRoundedRectangle (b.withWidth (b.getWidth() * juce::jlimit (0.0f, 1.0f, quant)), 3.0f);
+            const auto c = def.consell();
+            g.setColour (c.startsWith ("!") ? vintage::ledTaronja : tema::suau);
+            g.setFont (dibuix::lletra (11.5f));
+            g.drawFittedText (c.startsWith ("!") ? c.substring (1) : c, zonaConsell, juce::Justification::topLeft, 3, 0.9f);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (20, 16);
+            zonaTitol = r.removeFromTop (20);
+            r.removeFromTop (26);
+            auto f = r.removeFromTop (120);
+            const int a = f.getWidth() / juce::jmax (1, (int) poms.size());
+            for (auto& p : poms) p->setBounds (f.removeFromLeft (a).reduced (4, 0));
+            r.removeFromTop (10);
+            zonaBarra = r.removeFromTop (24);
+            r.removeFromTop (8);
+            zonaConsell = r;
+        }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+    private:
+        void timerCallback() override { for (int p = 0; p < (int) poms.size(); ++p) poms[(size_t) p]->setValor (fx->parametre (p), true); repaint(); }
+        std::shared_ptr<mibase::EfecteIntern> fx;
+        Def def;
+        std::vector<std::unique_ptr<Pom>> poms;
+        juce::Rectangle<int> zonaTitol, zonaBarra, zonaConsell;
+    };
+}
+
+juce::Component* creaPanellClipper (std::shared_ptr<mibase::EfecteIntern> e)
+{
+    namespace cl = mibase::clipper;
+    auto* c = dynamic_cast<cl::Clipper*> (e.get());
+    if (c == nullptr) return nullptr;
+    PanellModulSimple::Def d;
+    d.titol = "CLIPPER";
+    d.subtitol = "MIBASE · ABANS DEL LIMITADOR"_ca;
+    d.ajuda = [] (int p) { return u8 (cl::info (p).ajuda); };
+    d.perDefecte = [] (int p) { return cl::info (p).def; };
+    d.bipolar = [] (int p) { return p == cl::Sortida; };
+    d.posa = [c] (int p, float v) { c->posa (p, v); };
+    d.mesura = [c] (float& q)
+    {
+        const float r = c->mesures().retallMax.exchange (0.0f) * 0.5f + c->mesures().retall.load() * 0.5f;
+        q = juce::jlimit (0.0f, 1.0f, r / 6.0f);
+        return "Retalla " + num (r) + " dB · " + num (c->mesures().percent.load()) + " % de mostres";
+    };
+    d.consell = [c]
+    {
+        const float r = c->mesures().retall.load();
+        if (r > 3.0f) return "!Retalla més de 3 dB: pot sonar aspre o distorsionat. Baixa el Drive o deixa que el limitador faci una part de la feina."_ca;
+        if (c->valor (cl::Oversampling) < 0.5f) return "Sense oversampling, els aguts poden quedar més aspres. Encén-lo si et sobra CPU."_ca;
+        return "Consell: retallar 1–2 dB només als cops més forts (caixa, bombo) deixa més volum al limitador sense que bombi."_ca;
+    };
+    return new PanellModulSimple (std::move (e), std::move (d));
+}
+
+juce::Component* creaPanellTransitoris (std::shared_ptr<mibase::EfecteIntern> e)
+{
+    namespace tr = mibase::transitoris;
+    auto* t = dynamic_cast<tr::Transitoris*> (e.get());
+    if (t == nullptr) return nullptr;
+    PanellModulSimple::Def d;
+    d.titol = "TRANSIENT SHAPER";
+    d.subtitol = "MIBASE · COP I CUA"_ca;
+    d.ajuda = [] (int p) { return u8 (tr::info (p).ajuda); };
+    d.perDefecte = [] (int p) { return tr::info (p).def; };
+    d.bipolar = [] (int p) { return p == tr::Atac || p == tr::Sustain || p == tr::Sortida; };
+    d.posa = [t] (int p, float v) { t->posa (p, v); };
+    d.mesura = [t] (float& q)
+    {
+        const float g = t->mesures().guanyMax.exchange (0.0f);
+        q = juce::jlimit (0.0f, 1.0f, std::abs (g) / 10.0f);
+        return "Canvi de volum ara: " + signe (g) + " dB";
+    };
+    d.consell = [t]
+    {
+        if (std::abs (t->valor (tr::Atac)) > 60.0f) return "!Amb molt d'Atac, al màster tot el que té cop salta (també les púes i les consonants). Comprova-ho amb el volum igualat."_ca;
+        return "Consell: un Atac de +15 a +30 % abans del limitador ajuda que la bateria no perdi el cop. Amb Focus «Mitjos» escolta sobretot la caixa."_ca;
+    };
+    return new PanellModulSimple (std::move (e), std::move (d));
+}
+
 juce::Component* creaPanellMaster (std::shared_ptr<mibase::rack::Rack> r) { return new PanellMaster (std::move (r)); }
 juce::Component* creaPanellEstereo (std::shared_ptr<mibase::estereo::Estereo> e) { return new PanellEstereo (std::move (e)); }
 juce::Component* creaPanellLoudness (std::shared_ptr<mibase::loudness::Modul> m) { return new PanellLoudness (std::move (m)); }
@@ -528,6 +670,18 @@ juce::String activitatModul (const mibase::rack::Modul& m, float& quant)
         return gr > 0.05f ? "-"_ca + num (gr) + " dB GR" : juce::String ("0 dB GR");
     }
     if (dynamic_cast<const mibase::loudness::Modul*> (m.fx.get()) != nullptr) return {};
+    if (auto* c = dynamic_cast<mibase::clipper::Clipper*> (m.fx.get()))   // 0.96
+    {
+        const float r = c->mesures().retall.load();
+        quant = juce::jlimit (0.0f, 1.0f, r / 6.0f);
+        return r > 0.05f ? "-"_ca + num (r) + " dB retall" : juce::String ("0 dB retall");
+    }
+    if (auto* t = dynamic_cast<mibase::transitoris::Transitoris*> (m.fx.get()))
+    {
+        const float g = t->mesures().guany.load();
+        quant = juce::jlimit (0.0f, 1.0f, std::abs (g) / 10.0f);
+        return signe (g) + " dB";
+    }
     const float c = m.canviDb.load();
     quant = juce::jlimit (0.0f, 1.0f, std::abs (c) / 6.0f);
     return std::abs (c) < 0.05f ? juce::String ("0 dB") : signe (c) + " dB";
@@ -565,6 +719,12 @@ juce::String avisModul (const mibase::rack::Modul& m, bool master)
     if (auto* s = dynamic_cast<const mibase::saturacio::Saturacio*> (m.fx.get()))
     {
         if (master && s->valor (mibase::saturacio::Drive) > 6.0f && m.mix.load() > 0.5f) return "Molta saturació per a un màster: vigila els greus i la duresa."_ca;
+        return {};
+    }
+    if (auto* c = dynamic_cast<mibase::clipper::Clipper*> (m.fx.get()))   // 0.96
+    {
+        const float r = c->mesures().retall.load();
+        if (master && r > 3.0f) return "El clipper retalla més de 3 dB: pot sonar aspre. Baixa el Drive."_ca;
         return {};
     }
     if (auto* e = dynamic_cast<const mibase::estereo::Estereo*> (m.fx.get()))

@@ -14,6 +14,9 @@
 juce::Component* creaPanellMaster (std::shared_ptr<mibase::rack::Rack> rack);
 juce::Component* creaPanellEstereo (std::shared_ptr<mibase::estereo::Estereo> e);
 juce::Component* creaPanellLoudness (std::shared_ptr<mibase::loudness::Modul> m);
+/** 0.96: les finestres del Clipper i del Transient Shaper (poms, mesura de quant actua i un consell). */
+juce::Component* creaPanellClipper (std::shared_ptr<mibase::EfecteIntern> c);
+juce::Component* creaPanellTransitoris (std::shared_ptr<mibase::EfecteIntern> t);
 
 /** Un avís curt i explicat si el mòdul està en una zona perillosa (buit si no n'hi ha). «master»: llindars de màster. */
 juce::String avisModul (const mibase::rack::Modul& m, bool master);

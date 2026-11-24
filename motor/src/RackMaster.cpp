@@ -1,5 +1,7 @@
 #include "mibase/Rack.h"
+#include "mibase/Clipper.h"
 #include "mibase/Equalitzador.h"
+#include "mibase/Transitoris.h"
 #include "mibase/Estereo.h"
 #include "mibase/Limitador.h"
 #include "mibase/Loudness.h"
@@ -34,6 +36,9 @@ namespace mibase::rack
             bool comp = true; float thr = -18, ratio = 2, atac = 30, rel = 150, makeup = 1, knee = 6, scHpf = 100, mix = 100;
             // saturació
             bool sat = false; int estil = saturacio::A; float drive = 1.5f, satMix = 35, tone = 0;
+            // 0.96: transient shaper i clipper
+            bool tr = false; float trAtac = 0, trSus = 0; int trFocus = transitoris::Tot;
+            bool clip = false; int clipMode = clipper::Soft; float clipDrive = 1.5f, clipCeil = -1.5f;
             // estèreo
             float amp = 100, ampG = 100, ampM = 100, ampA = 100, monoG = 0;
             // limitador
@@ -46,7 +51,7 @@ namespace mibase::rack
         struct Constructor
         {
             Rack r { Tipus::Master };
-            int iEq = -1, iDeEss = -1, iComp = -1, iSat = -1, iSt = -1, iLim = -1;
+            int iEq = -1, iDeEss = -1, iComp = -1, iSat = -1, iSt = -1, iLim = -1, iTr = -1, iClip = -1;
 
             float normal (int modul, int p, float v)
             {
@@ -56,6 +61,8 @@ namespace mibase::rack
                 if (dynamic_cast<saturacio::Saturacio*> (f)) return saturacio::Saturacio::normal (p, v);
                 if (dynamic_cast<estereo::Estereo*> (f)) return estereo::Estereo::normal (p, v);
                 if (dynamic_cast<limitador::Limitador*> (f)) return limitador::Limitador::normal (p, v);
+                if (dynamic_cast<clipper::Clipper*> (f)) return clipper::Clipper::normal (p, v);
+                if (dynamic_cast<transitoris::Transitoris*> (f)) return transitoris::Transitoris::normal (p, v);
                 return 0.5f;
             }
             /** Com al Vocal Studio: el macro arrenca on ja és el primer paràmetre i els altres el segueixen; aquí, a més, el preset
@@ -122,6 +129,12 @@ namespace mibase::rack
                 d->posa (Guany, c.makeup); d->posa (Genoll, c.knee); d->posa (FiltreGreus, c.scHpf); d->posa (Detector, 1); d->posa (Mix, c.mix);
                 k.iComp = k.r.afegeix ("glue", d);
             }
+            if (c.tr)   // 0.96
+            {
+                auto t = std::make_shared<transitoris::Transitoris>();
+                t->posa (transitoris::Atac, c.trAtac); t->posa (transitoris::Sustain, c.trSus); t->posa (transitoris::FocusP, (float) c.trFocus);
+                k.iTr = k.r.afegeix ("transitoris", t);
+            }
             if (c.sat)
             {
                 auto s = std::make_shared<saturacio::Saturacio>();
@@ -134,6 +147,12 @@ namespace mibase::rack
                 using namespace estereo;
                 s->posa (Amplada, c.amp); s->posa (AmpGreus, c.ampG); s->posa (AmpMitjos, c.ampM); s->posa (AmpAguts, c.ampA); s->posa (MonoGreus, c.monoG);
                 k.iSt = k.r.afegeix ("estereo", s);
+            }
+            if (c.clip)   // 0.96
+            {
+                auto cl = std::make_shared<clipper::Clipper>();
+                cl->posa (clipper::ModeP, (float) c.clipMode); cl->posa (clipper::Drive, c.clipDrive); cl->posa (clipper::Ceiling, c.clipCeil);
+                k.iClip = k.r.afegeix ("clipper", cl);
             }
             {
                 auto l = std::make_shared<limitador::Limitador>();
@@ -151,7 +170,8 @@ namespace mibase::rack
             // M2 Presència
             k.macro (1, { { k.iEq, bPres, -3.0f, 4.0f } });
             // M3 Punch: l'atac del compressor (més lent = deixa passar més el cop)
-            k.macro (2, { { k.iComp, dinamica::Atac, 8.0f, 70.0f } });
+            if (k.iComp >= 0) k.macro (2, { { k.iComp, dinamica::Atac, 8.0f, 70.0f }, { k.iTr, transitoris::Atac, -20.0f, 60.0f } });
+            else k.macro (2, { { k.iTr, transitoris::Atac, -20.0f, 60.0f } });   // 0.96: el transient shaper també fa punch
             // M4 Amplada: el Side de tot i, una mica més, el dels aguts
             k.macro (3, { { k.iSt, estereo::Amplada, 60.0f, 150.0f }, { k.iSt, estereo::AmpAguts, 90.0f, 130.0f } });
             // M5 Greus
@@ -161,7 +181,7 @@ namespace mibase::rack
             // M7 Aire: el prestatge alt i, si n'hi ha, el de-esser es posa més atent
             k.macro (6, { { k.iEq, bAire, -3.0f, 5.0f }, { k.iDeEss, dinamica::Llindar, -24.0f, -38.0f } });
             // M8 Loudness: el guany del limitador (el sostre no es mou mai)
-            k.macro (7, { { k.iLim, limitador::Gain, 0.0f, 12.0f } });
+            k.macro (7, { { k.iLim, limitador::Gain, 0.0f, 12.0f }, { k.iClip, clipper::Drive, 0.0f, 4.0f } });   // 0.96: amb clipper, se'n reparteixen la feina
             return k.r.estat();
         }
 
@@ -186,7 +206,7 @@ namespace mibase::rack
             { auto& c = nou ("Objectiu sonor", "Brillant", "Més aire i presència, amb un de-esser que vigila les S i els plats. Per a mescles apagades. Vigila: si ja és brillant, cansa l'oïda.");
               c.aire = 2.5f; c.pres = 1; c.presF = 4000; c.deess = true; c.limGain = 4; }
             { auto& c = nou ("Objectiu sonor", "Punchy", "Atac lent al compressor perquè el cop de la bateria passi, i limitador Punch. Vigila: amb massa Loudness es perd el que guanyes.");
-              c.atac = 45; c.rel = 120; c.ratio = 2.5f; c.greus = 1; c.limEstil = Punch; c.limGain = 5; }
+              c.atac = 45; c.rel = 120; c.ratio = 2.5f; c.greus = 1; c.limEstil = Punch; c.limGain = 5; c.tr = true; c.trAtac = 25; }
             { auto& c = nou ("Objectiu sonor", "Ample", "Obre els aguts i els mitjos i deixa els greus al mig (mono per sota de 120 Hz). Vigila: comprova-ho amb el botó Mono de l'Estèreo i la correlació.");
               c.amp = 115; c.ampA = 130; c.monoG = 120; c.limGain = 4; }
             { auto& c = nou ("Objectiu sonor", "Dens", "Compressió més ferma, saturació de consola i limitador modern: un màster compacte i ple. Vigila: la tornada pot quedar al mateix nivell que l'estrofa.");
@@ -198,7 +218,8 @@ namespace mibase::rack
               c.hpf = 30; c.sat = true; c.estil = A; c.drive = 3; c.satMix = 50; c.tone = -1; c.aire = -1.5f; c.greus = 1; c.rel = 300; c.amp = 95; c.limGain = 3; }
             { auto& c = nou ("Objectiu sonor", "Fort", "Per competir en volum: compressió ferma, saturació i limitador agressiu. Vigila: mira el crest i la reducció del limitador; si el bombo s'aixafa, baixa el Loudness.");
               c.thr = -22; c.ratio = 3; c.atac = 15; c.rel = 100; c.makeup = 2; c.sat = true; c.estil = E; c.drive = 2; c.satMix = 30;
-              c.limEstil = Agressiu; c.limGain = 9; c.objectiu = 5; }
+              c.clip = true; c.clipMode = clipper::Soft; c.clipDrive = 2; c.clipCeil = -1.5f;
+              c.limEstil = Agressiu; c.limGain = 7; c.objectiu = 5; }
             { auto& c = nou ("Objectiu sonor", "Veu al davant", "Presència només al Mid (on és la veu), menys fang i de-esser. Vigila: si la veu està enterrada a la mescla, és millor arreglar-ho a la pista.");
               c.pres = 1.5f; c.presF = 2500; c.presMid = true; c.fang = -1; c.deess = true; c.limGain = 4; }
             { auto& c = nou ("Objectiu sonor", "Guitarres al davant", "Presència cap als 2 kHz, menys fang i mitjos una mica més oberts. Vigila: les guitarres amb massa greus s'arreglen a la mescla, no al màster.");
@@ -215,12 +236,13 @@ namespace mibase::rack
               c.limEstil = Modern; c.limGain = 6; c.objectiu = 4; }
             { auto& c = nou ("Gèneres", "Rock contundent", "Greus i presència, consola, compressió ferma i limitador Punch: gran i agressiu. Vigila: la bateria ha de seguir colpejant; si no, menys Loudness.");
               c.greus = 1.5f; c.fang = -1.5f; c.pres = 1.5f; c.presF = 2500; c.aire = 1; c.thr = -20; c.ratio = 3; c.atac = 20; c.rel = 100;
-              c.sat = true; c.estil = E; c.drive = 2.5f; c.satMix = 35; c.ampA = 120; c.monoG = 120; c.limEstil = Punch; c.limGain = 8; c.objectiu = 5; }
+              c.sat = true; c.estil = E; c.drive = 2.5f; c.satMix = 35; c.ampA = 120; c.monoG = 120; c.tr = true; c.trAtac = 20; c.trFocus = transitoris::Mitjos;
+              c.clip = true; c.clipDrive = 1.5f; c.limEstil = Punch; c.limGain = 7; c.objectiu = 5; }
             { auto& c = nou ("Gèneres", "Folk i acústic", "Natural: treu una mica de fang, afegeix aire i comprimeix molt poc. Vigila: les guitarres acústiques poden tenir massa greu en primer pla.");
               c.hpf = 30; c.fang = -1; c.fangF = 250; c.aire = 1.5f; c.ratio = 1.5f; c.thr = -16; c.atac = 40; c.rel = 250; c.limGain = 2; c.objectiu = 3; }
             { auto& c = nou ("Gèneres", "Synth pop", "Greus definits i mono, aire, compressió més ràpida i ample als mitjos i aguts. Vigila: els sintes amples als greus poden perdre's en mono.");
               c.greus = 1.5f; c.aire = 2; c.ratio = 2.5f; c.thr = -20; c.atac = 10; c.rel = 80; c.sat = true; c.estil = E; c.drive = 1.5f; c.satMix = 25;
-              c.amp = 115; c.ampG = 80; c.monoG = 120; c.limEstil = Modern; c.limGain = 7; c.objectiu = 4; }
+              c.amp = 115; c.ampG = 80; c.monoG = 120; c.clip = true; c.clipMode = clipper::Modern; c.clipDrive = 1.5f; c.limEstil = Modern; c.limGain = 6; c.objectiu = 4; }
             { auto& c = nou ("Gèneres", "Balada", "Cos i aire, compressió lenta i suau, una mica de cinta. Deixa créixer la cançó. Vigila: no la facis tan forta com un tema ràpid.");
               c.cos = 1; c.aire = 1; c.ratio = 1.5f; c.thr = -18; c.atac = 40; c.rel = 300; c.sat = true; c.estil = A; c.drive = 1.2f; c.satMix = 25; c.amp = 110;
               c.limGain = 3; c.objectiu = 3; }

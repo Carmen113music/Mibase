@@ -53,6 +53,8 @@ add_library(mibase_motor STATIC
     src/RackMaster.cpp
     src/Loudness.cpp
     src/Estereo.cpp
+    src/Clipper.cpp
+    src/Transitoris.cpp
     src/Convolucio.cpp
     src/Equalitzador.cpp
     src/Espectre.cpp
