@@ -40,7 +40,7 @@ namespace sinteui
     }
 
     // ---- textures (fetes un cop i guardades) ----
-    enum class Textura { Metall, Fusta, Carboni, Laca, Nit };
+    enum class Textura { Metall, Fusta, Carboni, Laca, Nit, Panell };
     inline juce::Image textura (Textura t, int w, int h)
     {
         static std::map<std::tuple<int, int, int>, juce::Image> cau;
@@ -90,6 +90,18 @@ namespace sinteui
                     const float v = 9.0f + reflex * (0.85f + 0.15f * std::sin ((float) y * 0.004f)) + (r.nextFloat() - 0.5f) * 2.0f;
                     const auto c = (juce::uint8) juce::jlimit (0, 255, (int) v);
                     bd.setPixelColour (x, y, juce::Colour (c, c, (juce::uint8) juce::jlimit (0, 255, (int) (v * 1.15f))));
+                }
+        }
+        else if (t == Textura::Panell)
+        {
+            // 1.4: panell negre mat d'aparell antic (pintura texturada, amb un gra molt fi i un pèl de calidesa)
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x)
+                {
+                    const float base = 20.0f - 5.0f * (float) y / (float) juce::jmax (1, h);
+                    const float v = base + (r.nextFloat() - 0.5f) * 6.0f + ((x * 7 + y * 13) % 97 == 0 ? 6.0f : 0.0f);
+                    bd.setPixelColour (x, y, juce::Colour ((juce::uint8) juce::jlimit (0, 255, (int) (v + 2.0f)), (juce::uint8) juce::jlimit (0, 255, (int) (v + 1.0f)),
+                                                           (juce::uint8) juce::jlimit (0, 255, (int) v)));
                 }
         }
         else if (t == Textura::Nit)
@@ -1137,6 +1149,9 @@ namespace sinteui
         Textura fons = Textura::Metall, galtes = Textura::Fusta, capcalera = Textura::Carboni;
         juce::Colour seccioDalt { 0xff24262d }, seccioBaix { 0xff17181c };
         int ampleGaltes = 26, altCap = 74, ample = 1260, alt = 812;
+        /** 1.4 (VINTAGE): aspecte d'aparell antic: el nom del preset en una etiqueta de paper, seccions serigrafiades
+            (línia i títol, sense caixes ni llums) i cap pantalla de colors. */
+        bool vintage = false;
     };
 
     inline BibliotecaPresets& biblioteca (const juce::String& carpeta)
@@ -1402,6 +1417,27 @@ namespace sinteui
         {
             auto r = s.r.toFloat();
             const auto col = cfg.colorSeccio (s.id);
+            if (cfg.vintage)
+            {
+                // 1.4: serigrafia: un marc de línia fina i el títol a dalt, tallant la línia (com als panells dels 70)
+                g.setColour (juce::Colours::black.withAlpha (0.22f));
+                g.fillRect (r.reduced (1.0f));
+                g.setFont (dibuix::lletra (11.0f, true));
+                const float wt = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), s.titol) + 2.2f * (float) s.titol.length() + 16.0f;
+                const float y = r.getY() + 12.0f;
+                g.setColour (sb::serigrafia.withAlpha (0.55f));
+                g.drawLine (r.getX() + 1.0f, y, r.getX() + 12.0f, y, 1.0f);
+                g.drawLine (r.getX() + 20.0f + wt, y, r.getRight() - 1.0f, y, 1.0f);
+                g.drawLine (r.getX() + 1.0f, y, r.getX() + 1.0f, r.getBottom() - 1.0f, 1.0f);
+                g.drawLine (r.getRight() - 1.0f, y, r.getRight() - 1.0f, r.getBottom() - 1.0f, 1.0f);
+                g.drawLine (r.getX() + 1.0f, r.getBottom() - 1.0f, r.getRight() - 1.0f, r.getBottom() - 1.0f, 1.0f);
+                g.setColour (sb::serigrafia);
+                textEspaiat (g, s.titol, juce::Rectangle<float> (r.getX() + 16.0f, y - 8.0f, wt, 16.0f), juce::Justification::centredLeft, 2.2f);
+                g.setColour (col);
+                g.fillRect (r.getX() + 16.0f, y + 7.0f, 18.0f, 2.0f);   // una ratlleta del color de la secció, com un codi de colors
+                detallsSeccio (g, s);
+                return;
+            }
             g.setColour (juce::Colours::black.withAlpha (0.45f));
             g.fillRoundedRectangle (r.translated (0.0f, 3.0f).expanded (1.0f), 8.0f);
             g.setGradientFill (juce::ColourGradient (cfg.seccioDalt, r.getX(), r.getY(), cfg.seccioBaix, r.getX(), r.getBottom(), false));
@@ -1524,6 +1560,7 @@ namespace sinteui
 
         void dibuixaLcd (juce::Graphics& g)
         {
+            if (cfg.vintage) { dibuixaEtiqueta (g); return; }
             auto r = zonaLcd.toFloat();
             g.setColour (juce::Colours::black.withAlpha (0.7f));
             g.fillRoundedRectangle (r.expanded (2.0f), 6.0f);
@@ -1546,8 +1583,46 @@ namespace sinteui
             g.fillRoundedRectangle (r, 5.0f);
         }
 
+        /** 1.4: el nom del preset escrit a màquina en una etiqueta de paper enganxada al panell. */
+        void dibuixaEtiqueta (juce::Graphics& g)
+        {
+            auto r = zonaLcd.toFloat().reduced (30.0f, 2.0f).withTrimmedRight (26.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.5f));
+            g.fillRect (r.translated (1.5f, 2.5f));
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xffeee3c6), r.getX(), r.getY(), juce::Colour (0xffd9c9a3), r.getRight(), r.getBottom(), false));
+            g.fillRect (r);
+            juce::Random rnd (77);
+            for (int i = 0; i < 90; ++i)
+            {
+                g.setColour (juce::Colour (0xff8a6d3b).withAlpha (0.05f + 0.06f * rnd.nextFloat()));
+                g.fillEllipse (r.getX() + rnd.nextFloat() * r.getWidth(), r.getY() + rnd.nextFloat() * r.getHeight(), 2.0f, 2.0f);
+            }
+            g.setColour (juce::Colour (0xffb0402e).withAlpha (0.55f));   // la ratlla vermella de les etiquetes antigues
+            g.fillRect (r.getX() + 6.0f, r.getY() + 17.0f, r.getWidth() - 12.0f, 1.0f);
+            const auto nom = u8 (sint->nomPreset);
+            const auto* p = presetPerNom (sint->nomPreset);
+            const bool modificat = p != nullptr && p->estat != sint->estatSo();
+            auto in = r.reduced (8.0f, 2.0f);
+            g.setColour (juce::Colour (0xff3a2f22));
+            g.setFont (dibuix::mono (9.5f));
+            g.drawText (p != nullptr ? dibuix::majuscules (u8 (p->categoria)) + (bib().busca (p->nom) != nullptr ? "  ·  MEU"_ca : juce::String()) : juce::String ("SO PROPI"),
+                        in.removeFromTop (15.0f), juce::Justification::centredLeft);
+            g.setColour (juce::Colour (0xff17120c));
+            g.setFont (dibuix::mono (18.0f));
+            g.drawFittedText ((nom.isEmpty() ? "(sense nom)"_ca : nom) + (modificat ? " *" : ""), in.toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+        }
+
         void dibuixaCpu (juce::Graphics& g)
         {
+            if (cfg.vintage)
+            {
+                auto t = zonaCpu.toFloat().reduced (6.0f, 8.0f);
+                g.setColour (sb::serigrafiaSuau);
+                g.setFont (dibuix::lletra (9.0f, true));
+                textEspaiat (g, "VEUS " + juce::String (sint->veusActives()), t.removeFromTop (t.getHeight() / 2), juce::Justification::centredLeft, 1.2f);
+                textEspaiat (g, "CPU " + juce::String (juce::jlimit (0.0f, 1.0f, sint->carregaCpu()) * 100.0f, 1) + " %", t, juce::Justification::centredLeft, 1.2f);
+                return;
+            }
             auto r = zonaCpu.toFloat();
             g.setColour (juce::Colours::black.withAlpha (0.55f));
             g.fillRoundedRectangle (r, 5.0f);

@@ -476,6 +476,7 @@ namespace mibase::midi
         if (instrument == "sinte:lead") return "Mibase LEAD";   // 0.89
         if (instrument == "sinte:atmos") return "Mibase ATMOS";   // 0.90
         if (instrument == "sinte:neo") return "Mibase NEO";   // 0.93
+        if (instrument == "sinte:vintage") return "Mibase VINTAGE";   // 1.4
         if (const int p = gm::programa (instrument); p >= 0) return std::string ("GM · ") + gm::nomPrograma (p);
         if (gm::RefSf2 ref; gm::llegeixRef (instrument, ref)) return ref.nom.empty() ? ref.fitxer : ref.nom;   // 0.43
         return instrument;
