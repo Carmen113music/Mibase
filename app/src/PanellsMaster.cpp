@@ -11,6 +11,8 @@
 #include <deque>
 #include <mibase/Clipper.h>
 #include <mibase/Dinamica.h>
+#include <mibase/LowEnd.h>
+#include <mibase/Multibanda.h>
 #include <mibase/Transitoris.h>
 #include <mibase/Equalitzador.h>
 #include <mibase/Limitador.h>
@@ -649,6 +651,177 @@ juce::Component* creaPanellTransitoris (std::shared_ptr<mibase::EfecteIntern> e)
     return new PanellModulSimple (std::move (e), std::move (d));
 }
 
+namespace
+{
+    /** 0.99: el Multibanda: a dalt els globals; a sota, una columna per banda amb els seus poms, Solo, Mute i la reducció. */
+    class PanellMultibanda : public juce::Component, private juce::Timer
+    {
+    public:
+        explicit PanellMultibanda (std::shared_ptr<mibase::EfecteIntern> e) : fx (std::move (e)), mb (dynamic_cast<mibase::multibanda::Multibanda*> (fx.get()))
+        {
+            using namespace mibase::multibanda;
+            auto fesPom = [this] (int p, bool bi)
+            {
+                auto pom = std::make_unique<Pom> (u8 (info (p).nom), 0.0, 1.0, (double) mb->parametre (p), bi,
+                                                  [this, p] (double v) { return u8 (mb->textParametre (p, (float) v).c_str()); });
+                pom->setTooltip (u8 (info (p).ajuda));
+                pom->onCanvi = [this, p] (double v) { mb->posaParametre (p, (float) v); };
+                pom->onReinicia = [this, p] { mb->posa (p, info (p).def); };
+                addAndMakeVisible (*pom);
+                poms.push_back ({ p, std::move (pom) });
+            };
+            for (int p = 0; p < numGlobals; ++p) fesPom (p, p == Sortida);
+            for (int b = 0; b < maxBandes; ++b)
+            {
+                for (int k : { Llindar, Ratio, Atac, Alliberament, Guany }) fesPom (index (b, k), k == Guany);
+                for (int k : { Solo, Mute })
+                {
+                    auto bt = std::make_unique<Boto> (k == Solo ? "S" : "M", std::nullopt, Boto::Estil::Tecla);
+                    bt->setTooltip (u8 (info (index (b, k)).ajuda));
+                    const int p = index (b, k);
+                    bt->onClick = [this, p] { mb->posa (p, mb->valor (p) >= 0.5f ? 0.0f : 1.0f); };
+                    addAndMakeVisible (*bt);
+                    botons.push_back ({ p, std::move (bt) });
+                }
+            }
+            setSize (1180, 660);
+            startTimerHz (20);
+        }
+        ~PanellMultibanda() override { stopTimer(); }
+        void paint (juce::Graphics& g) override
+        {
+            using namespace mibase::multibanda;
+            g.fillAll (tema::fons);
+            vintage::panell (g, getLocalBounds().toFloat().reduced (6.0f), 6.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (17.0f, true));
+            g.drawText ("MULTIBANDA", zonaTitol, juce::Justification::centredLeft);
+            g.setColour (ambre);
+            g.setFont (dibuix::lletra (10.0f, true));
+            g.drawText ("MIBASE · COMPRESSOR PER BANDES"_ca, zonaTitol.translated (0, 18), juce::Justification::centredLeft);
+            const int nb = mb->numBandes();
+            for (int b = 0; b < maxBandes; ++b)
+            {
+                auto c = columnes[(size_t) b];
+                const bool usada = b < nb;
+                g.setColour (juce::Colours::black.withAlpha (usada ? 0.25f : 0.5f));
+                g.fillRoundedRectangle (c.toFloat(), 6.0f);
+                g.setColour (usada ? tema::text : tema::suau.withAlpha (0.5f));
+                g.setFont (dibuix::lletra (12.0f, true));
+                auto cap = c.removeFromTop (24);
+                g.drawText (usada ? juce::String (nomBanda (b, nb)).toUpperCase() : "(sense fer servir)"_ca, cap, juce::Justification::centred);
+                // reducció (barra vertical) a la dreta del títol
+                if (usada)
+                {
+                    const float gr = mb->mesures().reduccio[(size_t) b].load();
+                    auto r = zonesGr[(size_t) b].toFloat();
+                    g.setColour (juce::Colours::black.withAlpha (0.5f));
+                    g.fillRoundedRectangle (r, 3.0f);
+                    g.setColour (gr > 6.0f ? vintage::ledTaronja : ambre);
+                    g.fillRoundedRectangle (r.withWidth (r.getWidth() * juce::jlimit (0.0f, 1.0f, gr / 12.0f)), 3.0f);
+                    g.setColour (tema::text);
+                    g.setFont (dibuix::lletra (10.5f));
+                    g.drawText ("-" + num (gr) + " dB", r.translated (0.0f, 14.0f), juce::Justification::centred);
+                }
+            }
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f));
+            g.drawFittedText ("Consell: al màster, 1–3 dB de reducció a la banda que molesta és prou. Escolta la banda amb S (solo) per trobar el problema; si una sola banda redueix molt, potser és un problema de la mescla."_ca,
+                              zonaConsell, juce::Justification::topLeft, 2, 0.9f);
+        }
+        void resized() override
+        {
+            using namespace mibase::multibanda;
+            auto r = getLocalBounds().reduced (20, 16);
+            zonaTitol = r.removeFromTop (20);
+            r.removeFromTop (24);
+            zonaConsell = r.removeFromBottom (34);
+            auto dalt = r.removeFromTop (116);
+            const int a = dalt.getWidth() / numGlobals;
+            for (auto& [p, pom] : poms) if (p < numGlobals) pom->setBounds (dalt.removeFromLeft (a).reduced (4, 0));
+            r.removeFromTop (10);
+            const int amp = (r.getWidth() - 3 * 10) / maxBandes;
+            for (int b = 0; b < maxBandes; ++b)
+            {
+                auto c = r.removeFromLeft (amp);
+                r.removeFromLeft (10);
+                columnes[(size_t) b] = c;
+                auto in = c.reduced (6, 0);
+                in.removeFromTop (26);
+                zonesGr[(size_t) b] = in.removeFromTop (8);
+                in.removeFromTop (22);
+                auto fila = in.removeFromBottom (30).reduced (0, 2);
+                for (auto& [p, bt] : botons)
+                    if ((p - numGlobals) / paramsPerBanda == b) bt->setBounds ((((p - numGlobals) % paramsPerBanda) == Solo ? fila.removeFromLeft (fila.getWidth() / 2) : fila).reduced (2, 0));
+                // els cinc poms: 3 a dalt, 2 a sota
+                std::vector<Pom*> ps;
+                for (auto& [p, pom] : poms) if (p >= numGlobals && (p - numGlobals) / paramsPerBanda == b) ps.push_back (pom.get());
+                // tots de la mateixa mida: 3 a dalt i 2 a sota, centrats
+                const int alt = in.getHeight() / 2, w = in.getWidth() / 3;
+                auto f1 = in.removeFromTop (alt), f2 = in.withSizeKeepingCentre (2 * w, in.getHeight());
+                for (int k = 0; k < (int) ps.size(); ++k)
+                    ps[(size_t) k]->setBounds ((k < 3 ? f1.removeFromLeft (w) : f2.removeFromLeft (w)).reduced (2, 0));
+            }
+        }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+    private:
+        void timerCallback() override
+        {
+            using namespace mibase::multibanda;
+            const int nb = mb->numBandes();
+            for (auto& [p, pom] : poms)
+            {
+                pom->setValor (mb->parametre (p), true);
+                if (p >= numGlobals) pom->setEnabled ((p - numGlobals) / paramsPerBanda < nb);
+                if (p == X2) pom->setEnabled (nb >= 3);
+                if (p == X3) pom->setEnabled (nb >= 4);
+            }
+            for (auto& [p, bt] : botons) { bt->setToggleState (mb->valor (p) >= 0.5f, juce::dontSendNotification); bt->setEnabled ((p - numGlobals) / paramsPerBanda < nb); }
+            repaint();
+        }
+        std::shared_ptr<mibase::EfecteIntern> fx;
+        mibase::multibanda::Multibanda* mb;
+        std::vector<std::pair<int, std::unique_ptr<Pom>>> poms;
+        std::vector<std::pair<int, std::unique_ptr<Boto>>> botons;
+        std::array<juce::Rectangle<int>, mibase::multibanda::maxBandes> columnes, zonesGr;
+        juce::Rectangle<int> zonaTitol, zonaConsell;
+    };
+}
+
+juce::Component* creaPanellMultibanda (std::shared_ptr<mibase::EfecteIntern> e)
+{
+    if (dynamic_cast<mibase::multibanda::Multibanda*> (e.get()) == nullptr) return nullptr;
+    return new PanellMultibanda (std::move (e));
+}
+
+juce::Component* creaPanellLowEnd (std::shared_ptr<mibase::EfecteIntern> e)
+{
+    namespace le = mibase::lowend;
+    auto* g = dynamic_cast<le::LowEnd*> (e.get());
+    if (g == nullptr) return nullptr;
+    PanellModulSimple::Def d;
+    d.titol = "LOW END FOCUS";
+    d.subtitol = "MIBASE · ELS GREUS A PART"_ca;
+    d.ajuda = [] (int p) { return u8 (le::info (p).ajuda); };
+    d.perDefecte = [] (int p) { return le::info (p).def; };
+    d.bipolar = [] (int p) { return p == le::Sub || p == le::Sortida; };
+    d.posa = [g] (int p, float v) { g->posa (p, v); };
+    d.mesura = [g] (float& q)
+    {
+        const float a = g->mesures().greusIn.load(), b = g->mesures().greusOut.load();
+        q = juce::jlimit (0.0f, 1.0f, std::abs (b - a) / 6.0f);
+        if (a < -100.0f) return juce::String ("Greus: sense senyal");
+        return "Greus: "_ca + num (a) + " → " + num (b) + " dB (" + signe (b - a) + ")";
+    };
+    d.consell = [g]
+    {
+        if (g->valor (le::Sub) > 3.0f) return "!Molt de sub: als altaveus petits no se sent i gasta volum que el limitador haurà de treure."_ca;
+        if (g->valor (le::Mono) < 10.0f) return "Consell: posa Mono a 100–150 Hz perquè el baix i el bombo quedin al mig i sonin bé en mono."_ca;
+        return "Només hi ha el mix estèreo: Punch i Tight actuen sobre tots els greus (no poden separar el baix del bombo). Si el problema és d'un instrument, arregla'l a la seva pista."_ca;
+    };
+    return new PanellModulSimple (std::move (e), std::move (d));
+}
+
 juce::Component* creaPanellMaster (std::shared_ptr<mibase::rack::Rack> r) { return new PanellMaster (std::move (r)); }
 juce::Component* creaPanellEstereo (std::shared_ptr<mibase::estereo::Estereo> e) { return new PanellEstereo (std::move (e)); }
 juce::Component* creaPanellLoudness (std::shared_ptr<mibase::loudness::Modul> m) { return new PanellLoudness (std::move (m)); }
@@ -675,6 +848,13 @@ juce::String activitatModul (const mibase::rack::Modul& m, float& quant)
         const float r = c->mesures().retall.load();
         quant = juce::jlimit (0.0f, 1.0f, r / 6.0f);
         return r > 0.05f ? "-"_ca + num (r) + " dB retall" : juce::String ("0 dB retall");
+    }
+    if (auto* mb = dynamic_cast<mibase::multibanda::Multibanda*> (m.fx.get()))   // 0.99: la banda que més redueix
+    {
+        float gr = 0.0f;
+        for (int b = 0; b < mb->numBandes(); ++b) gr = juce::jmax (gr, mb->mesures().reduccio[(size_t) b].load());
+        quant = juce::jlimit (0.0f, 1.0f, gr / 12.0f);
+        return gr > 0.05f ? "-"_ca + num (gr) + " dB GR" : juce::String ("0 dB GR");
     }
     if (auto* t = dynamic_cast<mibase::transitoris::Transitoris*> (m.fx.get()))
     {
@@ -719,6 +899,13 @@ juce::String avisModul (const mibase::rack::Modul& m, bool master)
     if (auto* s = dynamic_cast<const mibase::saturacio::Saturacio*> (m.fx.get()))
     {
         if (master && s->valor (mibase::saturacio::Drive) > 6.0f && m.mix.load() > 0.5f) return "Molta saturació per a un màster: vigila els greus i la duresa."_ca;
+        return {};
+    }
+    if (auto* mb = dynamic_cast<mibase::multibanda::Multibanda*> (m.fx.get()))   // 0.99
+    {
+        for (int b = 0; b < mb->numBandes(); ++b)
+            if (master && mb->mesures().reduccio[(size_t) b].load() > 6.0f)
+                return "La banda «"_ca + u8 (mibase::multibanda::nomBanda (b, mb->numBandes())) + "» redueix més de 6 dB: potser és un problema de la mescla."_ca;
         return {};
     }
     if (auto* c = dynamic_cast<mibase::clipper::Clipper*> (m.fx.get()))   // 0.96

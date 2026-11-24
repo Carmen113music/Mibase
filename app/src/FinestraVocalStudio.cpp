@@ -671,6 +671,10 @@ namespace
                 w = std::make_unique<FinestraSimple> (t, pc, tanca);
             else if (auto* pt = creaPanellTransitoris (fx))
                 w = std::make_unique<FinestraSimple> (t, pt, tanca);
+            else if (auto* pm = creaPanellMultibanda (fx))   // 0.99
+                w = std::make_unique<FinestraSimple> (t, pm, tanca);
+            else if (auto* pl = creaPanellLowEnd (fx))
+                w = std::make_unique<FinestraSimple> (t, pl, tanca);
             else if (auto h = std::dynamic_pointer_cast<mibase::harmonitzador::Harmonitzador> (fx))   // 0.73
                 w = std::make_unique<FinestraSimple> (t, new PanellHarmonitzador (h), tanca);
             else if (auto tu = std::dynamic_pointer_cast<mibase::tune::Tune> (fx))   // 0.79

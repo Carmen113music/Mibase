@@ -5,6 +5,8 @@
 #include "mibase/Equalitzador.h"
 #include "mibase/Clipper.h"
 #include "mibase/Estereo.h"
+#include "mibase/LowEnd.h"
+#include "mibase/Multibanda.h"
 #include "mibase/Transitoris.h"
 #include "mibase/Loudness.h"
 #include "mibase/Harmonitzador.h"
@@ -50,7 +52,9 @@ namespace mibase::rack
         static const std::vector<TipusModul> m {
             { "eqm", eq::idPlugin, "EQ de màster", "Correcció i to: greus, fang, presència i aire, amb Mid/Side i bandes dinàmiques." },
             { "glue", dinamica::idPlugin, "Compressor de màster", "Cohesió (glue): 1–3 dB de reducció, atac lent perquè passi el cop." },
+            { "multibanda", multibanda::idPlugin, "Multibanda", "Comprimeix 2, 3 o 4 bandes per separat: greus que s'escapen, mitjos tapats, aguts que punxen (0.99)." },
             { "deessm", dinamica::idPlugin, "De-esser de màster", "Calma les S i els plats que punxen al mix sencer (6–9 kHz)." },
+            { "lowend", lowend::idPlugin, "Low End Focus", "Els greus a part: sub, cop, cua, escalfor, fang i mono (0.99)." },
             { "transitoris", transitoris::idPlugin, "Transient Shaper", "Més o menys cop i cua: recupera l'impacte de la bateria o suavitza el que punxa (0.96)." },
             { "colorm", saturacio::idPlugin, "Saturació (color)", "Cinta, consola o vàlvula: escalfor i densitat, suau i en paral·lel." },
             { "estereo", estereo::idPlugin, "Estèreo", "Amplada per bandes, mono als greus, Mid/Side i correlació." },
@@ -132,6 +136,8 @@ namespace mibase::rack
             return s;
         }
         if (clau == "estereo") return std::make_shared<estereo::Estereo>();
+        if (clau == "multibanda") return std::make_shared<multibanda::Multibanda>();   // 0.99
+        if (clau == "lowend") { auto g = std::make_shared<lowend::LowEnd>(); g->posa (lowend::Mono, 120); return g; }
         if (clau == "transitoris") { auto t = std::make_shared<transitoris::Transitoris>(); t->posa (transitoris::Atac, 20); return t; }   // 0.96
         if (clau == "clipper") { auto c = std::make_shared<clipper::Clipper>(); c->posa (clipper::Drive, 1.5f); c->posa (clipper::Ceiling, -1.5f); return c; }
         if (clau == "loudness") return std::make_shared<loudness::Modul>();
