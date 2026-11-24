@@ -142,7 +142,6 @@ namespace mibase::rack
                 k.iLim = k.r.afegeix ("limitm", l);
             }
             k.r.posaObjectiu (c.objectiu);
-            k.r.posaIgualat (true);
 
             const int bGreus = eq::indexParam (1, eq::PGuany), bCos = eq::indexParam (2, eq::PGuany);
             const int bPres = eq::indexParam (4, eq::PGuany), bAire = eq::indexParam (5, eq::PGuany);
@@ -226,28 +225,101 @@ namespace mibase::rack
               c.cos = 1; c.aire = 1; c.ratio = 1.5f; c.thr = -18; c.atac = 40; c.rel = 300; c.sat = true; c.estil = A; c.drive = 1.2f; c.satMix = 25; c.amp = 110;
               c.limGain = 3; c.objectiu = 3; }
 
-            // ---- Carmen 113 ----
-            { auto& c = nou ("Carmen 113", "Carmen 113 · Indie Modern", "Indie actual: mitjos nets, presència, aire i aguts oberts, amb cinta lleugera. Vigila: escolta-ho al costat d'una referència al mateix volum.");
-              c.fang = -1; c.fangF = 300; c.pres = 1.2f; c.aire = 1.5f; c.sat = true; c.estil = A; c.drive = 1.5f; c.satMix = 30; c.ampA = 120; c.monoG = 110;
-              c.limEstil = Modern; c.limGain = 6; c.objectiu = 4; }
-            { auto& c = nou ("Carmen 113", "Carmen 113 · Festival", "Per sonar gran i fort: greus, presència i aire, consola i limitador Punch. Vigila: és el més fort de la banda; comprova el bombo i la veu.");
-              c.greus = 1.5f; c.fang = -1; c.pres = 1.5f; c.aire = 2; c.thr = -20; c.ratio = 2.5f; c.atac = 25; c.sat = true; c.estil = E; c.drive = 2; c.satMix = 30;
-              c.amp = 115; c.monoG = 120; c.limEstil = Punch; c.limGain = 8; c.objectiu = 5; }
-            { auto& c = nou ("Carmen 113", "Carmen 113 · Guitarras al Frente", "Presència cap als 2,2 kHz i mitjos més oberts: les guitarres manen. Vigila: si la veu queda enrere, baixa el macro Presència.");
-              c.pres = 2; c.presF = 2200; c.fang = -1.5f; c.fangF = 300; c.ampM = 115; c.limEstil = Modern; c.limGain = 6; c.objectiu = 4; }
-            { auto& c = nou ("Carmen 113", "Carmen 113 · Vocal Forward", "La veu al davant: presència només al Mid, menys fang i de-esser. Vigila: no ho arregla tot; si la veu és baixa a la mescla, puja-la a la pista.");
-              c.pres = 2; c.presF = 3000; c.presMid = true; c.fang = -1; c.deess = true; c.limEstil = Modern; c.limGain = 5; c.objectiu = 4; }
-            { auto& c = nou ("Carmen 113", "Carmen 113 · Rock Orgánico", "Cinta i compressió lenta, poc processat: banda tocant a la sala. Vigila: deixa-hi dinàmica; no cal que sigui el més fort.");
-              c.sat = true; c.estil = A; c.drive = 2; c.satMix = 40; c.ratio = 1.8f; c.atac = 35; c.aire = 0.5f; c.limGain = 4; c.objectiu = 4; }
-            { auto& c = nou ("Carmen 113", "Carmen 113 · Directo", "Per a gravacions en directe: natural, amb l'ambient de la sala i molt poc limitador. Vigila: el públic i la sala poden omplir els greus.");
-              c.hpf = 30; c.fang = -1; c.ratio = 1.5f; c.thr = -16; c.atac = 35; c.amp = 105; c.monoG = 100; c.limGain = 3; c.objectiu = 3; }
             return v;
         }
     }
 
+    // ---- 0.95: l'assistent de loudness ----
+    int limitadorFinal (const Rack& r)
+    {
+        for (int i = r.numModuls() - 1; i >= 0; --i)
+            if (r.cami (i) == 0 && dynamic_cast<limitador::Limitador*> (r.modul (i)->fx.get()) != nullptr) return i;
+        return -1;
+    }
+
+    float guanyLimitador (const Rack& r)
+    {
+        const int i = limitadorFinal (r);
+        return i < 0 ? 0.0f : dynamic_cast<limitador::Limitador*> (r.modul (i)->fx.get())->valor (limitador::Gain);
+    }
+
+    void posaGuanyLimitador (Rack& r, float db)
+    {
+        const int i = limitadorFinal (r);
+        if (i < 0) return;
+        auto* l = dynamic_cast<limitador::Limitador*> (r.modul (i)->fx.get());
+        db = std::clamp (db, 0.0f, 24.0f);
+        const float n = limitador::Limitador::normal (limitador::Gain, db);
+        // si un macro mou el guany, el macro es posa on toca (i, si no hi arriba, se n'estén el rang)
+        for (int k = 0; k < (int) r.enllacos().size(); ++k)
+        {
+            auto e = r.enllacos()[(size_t) k];
+            if (e.modul != i || e.param != limitador::Gain) continue;
+            if (n > std::max (e.mn, e.mx) || n < std::min (e.mn, e.mx))
+            {
+                if (e.mx >= e.mn) { e.mx = std::max (e.mx, n); e.mn = std::min (e.mn, n); }
+                else { e.mn = std::max (e.mn, n); e.mx = std::min (e.mx, n); }
+                r.posaEnllac (k, e);
+            }
+            const float v = std::abs (e.mx - e.mn) > 1e-6f ? std::clamp ((n - e.mn) / (e.mx - e.mn), 0.0f, 1.0f) : 0.0f;
+            r.posaMacro (e.macro, v);   // mou el guany (i els altres enllaços del macro, com si el moguessis a mà)
+        }
+        l->posa (limitador::Gain, db);
+        r.marcaModificat();
+    }
+
+    void posaSostre (Rack& r, float dbtp)
+    {
+        const int i = limitadorFinal (r);
+        if (i < 0) return;
+        auto* l = dynamic_cast<limitador::Limitador*> (r.modul (i)->fx.get());
+        // 0,2 dB de marge: el true peak del limitador és una estimació i el mesurador (x4) a vegades veu una mica més
+        l->posa (limitador::Ceiling, std::clamp (dbtp - 0.2f, -12.0f, 0.0f));
+        l->posa (limitador::TruePeak, 1);
+        r.posaOn (i, true);
+    }
+
+    void AssistentLoudness::comenca (Rack& r, float lufs, float tp)
+    {
+        objectiu = lufs; sostre = tp;
+        iteracions = 0; grMax = 0.0f; error = 0.0f; mesurat = loudnessSilenci;
+        if (limitadorFinal (r) < 0) { estat = Estat::SenseLimitador; return; }
+        posaSostre (r, tp);
+        r.reiniciaMesures();
+        reiniciVist = false;
+        estat = Estat::Escoltant;
+    }
+
+    AssistentLoudness::Estat AssistentLoudness::actualitza (Rack& r)
+    {
+        if (estat != Estat::Escoltant) return estat;
+        const int i = limitadorFinal (r);
+        const auto* out = r.loudnessSortida();
+        if (i < 0 || out == nullptr) { estat = Estat::SenseLimitador; return estat; }
+        auto* l = dynamic_cast<limitador::Limitador*> (r.modul (i)->fx.get());
+        if (! reiniciVist) { if (out->segons.load() < 1.0) reiniciVist = true; else return estat; }
+        grMax = std::max (grMax, l->mesures().reduccio.load());
+        const float integ = out->integrated.load();
+        if (out->segons.load() < segonsEscolta || integ <= loudness::silenci + 1.0f) return estat;
+        mesurat = integ;
+        error = objectiu - integ;
+        if (std::abs (error) <= 0.5f) { estat = Estat::Fet; return estat; }
+        if (error > 0.0f && grMax > grMaxima) { estat = Estat::Massa; return estat; }
+        const float ara = guanyLimitador (r);
+        if (error > 0.0f && ara >= 23.95f) { estat = Estat::NoArriba; return estat; }
+        if (++iteracions > maxVoltes) { estat = Estat::Fet; return estat; }
+        // quan el limitador ja treballa, el volum puja menys que el guany: hi anem una mica més de pressa
+        const float factor = error > 0.0f && grMax > 2.0f ? 1.3f : 1.0f;
+        posaGuanyLimitador (r, ara + error * factor);
+        r.reiniciaMesures();
+        reiniciVist = false;
+        grMax = 0.0f;
+        return estat;
+    }
+
     const std::vector<std::string>& categories (Tipus t)
     {
-        static const std::vector<std::string> m { "Bàsics", "Objectiu sonor", "Gèneres", "Carmen 113" };
+        static const std::vector<std::string> m { "Bàsics", "Objectiu sonor", "Gèneres" };   // 0.95: sense Carmen 113
         return t == Tipus::Master ? m : categories();
     }
 

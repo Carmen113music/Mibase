@@ -2,6 +2,7 @@
 
 #include "mibase/Dinamica.h"
 #include "mibase/Instrument.h"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -146,12 +147,19 @@ namespace mibase::rack
         /** A/B: escolta el mix original (sense el rack, alineat amb el retard de la cadena). Sense clics (fosa de 20 ms). */
         void posaOriginal (bool o) noexcept { escoltaOriginal.store (o, std::memory_order_relaxed); }
         bool original() const noexcept { return escoltaOriginal.load (std::memory_order_relaxed); }
-        /** Volum igualat: el que sona més fort (original o processat) s'abaixa fins al volum de l'altre (Short-Term). */
+        /** Volum igualat: el que sona més fort (original o processat) s'abaixa fins al volum de l'altre (Short-Term).
+            0.95: apagat per defecte (s'encén per comparar) i mai a les còpies d'exportar (vegeu GestorPlugins::efecteNou). */
         void posaIgualat (bool g) noexcept { igualatAB.store (g, std::memory_order_relaxed); ++canvis; }
         bool igualat() const noexcept { return igualatAB.load (std::memory_order_relaxed); }
         /** L'objectiu orientatiu de loudness (índex de loudness::objectius()). */
         void posaObjectiu (int k) noexcept { objectiuLufs.store (k, std::memory_order_relaxed); ++canvis; }
         int objectiu() const noexcept { return objectiuLufs.load (std::memory_order_relaxed); }
+        /** 0.95: els LUFS dels perfils configurables (CD Master). */
+        void posaLufsPersonal (float l) noexcept { lufsPers.store (std::clamp (l, -24.0f, -5.0f), std::memory_order_relaxed); ++canvis; }
+        float lufsPersonal() const noexcept { return lufsPers.load (std::memory_order_relaxed); }
+        /** Els LUFS i el true peak del perfil triat (lufs = 0: cap objectiu). */
+        float lufsObjectiu() const noexcept;
+        float truePeakObjectiu() const noexcept;
         /** Mesures del mix que entra (abans del rack) i del màster que surt (el de debò, sense la compensació de l'A/B). */
         const loudness::Mesures* loudnessEntrada() const noexcept;
         const loudness::Mesures* loudnessSortida() const noexcept;
@@ -265,10 +273,44 @@ namespace mibase::rack
         std::unique_ptr<loudness::Mesurador> lIn, lOut;
         Linia liniaSec;
         std::vector<float> secL, secR;
-        std::atomic<bool> escoltaOriginal { false }, igualatAB { true };
+        std::atomic<bool> escoltaOriginal { false }, igualatAB { false };   // 0.95: apagat per defecte
         std::atomic<int> objectiuLufs { 1 };
+        std::atomic<float> lufsPers { -10.0f };   // 0.95
         std::atomic<float> compDb { 0.0f };
         float gProc = 1.0f, gSec = 1.0f, fosa = 0.0f;
         void processaMaster (float* L, float* R, int n) noexcept;
+    };
+
+    // ---- 0.95: l'assistent de loudness del Mastering Studio ----
+    /** El limitador del final de la cadena principal (l'últim), o -1. */
+    int limitadorFinal (const Rack& r);
+    float guanyLimitador (const Rack& r);
+    /** Posa el guany del limitador i hi deixa el macro Loudness d'acord (si cal, n'estén el rang). */
+    void posaGuanyLimitador (Rack& r, float db);
+    /** El sostre del limitador (dBTP, amb 0,2 dB de marge) amb el True Peak encès. */
+    void posaSostre (Rack& r, float dbtp);
+
+    /** «Ajusta al perfil»: mentre la música sona, escolta el màster uns segons (Integrated), corregeix el guany del
+        limitador per arribar als LUFS del perfil, torna a escoltar i repeteix fins que hi és (±0,5 LU). El sostre es
+        posa al true peak del perfil. S'atura si per arribar-hi el limitador hauria de treballar massa (perdries el cop):
+        no força res. La interfície crida «actualitza» unes 10 vegades per segon. */
+    struct AssistentLoudness
+    {
+        enum class Estat { Apagat, Escoltant, Fet, Massa, NoArriba, SenseLimitador };
+        Estat estat = Estat::Apagat;
+        float objectiu = -14.0f, sostre = -1.0f;
+        int iteracions = 0;
+        float grMax = 0.0f;           // la reducció màxima del limitador mentre escoltava (dB)
+        float error = 0.0f;           // objectiu − mesurat (LU), l'últim
+        float mesurat = loudnessSilenci;
+        double segonsEscolta = 10.0;  // quant escolta cada volta (segons de música)
+        static constexpr float loudnessSilenci = -100.0f;
+        static constexpr float grMaxima = 8.0f;   // més reducció que això: massa
+        static constexpr int maxVoltes = 6;
+        bool reiniciVist = false;     // el fil d'àudio ja ha esborrat les mesures (si no, les de la volta anterior enganyarien)
+        void comenca (Rack& r, float lufs, float truePeak);
+        void atura() { estat = Estat::Apagat; }
+        bool actiu() const { return estat == Estat::Escoltant; }
+        Estat actualitza (Rack& r);
     };
 }

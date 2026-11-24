@@ -33,12 +33,16 @@ namespace
         static const std::vector<Fila> f {
             { "Short-Term"_ca, "Volum percebut dels últims 3 segons (LUFS)."_ca, [] (const lo::Mesures& m) { return lufs (m.shortTerm.load()); } },
             { "Momentary"_ca, "Volum percebut dels últims 400 ms (LUFS)."_ca, [] (const lo::Mesures& m) { return lufs (m.momentary.load()); } },
+            { "Short-Term màx."_ca, "El Short-Term més alt des que has reiniciat (LUFS): la part més forta."_ca, [] (const lo::Mesures& m) { return lufs (m.shortMax.load()); } },
+            { "Momentary màx."_ca, "El Momentary més alt des que has reiniciat (LUFS)."_ca, [] (const lo::Mesures& m) { return lufs (m.momentaryMax.load()); } },
             { "LRA"_ca, "Loudness Range: quant varia el volum al llarg de la cançó (LU). Poc = molt igual; molt = dinàmic."_ca, [] (const lo::Mesures& m) { return num (m.lra.load()) + " LU"; } },
             { "True Peak màx."_ca, "El pic més alt, també entre mostres (dBTP)."_ca, [] (const lo::Mesures& m) { return lufs (m.truePeakMax.load()); } },
             { "Pic màx."_ca, "La mostra més alta (dBFS)."_ca, [] (const lo::Mesures& m) { return lufs (m.samplePeakMax.load()); } },
             { "RMS"_ca, "Volum mitjà dels últims 3 s (dB)."_ca, [] (const lo::Mesures& m) { return lufs (m.rms.load()); } },
             { "Crest"_ca, "Diferència entre pics i volum mitjà (dB). Baix = aixafat; alt = amb cop."_ca, [] (const lo::Mesures& m) { return num (m.crest.load()) + " dB"; } },
             { "Correlació"_ca, "+1 = mono, 0 = molt ample, negatiu = problemes de fase en mono."_ca, [] (const lo::Mesures& m) { return num (m.correlacio.load(), 2); } },
+            { "Amplada"_ca, "Side respecte del Mid: 0 % = mono; 20–50 % és habitual; molt més, molt ample (vigila el mono)."_ca,
+              [] (const lo::Mesures& m) { const float d = m.sideMid.load(); return d > -99.0f ? juce::String (juce::roundToInt (100.0f * std::pow (10.0f, d / 20.0f))) + " %" : juce::String ("0 %"); } },
             { "Clips"_ca, "Mostres a 0 dBFS o més."_ca, [] (const lo::Mesures& m) { return juce::String (m.clips.load()); } },
         };
         return f;
@@ -109,12 +113,34 @@ namespace
             addAndMakeVisible (cbObjectiu);
             int id = 1;
             for (const auto& o : lo::objectius())
-                cbObjectiu.addItem (u8 (o.nom) + (o.lufs < -0.5f ? "  ·  "_ca + num (o.lufs, 0) + " LUFS" : juce::String()), id++);
+                cbObjectiu.addItem (u8 (o.nom) + (o.lufs > -0.5f ? juce::String() : o.configurable ? "  ·  tu tries els LUFS · "_ca + num (o.truePeak) + " dBTP"
+                                                   : "  ·  "_ca + num (o.lufs, 0) + " LUFS · " + num (o.truePeak) + " dBTP"), id++);
             cbObjectiu.setTooltip ("Un objectiu orientatiu: depèn del material i del gènere. No és obligatori."_ca);
-            cbObjectiu.onChange = [this] { rk->posaObjectiu (cbObjectiu.getSelectedId() - 1); refresca(); };
+            cbObjectiu.onChange = [this]
+            {
+                rk->posaObjectiu (cbObjectiu.getSelectedId() - 1);
+                if (rk->lufsObjectiu() < -0.5f) rack::posaSostre (*rk, rk->truePeakObjectiu());   // 0.95: el sostre del limitador, el del perfil
+                refresca();
+            };
+            addAndMakeVisible (btAjusta);   // 0.95
+            btAjusta.setTooltip ("Ajusta el limitador perquè el màster arribi als LUFS i al true peak del perfil. Mentre ho fa, reprodueix la cançó o la tornada en bucle."_ca);
+            btAjusta.onClick = [this]
+            {
+                if (assistent.actiu()) { assistent.atura(); repaint(); return; }
+                const float l = rk->lufsObjectiu();
+                if (l > -0.5f) { avisAssistent = "Tria primer un perfil (no «Cap»)."_ca; repaint(); return; }
+                avisAssistent.clear();
+                assistent.comenca (*rk, l, rk->truePeakObjectiu());
+                hIn.buida(); hOut.buida();
+                repaint();
+            };
+            pomLufs = std::make_unique<Pom> ("LUFS", 0.0, 1.0, 0.5, false, [] (double v) { return num ((float) (-24.0 + 19.0 * v)) + " LUFS"; });
+            pomLufs->setTooltip ("Els LUFS d'aquest perfil (el tries tu)."_ca);
+            pomLufs->onCanvi = [this] (double v) { rk->posaLufsPersonal ((float) (-24.0 + 19.0 * v)); };
+            addChildComponent (*pomLufs);
             addAndMakeVisible (btReinicia);
             btReinicia.setTooltip ("Torna a començar les mesures (Integrated, LRA, màxims). Després, reprodueix la cançó sencera."_ca);
-            btReinicia.onClick = [this] { rk->reiniciaMesures(); hIn.buida(); hOut.buida(); };
+            btReinicia.onClick = [this] { assistent.atura(); rk->reiniciaMesures(); hIn.buida(); hOut.buida(); };
             refresca();
             startTimerHz (10);
         }
@@ -126,6 +152,10 @@ namespace
             btProcessat.setToggleState (! rk->original(), juce::dontSendNotification);
             btIgualat.setToggleState (rk->igualat(), juce::dontSendNotification);
             cbObjectiu.setSelectedId (rk->objectiu() + 1, juce::dontSendNotification);
+            const auto& o = lo::objectius()[(size_t) juce::jlimit (0, (int) lo::objectius().size() - 1, rk->objectiu())];
+            pomLufs->setVisible (o.configurable);
+            pomLufs->setValor ((rk->lufsPersonal() + 24.0) / 19.0, true);
+            resized();
             repaint();
         }
 
@@ -143,17 +173,17 @@ namespace
             g.setFont (dibuix::lletra (11.0f));
             const float c = rk->compensacioDb();
             juce::String tc;
-            if (! rk->igualat()) tc = "Sense igualar: el més fort sembla millor."_ca;
+            if (! rk->igualat()) tc = "Igualat apagat: encén-lo per comparar només el so."_ca;
             else if (std::abs (c) < 0.1f) tc = "Igualat (encara mesurant…)"_ca;
             else tc = (c < 0 ? "Màster abaixat "_ca : "Original abaixat "_ca) + num (std::abs (c)) + " dB per comparar"_ca;
-            g.setColour (rk->igualat() ? tema::textMig : tema::errorText);
+            g.setColour (rk->igualat() ? tema::textMig : tema::suau);
             g.drawFittedText (tc, zonaCompensacio, juce::Justification::centredLeft, 1, 0.85f);
             // LCD: Integrated i objectiu
-            const auto& obj = lo::objectius()[(size_t) juce::jlimit (0, (int) lo::objectius().size() - 1, rk->objectiu())];
             const float integ = out->integrated.load();
+            const float objL = rk->lufsObjectiu();
             juce::String petit = "Integrated · "_ca + juce::String (out->segons.load() / 60.0 >= 1.0 ? juce::String ((int) (out->segons.load() / 60.0)) + " min " : juce::String())
                                  + juce::String ((int) std::fmod (out->segons.load(), 60.0)) + " s";
-            if (obj.lufs < -0.5f && valid (integ)) petit = signe (integ - obj.lufs) + " LU respecte de l'objectiu"_ca;
+            if (objL < -0.5f && valid (integ)) petit = signe (integ - objL) + " LU respecte de l'objectiu ("_ca + num (objL) + ")";
             vintage::lcd (g, zonaLcd.toFloat(), lufs (integ) + " LUFS", petit, "MÀSTER"_ca);
             // taula: mix | màster
             auto t = zonaTaula;
@@ -179,7 +209,13 @@ namespace
                 g.drawText (f.valor (*out), fl, juce::Justification::centredRight);
             }
             // historial
-            dibuixaHistorial (g, zonaHistorial.toFloat(), hIn, &hOut, obj.lufs);
+            dibuixaHistorial (g, zonaHistorial.toFloat(), hIn, &hOut, objL);
+            // 0.95: l'assistent
+            g.setFont (dibuix::lletra (11.0f));
+            g.setColour (assistent.estat == rack::AssistentLoudness::Estat::Fet ? vintage::ledVerd
+                         : assistent.estat == rack::AssistentLoudness::Estat::Escoltant ? ambre
+                         : assistent.estat == rack::AssistentLoudness::Estat::Apagat ? tema::suau : vintage::ledTaronja);
+            g.drawFittedText (textAssistent (*out), zonaAssistent, juce::Justification::topLeft, 3, 0.85f);
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (9.5f));
             g.drawText ("Short-Term · gris: mix · ambre: màster"_ca, zonaHistorial.withHeight (12).translated (0, -13), juce::Justification::centredLeft);
@@ -189,7 +225,7 @@ namespace
             g.drawText ("LECTURA", zonaLectura.withHeight (14), juce::Justification::centredLeft);
             g.setFont (dibuix::lletra (11.0f));
             g.setColour (tema::textMig);
-            g.drawFittedText (lectura (*in, *out, obj), zonaLectura.withTrimmedTop (16), juce::Justification::topLeft, 12, 0.9f);
+            g.drawFittedText (lectura (*in, *out), zonaLectura.withTrimmedTop (16), juce::Justification::topLeft, 12, 0.9f);
         }
 
         void resized() override
@@ -210,13 +246,20 @@ namespace
             zonaTitolL = r.removeFromTop (16);
             zonaLcd = r.removeFromTop (54);
             r.removeFromTop (6);
-            cbObjectiu.setBounds (r.removeFromTop (26));
+            {
+                auto fl = r.removeFromTop (pomLufs != nullptr && pomLufs->isVisible() ? 64 : 26);
+                if (pomLufs != nullptr && pomLufs->isVisible()) pomLufs->setBounds (fl.removeFromRight (70));
+                cbObjectiu.setBounds (fl.withSizeKeepingCentre (fl.getWidth(), 26));
+            }
             r.removeFromTop (6);
+            btAjusta.setBounds (r.removeFromTop (30));
+            zonaAssistent = r.removeFromTop (44).withTrimmedTop (4);
+            r.removeFromTop (4);
             btReinicia.setBounds (r.removeFromBottom (28));
             r.removeFromBottom (6);
-            zonaTaula = r.removeFromTop (16 + 9 * 17);
+            zonaTaula = r.removeFromTop (16 + (int) files().size() * 16);
             r.removeFromTop (18);
-            zonaHistorial = r.removeFromTop (juce::jlimit (50, 110, r.getHeight() / 3));
+            zonaHistorial = r.removeFromTop (juce::jlimit (40, 100, r.getHeight() / 3));
             r.removeFromTop (8);
             zonaLectura = r;
         }
@@ -225,17 +268,20 @@ namespace
 
     private:
         /** No és un semàfor de «bo» o «dolent»: diu què veu i què pot voler dir, segons el context. */
-        juce::String lectura (const lo::Mesures& in, const lo::Mesures& out, const lo::Objectiu& obj) const
+        juce::String lectura (const lo::Mesures& in, const lo::Mesures& out) const
         {
+            const float objLufs = rk->lufsObjectiu(), objTp = rk->truePeakObjectiu();
             if (out.segons.load() < 3.0) return "Reprodueix la cançó (millor sencera, des de «Reinicia») per tenir mesures."_ca;
             juce::StringArray a;
             const float tp = out.truePeakMax.load(), integ = out.integrated.load(), crest = out.crest.load();
             if (out.clips.load() > 0) a.add ("Hi ha mostres a 0 dBFS: el limitador ha de ser l'últim i amb sostre per sota de 0."_ca);
-            if (valid (tp) && tp > obj.truePeak + 0.05f)
-                a.add ("True peak de "_ca + num (tp) + " dBTP: per sobre de " + num (obj.truePeak) + " pot distorsionar en passar a MP3/AAC. Activa True Peak al limitador o baixa'n el sostre."_ca);
-            if (obj.lufs < -0.5f && valid (integ) && out.segons.load() > 20.0)
+            if (valid (tp) && tp > objTp + 0.05f)
+                a.add ("True peak de "_ca + num (tp) + " dBTP: per sobre de " + num (objTp) + " pot distorsionar en passar a MP3/AAC. Activa True Peak al limitador o baixa'n el sostre."_ca);
+            if (valid (out.samplePeakMax.load()) && out.samplePeakMax.load() > -0.01f) a.add ("El pic arriba a 0 dBFS: no ha de passar mai."_ca);
+            if (out.sideMid.load() > -3.0f && valid (out.shortTerm.load())) a.add ("Molt ample (el Side gairebé tan fort com el Mid): comprova el mono."_ca);
+            if (objLufs < -0.5f && valid (integ) && out.segons.load() > 20.0)
             {
-                const float d = integ - obj.lufs;
+                const float d = integ - objLufs;
                 if (d > 2.0f) a.add (num (d) + " LU més fort que l'objectiu: la plataforma l'abaixarà i només hauràs perdut dinàmica. Baixa el macro Loudness."_ca);
                 else if (d < -3.0f) a.add (num (-d) + " LU més fluix que l'objectiu. Si la cançó és tranquil·la, pot ser el que vols; si no, puja el macro Loudness."_ca);
             }
@@ -251,8 +297,36 @@ namespace
             return "- " + a.joinIntoString ("\n- ");
         }
 
+        juce::String textAssistent (const lo::Mesures& out) const
+        {
+            using E = rack::AssistentLoudness::Estat;
+            const auto& a = assistent;
+            if (avisAssistent.isNotEmpty()) return avisAssistent;
+            switch (a.estat)
+            {
+                case E::Apagat: return "Tria un perfil i prem «Ajusta al perfil» mentre sona la cançó."_ca;
+                case E::Escoltant:
+                    if (! valid (out.shortTerm.load())) return "Esperant música: reprodueix la cançó (o la tornada en bucle)."_ca;
+                    return "Escoltant (volta "_ca + juce::String (a.iteracions + 1) + "): " + juce::String (juce::jmin (a.segonsEscolta, out.segons.load()), 0)
+                           + " de " + juce::String (a.segonsEscolta, 0) + " s. Deixa-ho sonar."_ca;
+                case E::Fet: return "Fet: "_ca + num (a.mesurat) + " LUFS (objectiu " + num (a.objectiu) + "), sostre " + num (a.sostre) + " dBTP. El limitador redueix fins a "_ca
+                                    + num (a.grMax) + " dB. Escolta-ho; si perd cop, prova un perfil més fluix."_ca;
+                case E::Massa: return "M'he aturat a "_ca + num (a.mesurat) + " LUFS: per arribar a " + num (a.objectiu)
+                                      + " el limitador hauria de reduir més de 8 dB i perdries el cop. Prova un perfil més fluix o puja Densitat."_ca;
+                case E::NoArriba: return "El limitador ja és al màxim i no hi arriba: la mescla és molt fluixa. Puja-la abans del màster."_ca;
+                case E::SenseLimitador: return "Cal un Limitador al final de la cadena (Afegeix un mòdul > Limitador)."_ca;
+            }
+            return {};
+        }
+
         void timerCallback() override
         {
+            if (assistent.actiu())   // 0.95
+            {
+                assistent.actualitza (*rk);
+                btAjusta.setButtonText (assistent.actiu() ? "Atura l'ajust"_ca : "Ajusta al perfil"_ca);
+            }
+            else if (btAjusta.getButtonText() != "Ajusta al perfil"_ca) btAjusta.setButtonText ("Ajusta al perfil"_ca);
             if (const auto* in = rk->loudnessEntrada()) hIn.afegeix (in->shortTerm.load());
             if (const auto* out = rk->loudnessSortida()) hOut.afegeix (out->shortTerm.load());
             if (const auto* out = rk->loudnessSortida(); out != nullptr && out->segons.load() < 0.2) { hIn.buida(); hOut.buida(); }
@@ -265,9 +339,13 @@ namespace
         Boto btProcessat { "Màster"_ca, std::nullopt, Boto::Estil::Tecla };
         Boto btIgualat { "Igualat", std::nullopt, Boto::Estil::Tecla };
         Boto btReinicia { "Reinicia les mesures"_ca, std::nullopt, Boto::Estil::Secundari };
+        Boto btAjusta { "Ajusta al perfil"_ca, std::nullopt, Boto::Estil::Primari };   // 0.95
+        std::unique_ptr<Pom> pomLufs;
+        rack::AssistentLoudness assistent;
+        juce::String avisAssistent;
         juce::ComboBox cbObjectiu;
         Historial hIn, hOut;
-        juce::Rectangle<int> zonaTitolAB, zonaCompensacio, zonaTitolL, zonaLcd, zonaTaula, zonaHistorial, zonaLectura;
+        juce::Rectangle<int> zonaTitolAB, zonaCompensacio, zonaTitolL, zonaLcd, zonaTaula, zonaHistorial, zonaLectura, zonaAssistent;
     };
 
     // ------------------------------------------------------------------

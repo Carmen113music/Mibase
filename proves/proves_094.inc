@@ -155,7 +155,7 @@ namespace
             using namespace mibase::rack;
             const auto& ps = presetsFabrica (Tipus::Master);
             comprova (ps.size() >= 20, "almenys 20 presets (" + std::to_string (ps.size()) + ")");
-            comprova (categories (Tipus::Master).size() == 4 && presetsFabrica().front().nom != ps.front().nom, "categories pròpies, separades del Vocal Studio");
+            comprova (categories (Tipus::Master).size() == 3 && presetsFabrica().front().nom != ps.front().nom, "categories pròpies, separades del Vocal Studio");
             int malament = 0;
             std::string quin;
             for (const auto& p : ps)

@@ -114,7 +114,9 @@ namespace mibase::loudness
         Mesurador m;
     };
 
-    /** Objectius orientatius de loudness integrat (no són obligatoris: depèn del material i del gènere). */
-    struct Objectiu { const char* nom; float lufs; float truePeak; const char* ajuda; };
+    /** Perfils de màster: objectius orientatius de loudness integrat i true peak (no són obligatoris: depèn del
+        material i del gènere; les plataformes normalitzen el volum però no exigeixen cap nivell al fitxer).
+        0.95: «configurable»: els LUFS els tria l'usuari (CD). */
+    struct Objectiu { const char* nom; float lufs; float truePeak; const char* ajuda; bool configurable = false; };
     const std::vector<Objectiu>& objectius();
 }

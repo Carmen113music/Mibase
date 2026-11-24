@@ -14,14 +14,17 @@ namespace mibase::loudness
 
     const std::vector<Objectiu>& objectius()
     {
+        // 0.95: els perfils d'en Roger (l'ordre dels primers es manté: els presets i els projectes desen l'índex)
         static const std::vector<Objectiu> v {
             { "Cap (només mesura)", 0.0f, -1.0f, "Sense objectiu: només es mostren les mesures." },
-            { "Streaming (Spotify, YouTube)", -14.0f, -1.0f, "Aquestes plataformes abaixen el que passa de -14 LUFS: més fort no sona més fort, només més aixafat." },
-            { "Apple Music", -16.0f, -1.0f, "Sound Check normalitza al voltant de -16 LUFS." },
-            { "Dinàmic / acústic", -16.0f, -1.0f, "Per a cançons tranquil·les, folk o balades: respira més." },
-            { "Pop i rock comercial", -10.0f, -1.0f, "Habitual en discos de pop i rock d'avui (entre -11 i -8)." },
-            { "Rock modern fort", -8.0f, -1.0f, "Molt fort: vigila que no es perdi el punch de la bateria." },
-            { "Ràdio i TV (EBU R128)", -23.0f, -1.0f, "La norma europea de difusió." },
+            { "Streaming Standard", -14.0f, -1.0f, "Spotify, YouTube i companyia baixen el que passa de -14 LUFS: més fort no hi sona més fort, només més aixafat." },
+            { "Streaming Loud", -11.0f, -1.5f, "Per competir en volum a les plataformes sense aixafar-ho del tot. Amb -1,5 dBTP de marge per a la compressió MP3/AAC." },
+            { "Streaming Dynamic", -16.0f, -1.0f, "Per a cançons tranquil·les, folk, balades o discos amb molta dinàmica: respira més." },
+            { "Indie Rock / Pop", -10.0f, -1.0f, "Habitual en discos de pop i indie rock d'avui (entre -11 i -9 LUFS)." },
+            { "Rock potent", -9.0f, -1.0f, "Rock fort i dens (entre -10 i -8 LUFS): vigila que la bateria no perdi el cop." },
+            { "Electrònica / Dance", -8.0f, -1.0f, "Electrònica i dance (entre -9 i -7 LUFS): molt fort; amb material acústic, millor un altre perfil." },
+            { "CD Master", -10.0f, -0.3f, "Per a un CD: tu tries els LUFS; el sostre és -0,3 dBTP (no passa per cap compressió MP3).", true },
+            { "Broadcast (EBU R128)", -23.0f, -1.0f, "Ràdio i televisió: la norma europea de difusió." },
         };
         return v;
     }

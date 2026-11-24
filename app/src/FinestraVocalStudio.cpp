@@ -631,7 +631,7 @@ namespace
                 addAndMakeVisible (*panellMaster);
                 btPreset.setTooltip ("Clica per veure tots els presets del màster (bàsics, objectiu sonor, gèneres, Carmen 113)"_ca);
                 btDesa.setTooltip ("Desa tot el Mastering Studio (mòduls, ajustos, macros i objectiu) com un preset teu"_ca);
-                setSize (1180, 760);
+                setSize (1180, 840);
             }
             if (rk->nomPreset().empty() && ! presetsFabrica (rk->tipusRack()).empty())
             {

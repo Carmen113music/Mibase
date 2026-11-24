@@ -298,6 +298,11 @@ std::shared_ptr<mibase::Efecte> GestorPlugins::efecteNou (const mibase::Insert& 
         auto r = creaIntern (y);
         if (auto* rv = dynamic_cast<mibase::reverb::Reverb*> (r.get()))
             rv->posa (mibase::reverb::FreezeOn, 0.0f);   // exportant no té sentit començar congelat
+        if (auto* rk = dynamic_cast<mibase::rack::Rack*> (r.get()))   // 0.95: l'A/B del Mastering Studio és només per escoltar
+        {
+            rk->posaOriginal (false);
+            rk->posaIgualat (false);
+        }
         r->prepara (fs, bloc);
         return r;
     }

@@ -161,6 +161,18 @@ namespace mibase::rack
 
     const loudness::Mesures* Rack::loudnessEntrada() const noexcept { return lIn != nullptr ? &lIn->mesures() : nullptr; }
     const loudness::Mesures* Rack::loudnessSortida() const noexcept { return lOut != nullptr ? &lOut->mesures() : nullptr; }
+    float Rack::lufsObjectiu() const noexcept
+    {
+        const auto& v = loudness::objectius();
+        const auto& o = v[(size_t) std::clamp (objectiu(), 0, (int) v.size() - 1)];
+        return o.lufs > -0.5f ? 0.0f : (o.configurable ? lufsPersonal() : o.lufs);
+    }
+    float Rack::truePeakObjectiu() const noexcept
+    {
+        const auto& v = loudness::objectius();
+        return v[(size_t) std::clamp (objectiu(), 0, (int) v.size() - 1)].truePeak;
+    }
+
     void Rack::reiniciaMesures() noexcept { if (lIn != nullptr) lIn->reinicia(); if (lOut != nullptr) lOut->reinicia(); }
 
     void rangParam (int p, float& mn, float& mx, float& def)
@@ -715,7 +727,7 @@ namespace mibase::rack
     {
         nlohmann::ordered_json j;
         j["mibase-rack"] = 1;
-        if (esMaster()) { j["tipus"] = "master"; j["igualat"] = igualatAB.load(); j["objectiu"] = objectiuLufs.load(); }   // 0.94
+        if (esMaster()) { j["tipus"] = "master"; j["igualat"] = igualatAB.load(); j["objectiu"] = objectiuLufs.load(); j["lufsPersonal"] = lufsPers.load(); }   // 0.94; 0.95
         j["entrada"] = par[Entrada].load();
         j["sortida"] = par[Sortida].load();
         auto mac = nlohmann::ordered_json::array();
@@ -774,8 +786,9 @@ namespace mibase::rack
             presetNom = j.value ("preset", std::string());   // 0.79
             if (esMaster())   // 0.94
             {
-                igualatAB.store (j.value ("igualat", true));
+                igualatAB.store (j.value ("igualat", false));   // 0.95
                 objectiuLufs.store (std::clamp (j.value ("objectiu", 1), 0, (int) loudness::objectius().size() - 1));
+                lufsPers.store (std::clamp (j.value ("lufsPersonal", -10.0f), -24.0f, -5.0f));   // 0.95
             }
             presetMod = j.value ("presetModificat", false);
             const auto rets = j.value ("retorns", nlohmann::json::array());   // 0.76
