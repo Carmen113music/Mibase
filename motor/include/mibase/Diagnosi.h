@@ -63,6 +63,9 @@ namespace mibase::diagnosi
         bool deMescla = false;             // una sola pista en té la majoria
         Accio accio;
         float gravetat = 0.0f;             // per ordenar
+        /** 1.2: a quin pas del mode guiat va: 2 to, 3 dinàmica, 5 estèreo, 6 loudness (els del màster surten també al 8). */
+        int pas = 2;
+        bool delMaster = false;            // parla del màster (no de la mescla): la comprovació final els torna a mirar
     };
 
     struct Context

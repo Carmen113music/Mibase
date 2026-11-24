@@ -332,6 +332,18 @@ namespace mibase::rack
     float guanyLimitador (const Rack& r);
     /** Posa el guany del limitador i hi deixa el macro Loudness d'acord (si cal, n'estén el rang). */
     void posaGuanyLimitador (Rack& r, float db);
+    /** 1.2: «Generate Master Suggestion»: una cadena mínima per a aquesta mescla i aquest estil, amb el perquè de cada mòdul
+        i el que no cal fer. Fa servir l'anàlisi del mix (abans del màster) i, si n'hi ha, la referència del context. */
+    struct SuggerimentMaster
+    {
+        std::string estat;                                          // el Mastering Studio sencer (per a posaEstat)
+        std::vector<std::pair<std::string, std::string>> moduls;   // mòdul, perquè
+        std::vector<std::string> fora;                              // el que no s'hi ha posat, i per què
+        std::string resum;
+    };
+    const std::vector<std::string>& estilsSuggeriment();
+    SuggerimentMaster suggereixMaster (const diagnosi::Analisi& mix, int estil, const diagnosi::Context& ctx, int objectiuActual);
+
     /** El sostre del limitador (dBTP, amb 0,2 dB de marge) amb el True Peak encès. */
     void posaSostre (Rack& r, float dbtp);
 

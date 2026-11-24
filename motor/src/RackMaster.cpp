@@ -49,6 +49,7 @@ namespace mibase::rack
             // limitador
             int limEstil = limitador::Transparent; float limGain = 3, ceil = -1;
             int objectiu = 1;
+            bool eq = true, st = true;   // 1.2: la suggerència pot no posar-hi l'EQ ni l'Estèreo
         };
 
         struct Enl { int modul, param; float mn, mx; };
@@ -105,6 +106,7 @@ namespace mibase::rack
         std::string fes (const ConfM& c)
         {
             Constructor k;
+            if (c.eq)
             {
                 auto q = std::make_shared<eq::Equalitzador>();
                 auto banda = [&q] (int n, int tipus, float f, float g, float qq, int canal = eq::Estereo)
@@ -164,6 +166,7 @@ namespace mibase::rack
                 s->posa (EstilP, (float) c.estil); s->posa (Drive, c.drive); s->posa (Mix, c.satMix); s->posa (Tone, c.tone); s->posa (Auto, 1);
                 k.iSat = k.r.afegeix ("colorm", s);
             }
+            if (c.st)
             {
                 auto s = std::make_shared<estereo::Estereo>();
                 using namespace estereo;
@@ -365,6 +368,134 @@ namespace mibase::rack
         reiniciVist = false;
         grMax = 0.0f;
         return estat;
+    }
+
+    // ---- 1.2: Generate Master Suggestion ----
+    const std::vector<std::string>& estilsSuggeriment()
+    {
+        static const std::vector<std::string> v { "Natural", "Modern", "Punchy", "Warm", "Wide", "Loud", "Transparent", "Indie Rock", "Festival",
+                                                  "Pop Modern", "Classic Pop", "Cinematic", "Experimental" };
+        return v;
+    }
+
+    namespace
+    {
+        std::string n1 (float v) { char b[32]; std::snprintf (b, sizeof b, "%.1f", (double) v); std::string s (b); for (auto& c : s) if (c == '.') c = ','; return s; }
+        std::string sg (float v) { return (v > 0 ? "+" : "") + n1 (v); }
+        std::string hzs (float f) { return f >= 1000.0f ? n1 (f / 1000.0f) + " kHz" : std::to_string ((int) std::lround (f)) + " Hz"; }
+    }
+
+    SuggerimentMaster suggereixMaster (const diagnosi::Analisi& mix, int estil, const diagnosi::Context& ctx, int objectiuActual)
+    {
+        enum { Natural, Modern, Punchy, Warm, Wide, Loud, Transparent, IndieRock, Festival, PopModern, ClassicPop, Cinematic, Experimental };
+        SuggerimentMaster s;
+        estil = std::clamp (estil, 0, (int) estilsSuggeriment().size() - 1);
+        ConfM c {};
+        c.cat = "Suggerència"; c.nom = "Suggerència"; c.desc = "";
+        // to: el que es desvia de la referència (la del Context o l'orientativa), corregit a mitges i amb límit
+        const auto corba = mix.corba();
+        auto ref = [&ctx] (int b) { return ctx.ambReferencia ? ctx.corbaRef[(size_t) b] : diagnosi::referencia (b); };
+        auto desv = [&] (int a, int b) { float x = 0; for (int k = a; k <= b; ++k) x += corba[(size_t) k] - ref (k); return x / (float) (b - a + 1); };
+        auto pic = [&] (int a, int b, bool maxim) { int m = a; for (int k = a; k <= b; ++k) { const float d = corba[(size_t) k] - ref (k), dm = corba[(size_t) m] - ref (m); if (maxim ? d > dm : d < dm) m = k; } return diagnosi::freqBanda (m); };
+        const float dSub = desv (0, 2), dGreus = desv (3, 6), dFang = desv (8, 11), dPres = desv (17, 21), dBri = desv (22, 24), dAire = desv (25, 27);
+        std::vector<std::string> eqTxt;
+        bool eqCal = false;
+        if (dSub > 2.5f) { c.hpf = 32; eqCal = true; eqTxt.push_back ("passa-alts a 32 Hz (subgreu " + sg (dSub) + " dB)"); }
+        if (std::abs (dGreus) > 2.0f) { c.greus = std::clamp (-0.5f * dGreus, -3.0f, 2.5f); eqCal = true; eqTxt.push_back (sg (c.greus) + " dB als greus (" + sg (dGreus) + " dB)"); }
+        if (dFang > 1.5f) { c.fang = -std::clamp (0.6f * dFang, 1.0f, 3.5f); c.fangF = pic (8, 11, true); eqCal = true; eqTxt.push_back (n1 (c.fang) + " dB a " + hzs (c.fangF) + " (fang " + sg (dFang) + " dB)"); }
+        if (dPres < -2.0f || dPres > 2.5f)
+        {
+            c.pres = std::clamp (-0.5f * dPres, -3.0f, 2.5f); c.presF = pic (17, 21, dPres > 0); eqCal = true;
+            eqTxt.push_back (sg (c.pres) + " dB a " + hzs (c.presF) + (dPres > 0 ? " (duresa " : " (presència ") + sg (dPres) + " dB)");
+        }
+        if (std::abs (dAire) > 3.0f) { c.aire = std::clamp (-0.4f * dAire, -2.0f, 3.0f); eqCal = true; eqTxt.push_back (sg (c.aire) + " dB d'aire (" + sg (dAire) + " dB)"); }
+        if (estil == Warm || estil == ClassicPop) { c.aire = std::min (c.aire, -0.5f); c.cos = 1.0f; eqCal = true; eqTxt.push_back ("una mica de cos i aguts suaus (estil)"); }
+        if (estil == Modern || estil == PopModern) { c.aire = std::max (c.aire, 1.0f); eqCal = true; eqTxt.push_back ("una mica més d'aire (estil)"); }
+        c.eq = eqCal;
+        if (eqCal) { std::string t; for (auto& x : eqTxt) t += (t.empty() ? "" : "; ") + x; s.moduls.push_back ({ "EQ de màster", t + "." }); }
+        else s.fora.push_back ("EQ: el to ja és a prop " + std::string (ctx.ambReferencia ? "de la referència" : "de la corba de referència") + ".");
+
+        if (dBri > 2.5f) { c.deess = true; c.deessF = pic (22, 24, true); s.moduls.push_back ({ "De-esser de màster", "Brillantor " + sg (dBri) + " dB cap a " + hzs (c.deessF) + ": calma les S i els plats només quan punxen." }); }
+
+        // greus als costats
+        {
+            double m = 0, sd = 0;
+            for (int b = 0; b <= 6; ++b) { m += mix.mid[(size_t) b]; sd += mix.side[(size_t) b]; }
+            const float sm = m > 0 ? (float) (10.0 * std::log10 (std::max (sd, 1e-20) / m)) : -100.0f;
+            if (sm > -15.0f || dGreus > 3.0f)
+            {
+                c.le = true; c.leMono = 120;
+                if (dGreus > 3.0f) c.leTight = 20;
+                s.moduls.push_back ({ "Low End Focus", std::string (sm > -15.0f ? "Greus oberts (Side " + n1 (sm) + " dB): mono per sota de 120 Hz. " : "")
+                                                     + (dGreus > 3.0f ? "Greus amb molta cua: Tight 20 %." : "") });
+            }
+        }
+
+        // dinàmica: la mescla ja ve comprimida?
+        const float plr = mix.loud.truePeakMax - mix.loud.integrated;
+        const bool aixafada = plr > 0.0f && plr < 8.0f;
+        if (aixafada || estil == Transparent)
+        {
+            c.comp = false;
+            s.fora.push_back (aixafada ? "Compressor: la mescla ja ve comprimida (pics a " + n1 (plr) + " dB del volum)." : "Compressor: l'estil Transparent no en vol.");
+        }
+        else
+        {
+            c.comp = true;
+            c.thr = -18; c.ratio = 1.5f; c.atac = 30; c.rel = 150; c.makeup = 1;
+            if (estil == Punchy || estil == Festival || estil == IndieRock) { c.atac = 40; c.ratio = 2.0f; }
+            if (estil == Loud || estil == Modern || estil == PopModern) { c.ratio = 2.5f; c.thr = -20; c.atac = 20; c.rel = 120; c.makeup = 1.5f; }
+            if (estil == Natural || estil == Cinematic) { c.ratio = 1.3f; c.thr = -16; c.atac = 40; c.rel = 250; }
+            s.moduls.push_back ({ "Compressor de màster", "Cohesió de 1–3 dB (ratio " + n1 (c.ratio) + ":1, atac " + std::to_string ((int) c.atac) + " ms"
+                                  + (c.atac >= 40 ? ", lent perquè passi el cop" : "") + "): la mescla té marge (pics a " + n1 (plr) + " dB del volum)." });
+        }
+        // cop
+        if ((estil == Punchy || estil == Festival || estil == IndieRock) && plr < 12.0f)
+        {
+            c.tr = true; c.trAtac = 20; c.trFocus = transitoris::Mitjos;
+            s.moduls.push_back ({ "Transient Shaper", "Atac +20 % a la caixa: l'estil demana cop i el limitador se'l menjaria." });
+        }
+        // color
+        if (estil == Warm || estil == ClassicPop || estil == IndieRock)
+        {
+            c.sat = true; c.estil = saturacio::A; c.drive = estil == Warm ? 2.0f : 1.5f; c.satMix = 35;
+            s.moduls.push_back ({ "Saturació (color)", "Cinta en paral·lel (35 %): escalfor i cohesió, com demana l'estil." });
+        }
+        else if (estil == Modern || estil == Loud || estil == Festival)
+        {
+            c.sat = true; c.estil = saturacio::E; c.drive = 1.5f; c.satMix = 25;
+            s.moduls.push_back ({ "Saturació (color)", "Consola suau (25 %): densitat sense que es noti." });
+        }
+        else s.fora.push_back ("Saturació: l'estil no en necessita.");
+        // estèreo
+        if (estil == Wide || estil == Cinematic) { c.st = true; c.amp = 110; c.ampA = 125; s.moduls.push_back ({ "Estèreo", "Obre els aguts (125 %) sense tocar el centre ni els greus." }); }
+        else if (mix.sideMidDb < -18.0f && estil != Transparent) { c.st = true; c.amp = 110; s.moduls.push_back ({ "Estèreo", "La mescla és estreta (Side " + n1 (mix.sideMidDb) + " dB): +10 % d'amplada." }); }
+        else { c.st = false; s.fora.push_back ("Estèreo: l'amplada ja està bé."); }
+        // clipper
+        if (estil == Loud || estil == Festival) { c.clip = true; c.clipDrive = 1.5f; s.moduls.push_back ({ "Clipper", "Retalla 1–2 dB de pics curts perquè el limitador no aixafi tant." }); }
+        // perfil i limitador
+        static const int perfilPerEstil[] = { 3, 4, 4, 4, 4, 5, 1, 4, 5, 4, 1, 3, 1 };
+        c.objectiu = objectiuActual > 0 ? objectiuActual : perfilPerEstil[estil];
+        const auto& obj = loudness::objectius()[(size_t) std::clamp (c.objectiu, 0, (int) loudness::objectius().size() - 1)];
+        const float lufsObj = obj.configurable ? (ctx.lufsObjectiu < -0.5f ? ctx.lufsObjectiu : -10.0f) : obj.lufs;
+        c.ceil = obj.truePeak - 0.2f;
+        c.limEstil = estil == Punchy || estil == Festival ? limitador::Punch : estil == Loud || estil == Modern || estil == PopModern ? limitador::Modern : limitador::Transparent;
+        float g = mix.loud.integrated > -70.0f ? lufsObj - mix.loud.integrated : 3.0f;
+        g -= (c.comp ? c.makeup : 0.0f) + (c.clip ? c.clipDrive : 0.0f);
+        c.limGain = std::clamp (g + 1.0f, 0.0f, 14.0f);   // +1: el limitador també treu volum
+        s.moduls.push_back ({ "Limitador", "Perfil " + std::string (obj.nom) + " (" + n1 (lufsObj) + " LUFS, sostre " + n1 (obj.truePeak) + " dBTP). El mix és a "
+                              + n1 (mix.loud.integrated) + " LUFS: guany inicial de " + n1 (c.limGain) + " dB. Després, «Ajusta al perfil» mentre sona per afinar-lo." });
+        s.estat = fes (c);
+        {   // la llista, en l'ordre de la cadena
+            static const char* const ordre[] = { "EQ de màster", "De-esser de màster", "Compressor de màster", "Low End Focus", "Transient Shaper",
+                                                 "Saturació (color)", "Estèreo", "Clipper", "Limitador" };
+            auto rang = [] (const std::string& m) { for (int k = 0; k < 9; ++k) if (m == ordre[k]) return k; return 9; };
+            std::stable_sort (s.moduls.begin(), s.moduls.end(), [&] (auto& x, auto& y) { return rang (x.first) < rang (y.first); });
+        }
+        s.resum = "Estil " + estilsSuggeriment()[(size_t) estil] + ": " + std::to_string (s.moduls.size()) + " mòduls"
+                  + (s.fora.empty() ? "." : "; " + std::to_string (s.fora.size()) + " coses que no cal fer.")
+                  + " Tot es pot retocar després.";
+        return s;
     }
 
     const std::vector<std::string>& categories (Tipus t)

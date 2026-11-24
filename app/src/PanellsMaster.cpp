@@ -335,8 +335,8 @@ namespace
     class FinestraInforme : public juce::DocumentWindow
     {
     public:
-        FinestraInforme (juce::Component* c, std::function<void()> enTancar)
-            : juce::DocumentWindow ("Mastering Studio · Informe"_ca, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton), tancar (std::move (enTancar))
+        FinestraInforme (juce::Component* c, std::function<void()> enTancar, const juce::String& titol = "Mastering Studio · Informe"_ca)
+            : juce::DocumentWindow (titol, tema::fons, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton), tancar (std::move (enTancar))
         {
             setUsingNativeTitleBar (true);
             setContentOwned (c, true);
@@ -348,6 +348,409 @@ namespace
         bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
     private:
         std::function<void()> tancar;
+    };
+
+    // ------------------------------------------------------------------
+    /** 1.2: un text llarg que es pinta sol (per a les finestres de la suggerència i del mode guiat). */
+    struct Llista : public juce::Component
+    {
+        std::function<void (juce::Graphics&)> pinta;
+        void paint (juce::Graphics& g) override { if (pinta) pinta (g); }
+    };
+
+    /** 1.2: «Suggereix una cadena»: tries l'estil, Mibase escolta el mix i proposa una cadena mínima justificada. */
+    class PanellSuggeriment : public juce::Component
+    {
+    public:
+        explicit PanellSuggeriment (std::shared_ptr<mibase::rack::Rack> r) : rk (std::move (r))
+        {
+            const auto& e = mibase::rack::estilsSuggeriment();
+            for (int k = 0; k < (int) e.size(); ++k)
+            {
+                auto b = std::make_unique<Boto> (u8 (e[(size_t) k].c_str()), std::nullopt, Boto::Estil::Tecla);
+                b->setClickingTogglesState (false);
+                b->onClick = [this, k] { estil = k; for (int j = 0; j < (int) estils.size(); ++j) estils[(size_t) j]->setToggleState (j == k, juce::dontSendNotification); };
+                addAndMakeVisible (*b);
+                estils.push_back (std::move (b));
+            }
+            estils[0]->setToggleState (true, juce::dontSendNotification);
+            for (auto* b : { &btGenera, &btAplica }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }
+            btAplica.setEnabled (false);
+            btGenera.onClick = [this] { genera(); };
+            btAplica.onClick = [this]
+            {
+                if (aplicada) { rk->posaEstat (abans); aplicada = false; }
+                else { abans = rk->estat(); rk->posaEstat (sug.estat); aplicada = true; }
+                btAplica.setButtonText (aplicada ? "Desfés (torna a la cadena d'abans)"_ca : "Aplica al Mastering Studio"_ca);
+                repaint();
+            };
+            addAndMakeVisible (vista);
+            vista.setViewedComponent (&llista, false);
+            vista.setScrollBarsShown (true, false);
+            llista.pinta = [this] (juce::Graphics& g) { pintaLlista (g); };
+            setSize (860, 720);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (tema::fons);
+            vintage::panell (g, getLocalBounds().toFloat().reduced (6.0f), 6.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (18.0f, true));
+            g.drawText ("SUGGEREIX UNA CADENA", zonaTitol, juce::Justification::centredLeft);
+            g.setColour (ambre);
+            g.setFont (dibuix::lletra (10.0f, true));
+            g.drawText ("MIBASE · MASTER SUGGESTION · TRIA L'ESTIL I MIBASE ESCOLTA LA MESCLA"_ca, zonaTitol.translated (0, 20), juce::Justification::centredLeft);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f));
+            g.drawFittedText ("Proposa una cadena mínima (només el que cal) a partir del que mesura a la mescla"_ca
+                              + (rk->referencia() != nullptr ? " i de la teva referència («"_ca + u8 (rk->referencia()->nom.c_str()) + "»)" : juce::String())
+                              + ". «Aplica» substitueix la cadena que hi ha; es pot desfer."_ca, zonaAjuda, juce::Justification::topLeft, 2, 0.9f);
+            if (avis.isNotEmpty()) { g.setColour (ambre); g.drawFittedText (avis, zonaAvis, juce::Justification::centredLeft, 2, 0.9f); }
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (22, 18);
+            zonaTitol = r.removeFromTop (22);
+            r.removeFromTop (24);
+            zonaAjuda = r.removeFromTop (34);
+            const int cols = 5, w = (r.getWidth() - (cols - 1) * 6) / cols;
+            for (int k = 0; k < (int) estils.size(); ++k)
+            {
+                if (k % cols == 0) { fila = r.removeFromTop (30); r.removeFromTop (6); }
+                estils[(size_t) k]->setBounds (fila.removeFromLeft (w));
+                fila.removeFromLeft (6);
+            }
+            r.removeFromTop (6);
+            {
+                auto b = r.removeFromTop (32);
+                btGenera.setBounds (b.removeFromLeft (220));
+                b.removeFromLeft (8);
+                btAplica.setBounds (b.removeFromLeft (300));
+            }
+            zonaAvis = r.removeFromTop (30);
+            vista.setBounds (r);
+            llista.setSize (r.getWidth() - vista.getScrollBarThickness() - 2, altLlista);
+        }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+    private:
+        void genera()
+        {
+            btGenera.setButtonText ("Escoltant la mescla…"_ca);
+            btGenera.setEnabled (false);
+            juce::Timer::callAfterDelay (60, [sp = juce::Component::SafePointer<PanellSuggeriment> (this)]
+            {
+                if (sp == nullptr) return;
+                const auto ctx = contextDe (*sp->rk);
+                auto inf = analitzaAra (false, ctx);
+                if (sp == nullptr) return;
+                sp->btGenera.setButtonText ("Genera la cadena"_ca);
+                sp->btGenera.setEnabled (true);
+                if (inf == nullptr || ! inf->mix.valid) { sp->avis = "No s'ha pogut escoltar la mescla (cal un projecte obert amb alguna cosa que soni)."_ca; sp->repaint(); return; }
+                sp->sug = mibase::rack::suggereixMaster (inf->mix, sp->estil, ctx, sp->rk->objectiu());
+                sp->te = true;
+                sp->aplicada = false;
+                sp->btAplica.setEnabled (true);
+                sp->btAplica.setButtonText ("Aplica al Mastering Studio"_ca);
+                sp->avis = u8 (sp->sug.resum.c_str());
+                sp->altLlista = 60 + 46 * (int) sp->sug.moduls.size() + 24 * (int) sp->sug.fora.size() + 40;
+                sp->resized();
+                sp->repaint();
+                sp->llista.repaint();
+            });
+        }
+        void pintaLlista (juce::Graphics& g)
+        {
+            if (! te) return;
+            auto r = llista.getLocalBounds().reduced (4, 4);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawText ("LA CADENA, PER ORDRE", r.removeFromTop (20), juce::Justification::centredLeft);
+            int n = 1;
+            for (auto& [m, perque] : sug.moduls)
+            {
+                auto f = r.removeFromTop (46);
+                g.setColour (juce::Colours::black.withAlpha (0.3f));
+                g.fillRoundedRectangle (f.toFloat().reduced (0.0f, 2.0f), 5.0f);
+                f.reduce (12, 4);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (13.0f, true));
+                g.drawText (juce::String (n++) + "  " + u8 (m.c_str()), f.removeFromTop (18), juce::Justification::centredLeft);
+                g.setColour (tema::textMig);
+                g.setFont (dibuix::lletra (11.0f));
+                g.drawFittedText (u8 (perque.c_str()), f, juce::Justification::topLeft, 2, 0.85f);
+            }
+            if (! sug.fora.empty())
+            {
+                r.removeFromTop (10);
+                g.setColour (tema::suau);
+                g.setFont (dibuix::lletra (10.5f, true));
+                g.drawText ("NO CAL", r.removeFromTop (18), juce::Justification::centredLeft);
+                g.setFont (dibuix::lletra (11.5f));
+                for (auto& f : sug.fora) g.drawFittedText ("- " + u8 (f.c_str()), r.removeFromTop (24), juce::Justification::centredLeft, 1, 0.85f);
+            }
+        }
+        std::shared_ptr<mibase::rack::Rack> rk;
+        std::vector<std::unique_ptr<Boto>> estils;
+        Boto btGenera { "Genera la cadena", std::nullopt, Boto::Estil::Primari };
+        Boto btAplica { "Aplica al Mastering Studio", std::nullopt, Boto::Estil::Primari };
+        juce::Viewport vista;
+        Llista llista;
+        mibase::rack::SuggerimentMaster sug;
+        bool te = false, aplicada = false;
+        int estil = 0, altLlista = 100;
+        std::string abans;
+        juce::String avis;
+        juce::Rectangle<int> zonaTitol, zonaAjuda, zonaAvis, fila;
+    };
+
+    // ------------------------------------------------------------------
+    /** 1.2: el mode guiat: 8 passos, cadascun amb el seu consell i les troballes que li toquen. Es pot saltar qualsevol pas. */
+    class PanellGuiat : public juce::Component
+    {
+    public:
+        explicit PanellGuiat (std::shared_ptr<mibase::rack::Rack> r) : rk (std::move (r))
+        {
+            for (int k = 0; k < 8; ++k)
+            {
+                auto b = std::make_unique<Boto> (juce::String (k + 1) + ". " + nomPas (k), std::nullopt, Boto::Estil::Tecla);
+                b->setClickingTogglesState (false);
+                b->onClick = [this, k] { vesA (k); };
+                addAndMakeVisible (*b);
+                passos.push_back (std::move (b));
+            }
+            for (auto* b : { &btAnterior, &btSeguent, &btAccio, &btAccio2, &btAccio3, &btAccio4 }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }
+            btAnterior.onClick = [this] { vesA (pas - 1); };
+            btSeguent.onClick = [this] { vesA (pas + 1); };
+            addAndMakeVisible (vista);
+            vista.setViewedComponent (&contingut, false);
+            vista.setScrollBarsShown (true, false);
+            contingut.pinta = [this] (juce::Graphics& g) { pintaContingut (g); };
+            setSize (980, 740);
+            vesA (0);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (tema::fons);
+            vintage::panell (g, getLocalBounds().toFloat().reduced (6.0f), 6.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (18.0f, true));
+            g.drawText ("MODE GUIAT", zonaTitol, juce::Justification::centredLeft);
+            g.setColour (ambre);
+            g.setFont (dibuix::lletra (10.0f, true));
+            g.drawText ("MIBASE · MÀSTER PAS A PAS · POTS SALTAR QUALSEVOL PAS"_ca, zonaTitol.translated (0, 20), juce::Justification::centredLeft);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (15.0f, true));
+            g.drawText ("PAS "_ca + juce::String (pas + 1) + " · " + nomPas (pas).toUpperCase(), zonaPas.removeFromTop (22), juce::Justification::centredLeft);
+            g.setColour (tema::textMig);
+            g.setFont (dibuix::lletra (12.0f));
+            g.drawFittedText (consell (pas), zonaPas.withTrimmedTop (24), juce::Justification::topLeft, 5, 0.9f);
+            if (avis.isNotEmpty()) { g.setColour (ambre); g.setFont (dibuix::lletra (11.5f)); g.drawFittedText (avis, zonaAvis, juce::Justification::centredLeft, 2, 0.9f); }
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (22, 18);
+            zonaTitol = r.removeFromTop (22);
+            r.removeFromTop (26);
+            auto esq = r.removeFromLeft (210);
+            for (auto& b : passos) { b->setBounds (esq.removeFromTop (32)); esq.removeFromTop (6); }
+            r.removeFromLeft (16);
+            auto peu = r.removeFromBottom (34);
+            btSeguent.setBounds (peu.removeFromRight (150));
+            peu.removeFromRight (8);
+            btAnterior.setBounds (peu.removeFromRight (150));
+            zonaPas = r.removeFromTop (110);
+            {
+                auto b = r.removeFromTop (30);
+                for (auto* x : { &btAccio, &btAccio2, &btAccio3, &btAccio4 })
+                    if (x->isVisible()) { x->setBounds (b.removeFromLeft (juce::jmax (120, x->ampladaIdeal() + 20))); b.removeFromLeft (8); }
+            }
+            zonaAvis = r.removeFromTop (32);
+            vista.setBounds (r.withTrimmedBottom (8));
+            colocaTargetes();
+        }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
+
+    private:
+        static juce::String nomPas (int k)
+        {
+            static const char* const n[8] = { "Analitza", "To", "Dinàmica", "Color", "Estèreo", "Loudness", "A/B", "Comprovació final" };
+            return juce::String::fromUTF8 (n[juce::jlimit (0, 7, k)]);
+        }
+        juce::String consell (int k) const
+        {
+            switch (k)
+            {
+                case 0: return "Mibase escolta tota la cançó (sense reproduir-la) i fa el diagnòstic inicial. Amb «i les pistes», també diu d'on ve cada problema. Si veus que algun problema és de la mescla, millor arreglar-lo a la pista abans de seguir."_ca;
+                case 1: return "El to: greus, fang, presència, brillantor i aire. Canvis petits (1–3 dB) i d'un en un; escolta cada proposta amb «Escolta A/B»."_ca
+                               + (rk->referencia() != nullptr ? " Ho compara amb la teva referència."_ca : " Si tens una referència (botó Referències…), és més precís."_ca);
+                case 2: return "La dinàmica: cal compressor, multibanda o res? Si la mescla ja ve comprimida, al màster s'hi comprimeix poc o gens. Si una zona s'escapa (sovint els greus), el Multibanda és millor que un compressor sencer."_ca;
+                case 3: return "El color: saturació per a escalfor i cohesió, o res si la mescla ja sona com vols. Sempre suau i en paral·lel; vigila els greus."_ca;
+                case 4: return "L'estèreo: greus al mig (mono per sota de 100–150 Hz), aguts oberts si cal, i que soni bé en mono (botó «Escolta en mono» a l'Estèreo)."_ca;
+                case 5: return "El loudness: tria el perfil al panell del màster i prem «Ajusta al perfil» mentre sona la cançó (millor la tornada en bucle). Si el limitador hauria de treballar massa, t'avisarà."_ca;
+                case 6: return "Compara l'original i el màster amb el volum igualat: ha de sonar millor, no només més fort. Si tens una referència, compara-la també."_ca;
+                default: return "Mibase torna a escoltar el màster: true peak, loudness respecte del perfil, si aixafa la cançó i si hi ha clips."_ca;
+            }
+        }
+        void vesA (int k)
+        {
+            pas = juce::jlimit (0, 7, k);
+            for (int j = 0; j < 8; ++j) passos[(size_t) j]->setToggleState (j == pas, juce::dontSendNotification);
+            btAnterior.setEnabled (pas > 0);
+            btSeguent.setButtonText (pas == 7 ? "Fet"_ca : "Següent"_ca);
+            btSeguent.setEnabled (pas < 7);
+            avis.clear();
+            for (auto* b : { &btAccio, &btAccio2, &btAccio3, &btAccio4 }) { b->setVisible (false); b->onClick = nullptr; b->setClickingTogglesState (false); b->setToggleState (false, juce::dontSendNotification); }
+            auto accio = [] (Boto& b, const juce::String& t, std::function<void()> f) { b.setButtonText (t); b.onClick = std::move (f); b.setVisible (true); };
+            using E = mibase::rack::Escolta;
+            switch (pas)
+            {
+                case 0:
+                    accio (btAccio, "Analitza", [this] { analitza (ambPistes); });
+                    accio (btAccio2, ambPistes ? "i les pistes: sí"_ca : "i les pistes: no", [this] { ambPistes = ! ambPistes; btAccio2.setButtonText (ambPistes ? "i les pistes: sí"_ca : "i les pistes: no"); });
+                    break;
+                case 3:
+                    accio (btAccio, "Afegeix cinta suau", [this] { posaColor (mibase::saturacio::A); });
+                    accio (btAccio2, "Afegeix consola suau", [this] { posaColor (mibase::saturacio::E); });
+                    accio (btAccio3, "Sense color", [this] { treuColor(); });
+                    break;
+                case 6:
+                    accio (btAccio, "Original", [this] { rk->posaEscolta (E::EscoltaOriginal); });
+                    accio (btAccio2, "Màster"_ca, [this] { rk->posaEscolta (E::EscoltaMaster); });
+                    if (rk->referencia() != nullptr) accio (btAccio3, "Referència"_ca, [this] { rk->posaEscolta (E::EscoltaReferencia); });
+                    accio (btAccio4, rk->igualat() ? "Igualat: sí" : "Igualat: no", [this] { rk->posaIgualat (! rk->igualat()); btAccio4.setButtonText (rk->igualat() ? "Igualat: sí" : "Igualat: no"); });
+                    break;
+                case 7:
+                    accio (btAccio, "Comprova el màster"_ca, [this] { analitza (false, true); });
+                    break;
+                default: break;
+            }
+            refesTargetes();
+            resized();
+            repaint();
+        }
+        void analitza (bool pistes, bool final = false)
+        {
+            btAccio.setButtonText ("Escoltant…"_ca);
+            btAccio.setEnabled (false);
+            juce::Timer::callAfterDelay (60, [sp = juce::Component::SafePointer<PanellGuiat> (this), pistes, final]
+            {
+                if (sp == nullptr) return;
+                auto i = analitzaAra (pistes, contextDe (*sp->rk));
+                if (sp == nullptr) return;
+                sp->btAccio.setEnabled (true);
+                sp->btAccio.setButtonText (final ? "Comprova el màster"_ca : "Analitza");
+                if (i == nullptr) { sp->avis = "No s'ha pogut escoltar (cal un projecte obert amb alguna cosa que soni)."_ca; sp->repaint(); return; }
+                if (final) sp->infFinal = i; else sp->inf = i;
+                sp->avis = final ? (sp->troballesPas().empty() ? "Tot a punt: cap problema al màster."_ca : "Revisa el que surt a sota."_ca)
+                                 : "Fet. Mira el resum a sota i ves als passos següents."_ca;
+                sp->refesTargetes();
+                sp->resized();
+                sp->repaint();
+            });
+        }
+        int posAbansFinal() const
+        {
+            for (int i = 0; i < rk->numModuls(); ++i)
+            {
+                const auto& k = rk->modul (i)->clau;
+                if (k == "estereo" || k == "clipper" || k == "limitm" || k == "limitador" || k == "loudness") return i;
+            }
+            return rk->numModuls();
+        }
+        void posaColor (int estilSat)
+        {
+            treuColor();
+            const int i = rk->afegeix ("colorm", posAbansFinal());
+            if (auto* s = i >= 0 ? dynamic_cast<mibase::saturacio::Saturacio*> (rk->modul (i)->fx.get()) : nullptr)
+            {
+                s->posa (mibase::saturacio::EstilP, (float) estilSat);
+                s->posa (mibase::saturacio::Drive, 1.5f);
+                s->posa (mibase::saturacio::Mix, 30.0f);
+            }
+            rk->marcaModificat();
+            avis = (estilSat == mibase::saturacio::A ? "Cinta"_ca : "Consola"_ca) + " suau afegida (30 % en paral·lel). La pots retocar al rack."_ca;
+            repaint();
+        }
+        void treuColor()
+        {
+            for (int i = rk->numModuls() - 1; i >= 0; --i) if (rk->modul (i)->clau == "colorm") rk->treu (i);
+            rk->marcaModificat();
+            avis = "Sense saturació."_ca;
+            repaint();
+        }
+        std::vector<mibase::diagnosi::Troballa> troballesPas() const
+        {
+            std::vector<mibase::diagnosi::Troballa> v;
+            if (pas == 7) { if (infFinal) for (auto& t : infFinal->troballes) if (t.delMaster || t.pas == 6) v.push_back (t); return v; }
+            if (inf == nullptr) return v;
+            const int p = pas == 1 ? 2 : pas == 2 ? 3 : pas == 4 ? 5 : pas == 5 ? 6 : -1;
+            for (auto& t : inf->troballes) if (t.pas == p) v.push_back (t);
+            return v;
+        }
+        void refesTargetes()
+        {
+            targetes.clear();
+            for (auto& t : troballesPas()) { auto c = std::make_unique<Targeta> (rk, t, nullptr); contingut.addAndMakeVisible (*c); targetes.push_back (std::move (c)); }
+            colocaTargetes();
+            contingut.repaint();
+        }
+        void colocaTargetes()
+        {
+            const int w = juce::jmax (100, vista.getWidth() - vista.getScrollBarThickness() - 4);
+            int y = altResum();
+            for (auto& t : targetes) { t->setBounds (0, y, w, t->alcada()); y += t->alcada() + 10; }
+            contingut.setSize (w, y + 10);
+        }
+        int altResum() const
+        {
+            if (pas == 0 && inf != nullptr) return 150;
+            if ((pas == 1 || pas == 2 || pas == 4 || pas == 5) && (inf == nullptr || targetes.empty())) return 40;
+            if (pas == 7 && infFinal != nullptr) return 50;
+            return 0;
+        }
+        void pintaContingut (juce::Graphics& g)
+        {
+            auto r = juce::Rectangle<int> (0, 0, contingut.getWidth(), altResum());
+            g.setFont (dibuix::lletra (12.0f));
+            if (pas == 0 && inf != nullptr)
+            {
+                g.setColour (tema::suau);
+                g.setFont (dibuix::lletra (10.5f, true));
+                g.drawText ("QUÈ FARIA UN ENGINYER DE MÀSTER"_ca, r.removeFromTop (18), juce::Justification::centredLeft);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (12.0f));
+                g.drawFittedText (u8 (inf->enginyer.c_str()), r.removeFromTop (90), juce::Justification::topLeft, 6, 0.9f);
+                g.setColour (tema::suau);
+                g.drawFittedText ("Confiança "_ca + u8 (mibase::diagnosi::nomConfianca (inf->confianca)) + ". " + juce::String (inf->troballes.size()) + " troballes, repartides als passos 2, 3, 5 i 6."_ca,
+                                  r, juce::Justification::topLeft, 2, 0.9f);
+            }
+            else if ((pas == 1 || pas == 2 || pas == 4 || pas == 5) && (inf == nullptr || targetes.empty()))
+            {
+                g.setColour (tema::suau);
+                g.drawText (inf == nullptr ? "Primer, el pas 1 (Analitza), o salta'l i treballa a mà."_ca : "En aquest pas no hi ha res a corregir."_ca, r, juce::Justification::centredLeft);
+            }
+            else if (pas == 7 && infFinal != nullptr)
+            {
+                const auto& m = infFinal->master;
+                g.setColour (tema::text);
+                g.drawText ("Màster: "_ca + lufs (m.loud.integrated) + " LUFS · LRA " + num (m.loud.lra) + " LU · TP " + lufs (m.loud.truePeakMax) + " dBTP · pics sobre el volum "
+                            + num (m.loud.truePeakMax - m.loud.integrated) + " dB · clips " + juce::String (m.loud.clips), r, juce::Justification::centredLeft);
+            }
+        }
+        std::shared_ptr<mibase::rack::Rack> rk;
+        std::shared_ptr<mibase::diagnosi::Informe> inf, infFinal;
+        std::vector<std::unique_ptr<Boto>> passos;
+        std::vector<std::unique_ptr<Targeta>> targetes;
+        Boto btAnterior { "Anterior", std::nullopt, Boto::Estil::Secundari };
+        Boto btSeguent { "Següent"_ca, std::nullopt, Boto::Estil::Primari };
+        Boto btAccio { "", std::nullopt, Boto::Estil::Primari }, btAccio2 { "", std::nullopt, Boto::Estil::Secundari },
+             btAccio3 { "", std::nullopt, Boto::Estil::Secundari }, btAccio4 { "", std::nullopt, Boto::Estil::Secundari };
+        juce::Viewport vista;
+        Llista contingut;
+        int pas = 0;
+        bool ambPistes = true;
+        juce::String avis;
+        juce::Rectangle<int> zonaTitol, zonaPas, zonaAvis;
     };
 
     // ------------------------------------------------------------------
@@ -393,6 +796,11 @@ namespace
             btAnalitza.setTooltip ("Escolta tota la cançó (sense reproduir-la) i fa un informe: problemes, oportunitats i què faria un enginyer de màster."_ca);
             btAmbPistes.setTooltip ("També escolta cada pista per separat, per dir d'on ve cada problema. Tarda més (una passada per pista)."_ca);
             btAnalitza.onClick = [this] { analitza(); };
+            for (auto* b : { &btSuggereix, &btGuiat }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }   // 1.2
+            btSuggereix.setTooltip ("Tria un estil i Mibase proposa una cadena mínima per a aquesta mescla, justificant cada mòdul."_ca);
+            btGuiat.setTooltip ("El màster pas a pas: analitzar, to, dinàmica, color, estèreo, loudness, A/B i comprovació final."_ca);
+            btSuggereix.onClick = [this] { obre (finestraSug, "Mastering Studio · Suggerència"_ca, [this] { return new PanellSuggeriment (rk); }); };
+            btGuiat.onClick = [this] { obre (finestraGuiat, "Mastering Studio · Mode guiat"_ca, [this] { return new PanellGuiat (rk); }); };
             addAndMakeVisible (btAjusta);   // 0.95
             btAjusta.setTooltip ("Ajusta el limitador perquè el màster arribi als LUFS i al true peak del perfil. Mentre ho fa, reprodueix la cançó o la tornada en bucle."_ca);
             btAjusta.onClick = [this]
@@ -543,6 +951,13 @@ namespace
                 btAnalitza.setBounds (fa);
             }
             r.removeFromTop (6);
+            {
+                auto fs = r.removeFromTop (28);   // 1.2
+                btGuiat.setBounds (fs.removeFromRight (fs.getWidth() / 2 - 3));
+                fs.removeFromRight (6);
+                btSuggereix.setBounds (fs);
+            }
+            r.removeFromTop (6);
             btAjusta.setBounds (r.removeFromTop (30));
             zonaAssistent = r.removeFromTop (44).withTrimmedTop (4);
             r.removeFromTop (4);
@@ -638,6 +1053,15 @@ namespace
         std::unique_ptr<juce::DocumentWindow> finestraRef;
         Boto btAmbPistes { "i les pistes", std::nullopt, Boto::Estil::Tecla };
         std::unique_ptr<juce::DocumentWindow> finestraInforme;
+        Boto btSuggereix { "Suggereix…"_ca, std::nullopt, Boto::Estil::Secundari };   // 1.2
+        Boto btGuiat { "Mode guiat", std::nullopt, Boto::Estil::Secundari };
+        std::unique_ptr<juce::DocumentWindow> finestraSug, finestraGuiat;
+        void obre (std::unique_ptr<juce::DocumentWindow>& f, const juce::String& titol, std::function<juce::Component*()> crea)
+        {
+            if (f != nullptr) { f->toFront (true); return; }
+            auto* lloc = &f;
+            f = std::make_unique<FinestraInforme> (crea(), [sp = juce::Component::SafePointer<PanellMaster> (this), lloc] { if (sp != nullptr) lloc->reset(); }, titol);
+        }
         void analitza()
         {
             if (! analitzador()) { avisAssistent = "L'anàlisi només funciona quan el Mastering Studio és en un projecte obert."_ca; repaint(); return; }

@@ -73,6 +73,9 @@ public:
     bool retardMinimActiu() const noexcept { return retardMinimBoto || estatTransport() >= 2; }
     bool retardMinimBoto = false;
     std::pair<juce::String, juce::String> textPosicio() const;
+    /** 1.2: la tonalitat per a la pantalla TO del transport («La m», «Mi M»; buida si encara no se sap) i el seu menú. */
+    std::pair<juce::String, juce::String> textTonalitat() const;
+    void menuTonalitat (juce::Rectangle<int> zonaPantalla);
 
     void paint (juce::Graphics& g) override;
     void resized() override;

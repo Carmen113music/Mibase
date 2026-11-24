@@ -34,6 +34,8 @@ public:
         {
             return estudi ? estudi->textPosicio() : std::pair<juce::String, juce::String>();
         };
+        capcalera.onTonalitat = [this] { return estudi ? estudi->textTonalitat() : std::pair<juce::String, juce::String>(); };   // 1.2
+        capcalera.onMenuTonalitat = [this] (juce::Rectangle<int> z) { if (estudi) estudi->menuTonalitat (z); };
 
         addChildComponent (inici);
         inici.onObre = [this] (const juce::File& f) { obre (f); };

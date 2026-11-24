@@ -1984,6 +1984,80 @@ std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool 
     return inf;
 }
 
+namespace
+{
+    /** 1.2: «La», «Fa#», «Sib»… (amb l'ortografia de la tonalitat). */
+    juce::String nomSolfeig (int to, const mibase::Tonalitat& t)
+    {
+        const auto en = mibase::harmonia::nomTo (to, t);
+        static const std::pair<char, const char*> m[] = { { 'C', "Do" }, { 'D', "Re" }, { 'E', "Mi" }, { 'F', "Fa" }, { 'G', "Sol" }, { 'A', "La" }, { 'B', "Si" } };
+        juce::String s;
+        for (auto& [l, n] : m) if (! en.empty() && en[0] == l) s = n;
+        return s + juce::String::fromUTF8 (en.substr (1).c_str());
+    }
+    /** {gran, petit}: «La m» / «Mi M»; les altres escales, la nota a dalt i el nom de l'escala a sota. */
+    std::pair<juce::String, juce::String> textCurt (const mibase::Tonalitat& t)
+    {
+        const auto n = nomSolfeig (t.to, t);
+        if (t.escala == 0) return { n + " M", {} };
+        if (t.escala == 1) return { n + " m", {} };
+        return { n, juce::String::fromUTF8 (mibase::harmonia::escales()[(size_t) juce::jlimit (0, (int) mibase::harmonia::escales().size() - 1, t.escala)].nom) };
+    }
+}
+
+std::pair<juce::String, juce::String> PantallaEstudi::textTonalitat() const
+{
+    const auto& p = estat.projecte;
+    if (! p.tonalitatAuto)
+    {
+        auto r = textCurt (p.tonalitat);
+        if (r.second.isEmpty()) r.second = "triada";
+        return r;
+    }
+    const auto d = mibase::harmonia::detecta (p);
+    if (! d.usable) return {};
+    auto r = textCurt (d.tonalitat);
+    if (r.second.isEmpty()) r.second = "auto";
+    return r;
+}
+
+void PantallaEstudi::menuTonalitat (juce::Rectangle<int> zona)
+{
+    namespace hm = mibase::harmonia;
+    juce::PopupMenu m;
+    m.addSectionHeader ("Tonalitat de la cançó"_ca);
+    m.addItem (1, "Automàtica (la detecta dels acords i de les notes)"_ca, true, estat.projecte.tonalitatAuto);
+    m.addSeparator();
+    const auto ara = estat.projecte.tonalitat;
+    juce::PopupMenu maj, men, altres;
+    for (int to = 0; to < 12; ++to)
+    {
+        const bool triadaMaj = ! estat.projecte.tonalitatAuto && ara.to == to && ara.escala == 0;
+        const bool triadaMen = ! estat.projecte.tonalitatAuto && ara.to == to && ara.escala == 1;
+        maj.addItem (1000 + to * 100, textCurt ({ to, 0 }).first, true, triadaMaj);
+        men.addItem (1000 + to * 100 + 1, textCurt ({ to, 1 }).first, true, triadaMen);
+        juce::PopupMenu sub;
+        for (int e = 2; e < (int) hm::escales().size(); ++e)
+            sub.addItem (1000 + to * 100 + e, juce::String::fromUTF8 (hm::escales()[(size_t) e].nom), true, ! estat.projecte.tonalitatAuto && ara.to == to && ara.escala == e);
+        altres.addSubMenu (nomSolfeig (to, { to, 0 }), sub);
+    }
+    m.addSubMenu ("Majors", maj);
+    m.addSubMenu ("Menors", men);
+    m.addSubMenu ("Altres escales", altres);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (zona), [this] (int r)
+    {
+        if (r <= 0) return;
+        estat.desfes.abans (estat.projecte);
+        if (r == 1) estat.projecte.tonalitatAuto = true;
+        else
+        {
+            estat.projecte.tonalitatAuto = false;
+            estat.projecte.tonalitat = { (r - 1000) / 100, (r - 1000) % 100 };
+        }
+        estat.canviat ("Tonalitat: "_ca + juce::String::fromUTF8 (mibase::harmonia::nomTonalitat (mibase::harmonia::tonalitatEfectiva (estat.projecte)).c_str()));
+    });
+}
+
 std::pair<juce::String, juce::String> PantallaEstudi::textPosicio() const
 {
     const double t = estat.capcal;

@@ -475,6 +475,15 @@ namespace mibase::diagnosi
             }
         }
 
+        // 1.2: el pas del mode guiat
+        for (auto& t : v)
+        {
+            if (t.titol == "La mescla ja ve molt comprimida" || t.titol == "El màster aixafa la cançó") t.pas = 3;
+            else if (t.titol == "Greus als costats" || t.titol.rfind ("Fase", 0) == 0 || t.titol == "Mescla estreta") t.pas = 5;
+            else if (t.titol == "La mescla arriba al sostre" || t.titol.rfind ("El màster és", 0) == 0 || t.titol == "True peak per sobre del perfil") t.pas = 6;
+            else t.pas = 2;
+            t.delMaster = t.titol == "El màster aixafa la cançó" || t.titol.rfind ("El màster és", 0) == 0 || t.titol == "True peak per sobre del perfil";
+        }
         // ordre: problemes, oportunitats, preferències; dins de cada mena, per gravetat
         std::stable_sort (v.begin(), v.end(), [] (const Troballa& a, const Troballa& b)
         {
