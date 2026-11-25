@@ -1,13 +1,18 @@
 #include "mibase/GuitarRack.h"
 
+#include "mibase/Convolucio.h"
 #include "mibase/Delay.h"
 #include "mibase/Reverb.h"
 
 #include <nlohmann/json.hpp>
 
+#include <set>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
+#include <mutex>
 
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__)
  #include <xmmintrin.h>
@@ -284,6 +289,8 @@ namespace mibase::guitarrack
             { "angleb", "Angle B", 0, 45, 15, 0, "Angle del micròfon B (graus)." },
             { "mesclab", "Mescla B", 0, 100, 0, 0, "Quant del micròfon B es barreja amb l'A (%)." },
             { "room", "Sala", 0, 100, 10, 0, "Ambient de l'habitació on hi ha la pantalla (%)." },
+            { "iron", "IR", 0, 1, 0, 2, "Fes servir la IR de pantalla carregada (en lloc de la simulació, o barrejada)." },
+            { "irmescla", "Mescla IR", 0, 100, 100, 0, "Quant de la IR se sent: 0 % només la simulació de Mibase, 100 % només la IR." },
         };
         return t[std::clamp (p, 0, numFixos - 1)];
     }
@@ -1389,6 +1396,7 @@ namespace mibase::guitarrack
             reverb::Reverb sala;
             std::vector<float> sL, sR;
             float ultSala = -1.0f;
+            conv::Convolucio ir;   // 1.6
 
             void prepara (double f, int maxBloc)
             {
@@ -1400,6 +1408,10 @@ namespace mibase::guitarrack
                 sala.posa (Alg, reverb::Room); sala.posa (Mix, 100); sala.posa (Size, 25); sala.posa (PreDelay, 3); sala.posa (Width, 130);
                 sala.posa (LowCut, 150); sala.posa (HighCut, 7000); sala.posa (Decay, 0.55f); sala.posa (Diffusion, 70);
                 sala.prepara (f, maxBloc);
+                conv::Opcions o;
+                o.normalitza = true;
+                ir.posaOpcions (o);
+                ir.prepara (f);
                 A.pos = B.pos = -1;
             }
             void configura (int c, int a, int ma, int mb) noexcept
@@ -1411,6 +1423,7 @@ namespace mibase::guitarrack
                 A.pos = B.pos = -1;   // es recalculen
                 A.neteja(); B.neteja();
                 sala.buida();
+                ir.buida();
             }
             void recalcula (Mic& mc, float pos, float dis, float ang) noexcept
             {
@@ -1438,8 +1451,10 @@ namespace mibase::guitarrack
                 return x;
             }
             void processa (const float* x, float* L, float* R, int n, float posA, float disA, float angA, float posB, float disB, float angB,
-                           float mescla, float room) noexcept
+                           float mescla, float room, float mesclaIR) noexcept
             {
+                const bool ambIR = mesclaIR > 0.0005f && ir.longitudActiva() > 0;
+                const bool nomesIR = ambIR && mesclaIR >= 0.9995f;
                 if (posA != A.pos || disA != A.dis || angA != A.ang) recalcula (A, posA, disA, angA);
                 const bool ambB = mescla > 0.001f;
                 if (ambB && (posB != B.pos || disB != B.dis || angB != B.ang)) recalcula (B, posB, disB, angB);
@@ -1448,16 +1463,27 @@ namespace mibase::guitarrack
                 const float gA = 1.0f - mescla * 0.4f, gB = mescla * 0.8f;
                 for (int i = 0; i < n; ++i)
                 {
-                    float ya = filtra (A, x[i]);
-                    A.dist.escriu (ya);
-                    float y = (A.dist.llegeix (dA) + 0.3f * disA * A.dist.llegeix (dA + rA)) * gA;
-                    if (ambB)
+                    float y = 0.0f;
+                    if (! nomesIR)
                     {
-                        const float yb = filtra (B, x[i]);
-                        B.dist.escriu (yb);
-                        y += (B.dist.llegeix (dB) + 0.3f * disB * B.dist.llegeix (dB + rB)) * gB;
+                        float ya = filtra (A, x[i]);
+                        A.dist.escriu (ya);
+                        y = (A.dist.llegeix (dA) + 0.3f * disA * A.dist.llegeix (dA + rA)) * gA;
+                        if (ambB)
+                        {
+                            const float yb = filtra (B, x[i]);
+                            B.dist.escriu (yb);
+                            y += (B.dist.llegeix (dB) + 0.3f * disB * B.dist.llegeix (dB + rB)) * gB;
+                        }
                     }
-                    L[i] = R[i] = y;
+                    if (ambIR)
+                    {
+                        float oL = 0.0f, oR = 0.0f;
+                        ir.mostra (x[i], x[i], oL, oR);
+                        L[i] = y * (1.0f - mesclaIR) + oL * mesclaIR * 2.0f;   // la IR ve normalitzada (energia 0,35): així sona com la simulació
+                        R[i] = y * (1.0f - mesclaIR) + oR * mesclaIR * 2.0f;
+                    }
+                    else L[i] = R[i] = y;
                 }
                 for (auto& b : A.f) b.antiDenormal();
                 if (room > 0.001f && (int) sL.size() >= n)
@@ -1494,8 +1520,70 @@ namespace mibase::guitarrack
         bool gateObert = true;
     };
 
+    namespace
+    {
+        /** 1.6: els Guitar Rack vius, perquè els CC del teclat els arribin (fil del MIDI ↔ interfície; mai l'àudio). */
+        std::mutex& mtxRegistre() { static std::mutex m; return m; }
+        std::vector<GuitarRack*>& registre() { static std::vector<GuitarRack*> v; return v; }
+    }
+
+    void GuitarRack::ccPerATots (int numCC, int valor)
+    {
+        std::lock_guard<std::mutex> l (mtxRegistre());
+        for (auto* r : registre()) r->ccMidi (numCC, valor);
+    }
+
+    bool GuitarRack::ccMidi (int numCC, int valor) noexcept
+    {
+        if (numCC < 0 || numCC > 127) return false;
+        bool fet = false;
+        if (const int a = aprenent.exchange (-1); a >= 0 && a < numParams)
+        {
+            for (auto& x : cc) if (x.load() == numCC) x.store (-1);   // un CC mou un sol paràmetre
+            cc[(size_t) a].store (numCC);
+            ++canvis;
+            fet = true;
+        }
+        const float v01 = (float) std::clamp (valor, 0, 127) / 127.0f;
+        for (int p = 0; p < numParams; ++p)
+            if (cc[(size_t) p].load (std::memory_order_relaxed) == numCC) { posaParametre (p, v01); fet = true; }
+        return fet;
+    }
+
+    bool GuitarRack::carregaIR (const std::string& referencia, std::string& error)
+    {
+        refIR = referencia;
+        auto ir = conv::carrega (conv::resol (referencia), error);
+        imp->pant.ir.posaIR (ir);
+        if (ir != nullptr) { posa (IrOn, 1.0f); if (valor (IrMescla) < 1.0f) posa (IrMescla, 100.0f); }
+        ++canvis;
+        return ir != nullptr;
+    }
+
+    void GuitarRack::treuIR()
+    {
+        refIR.clear();
+        imp->pant.ir.posaIR (nullptr);
+        posa (IrOn, 0.0f);
+        ++canvis;
+    }
+
+    std::string GuitarRack::nomIR() const
+    {
+        if (auto ir = imp->pant.ir.ir()) return ir->nom;
+        if (refIR.empty()) return {};
+        return std::filesystem::path (conv::resol (refIR)).stem().string();
+    }
+
+    bool GuitarRack::irFalta() const { return ! refIR.empty() && imp->pant.ir.ir() == nullptr; }
+
     GuitarRack::GuitarRack() : imp (std::make_unique<Imp>())
     {
+        for (auto& x : cc) x.store (-1);
+        {
+            std::lock_guard<std::mutex> l (mtxRegistre());
+            registre().push_back (this);
+        }
         for (int p = 0; p < numFixos; ++p) fix[(size_t) p].store (infoFix (p).def);
         for (auto& s : slot) s.store (nullptr);
         ui = std::make_shared<Placa>();
@@ -1503,7 +1591,12 @@ namespace mibase::guitarrack
         posaAmpli (std::max (0, indexAmpli ("plexi")));
     }
 
-    GuitarRack::~GuitarRack() = default;
+    GuitarRack::~GuitarRack()
+    {
+        std::lock_guard<std::mutex> l (mtxRegistre());
+        auto& v = registre();
+        v.erase (std::remove (v.begin(), v.end(), this), v.end());
+    }
 
     void GuitarRack::posaTempo (const std::atomic<double>* t)
     {
@@ -1740,7 +1833,7 @@ namespace mibase::guitarrack
         // pantalla, micròfons i sala
         if (I.aplicada.cabOn)
             I.pant.processa (m, L, R, n, valor (PosA), valor (DistA), valor (AngleA), valor (PosB), valor (DistB), valor (AngleB),
-                             valor (MesclaB) / 100.0f, valor (Room) / 100.0f);
+                             valor (MesclaB) / 100.0f, valor (Room) / 100.0f, valor (IrOn) > 0.5f ? valor (IrMescla) / 100.0f : 0.0f);
         else
             for (int i = 0; i < n; ++i) L[i] = R[i] = m[i] * 0.5f;
         // loop d'efectes
@@ -1894,6 +1987,11 @@ namespace mibase::guitarrack
             ps.push_back (x);
         }
         if (! presetNom.empty()) { j["preset"] = presetNom; j["mod"] = presetMod; }
+        if (! refIR.empty()) j["ir"] = refIR;   // 1.6
+        nlohmann::json m = nlohmann::json::object();
+        for (int p = 0; p < numParams; ++p)
+            if (const int c = ccDe (p); c >= 0) m[infoParametre (p).id] = c;
+        if (! m.empty()) j["cc"] = m;
         return j.dump();
     }
 
@@ -1928,8 +2026,141 @@ namespace mibase::guitarrack
                 nova->pedals.push_back (p);
             }
         publica (nova);
+        // 1.6: la IR de pantalla i el MIDI learn
+        if (const auto r = j.value ("ir", std::string()); r != refIR)
+        {
+            const float on = valor (IrOn), mes = valor (IrMescla);
+            if (r.empty()) treuIR();
+            else { std::string err; carregaIR (r, err); }
+            posa (IrOn, on); posa (IrMescla, mes);
+        }
+        for (auto& x : cc) x.store (-1);
+        if (auto m = j.find ("cc"); m != j.end() && m->is_object())
+            for (auto it = m->begin(); it != m->end(); ++it)
+                if (it.value().is_number_integer())
+                    if (const int p = indexParametre (it.key()); p >= 0) cc[(size_t) p].store (std::clamp (it.value().get<int>(), 0, 127));
         presetNom = j.value ("preset", std::string());
         presetMod = j.value ("mod", false);
         ++canvis;
+    }
+}
+
+// ======================================================================================== 1.6: presets de pedals i amplis
+namespace mibase::guitarrack
+{
+    std::string estatPedal (const Pedal& p)
+    {
+        nlohmann::json j = nlohmann::json::object();
+        for (int k = 0; k < p.numControls(); ++k) j[p.model().controls[(size_t) k].clau] = p.valor (k);
+        return j.dump();
+    }
+    void posaEstatPedal (Pedal& p, const std::string& s)
+    {
+        auto j = nlohmann::json::parse (s, nullptr, false);
+        if (! j.is_object()) return;
+        for (int k = 0; k < p.numControls(); ++k)
+            if (auto v = j.find (p.model().controls[(size_t) k].clau); v != j.end() && v->is_number()) p.posa (k, v->get<float>());
+    }
+    std::string estatAmpli (const GuitarRack& r)
+    {
+        nlohmann::json j;
+        j["canal"] = r.valor (Canal);
+        j["inter"] = r.valor (BrightP);
+        auto& v = j["poms"];
+        v = nlohmann::json::array();
+        for (int c = 0; c < numAmpCtl; ++c) v.push_back (r.valor (AmpGain + c));
+        return j.dump();
+    }
+    void posaEstatAmpli (GuitarRack& r, const std::string& s)
+    {
+        auto j = nlohmann::json::parse (s, nullptr, false);
+        if (! j.is_object()) return;
+        r.posa (Canal, j.value ("canal", 0.0f));
+        r.posa (BrightP, j.value ("inter", 0.0f));
+        if (auto v = j.find ("poms"); v != j.end() && v->is_array())
+            for (int c = 0; c < numAmpCtl && c < (int) v->size(); ++c) if ((*v)[(size_t) c].is_number()) r.posa (AmpGain + c, (*v)[(size_t) c].get<float>());
+    }
+
+    std::vector<std::pair<std::string, std::string>> presetsFabricaPedal (const std::string& clau)
+    {
+        std::vector<std::pair<std::string, std::string>> v;
+        std::set<std::string> vistos;
+        for (const auto& pr : presetsFabrica())
+        {
+            GuitarRack r;
+            r.posaEstat (pr.estat);
+            for (int k = 0; k < r.numPedals(); ++k)
+                if (r.pedal (k)->model().clau == clau)
+                {
+                    const auto e = estatPedal (*r.pedal (k));
+                    if (vistos.insert (e).second) v.push_back ({ pr.nom, e });
+                }
+        }
+        return v;
+    }
+    std::vector<std::pair<std::string, std::string>> presetsFabricaAmpli (const std::string& clau)
+    {
+        std::vector<std::pair<std::string, std::string>> v;
+        std::set<std::string> vistos;
+        for (const auto& pr : presetsFabrica())
+        {
+            GuitarRack r;
+            r.posaEstat (pr.estat);
+            if (amplis()[(size_t) r.ampli()].clau != clau) continue;
+            const auto e = estatAmpli (r);
+            if (vistos.insert (e).second) v.push_back ({ pr.nom, e });
+        }
+        return v;
+    }
+
+    bool PresetsPeces::carrega (const std::filesystem::path& f)
+    {
+        v.clear();
+        std::ifstream in (f);
+        if (! in) return false;
+        auto j = nlohmann::json::parse (in, nullptr, false);
+        if (! j.is_object()) return false;
+        for (auto it = j.begin(); it != j.end(); ++it)
+            if (it.value().is_array())
+                for (const auto& x : it.value())
+                    if (x.is_object()) v[it.key()].push_back ({ x.value ("nom", std::string()), x.value ("estat", std::string()) });
+        return true;
+    }
+    bool PresetsPeces::desa (const std::filesystem::path& f) const
+    {
+        nlohmann::json j = nlohmann::json::object();
+        for (const auto& [k, l] : v)
+        {
+            auto& a = j[k];
+            a = nlohmann::json::array();
+            for (const auto& [n, e] : l) a.push_back ({ { "nom", n }, { "estat", e } });
+        }
+        std::error_code ec;
+        std::filesystem::create_directories (f.parent_path(), ec);
+        std::ofstream out (f);
+        if (! out) return false;
+        out << j.dump (1);
+        return (bool) out;
+    }
+    void PresetsPeces::posa (const std::string& clau, const std::string& nom, const std::string& estat)
+    {
+        auto& l = v[clau];
+        for (auto& [n, e] : l) if (n == nom) { e = estat; return; }
+        l.push_back ({ nom, estat });
+    }
+    bool PresetsPeces::esborra (const std::string& clau, const std::string& nom)
+    {
+        auto it = v.find (clau);
+        if (it == v.end()) return false;
+        auto& l = it->second;
+        const auto n0 = l.size();
+        l.erase (std::remove_if (l.begin(), l.end(), [&] (const auto& x) { return x.first == nom; }), l.end());
+        return l.size() != n0;
+    }
+    const std::vector<std::pair<std::string, std::string>>& PresetsPeces::de (const std::string& clau) const
+    {
+        static const std::vector<std::pair<std::string, std::string>> buit;
+        auto it = v.find (clau);
+        return it != v.end() ? it->second : buit;
     }
 }

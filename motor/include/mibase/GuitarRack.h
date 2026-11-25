@@ -6,6 +6,8 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -150,6 +152,7 @@ namespace mibase::guitarrack
         AmpOn, Canal, BrightP,
         AmpGain, AmpBass, AmpMiddle, AmpTreble, AmpPresence, AmpMaster, AmpReverb, AmpExtra,
         CabOn, MicA, MicB, PosA, PosB, DistA, DistB, AngleA, AngleB, MesclaB, Room,
+        IrOn, IrMescla,   // 1.6: la IR de pantalla carregada (si n'hi ha) i quant se'n sent (0 % simulació, 100 % IR)
         numFixos
     };
     /** Paràmetres dels pedals per posició a la pedalera: [On, control 0 … control 7]. */
@@ -260,6 +263,28 @@ namespace mibase::guitarrack
         void posaLoop (int k, bool aLoop);
         void buidaPlaca();
 
+        // ---- 1.6: IR de pantalla (fil de la interfície) ----
+        /** Carrega una IR (referència com la de la Reverb: «bib:Pantalles/…» o camí sencer). Encén la IR al 100 %. */
+        bool carregaIR (const std::string& referencia, std::string& error);
+        void treuIR();
+        const std::string& referenciaIR() const noexcept { return refIR; }
+        /** El nom curt de la IR (buit: cap). */
+        std::string nomIR() const;
+        /** Hi havia una IR desada però el fitxer no hi és. */
+        bool irFalta() const;
+
+        // ---- 1.6: MIDI learn ----
+        /** Comença a aprendre: el pròxim CC que arribi controlarà aquest paràmetre (-1: deixa d'aprendre). */
+        void aprenMidi (int param) noexcept { aprenent.store (param); ++canvis; }
+        int paramAprenent() const noexcept { return aprenent.load(); }
+        /** El CC (0..127) que mou aquest paràmetre, o -1. */
+        int ccDe (int param) const noexcept { return param >= 0 && param < numParams ? cc[(size_t) param].load (std::memory_order_relaxed) : -1; }
+        void treuMidi (int param) noexcept { if (param >= 0 && param < numParams) { cc[(size_t) param].store (-1); ++canvis; } }
+        /** Fil del MIDI: ha arribat un CC (valor 0..127). Torna cert si l'ha fet servir. */
+        bool ccMidi (int numCC, int valor) noexcept;
+        /** Fil del MIDI: un CC per a tots els Guitar Rack vius (el crida el servei d'àudio). */
+        static void ccPerATots (int numCC, int valor);
+
         const std::string& nomPreset() const noexcept { return presetNom; }
         bool presetModificat() const noexcept { return presetMod; }
         void posaNomPreset (const std::string& n, bool modificat = false) { presetNom = n; presetMod = modificat; ++canvis; }
@@ -287,6 +312,9 @@ namespace mibase::guitarrack
         std::shared_ptr<Placa> copia() const { return std::make_shared<Placa> (*ui); }
         std::atomic<bool> demanaBuidar { false };
         std::atomic<unsigned> canvis { 0 };
+        std::string refIR;
+        std::atomic<int> aprenent { -1 };
+        std::array<std::atomic<int>, numParams> cc;
         const std::atomic<double>* tempo = nullptr;
         std::string presetNom;
         bool presetMod = false;
@@ -294,6 +322,27 @@ namespace mibase::guitarrack
         double fs = 48000.0;
         int maxBloc = 512;
         bool preparat = false;
+    };
+
+    // ======================================================================================== 1.6: presets d'un pedal o d'un ampli
+    /** Els ajustos d'un pedal (poms) i d'un ampli (canal, interruptor i poms), en text. */
+    std::string estatPedal (const Pedal& p);
+    void posaEstatPedal (Pedal& p, const std::string& s);
+    std::string estatAmpli (const GuitarRack& r);
+    void posaEstatAmpli (GuitarRack& r, const std::string& s);
+    /** Presets de fàbrica d'un pedal o d'un ampli: els ajustos que té a les cadenes de fàbrica (nom de la cadena → estat). */
+    std::vector<std::pair<std::string, std::string>> presetsFabricaPedal (const std::string& clau);
+    std::vector<std::pair<std::string, std::string>> presetsFabricaAmpli (const std::string& clau);
+    /** Els presets propis de pedals i amplis (clau «p:ts808» o «a:plexi» → nom → estat). Documents\Mibase\GuitarRack\peces.json */
+    class PresetsPeces
+    {
+    public:
+        std::map<std::string, std::vector<std::pair<std::string, std::string>>> v;
+        bool carrega (const std::filesystem::path& f);
+        bool desa (const std::filesystem::path& f) const;
+        void posa (const std::string& clau, const std::string& nom, const std::string& estat);
+        bool esborra (const std::string& clau, const std::string& nom);
+        const std::vector<std::pair<std::string, std::string>>& de (const std::string& clau) const;
     };
 
     // ======================================================================================== presets
