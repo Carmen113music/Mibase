@@ -804,6 +804,14 @@ void PantallaDiagnostic::actualitzaEstat()
 
         const int talls = d->getXRunCount();
         text << "  ·  Talls: "_ca << (talls >= 0 ? juce::String (talls) : juce::String ("el controlador no ho diu"));
+
+        // 1.8: el pitjor bloc de l'últim mig segon, comparat amb el temps que hi ha.
+        const float marge = servei.margeBlocMs.load();
+        const float pitjor = servei.pitjorBlocMs.exchange (0.0f);
+        if (marge > 0.0f)
+            text << "\nPitjor bloc: "_ca << juce::String (pitjor, 2) << " ms de " << juce::String (marge, 2) << " ms ("
+                 << juce::String ((int) std::lround (100.0f * pitjor / marge)) << " %)  ·  al límit: "_ca
+                 << (int) servei.blocsAlLimit.load() << "  ·  tard: " << (int) servei.blocsTard.load();
     }
     etEstat.setText (text, juce::dontSendNotification);
 
@@ -904,6 +912,9 @@ juce::String PantallaDiagnostic::textDiagnostic()
           << "Càrrega: "_ca << juce::String (gestor.getCpuUsage() * 100.0, 1) << " %  ·  Talls: "_ca
           << (d->getXRunCount() >= 0 ? juce::String (d->getXRunCount()) : juce::String ("el controlador no ho diu"))
           << "  ·  Blocs massa grans: "_ca << servei.motor().blocsMassaGrans.load() << "\n"
+          << "Pitjor bloc des que s'ha engegat: "_ca << juce::String (servei.pitjorBlocTotalMs.load(), 2) << " ms de "
+          << juce::String (servei.margeBlocMs.load(), 2) << " ms  ·  al límit (més del 80 %): "_ca << (int) servei.blocsAlLimit.load()
+          << "  ·  tard (clic segur): "_ca << (int) servei.blocsTard.load() << "\n"
           << "Panell del controlador: " << (d->hasControlPanel() ? "sí"_ca : "no") << "\n";
     }
 

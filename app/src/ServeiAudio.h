@@ -107,6 +107,12 @@ public:
     std::atomic<unsigned long long> blocsAudio { 0 };
     std::atomic<unsigned int> msUltimBloc { 0 };
     std::atomic<float> picSortidaAudio { 0.0f };
+    // 1.8: quant triga cada bloc d'àudio, comparat amb el temps que hi ha (el buffer).
+    std::atomic<float> pitjorBlocMs { 0.0f };        // des de l'última lectura de la línia d'estat
+    std::atomic<float> pitjorBlocTotalMs { 0.0f };   // des que s'ha engegat la targeta
+    std::atomic<float> margeBlocMs { 0.0f };         // el temps que hi ha per a cada bloc
+    std::atomic<unsigned int> blocsAlLimit { 0 };    // blocs que han fet servir més del 80 % del temps
+    std::atomic<unsigned int> blocsTard { 0 };       // blocs que han trigat més del temps que hi ha (= clic segur)
 private:
     juce::AudioDeviceManager gestor;
     mibase::MotorDiagnostic motorDiag;

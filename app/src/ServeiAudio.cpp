@@ -165,6 +165,11 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
                                                     float* const* sortides, int numSortides, int numMostres,
                                                     const juce::AudioIODeviceCallbackContext&)
 {
+    // 1.8: els números minúsculs (cues de reverbs, filtres i delays que s'apaguen) es tracten com a zero.
+    // Si no, el processador els calcula molt més a poc a poc i poden fer clics en els silencis.
+    const juce::ScopedNoDenormals senseDenormals;
+    const auto tic0 = juce::Time::getHighResolutionTicks();   // 1.8: per mesurar quant triga el bloc
+
     // Fil d'àudio: només el motor, que no demana memòria ni s'espera mai.
     motorDiag.processa (entrades, numEntrades, sortides, numSortides, numMostres);
     {
@@ -210,6 +215,17 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
         if (c + 1 >= numSortides) c = 0;
         reproductorFont.processa (c < numSortides ? sortides[c] : nullptr, c + 1 < numSortides ? sortides[c + 1] : nullptr, numMostres);
     }
+
+    // 1.8: temps del bloc (sense demanar memòria ni esperar: només números atòmics).
+    {
+        const float ms = (float) juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - tic0) * 1000.0f;
+        const float marge = fsDispositiu > 0.0 ? (float) (1000.0 * numMostres / fsDispositiu) : 0.0f;
+        margeBlocMs.store (marge, std::memory_order_relaxed);
+        if (ms > pitjorBlocMs.load (std::memory_order_relaxed)) pitjorBlocMs.store (ms, std::memory_order_relaxed);
+        if (ms > pitjorBlocTotalMs.load (std::memory_order_relaxed)) pitjorBlocTotalMs.store (ms, std::memory_order_relaxed);
+        if (marge > 0.0f && ms > 0.8f * marge) blocsAlLimit.fetch_add (1, std::memory_order_relaxed);
+        if (marge > 0.0f && ms > marge) blocsTard.fetch_add (1, std::memory_order_relaxed);
+    }
 }
 
 void ServeiAudio::escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m)
@@ -233,6 +249,7 @@ void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
     motorDiag.prepara (d->getCurrentSampleRate(), d->getCurrentBufferSizeSamples());
     motorEstudi.prepara (d->getCurrentSampleRate(), juce::jmax (d->getCurrentBufferSizeSamples(), 2048));
     fsDispositiu = d->getCurrentSampleRate() > 0 ? d->getCurrentSampleRate() : 48000.0;
+    pitjorBlocMs = 0.0f; pitjorBlocTotalMs = 0.0f; blocsAlLimit = 0; blocsTard = 0;   // 1.8: mesura nova
     reproductorFont.prepara (fsDispositiu, juce::jmax (d->getCurrentBufferSizeSamples(), 2048));   // 0.97
 
     // Les entrades actives arriben juntes a la crida d'àudio: per a cada entrada, la seva posició.
