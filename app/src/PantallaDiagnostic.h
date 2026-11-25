@@ -107,6 +107,7 @@ private:
     LlistaMidi llistaMidi;
 
     juce::Label etEstat;
+    juce::TextButton btNuclis { "Diversos nuclis" };   // 1.10
     juce::TextEditor historialText;
     juce::TextButton btCopia { "Copia el diagnòstic"_ca };
 

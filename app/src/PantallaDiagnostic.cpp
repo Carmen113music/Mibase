@@ -269,6 +269,20 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
         refrescaControls();
     };
 
+    // 1.10: calcular les pistes amb diversos nuclis del processador (com Cubase). Apagat per defecte.
+    addAndMakeVisible (btNuclis);
+    btNuclis.setClickingTogglesState (true);
+    btNuclis.setToggleState (servei.getDiversosNuclis(), juce::dontSendNotification);
+    btNuclis.setTooltip ("Reparteix el càlcul de les pistes entre els nuclis del processador. El so és el mateix; "_ca
+                         "si dona problemes, apaga'l i tot torna a anar com abans."_ca);
+    btNuclis.onClick = [this]
+    {
+        servei.setDiversosNuclis (btNuclis.getToggleState());
+        historial.afegeix (btNuclis.getToggleState() ? "Diversos nuclis: encès ("_ca + juce::String (servei.estudi().mesclador.getNuclis()) + " nuclis)."
+                                                     : "Diversos nuclis: apagat (un sol nucli)."_ca);
+        actualitzaEstat();
+    };
+
     // Proves de so.
     addAndMakeVisible (btClic);
     btClic.setClickingTogglesState (true);
@@ -530,6 +544,7 @@ void PantallaDiagnostic::resized()
         llistaMidi.setBounds (z);
     }
     etEstat.setBounds (zonaEstat.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (8));
+    btNuclis.setBounds (zonaEstat.reduced (14, 0).removeFromTop (alcadaTitol).removeFromRight (170).reduced (0, 3));   // 1.10
 
     {
         auto z = zonaHistorial.reduced (14, 0).withTrimmedBottom (12);
@@ -912,6 +927,9 @@ juce::String PantallaDiagnostic::textDiagnostic()
           << "Càrrega: "_ca << juce::String (gestor.getCpuUsage() * 100.0, 1) << " %  ·  Talls: "_ca
           << (d->getXRunCount() >= 0 ? juce::String (d->getXRunCount()) : juce::String ("el controlador no ho diu"))
           << "  ·  Blocs massa grans: "_ca << servei.motor().blocsMassaGrans.load() << "\n"
+          << "Nuclis per a les pistes: "_ca << servei.estudi().mesclador.getNuclis() << " (diversos nuclis: "_ca
+          << (servei.getDiversosNuclis() ? "encès"_ca : "apagat") << "; processador amb "_ca
+          << juce::SystemStats::getNumPhysicalCpus() << " nuclis físics)\n"
           << "Pitjor bloc des que s'ha engegat: "_ca << juce::String (servei.pitjorBlocTotalMs.load(), 2) << " ms de "
           << juce::String (servei.margeBlocMs.load(), 2) << " ms  ·  al límit (més del 80 %): "_ca << (int) servei.blocsAlLimit.load()
           << "  ·  tard (clic segur): "_ca << (int) servei.blocsTard.load() << "\n"

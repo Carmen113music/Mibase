@@ -1,4 +1,10 @@
 #include "mibase/MotorEstudi.h"
+
+#include <semaphore>
+#include <thread>
+#if defined (__x86_64__) || defined (_M_X64) || defined (__i386__) || defined (_M_IX86)
+ #include <immintrin.h>
+#endif
 #include "mibase/Loudness.h"
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
@@ -471,6 +477,7 @@ namespace mibase
         if (slots.size() != (size_t) maxSlots) slots.assign ((size_t) maxSlots, EstatSlot {});
         fil0.evs.assign ((size_t) maxEventsBloc, EventInstrument {});
         feines.assign ((size_t) maxFeines, Feina {});                        // 1.9
+        llistaApart.assign ((size_t) maxFeines, 0);                          // 1.10
         apartL.assign ((size_t) maxSlots * (size_t) maxN, 0.0f);
         apartR.assign ((size_t) maxSlots * (size_t) maxN, 0.0f);
         reinicia();
@@ -862,6 +869,105 @@ namespace mibase
         return r;
     }
 
+    //==========================================================================
+    // 1.10: l'equip de fils de treball. Cada bloc, el fil d'àudio publica la llista de pistes «a part» i desperta tants
+    // ajudants com calguin; tots (també el fil d'àudio) van agafant pistes amb un comptador atòmic fins que no en queda
+    // cap, i el fil d'àudio espera (sense dormir: uns pocs microsegons) que s'acabin les que fan els altres. Res de
+    // memòria nova ni de bloquejos: només números atòmics i un semàfor per despertar (que no fa esperar qui el dona).
+    namespace
+    {
+        inline void pausaCurta() noexcept
+        {
+           #if defined (__x86_64__) || defined (_M_X64) || defined (__i386__) || defined (_M_IX86)
+            _mm_pause();
+           #else
+            std::this_thread::yield();
+           #endif
+        }
+    }
+
+    class Mesclador::Equip
+    {
+    public:
+        Equip (Mesclador& m, int numAjudants) : mes (m), fils ((size_t) numAjudants)
+        {
+            for (auto& f : fils) f.evs.assign ((size_t) maxEventsBloc, EventInstrument {});
+            for (int w = 0; w < numAjudants; ++w)
+                treballadors.emplace_back ([this, w] { treballa (w); });
+        }
+        ~Equip()
+        {
+            atura.store (true, std::memory_order_release);
+            sem.release ((std::ptrdiff_t) treballadors.size());
+            for (auto& t : treballadors) t.join();
+        }
+        int mida() const noexcept { return (int) treballadors.size(); }
+
+        /** Fil d'àudio: calcula les pistes de la llista amb l'ajuda de «ajudants» fils. Torna quan totes estan fetes. */
+        void fes (const int* llista, int total, int ajudants) noexcept
+        {
+            llistaAra = llista;
+            fets.store (0, std::memory_order_relaxed);
+            gen = (gen + 1) & 0xFFFF;
+            cursor.store (((std::uint64_t) gen << 48) | ((std::uint64_t) total << 32), std::memory_order_release);
+            if (ajudants > 0) sem.release (ajudants);
+            while (agafa (mes.fil0)) {}
+            while (fets.load (std::memory_order_acquire) < total) pausaCurta();
+        }
+
+    private:
+        bool agafa (Fil& f) noexcept
+        {
+            const std::uint64_t v = cursor.fetch_add (1, std::memory_order_acq_rel);
+            const int total = (int) ((v >> 32) & 0xFFFF), idx = (int) (v & 0xFFFFFFFFull);
+            if (idx >= total) return false;
+            const auto& b = mes.bloc;
+            mes.calculaApart (f, *b.pla, llistaAra[idx], b.n, b.ns, b.reproduint, b.minim, b.llindar, b.directe, b.numDirecte);
+            fets.fetch_add (1, std::memory_order_acq_rel);
+            return true;
+        }
+        void treballa (int w)
+        {
+            if (preparaFilTreballador != nullptr) preparaFilTreballador();
+            for (;;)
+            {
+                sem.acquire();
+                if (atura.load (std::memory_order_acquire)) return;
+                while (agafa (fils[(size_t) w])) {}
+            }
+        }
+
+        Mesclador& mes;
+        std::vector<Fil> fils;
+        std::vector<std::thread> treballadors;
+        std::counting_semaphore<> sem { 0 };
+        std::atomic<bool> atura { false };
+        std::atomic<std::uint64_t> cursor { 0 };   // generació (16 bits) · total (16 bits) · següent (32 bits)
+        std::atomic<int> fets { 0 };
+        const int* llistaAra = nullptr;
+        std::uint64_t gen = 0;
+    };
+
+    Mesclador::Mesclador() = default;
+    Mesclador::~Mesclador() = default;
+
+    int Mesclador::maxAjudants() noexcept
+    {
+        const int hw = (int) std::thread::hardware_concurrency();
+        return std::clamp (hw - 1, 0, 15);
+    }
+
+    void Mesclador::setNuclis (int n)
+    {
+        n = std::clamp (n, 1, maxAjudants() + 1);
+        if (n > 1 && equipViu == nullptr)
+        {
+            equipViu = std::make_unique<Equip> (*this, maxAjudants());
+            equip.store (equipViu.get(), std::memory_order_release);
+        }
+        nuclis.store (n, std::memory_order_release);
+    }
+
     Mesclador::Guanys Mesclador::guanysDe (const Pla::Pista& t, long long posT, int n) const noexcept
     {
         Guanys g {};
@@ -1057,10 +1163,22 @@ namespace mibase
                 f.apart = apart;
             }
         }
-        // 1.9: la feina pesada de les pistes «a part» (cada una a la seva memòria).
-        for (int q = 0; q < nf; ++q)
-            if (feines[(size_t) q].apart)
-                calculaApart (fil0, pla, q, n, ns, reproduint, minim, llindar, directe, numDirecte);
+        // 1.9: la feina pesada de les pistes «a part» (cada una a la seva memòria). 1.10: repartida entre els nuclis.
+        {
+            int numApart = 0;
+            for (int q = 0; q < nf; ++q)
+                if (feines[(size_t) q].apart) llistaApart[(size_t) numApart++] = q;
+            const int nc = nuclis.load (std::memory_order_acquire);
+            Equip* eq = nc > 1 ? equip.load (std::memory_order_acquire) : nullptr;
+            if (eq != nullptr && numApart >= 2)
+            {
+                bloc = { &pla, n, ns, llindar, numDirecte, reproduint, minim, directe };
+                eq->fes (llistaApart.data(), numApart, std::min ({ nc - 1, eq->mida(), numApart - 1 }));
+            }
+            else
+                for (int k = 0; k < numApart; ++k)
+                    calculaApart (fil0, pla, llistaApart[(size_t) k], n, ns, reproduint, minim, llindar, directe, numDirecte);
+        }
 
         for (size_t q = 0; q < pla.pistes.size(); ++q)
         {

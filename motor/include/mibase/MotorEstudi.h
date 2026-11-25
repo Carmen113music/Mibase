@@ -185,6 +185,17 @@ namespace mibase
     class Mesclador
     {
     public:
+        Mesclador();
+        ~Mesclador();
+        /** 1.10: amb quants nuclis es calculen les pistes (1 = com sempre, tot al fil d'àudio). Fil de la interfície. La
+            primera vegada que passa d'1 engega els fils de treball (que després dormen si no hi ha feina). El so és el
+            mateix, bit a bit, amb un nucli o amb diversos. */
+        void setNuclis (int n);
+        int getNuclis() const noexcept { return nuclis.load (std::memory_order_relaxed); }
+        /** 1.10: quants fils de treball pot tenir (els fils del processador menys un, fins a 15). */
+        static int maxAjudants() noexcept;
+        /** 1.10: si no és nul, cada fil de treball el crida en començar (el programa hi posa la prioritat de l'àudio). */
+        static inline void (*preparaFilTreballador)() = nullptr;
         /** 0.64: per trobar on es perd el so (el fil d'àudio escriu, la interfície llegeix). Els «pic» baixen sols
             (uns 0,5 s) per veure el que passa ara mateix. */
         struct Sonda
@@ -281,6 +292,13 @@ namespace mibase
             float* oR = nullptr;
         };
         Fil fil0;                         // el del fil d'àudio
+        class Equip;                      // 1.10: els fils de treball
+        std::unique_ptr<Equip> equipViu;
+        std::atomic<Equip*> equip { nullptr };
+        std::atomic<int> nuclis { 1 };
+        std::vector<int> llistaApart;     // les pistes «a part» d'aquest bloc
+        struct Bloc { const Pla* pla = nullptr; int n = 0, ns = 0, llindar = 0, numDirecte = 0; bool reproduint = false, minim = false;
+                      const EventDirecte* directe = nullptr; } bloc;
         /** 0.98: llegeix les notes i els missatges de [pos, pos + n) i els posa a partir de l'offset «base». */
         void llegeixMidi (Fil& f, const Pla::Pista& t, EstatSlot& es, long long pos, int n, int base, bool reproduint, long long marge) noexcept;
         /** 0.98: apaga les notes que sonen (nota per nota) a l'offset «off». */

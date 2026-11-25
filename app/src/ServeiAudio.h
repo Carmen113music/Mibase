@@ -107,6 +107,9 @@ public:
     std::atomic<unsigned long long> blocsAudio { 0 };
     std::atomic<unsigned int> msUltimBloc { 0 };
     std::atomic<float> picSortidaAudio { 0.0f };
+    // 1.10: calcular les pistes amb diversos nuclis (es desa a les preferències; apagat per defecte)
+    bool getDiversosNuclis() const;
+    void setDiversosNuclis (bool b);
     // 1.8: quant triga cada bloc d'àudio, comparat amb el temps que hi ha (el buffer).
     std::atomic<float> pitjorBlocMs { 0.0f };        // des de l'última lectura de la línia d'estat
     std::atomic<float> pitjorBlocTotalMs { 0.0f };   // des que s'ha engegat la targeta

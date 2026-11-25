@@ -17,9 +17,13 @@ namespace
     }
 }
 
+void instalaPrioritatFilsAudio();   // 1.10 (FilsAudio.cpp)
+
 ServeiAudio::ServeiAudio (Historial& h) : historial (h)
 {
     ajustos = std::make_unique<juce::PropertiesFile> (opcionsAjustos());
+    instalaPrioritatFilsAudio();
+    if (getDiversosNuclis()) setDiversosNuclis (true);   // 1.10
     plugins = std::make_unique<EscanerPlugins> (ajustos->getFile().getSiblingFile ("Plugins.xml"));
 
     // Fins a 32 entrades i 2 sortides (0.18; les altres s'activen a Preferències). Si hi ha ajustos desats, es fan servir.
@@ -226,6 +230,19 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
         if (marge > 0.0f && ms > 0.8f * marge) blocsAlLimit.fetch_add (1, std::memory_order_relaxed);
         if (marge > 0.0f && ms > marge) blocsTard.fetch_add (1, std::memory_order_relaxed);
     }
+}
+
+bool ServeiAudio::getDiversosNuclis() const
+{
+    return ajustos != nullptr && ajustos->getBoolValue ("audio.diversosNuclis", false);
+}
+
+void ServeiAudio::setDiversosNuclis (bool b)
+{
+    // El fil d'àudio i un nucli per a cadascun dels altres nuclis físics (els «fils» del processador no compten).
+    const int n = b ? juce::jmax (2, juce::SystemStats::getNumPhysicalCpus()) : 1;
+    motorEstudi.mesclador.setNuclis (n);
+    if (ajustos != nullptr) { ajustos->setValue ("audio.diversosNuclis", b); ajustos->saveIfNeeded(); }
 }
 
 void ServeiAudio::escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m)

@@ -7,6 +7,7 @@ juce_add_gui_app(Mibase
 target_sources(Mibase PRIVATE
     src/Main.cpp
     src/ServeiAudio.cpp
+    src/FilsAudio.cpp
     src/PantallaDiagnostic.cpp
     src/NavegadorCarpetes.cpp
     src/FinestraProjecteNou.cpp
