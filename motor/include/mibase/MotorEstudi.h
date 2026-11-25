@@ -270,20 +270,52 @@ namespace mibase
             bool senseMarge = false;  // 0.98: després del salt real, no cal tornar a llegir el mil·lisegon d'abans
         };
         long long bucleIniS = -1, bucleFiS = -1, posReal = 0;   // 0.98
-        int escriuDes = 0;                          // 0.98: on escriu sonaTram dins el bloc (per partir-lo en dos)
+        /** 1.9: la memòria de treball d'un fil que calcula pistes (els missatges per a l'instrument i on escriuen els
+            clips). Cada fil té la seva: així diverses pistes es poden calcular alhora sense trepitjar-se. */
+        struct Fil
+        {
+            std::vector<EventInstrument> evs;
+            int numEvs = 0;
+            int escriuDes = 0;            // 0.98: on escriu sonaTram dins el bloc (per partir-lo en dos)
+            float* oL = nullptr;          // on sonen els clips
+            float* oR = nullptr;
+        };
+        Fil fil0;                         // el del fil d'àudio
         /** 0.98: llegeix les notes i els missatges de [pos, pos + n) i els posa a partir de l'offset «base». */
-        void llegeixMidi (const Pla::Pista& t, EstatSlot& es, long long pos, int n, int base, bool reproduint, long long marge) noexcept;
+        void llegeixMidi (Fil& f, const Pla::Pista& t, EstatSlot& es, long long pos, int n, int base, bool reproduint, long long marge) noexcept;
         /** 0.98: apaga les notes que sonen (nota per nota) a l'offset «off». */
-        void apagaTou (EstatSlot& es, int off) noexcept;
+        void apagaTou (Fil& f, EstatSlot& es, int off) noexcept;
         bool margeInici = false, margeAra = false;
         const float* const* entrades = nullptr;   // 0.71
         int numEntrades = 0, numMapaEnt = 0, offsetEnt = 0;
         const int* mapaEnt = nullptr;   // 0.71: després d'un salt, les notes que cauen una mica abans també
-        void instrumentPista (const Pla::Pista& t, long long pos, int n, bool reproduint, const EventDirecte* directe, int numDirecte) noexcept;
-        void afegeixEvent (int offset, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
+        void instrumentPista (Fil& f, const Pla::Pista& t, long long pos, int n, bool reproduint, const EventDirecte* directe, int numDirecte) noexcept;
+        static void afegeixEvent (Fil& f, int offset, std::uint8_t estat, std::uint8_t d1, std::uint8_t d2) noexcept;
 
-        void sonaClip (const Pla::Clip& c, int canalsPista, long long pos, int n) noexcept;
-        void sonaTram (const Pla::Clip& c, double de, double fins, int canalsPista, long long pos, int n) noexcept;
+        void sonaClip (Fil& f, const Pla::Clip& c, int canalsPista, long long pos, int n) noexcept;
+        void sonaTram (Fil& f, const Pla::Clip& c, double de, double fins, int canalsPista, long long pos, int n) noexcept;
+
+        /** 1.9: una pista del bloc. Les pistes «a part» (no són busos, no escolten cap sidechain, no envien sidechain abans
+            dels efectes i tenen el canal sol) fan la feina pesada (instrument, clips, entrada i efectes) abans del bucle de
+            la mescla, cadascuna a la seva memòria; després, el bucle hi aplica volums, enviaments i la suma, en el mateix
+            ordre de sempre (el so és idèntic, bit a bit). Així aquesta feina es podrà repartir entre diversos nuclis. */
+        struct Feina
+        {
+            long long posT = 0;
+            bool esBus = false, enDirecte = false, apart = false;
+            enum Estat : std::uint8_t { PerFer, SaltaAbans, SaltaDespres, Feta } estat = PerFer;
+            bool instrumentFet = false, noValid = false;
+            int numEvs = 0;
+            float picInst = 0.0f, picEf = 0.0f;
+        };
+        std::vector<Feina> feines;                // una per pista del pla (fins a maxFeines; la resta, al bucle com sempre)
+        std::vector<float> apartL, apartR;        // maxSlots * maxN: el so de cada pista «a part»
+        static constexpr int maxFeines = maxSlots + maxBusos;
+        /** 1.9: calcula la part pesada d'una pista «a part» (pista «q» del bloc). */
+        void calculaApart (Fil& f, const Pla& pla, int q, int n, int ns, bool reproduint, bool minim, int llindar,
+                           const EventDirecte* directe, int numDirecte) noexcept;
+        struct Guanys { float porta, fader, panL, panR, obert; bool llegeixVol, llegeixPan; double segAuto; };
+        Guanys guanysDe (const Pla::Pista& t, long long posT, int n) const noexcept;
 
         double fs = 48000.0;
         std::vector<float> pL, pR;
@@ -309,8 +341,6 @@ namespace mibase
         bool masterFet = false;
         ClicDeProva clic;
         std::vector<EstatSlot> slots;
-        std::vector<EventInstrument> evs;
-        int numEvs = 0;
     };
 
     /** El motor de l'estudi: fa sonar el projecte, compta abans de gravar i grava.
