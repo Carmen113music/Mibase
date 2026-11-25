@@ -64,7 +64,10 @@ add_library(mibase_motor STATIC
     src/Convolucio.cpp
     src/Equalitzador.cpp
     src/Espectre.cpp
-    src/EqPresets.cpp)
+    src/EqPresets.cpp
+    src/GuitarRack.cpp
+    src/GuitarRackModels.cpp
+    src/GuitarRackPresets.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)
