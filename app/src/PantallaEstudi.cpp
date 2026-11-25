@@ -1768,6 +1768,16 @@ void PantallaEstudi::tic()
         cau (estat.nivellsSortida[(size_t) c], motor.vuSortida (c).llegeixIReinicia());
         canvi = canvi || std::abs (abans - estat.nivellsSortida[(size_t) c]) > 1.0e-6f;
     }
+    // 1.5.2: el fader i el pom de les pistes segueixen l'automatització de volum i panorama
+    bool canviAuto = false;
+    for (int sl = 0; sl < maxSlots; ++sl)
+    {
+        const float v = servei.estudi().mesclador.volumAutomatitzat (sl), pn = servei.estudi().mesclador.panAutomatitzat (sl);
+        if (std::abs (v - estat.volumAuto[(size_t) sl]) > 1.0e-4f || std::abs (pn - estat.panAuto[(size_t) sl]) > 1.0e-4f) canviAuto = true;
+        estat.volumAuto[(size_t) sl] = v;
+        estat.panAuto[(size_t) sl] = pn;
+    }
+    if (canviAuto) { esquerra.repaint(); if (mescles.isVisible()) mescles.repaint(); }
     if (canvi)
     {
         if (capcaleres.isVisible()) capcaleres.repaint (capcaleres.getWidth() - 20, 0, 20, capcaleres.getHeight());

@@ -217,6 +217,10 @@ namespace mibase
         static int retardDe (const std::vector<std::shared_ptr<Efecte>>& v, bool salta, int* saltats = nullptr,
                              const std::vector<char>* fixos = nullptr, int llindar = 0) noexcept;
         Sonda sonda;
+        /** 1.5.2: el volum i el panorama que hi posa ara l'automatització (0..1, el mateix que els punts), per slot, perquè
+            la interfície pugui moure el fader i el pom. -1: la pista no té automatització (o s'hi està gravant). */
+        float volumAutomatitzat (int slot) const noexcept { return volAuto[(size_t) (slot % maxSlots)].load (std::memory_order_relaxed) - 1.0f; }
+        float panAutomatitzat (int slot) const noexcept { return panAuto[(size_t) (slot % maxSlots)].load (std::memory_order_relaxed) - 1.0f; }
         void prepara (double fs, int maxBloc);
         /** Suma a L i R «n» mostres a partir de la mostra «pos» de la línia de temps (pot ser negativa).
             «vus»: un Mesurador per slot i canal (2 * maxSlots), o nullptr.
@@ -252,6 +256,7 @@ namespace mibase
 
     private:
         std::bitset<128> silenciAra;
+        std::array<std::atomic<float>, maxSlots> volAuto {}, panAuto {};   // 1.5.2: valor + 1 (0 = sense automatització)
         bool nomesCua = false;   // 0.83
         struct NotaActiva { long long fi = 0; std::uint8_t to = 0, canal = 0; };
         struct EstatSlot

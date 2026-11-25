@@ -282,6 +282,28 @@ public:
     std::array<float, 2> nivellsSortida {};
     juce::StringArray nomsEntrades;   // de la targeta (buit: entrada apagada)
 
+    // ---- 1.5.2: el volum i el panorama que hi posa ara l'automatització (0..1; -1 = cap), per slot ----
+    std::array<float, mibase::maxSlots> volumAuto = senseAuto(), panAuto = senseAuto();
+    static std::array<float, mibase::maxSlots> senseAuto() { std::array<float, mibase::maxSlots> a; a.fill (-1.0f); return a; }
+    /** El volum (dB) que s'ha de veure al fader: el de l'automatització si n'hi ha i sona, si no el del fader. */
+    double faderMostrat (const mibase::Pista& t) const
+    {
+        const float v = volumAuto[(size_t) (mibase::slotDePista (t) % mibase::maxSlots)];
+        if (v < 0.0f || ! teLinia (t, mibase::automatitzacio::volum)) return t.faderDb;
+        return juce::jlimit (-60.0, 6.0, mibase::automatitzacio::dbDeVolum (v));
+    }
+    double panMostrat (const mibase::Pista& t) const
+    {
+        const float v = panAuto[(size_t) (mibase::slotDePista (t) % mibase::maxSlots)];
+        if (v < 0.0f || ! teLinia (t, mibase::automatitzacio::pan)) return t.pan;
+        return mibase::automatitzacio::panDe (v);
+    }
+    static bool teLinia (const mibase::Pista& t, const char* objectiu)
+    {
+        for (const auto& a : t.autos) if (a.objectiu == objectiu && ! a.punts.empty()) return true;
+        return false;
+    }
+
     /** Nivell d'una pista: el que sona i, si té el botó de gravar encès, el que entra per la targeta. */
     float nivell (int pista, int canal) const
     {

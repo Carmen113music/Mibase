@@ -960,6 +960,9 @@ namespace mibase
             const bool llegeixPan = ! t.autoPan.buida() && ! (t.lliurePan != nullptr && t.lliurePan->load (std::memory_order_relaxed));
             const float fader = ! llegeixVol ? t.guany : (float) automatitzacio::guanyDeVolum (t.autoVolum.a (segAuto));
             const float panAra = ! llegeixPan ? t.pan : (float) automatitzacio::panDe (t.autoPan.a (segAuto));
+            // 1.5.2: perquè el fader i el pom de la pista es moguin amb l'automatització
+            volAuto[(size_t) s].store (llegeixVol ? 1.0f + (float) t.autoVolum.a (segAuto) : 0.0f, std::memory_order_relaxed);
+            panAuto[(size_t) s].store (llegeixPan ? 1.0f + (float) t.autoPan.a (segAuto) : 0.0f, std::memory_order_relaxed);
             const float panL = panAra <= 0.0f ? 1.0f : 1.0f - panAra;
             const float panR = panAra >= 0.0f ? 1.0f : 1.0f + panAra;
             const float obert = t.obert ? 1.0f : 0.0f;

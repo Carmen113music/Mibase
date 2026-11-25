@@ -3522,19 +3522,19 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     const bool actiu = sona (estat.projecte, *t);
     const auto color = EstatEstudi::colorPista (*t);
-    vintage::pom (g, rectPom().toFloat(), (float) t->pan, color, actiu);
+    vintage::pom (g, rectPom().toFloat(), (float) estat.panMostrat (*t), color, actiu);
     g.setColour (tema::suau);
     g.setFont (dibuix::lletra (10.5f, true));
     auto text = zonaPan.withTrimmedLeft (rectPom().getRight() - zonaPan.getX() + 8);
     g.drawText ("PAN", text.removeFromTop (zonaPan.getHeight() / 2), juce::Justification::bottomLeft);
     g.setColour (tema::textMig);
     g.setFont (dibuix::mono (12.0f));
-    g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
+    g.drawText (EstatEstudi::textPan (estat.panMostrat (*t)), text, juce::Justification::topLeft);
 
-    dibuixEstudi::faderVertical (g, zonaFader.toFloat(), t->faderDb, color, actiu,
+    dibuixEstudi::faderVertical (g, zonaFader.toFloat(), estat.faderMostrat (*t), color, actiu,
                                  estat.nivell (estat.pistaTriada, 0), estat.nivell (estat.pistaTriada, t->canals == 2 ? 1 : 0));
 
-    vintage::lcd (g, zonaLcd.reduced (2, 3).toFloat(), EstatEstudi::textDb (t->faderDb), {});
+    vintage::lcd (g, zonaLcd.reduced (2, 3).toFloat(), EstatEstudi::textDb (estat.faderMostrat (*t)), {});
 
     const int ample = 28, sep = 4;
     auto tecles = zonaTecles.withSizeKeepingCentre (ample * 3 + sep * 2, 26);
@@ -3831,21 +3831,21 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
 
         const bool actiu = sona (p, *t);
         auto pomR = ge.pan.withWidth (44).withX (ge.pan.getX());
-        vintage::pom (g, pomR.toFloat(), (float) t->pan, color, actiu);
+        vintage::pom (g, pomR.toFloat(), (float) estat.panMostrat (*t), color, actiu);
         auto text = ge.pan.withTrimmedLeft (48);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (9.5f, true));
         g.drawText ("PAN", text.removeFromTop (ge.pan.getHeight() / 2), juce::Justification::bottomLeft);
         g.setColour (tema::textMig);
         g.setFont (dibuix::mono (11.5f));
-        g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
+        g.drawText (EstatEstudi::textPan (estat.panMostrat (*t)), text, juce::Justification::topLeft);
 
         dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", mutAra (estat.projecte, *t), vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
         if (! mibase::esBus (*t)) dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
 
-        dibuixEstudi::faderVertical (g, ge.fader.toFloat(), t->faderDb, color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
-        vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
+        dibuixEstudi::faderVertical (g, ge.fader.toFloat(), estat.faderMostrat (*t), color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
+        vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (estat.faderMostrat (*t)), {});
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
         if (mibase::esBus (*t))

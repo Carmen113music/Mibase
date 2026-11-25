@@ -2252,6 +2252,28 @@ namespace
             for (int c = 0; c < numFixos; ++c) if (std::abs (gr->valor (c) - vistos[(size_t) c]) > 1e-6f) { vistos[(size_t) c] = gr->valor (c); canvi = true; }
             if (canvi) { ampli.actualitza(); refrescaValors(); pantalla.repaint(); if (zoom != nullptr) zoom->actualitza(); }
             ampli.repaint (ampli.pilot.toNearestInt().expanded (14));
+            // 1.5.2: els pedals segueixen l'automatització (poms, pedals d'expressió i encès/apagat)
+            {
+                std::vector<float> ara;
+                for (auto& p : pedalera.petits)
+                {
+                    ara.push_back (p->p->on.load() ? 1.0f : 0.0f);
+                    for (int c = 0; c < p->p->numControls(); ++c) ara.push_back (p->p->valor (c));
+                }
+                if (ara != vistosPedals)
+                {
+                    size_t k = 0;
+                    for (auto& p : pedalera.petits)
+                    {
+                        bool canviP = vistosPedals.size() != ara.size();
+                        for (int c = 0; c <= p->p->numControls() && ! canviP; ++c) canviP = ara[k + (size_t) c] != vistosPedals[k + (size_t) c];
+                        if (canviP) p->repaint();
+                        k += (size_t) p->p->numControls() + 1;
+                    }
+                    vistosPedals = ara;
+                    if (gran != nullptr) { gran->repaint(); for (auto* c : gran->getChildren()) c->repaint(); }
+                }
+            }
             for (auto& p : pedalera.petits)
                 if (p->p->on.load())
                 {
@@ -2446,6 +2468,7 @@ namespace
         unsigned versioVista = 0;
         int ampliVist = -1;
         std::array<float, numFixos> vistos {};
+        std::vector<float> vistosPedals;
         juce::TooltipWindow tips { this, 600 };
     };
 
