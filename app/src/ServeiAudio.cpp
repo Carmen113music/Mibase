@@ -1,4 +1,5 @@
 #include "ServeiAudio.h"
+#include <mibase/GuitarRack.h>
 #include "Tancaments.h"
 #include <mibase/ContextMusical.h>
 
@@ -320,6 +321,9 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     e.estat = dades[0];
     e.dada1 = m.getRawDataSize() > 1 ? dades[1] : 0;
     e.dada2 = m.getRawDataSize() > 2 ? dades[2] : 0;
+
+    // 1.6: els CC també van als Guitar Rack (MIDI learn: un pom o un pedal d'expressió del teclat)
+    if ((e.estat & 0xF0) == 0xB0 && e.dada1 < 120) mibase::guitarrack::GuitarRack::ccPerATots (e.dada1, e.dada2);
 
     // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);

@@ -1947,7 +1947,7 @@ namespace mibase::guitarrack
             }
             else if (i == MicA || i == MicB) return micros()[(size_t) std::clamp ((int) std::lround (v), 0, 3)].nom;
             else if (i == AngleA || i == AngleB) std::snprintf (b, sizeof b, "%.0f°", (double) v);
-            else if (i == MesclaB || i == Room) std::snprintf (b, sizeof b, "%.0f %%", (double) v);
+            else if (i == MesclaB || i == Room || i == IrMescla) std::snprintf (b, sizeof b, "%.0f %%", (double) v);
             else if (i == PosA || i == PosB || i == DistA || i == DistB) std::snprintf (b, sizeof b, "%.0f %%", (double) v * 100.0);
             else std::snprintf (b, sizeof b, "%.1f", (double) v);
             std::string s = b;

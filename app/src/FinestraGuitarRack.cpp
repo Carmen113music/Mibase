@@ -9,6 +9,7 @@
 #include "Tema.h"
 #include "Text.h"
 
+#include <mibase/Convolucio.h>
 #include <mibase/GuitarRack.h>
 
 #include <set>
@@ -700,16 +701,38 @@ namespace
         virtual void menuPedal (int k) = 0;
         virtual juce::DragAndDropContainer* dnd() = 0;
         virtual juce::Component& arrel() = 0;
+        /** 1.6: el menú del MIDI learn d'un paràmetre (aprendre, treure). */
+        virtual void menuMidi (int param) = 0;
+        /** 1.6: a quina posició de la pedalera és un pedal (-1 si ja no hi és). */
+        virtual int indexDe (const Pedal* p) = 0;
+        /** 1.6: presets d'un pedal (o, amb nullptr, de l'ampli). */
+        virtual void menuPresets (std::shared_ptr<Pedal> p, juce::Component* on) = 0;
     };
+
+    /** 1.6: la marca del MIDI learn d'un control: «MIDI?» mentre aprèn, «CC 21» si ja en té un. */
+    void pintaMarcaMidi (juce::Graphics& g, juce::Rectangle<float> r, GuitarRack& gr, int param)
+    {
+        if (param < 0) return;
+        const bool apren = gr.paramAprenent() == param;
+        const int c = gr.ccDe (param);
+        if (! apren && c < 0) return;
+        const auto t = apren ? juce::String ("MIDI?") : "CC " + juce::String (c);
+        g.setFont (dibuix::lletra (9.0f, true));
+        auto b = juce::Rectangle<float> (apren ? 40.0f : 36.0f, 13.0f).withPosition (r.getRight() - (apren ? 40.0f : 36.0f), r.getY());
+        g.setColour (apren ? tema::accent : juce::Colour (0xcc1a2a40));
+        g.fillRoundedRectangle (b, 3.0f);
+        g.setColour (apren ? juce::Colours::black : juce::Colour (0xff8fd0ff));
+        g.drawText (t, b, juce::Justification::centred);
+    }
 
     // ============================================================================================ un control d'un pedal gran
     class ControlPedal : public juce::Component, public juce::SettableTooltipClient
     {
     public:
-        ControlPedal (std::shared_ptr<Pedal> ped, int index, std::function<void()> enCanviar) : p (std::move (ped)), i (index), canviat (std::move (enCanviar))
+        ControlPedal (Accions& a, std::shared_ptr<Pedal> ped, int index, std::function<void()> enCanviar) : acc (a), p (std::move (ped)), i (index), canviat (std::move (enCanviar))
         {
             const auto& k = control();
-            setTooltip (u8 (k.nom) + (k.ajuda.empty() ? juce::String() : ": " + u8 (k.ajuda)) + "\n"_ca + "Arrossega amunt o avall (Maj: fi). Doble clic: el valor de sempre."_ca);
+            setTooltip (u8 (k.nom) + (k.ajuda.empty() ? juce::String() : ": " + u8 (k.ajuda)) + "\n"_ca + "Arrossega amunt o avall (Maj: fi). Doble clic: el valor de sempre. Botó dret: MIDI learn."_ca);
             setMouseCursor (k.tipus == TipusControl::Interruptor ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::UpDownResizeCursor);
         }
         const Control& control() const { return p->model().controls[(size_t) i]; }
@@ -727,6 +750,7 @@ namespace
                 g.setColour (juce::Colours::white.withAlpha (arrossega ? 0.95f : 0.6f));
                 g.setFont (dibuix::lletra (juce::jmax (9.0f, r.getHeight() * 0.05f), true));
                 g.drawText (dibuix::majuscules (u8 (k.nom)) + "  " + u8 (p->text (i, p->valor (i))), r.removeFromBottom (r.getHeight() * 0.12f), juce::Justification::centred);
+                if (const int kk = acc.indexDe (p.get()); kk >= 0) pintaMarcaMidi (g, getLocalBounds().toFloat().reduced (6.0f), acc.rack(), paramPedal (kk, i));
                 return;
             }
             auto etiqueta = r.removeFromBottom (juce::jmax (12.0f, r.getHeight() * 0.24f));
@@ -768,6 +792,7 @@ namespace
             const bool mostraValor = arrossega || sobre || k.tipus == TipusControl::Selector;
             g.drawFittedText (mostraValor && k.tipus != TipusControl::Interruptor ? u8 (p->text (i, p->valor (i))) : dibuix::majuscules (u8 (k.nom)),
                               etiqueta.toNearestInt(), juce::Justification::centredTop, 1, 0.7f);
+            if (const int kk = acc.indexDe (p.get()); kk >= 0) pintaMarcaMidi (g, getLocalBounds().toFloat(), acc.rack(), paramPedal (kk, i));
         }
 
         void mouseEnter (const juce::MouseEvent&) override { sobre = true; repaint(); }
@@ -778,7 +803,7 @@ namespace
             mogut = false;
             const auto& k = control();
             if (k.tipus == TipusControl::Interruptor) { posa (p->valor (i) > 0.5f ? 0.0f : 1.0f); return; }
-            if (k.tipus == TipusControl::Selector && e.mods.isPopupMenu()) { pas (-1); return; }
+            if (e.mods.isPopupMenu()) { if (const int kk = acc.indexDe (p.get()); kk >= 0) acc.menuMidi (paramPedal (kk, i)); return; }
             arrossega = true;
             repaint();
         }
@@ -821,6 +846,7 @@ namespace
             if (auto* pare = getParentComponent()) pare->repaint();
             if (canviat) canviat();
         }
+        Accions& acc;
         std::shared_ptr<Pedal> p;
         int i;
         std::function<void()> canviat;
@@ -843,6 +869,7 @@ namespace
         {
             if (arrossegant) g.setOpacity (0.35f);
             pintaPedal (g, p->model(), geo(), p.get(), p->on.load(), p->activitat(), true, false);
+            pintaMarcaMidi (g, getLocalBounds().toFloat(), acc.rack(), paramOnPedal (k));
         }
         void mouseDown (const juce::MouseEvent& e) override
         {
@@ -1054,7 +1081,7 @@ namespace
             : acc (a), par (parametre), est (estil), etiqueta (nom), tx (text), cs (cos)
         {
             setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
-            setTooltip (nom + ": " + u8 (infoFix (par).ajuda) + "\n"_ca + "Arrossega amunt o avall (Maj: fi). Doble clic: el valor de sempre del model."_ca);
+            setTooltip (nom + ": " + u8 (infoFix (par).ajuda) + "\n"_ca + "Arrossega amunt o avall (Maj: fi). Doble clic: el valor de sempre del model. Botó dret: MIDI learn."_ca);
         }
         float valor() const { return acc.rack().valor (par); }
         void paint (juce::Graphics& g) override
@@ -1074,12 +1101,18 @@ namespace
                 g.setFont (dibuix::lletra (10.0f, true));
                 g.drawText (juce::String (valor(), 1).replaceCharacter ('.', ','), vr, juce::Justification::centred);
             }
+            pintaMarcaMidi (g, getLocalBounds().toFloat().withTrimmedTop (12.0f), acc.rack(), par);
         }
         void mouseEnter (const juce::MouseEvent&) override { sobre = true; repaint(); }
         void mouseExit (const juce::MouseEvent&) override { sobre = false; repaint(); }
-        void mouseDown (const juce::MouseEvent&) override { v0 = valor(); arrossega = true; repaint(); }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { acc.menuMidi (par); return; }
+            v0 = valor(); arrossega = true; repaint();
+        }
         void mouseDrag (const juce::MouseEvent& e) override
         {
+            if (! arrossega) return;
             posa (juce::jlimit (0.0f, 10.0f, v0 - (float) e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 90.0f : 18.0f)));
         }
         void mouseUp (const juce::MouseEvent&) override { arrossega = false; repaint(); }
@@ -1105,6 +1138,8 @@ namespace
     {
     public:
         Palanca (const juce::String& n, juce::Colour text) : nom (n), tx (text) { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        Accions* acc = nullptr;   // 1.6: MIDI learn (botó dret)
+        int par = -1;
         std::function<bool()> llegeix;
         std::function<void (bool)> posa;
         void paint (juce::Graphics& g) override
@@ -1126,7 +1161,12 @@ namespace
             g.setFont (dibuix::lletra (8.5f, true));
             g.drawText (on ? "ON" : "OFF", r.removeFromBottom (12.0f), juce::Justification::centred);
         }
-        void mouseUp (const juce::MouseEvent& e) override { if (getLocalBounds().contains (e.getPosition()) && posa && llegeix) { posa (! llegeix()); repaint(); } }
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { if (acc != nullptr && par >= 0) acc->menuMidi (par); return; }
+            if (getLocalBounds().contains (e.getPosition()) && posa && llegeix) { posa (! llegeix()); repaint(); }
+        }
+        void paintOverChildren (juce::Graphics& g) override { if (acc != nullptr) pintaMarcaMidi (g, getLocalBounds().toFloat(), acc->rack(), par); }
     private:
         juce::String nom;
         juce::Colour tx;
@@ -1135,7 +1175,13 @@ namespace
     class VistaAmpli : public juce::Component
     {
     public:
-        explicit VistaAmpli (Accions& a) : acc (a) {}
+        explicit VistaAmpli (Accions& a) : acc (a)
+        {
+            addAndMakeVisible (btPresets);
+            btPresets.setMidaText (10.0f);
+            btPresets.setTooltip ("Presets d'aquest ampli: de fàbrica (com sona a les cadenes) i els teus"_ca);
+            btPresets.onClick = [this] { acc.menuPresets (nullptr, &btPresets); };
+        }
 
         void refesca()
         {
@@ -1168,6 +1214,7 @@ namespace
                                                                   : m.interruptor == Interruptor::Boost ? "més guany i més ajustat."_ca
                                                                   : m.interruptor == Interruptor::Tight ? "greus més ajustats (riffs ràpids)."_ca : "mitjos buidats."_ca));
                 p->llegeix = [this] { return acc.rack().valor (BrightP) > 0.5f; };
+                p->acc = &acc; p->par = BrightP;
                 p->posa = [this] (bool v) { acc.rack().posa (BrightP, v ? 1.0f : 0.0f); acc.canviat(); };
                 addAndMakeVisible (*p);
                 palanques.push_back (std::move (p));
@@ -1176,6 +1223,7 @@ namespace
                 auto p = std::make_unique<Palanca> ("Power", col (m.textPanell));
                 p->setTooltip ("Encén o apaga l'amplificador (apagat, el so passa directe a la pantalla)."_ca);
                 p->llegeix = [this] { return acc.rack().valor (AmpOn) > 0.5f; };
+                p->acc = &acc; p->par = AmpOn;
                 p->posa = [this] (bool v) { acc.rack().posa (AmpOn, v ? 1.0f : 0.0f); acc.canviat(); repaint(); };
                 addAndMakeVisible (*p);
                 palanques.push_back (std::move (p));
@@ -1209,6 +1257,10 @@ namespace
             auto dreta = r.removeFromRight (r.getHeight() * 0.62f * (float) palanques.size() + r.getHeight() * 0.35f);
             for (auto& p : palanques) p->setBounds (dreta.removeFromLeft (r.getHeight() * 0.62f).toNearestInt());
             pilot = dreta.withSizeKeepingCentre (r.getHeight() * 0.3f, r.getHeight() * 0.3f);
+            {
+                const auto c = cos();
+                btPresets.setBounds (juce::Rectangle<float> (86.0f, 22.0f).withPosition (c.getRight() - 86.0f - c.getHeight() * 0.13f, c.getY() + c.getHeight() * 0.075f).toNearestInt());
+            }
             const float w = r.getWidth() / (float) juce::jmax (1, (int) poms.size());
             for (size_t i = 0; i < poms.size(); ++i) poms[i]->setBounds (juce::Rectangle<float> (r.getX() + w * (float) i, r.getY(), w, r.getHeight()).reduced (2.0f, 0.0f).toNearestInt());
         }
@@ -1293,6 +1345,7 @@ namespace
         std::vector<std::unique_ptr<PomAmpli>> poms;
         std::vector<std::unique_ptr<Boto>> canals;
         std::vector<std::unique_ptr<Palanca>> palanques;
+        Boto btPresets { "PRESETS", std::nullopt, Boto::Estil::Secundari };
     };
 
     // ============================================================================================ la pantalla
@@ -1391,6 +1444,15 @@ namespace
                 g.setColour (tema::text);
                 g.setFont (dibuix::lletra (13.0f, true));
                 g.drawFittedText ("PANTALLA APAGADA"_ca, reixa.toNearestInt(), juce::Justification::centred, 2);
+            }
+            if (acc.rack().valor (IrOn) > 0.5f && ! acc.rack().nomIR().empty() && ! acc.rack().irFalta())   // 1.6
+            {
+                auto pl = juce::Rectangle<float> (reixa.getWidth() * 0.7f, 18.0f).withCentre ({ reixa.getCentreX(), reixa.getBottom() - 16.0f });
+                g.setColour (juce::Colour (0xe0101418));
+                g.fillRoundedRectangle (pl, 4.0f);
+                g.setColour (juce::Colour (0xff8fe3ff));
+                g.setFont (dibuix::lletra (10.5f, true));
+                g.drawFittedText ("IR · "_ca + u8 (acc.rack().nomIR()), pl.toNearestInt(), juce::Justification::centred, 1, 0.6f);
             }
             pintaJack (g, jackEntrada(), 5.0f);
             pintaJack (g, jackSortida(), 5.0f);
@@ -1618,11 +1680,13 @@ namespace
             const auto& m = p->model();
             for (int i = 0; i < (int) m.controls.size(); ++i)
             {
-                auto c = std::make_unique<ControlPedal> (p, i, [this] { acc.canviat(); });
+                auto c = std::make_unique<ControlPedal> (acc, p, i, [this] { acc.canviat(); });
                 addChildComponent (*c);
                 controls.push_back (std::move (c));
             }
-            for (auto* b : { &btTanca, &btTreu, &btLoop, &btDefecte }) addChildComponent (b);
+            for (auto* b : { &btTanca, &btTreu, &btLoop, &btDefecte, &btPresets }) addChildComponent (b);
+            btPresets.setTooltip ("Presets d'aquest pedal: de fàbrica (com sona a les cadenes) i els teus"_ca);
+            btPresets.onClick = [this] { acc.menuPresets (p, &btPresets); };
             btTanca.setTooltip ("Torna a la pedalera (també: clic fora del pedal o Esc)"_ca);
             btTanca.onClick = [this] { tanca(); };
             btTreu.onClick = [this]
@@ -1653,7 +1717,7 @@ namespace
             for (int k = 0; k < (int) pl->pedals.size(); ++k) if (pl->pedals[(size_t) k] == p) return k;
             return -1;
         }
-        void tanca() { if (! tancant) { tancant = true; for (auto& c : controls) c->setVisible (false); for (auto* b : { &btTanca, &btTreu, &btLoop, &btDefecte }) b->setVisible (false); startTimerHz (60); } }
+        void tanca() { if (! tancant) { tancant = true; for (auto& c : controls) c->setVisible (false); for (auto* b : { &btTanca, &btTreu, &btLoop, &btDefecte, &btPresets }) b->setVisible (false); startTimerHz (60); } }
         bool keyPressed (const juce::KeyPress& k) override
         {
             if (k == juce::KeyPress::escapeKey) { tanca(); return true; }
@@ -1688,7 +1752,7 @@ namespace
             auto info = getLocalBounds().toFloat().reduced (20.0f);
             info = info.removeFromRight (info.getWidth() * 0.3f).reduced (10.0f, 0.0f);
             zonaInfo = info;
-            auto b = info.removeFromBottom (36.0f * 4.0f + 12.0f);
+            auto b = info.removeFromBottom (36.0f * 5.0f + 12.0f);
             btTanca.setBounds (b.removeFromBottom (32.0f).toNearestInt());
             b.removeFromBottom (6.0f);
             btTreu.setBounds (b.removeFromBottom (32.0f).toNearestInt());
@@ -1696,6 +1760,8 @@ namespace
             btDefecte.setBounds (b.removeFromBottom (32.0f).toNearestInt());
             b.removeFromBottom (6.0f);
             btLoop.setBounds (b.removeFromBottom (32.0f).toNearestInt());
+            b.removeFromBottom (6.0f);
+            btPresets.setBounds (b.removeFromBottom (32.0f).toNearestInt());
         }
         void paint (juce::Graphics& g) override
         {
@@ -1743,6 +1809,11 @@ namespace
         {
             if (t < 1.0f || tancant) return;
             const auto q = geometria (p->model(), desti());
+            if (e.mods.isPopupMenu() && (q.peu.contains (e.position) || q.cos.contains (e.position)))
+            {
+                if (const int k = acc.indexDe (p.get()); k >= 0) acc.menuMidi (paramOnPedal (k));
+                return;
+            }
             const bool enLed = juce::Rectangle<float> (q.radiLed * 6.0f, q.radiLed * 6.0f).withCentre (q.led).contains (e.position);
             if ((p->model().forma != Forma::Basculant && q.peu.contains (e.position)) || enLed)
             {
@@ -1762,7 +1833,7 @@ namespace
                 if (t >= 1.0f)
                 {
                     for (auto& c : controls) c->setVisible (true);
-                    for (auto* b : { &btTanca, &btTreu, &btLoop, &btDefecte }) b->setVisible (true);
+                    for (auto* b : { &btTanca, &btTreu, &btLoop, &btDefecte, &btPresets }) b->setVisible (true);
                     grabKeyboardFocus();
                     startTimerHz (25);
                 }
@@ -1787,6 +1858,7 @@ namespace
         Boto btTreu { "Treu de la pedalera"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btDefecte { "Valors de sempre"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btLoop { "Al loop (després de la pantalla)"_ca, std::nullopt, Boto::Estil::Tecla };
+        Boto btPresets { "Presets del pedal"_ca, std::nullopt, Boto::Estil::Secundari };
         float t = 0.0f;
         bool tancant = false;
     };
@@ -1817,6 +1889,13 @@ namespace
                 poms.push_back ({ p, std::move (x) });
             };
             pom (DistA, "Distància A"_ca); pom (AngleA, "Angle A"); pom (DistB, "Distància B"_ca); pom (AngleB, "Angle B"); pom (MesclaB, "Mescla B"); pom (Room, "Sala");
+            pom (IrMescla, "Mescla IR");   // 1.6
+            addAndMakeVisible (btIR);
+            addAndMakeVisible (btIrOn);
+            btIR.setTooltip ("Carrega una resposta impulsional (IR) de pantalla: un fitxer WAV. Substitueix la simulació (o s'hi barreja amb «Mescla IR»)."_ca);
+            btIR.onClick = [this] { menuIR(); };
+            btIrOn.setTooltip ("Encén o apaga la IR carregada (apagada, sona la simulació de Mibase)."_ca);
+            btIrOn.onClick = [this] { acc.rack().posa (IrOn, acc.rack().valor (IrOn) > 0.5f ? 0.0f : 1.0f); acc.canviat(); actualitza(); };
             addAndMakeVisible (btOn);
             btOn.setTooltip ("Encén o apaga la pantalla. Apagada, se sent l'ampli directe (molt aspre): útil si després hi poses una pantalla de fora."_ca);
             btOn.onClick = [this] { acc.rack().posa (CabOn, acc.rack().valor (CabOn) > 0.5f ? 0.0f : 1.0f); acc.canviat(); actualitza(); };
@@ -1826,6 +1905,41 @@ namespace
             actualitza();
         }
         std::function<void()> enTancar;
+        /** 1.6: carregar una IR de pantalla (de la carpeta «Pantalles» de la biblioteca d'IR o un fitxer qualsevol). */
+        void menuIR()
+        {
+            juce::PopupMenu m;
+            std::vector<std::filesystem::path> camins;
+            for (const auto& e : mibase::conv::llistaBiblioteca())
+                if (e.categoria == "Pantalles") { camins.push_back (e.cami); m.addItem ((int) camins.size(), u8 (e.nom)); }
+            if (camins.empty()) m.addItem (-1, "La carpeta d'IR de pantalla és buida: hi pots posar fitxers WAV"_ca, false);
+            m.addSeparator();
+            m.addItem (900, "Obre un fitxer WAV…"_ca);
+            m.addItem (901, "Obre la carpeta de les IR de pantalla"_ca);
+            if (! acc.rack().referenciaIR().empty()) m.addItem (902, "Treu la IR (torna a la simulació de Mibase)"_ca);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btIR), [this, camins] (int r)
+            {
+                const auto carpetaIR = dibuix::fitxer (mibase::conv::arrel()).getChildFile ("Pantalles");
+                if (r >= 1 && r <= (int) camins.size()) carrega (dibuix::fitxer (camins[(size_t) r - 1]));
+                else if (r == 900)
+                {
+                    carpetaIR.createDirectory();
+                    tria = std::make_unique<juce::FileChooser> ("Tria una IR de pantalla (WAV)"_ca, carpetaIR, "*.wav");
+                    tria->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                       [this] (const juce::FileChooser& fc) { if (fc.getResult().existsAsFile()) carrega (fc.getResult()); });
+                }
+                else if (r == 901) { carpetaIR.createDirectory(); carpetaIR.revealToUser(); }
+                else if (r == 902) { acc.rack().treuIR(); acc.canviat(); actualitza(); }
+            });
+        }
+        void carrega (const juce::File& f)
+        {
+            std::string err;
+            if (! acc.rack().carregaIR (mibase::conv::referencia (dibuix::cami (f)), err))
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "IR de pantalla"_ca, "No s'ha pogut llegir la IR: "_ca + u8 (err));
+            acc.canviat();
+            actualitza();
+        }
         void actualitza()
         {
             cbCab.setSelectedId (acc.rack().cab() + 1, juce::dontSendNotification);
@@ -1834,6 +1948,10 @@ namespace
             segB.setTriat ((int) acc.rack().valor (MicB));
             btOn.setToggleState (acc.rack().valor (CabOn) > 0.5f, juce::dontSendNotification);
             for (auto& [p, x] : poms) x->setValor (acc.rack().valor (p), true);
+            const auto nom = u8 (acc.rack().nomIR());
+            btIR.setButtonText (nom.isEmpty() ? "IR de pantalla: cap (carrega'n una…)"_ca : "IR: "_ca + nom + (acc.rack().irFalta() ? " (no es troba)"_ca : juce::String()));
+            btIrOn.setToggleState (acc.rack().valor (IrOn) > 0.5f, juce::dontSendNotification);
+            btIrOn.setEnabled (nom.isNotEmpty() && ! acc.rack().irFalta());
             repaint();
         }
         bool keyPressed (const juce::KeyPress& k) override
@@ -1863,10 +1981,17 @@ namespace
             segA.setBounds (fila (28));
             fila (14);
             segB.setBounds (fila (28));
-            auto pr = fila (juce::jmin (110, d.getHeight() / 2 - 20));
-            auto pr2 = fila (juce::jmin (110, d.getHeight() - 40));
-            const int w = pr.getWidth() / 3;
-            for (int i = 0; i < (int) poms.size(); ++i) poms[(size_t) i].second->setBounds ((i < 3 ? pr : pr2).getX() + (i % 3) * w, (i < 3 ? pr : pr2).getY(), w, (i < 3 ? pr : pr2).getHeight());
+            fila (14);
+            {
+                auto f = fila (28);
+                btIrOn.setBounds (f.removeFromRight (120));
+                f.removeFromRight (6);
+                btIR.setBounds (f);
+            }
+            auto pr = fila (juce::jmin (104, (d.getHeight() - 40) / 2));
+            auto pr2 = fila (juce::jmin (104, d.getHeight() - 40));
+            const int w = pr.getWidth() / 4;
+            for (int i = 0; i < (int) poms.size(); ++i) poms[(size_t) i].second->setBounds ((i < 4 ? pr : pr2).getX() + (i % 4) * w, (i < 4 ? pr : pr2).getY(), w, (i < 4 ? pr : pr2).getHeight());
             btOn.setBounds (d.removeFromTop (30).removeFromLeft (180));
         }
         void paint (juce::Graphics& g) override
@@ -1881,6 +2006,7 @@ namespace
             et (cbAlt.getY() - 18, "Altaveu");
             et (segA.getY() - 18, "Micròfon A (el principal)"_ca);
             et (segB.getY() - 18, "Micròfon B (es barreja amb «Mescla B»)"_ca);
+            et (btIR.getY() - 18, "IR de pantalla (fitxer WAV)"_ca);
             // el con de l'altaveu
             auto c = con();
             const auto& alt = altaveus()[(size_t) acc.rack().altaveu()];
@@ -1958,6 +2084,9 @@ namespace
         std::vector<std::pair<int, std::unique_ptr<Pom>>> poms;
         Boto btOn { "Pantalla encesa"_ca, std::nullopt, Boto::Estil::Tecla };
         Boto btTanca { "Torna"_ca, std::nullopt, Boto::Estil::Primari };
+        Boto btIR { "IR de pantalla"_ca, std::nullopt, Boto::Estil::Secundari };
+        Boto btIrOn { "IR encesa"_ca, std::nullopt, Boto::Estil::Tecla };
+        std::unique_ptr<juce::FileChooser> tria;
         int arrossega = -1;
     };
 }
@@ -2051,6 +2180,8 @@ namespace
             m.addItem (2, p->on.load() ? "Apaga'l (bypass)"_ca : "Encén-lo"_ca);
             m.addItem (3, p->loop.load() ? "Passa'l davant de l'ampli"_ca : "Passa'l al loop (després de la pantalla)"_ca);
             m.addItem (4, "Valors de sempre"_ca);
+            m.addItem (6, gr->ccDe (paramOnPedal (k)) >= 0 ? "MIDI de l'interruptor de peu (CC "_ca + juce::String (gr->ccDe (paramOnPedal (k))) + ")…"
+                                                          : "MIDI learn de l'interruptor de peu…"_ca);
             m.addSeparator();
             m.addItem (5, "Treu-lo de la pedalera"_ca);
             m.showMenuAsync (juce::PopupMenu::Options(), [this, p, k] (int r)
@@ -2060,6 +2191,100 @@ namespace
                 if (r == 3) { gr->posaLoop (k, ! p->loop.load()); canviat(); }
                 if (r == 4) { for (int i = 0; i < p->numControls(); ++i) p->posa (i, p->model().controls[(size_t) i].def); canviat(); }
                 if (r == 5) { gr->treu (k); canviat(); }
+                if (r == 6) menuMidi (paramOnPedal (k));
+            });
+        }
+
+        // ---- 1.6: MIDI learn ----
+        int indexDe (const Pedal* p) override
+        {
+            auto pl = gr->placa();
+            for (int k = 0; k < (int) pl->pedals.size(); ++k) if (pl->pedals[(size_t) k].get() == p) return k;
+            return -1;
+        }
+        void menuPresets (std::shared_ptr<Pedal> p, juce::Component* on) override
+        {
+            menuPresetsPeca (p != nullptr ? "p:" + p->model().clau : "a:" + amplis()[(size_t) gr->ampli()].clau, p, on);
+        }
+        void menuMidi (int param) override
+        {
+            if (param < 0) return;
+            juce::PopupMenu m;
+            m.addSectionHeader ("MIDI · "_ca + u8 (gr->infoParametre (param).nom));
+            if (gr->paramAprenent() == param) m.addItem (3, "Deixa d'aprendre"_ca);
+            else m.addItem (1, "Aprèn: ara mou un pom, un fader o un pedal del teu teclat MIDI"_ca);
+            if (const int c = gr->ccDe (param); c >= 0) m.addItem (2, "Treu el MIDI (ara el mou el CC "_ca + juce::String (c) + ")");
+            m.showMenuAsync (juce::PopupMenu::Options(), [this, param] (int r)
+            {
+                if (r == 1) gr->aprenMidi (param);
+                if (r == 2) { gr->treuMidi (param); canviat(); }
+                if (r == 3) gr->aprenMidi (-1);
+                escenari.repaint();
+                if (gran != nullptr) { gran->repaint(); for (auto* c : gran->getChildren()) c->repaint(); }
+            });
+        }
+
+        // ---- 1.6: presets d'un pedal o d'un ampli ----
+        static PresetsPeces& peces()
+        {
+            static PresetsPeces p;
+            static bool carregat = false;
+            if (! carregat) { carregat = true; p.carrega (dibuix::cami (carpeta().getChildFile ("peces.json"))); }
+            return p;
+        }
+        static void desaPeces() { peces().desa (dibuix::cami (carpeta().getChildFile ("peces.json"))); }
+        static const std::vector<std::pair<std::string, std::string>>& fabricaDe (const std::string& clau)
+        {
+            static std::map<std::string, std::vector<std::pair<std::string, std::string>>> cau;
+            auto it = cau.find (clau);
+            if (it == cau.end())
+                it = cau.emplace (clau, clau.rfind ("p:", 0) == 0 ? presetsFabricaPedal (clau.substr (2)) : presetsFabricaAmpli (clau.substr (2))).first;
+            return it->second;
+        }
+        /** El menú de presets d'un pedal («p:clau») o de l'ampli («a:clau»). */
+        void menuPresetsPeca (const std::string& clau, std::shared_ptr<Pedal> ped, juce::Component* on)
+        {
+            const bool esPedal = ped != nullptr;
+            juce::PopupMenu m, fab, meus, esb;
+            const auto& f = fabricaDe (clau);
+            const auto& u = peces().de (clau);
+            for (int i = 0; i < (int) f.size(); ++i) fab.addItem (100 + i, "Com a «"_ca + u8 (f[(size_t) i].first) + "»");
+            for (int i = 0; i < (int) u.size(); ++i) { meus.addItem (1000 + i, u8 (u[(size_t) i].first)); esb.addItem (2000 + i, u8 (u[(size_t) i].first)); }
+            m.addSectionHeader (esPedal ? "Presets del pedal"_ca : "Presets de l'ampli"_ca);
+            m.addItem (1, "Valors de sempre"_ca);
+            if (! f.empty()) m.addSubMenu ("De fàbrica (com sona a les cadenes)"_ca, fab);
+            if (u.empty()) m.addItem (-1, "Encara no n'has desat cap"_ca, false);
+            else m.addSubMenu ("Els meus"_ca, meus);
+            m.addSeparator();
+            m.addItem (2, "Desa com a preset meu…"_ca);
+            if (! u.empty()) m.addSubMenu ("Esborra un dels meus"_ca, esb);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [this, clau, ped, esPedal] (int r)
+            {
+                auto aplica = [&] (const std::string& e) { if (esPedal) posaEstatPedal (*ped, e); else posaEstatAmpli (*gr, e); };
+                const auto& f = fabricaDe (clau);
+                const auto& u = peces().de (clau);
+                if (r == 1)
+                {
+                    if (esPedal) for (int i = 0; i < ped->numControls(); ++i) ped->posa (i, ped->model().controls[(size_t) i].def);
+                    else gr->posaAmpli (gr->ampli(), true);
+                }
+                else if (r >= 100 && r < 100 + (int) f.size()) aplica (f[(size_t) (r - 100)].second);
+                else if (r >= 1000 && r < 1000 + (int) u.size()) aplica (u[(size_t) (r - 1000)].second);
+                else if (r >= 2000 && r < 2000 + (int) u.size()) { peces().esborra (clau, u[(size_t) (r - 2000)].first); desaPeces(); return; }
+                else if (r == 2)
+                {
+                    const auto estat = esPedal ? estatPedal (*ped) : estatAmpli (*gr);
+                    dialeg = std::make_unique<DialegText> (esPedal ? "Desa el preset del pedal"_ca : "Desa el preset de l'ampli"_ca,
+                        "Nom del preset (si ja en tens un amb aquest nom, se substitueix)."_ca, "Desa"_ca,
+                        [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom."_ca : juce::String(); },
+                        [clau, estat] (const juce::String& t) { peces().posa (clau, t.trim().toStdString(), estat); desaPeces(); }, juce::String());
+                    DialegText::mostra (*this, dialeg);
+                    return;
+                }
+                else return;
+                canviat();
+                refrescaTot();
+                if (gran != nullptr) { gran->repaint(); for (auto* c : gran->getChildren()) c->repaint(); }
             });
         }
 
@@ -2071,7 +2296,8 @@ namespace
             else ampli.actualitza();
             versioVista = gr->versio();
             btAmp.setButtonText ("Ampli: "_ca + u8 (amplis()[(size_t) gr->ampli()].nom));
-            btCab.setButtonText ("Pantalla: "_ca + u8 (cabs()[(size_t) gr->cab()].nom) + " · "_ca + u8 (altaveus()[(size_t) gr->altaveu()].nom));
+            btCab.setButtonText ("Pantalla: "_ca + (gr->valor (IrOn) > 0.5f && ! gr->nomIR().empty() ? "IR "_ca + u8 (gr->nomIR())
+                                                    : u8 (cabs()[(size_t) gr->cab()].nom) + " · "_ca + u8 (altaveus()[(size_t) gr->altaveu()].nom)));
             btMics.setButtonText ("Micros: "_ca + u8 (micros()[(size_t) gr->valor (MicA)].nom) + (gr->valor (MesclaB) > 0.5f ? " + " + u8 (micros()[(size_t) gr->valor (MicB)].nom) : juce::String()));
             refrescaValors();
             refrescaPreset();
