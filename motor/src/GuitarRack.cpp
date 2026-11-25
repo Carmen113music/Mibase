@@ -1792,6 +1792,7 @@ namespace mibase::guitarrack
             {
                 const auto& et = amplis()[(size_t) ampli()].etiqueta[(size_t) (i - AmpGain)];
                 r.nom = "Ampli · " + (et.empty() ? std::string (f.nom) + " (aquest ampli no en té)" : et);
+                r.automatitzable = ! et.empty();
             }
             if (i == Canal) r.passos = 4;
             return r;
@@ -1799,10 +1800,10 @@ namespace mibase::guitarrack
         const int k = (i - numFixos) / paramsPerPedal, c = (i - numFixos) % paramsPerPedal - 1;
         r.id = "p" + std::to_string (k + 1) + (c < 0 ? std::string ("on") : "c" + std::to_string (c + 1));
         const Pedal* p = pedal (k);
-        if (p == nullptr) { r.nom = "Pedal " + std::to_string (k + 1) + " (buit)"; return r; }
+        if (p == nullptr) { r.nom = "Pedal " + std::to_string (k + 1) + " (buit)"; r.automatitzable = false; return r; }
         r.nom = "Pedal " + std::to_string (k + 1) + " · " + p->model().nom + " · ";
         if (c < 0) { r.nom += "On"; r.passos = 2; return r; }
-        if (c >= p->numControls()) { r.nom += "(sense control)"; return r; }
+        if (c >= p->numControls()) { r.nom += "(sense control)"; r.automatitzable = false; return r; }
         const auto& ct = p->model().controls[(size_t) c];
         r.nom += ct.nom;
         if (! ct.opcions.empty()) r.passos = (int) ct.opcions.size();

@@ -22,6 +22,7 @@ target_sources(Mibase PRIVATE
     src/FinestraDelay.cpp
     src/FinestraSaturacio.cpp
     src/FinestraDrive.cpp
+    src/FinestraGuitarRack.cpp
     src/FinestraSubBass.cpp
     src/FinestraFont.cpp
     src/FinestraLead.cpp

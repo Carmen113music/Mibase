@@ -4,6 +4,7 @@
 #include "FinestraDelay.h"
 #include "FinestraSaturacio.h"
 #include "FinestraDrive.h"
+#include "FinestraGuitarRack.h"
 #include "FinestraLimitador.h"
 #include "FinestraVocalStudio.h"
 #include "FinestraFlotant.h"
@@ -438,6 +439,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraLimitador (lm, titol, [this, clau] { finestres.erase (clau); });
         else if (auto tu = std::dynamic_pointer_cast<mibase::tune::Tune> (r->second))   // 0.80
             finestres[clau] = creaFinestraTune (tu, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto gtr = std::dynamic_pointer_cast<mibase::guitarrack::GuitarRack> (r->second))   // 1.5
+            finestres[clau] = creaFinestraGuitarRack (gtr, titol, [this, clau] { finestres.erase (clau); });
         else if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (r->second))   // 0.70
             finestres[clau] = creaFinestraVocalStudio (rk, titol, [this, clau] { finestres.erase (clau); },
                                                        rk->esMaster() ? std::function<int (int)>()   // 0.94: el màster no té «A pistes reals» ni solo
@@ -460,6 +463,12 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
     else if (x.plugin == mibase::drive::idPlugin) r = std::make_shared<mibase::drive::Drive>();               // 0.67
     else if (x.plugin == mibase::limitador::idPlugin) r = std::make_shared<mibase::limitador::Limitador>();   // 0.69
     else if (x.plugin == mibase::tune::idPlugin) r = std::make_shared<mibase::tune::Tune>();   // 0.80: el Tune sol, fora del Vocal Studio
+    else if (x.plugin == mibase::guitarrack::idPlugin)   // 1.5: el Guitar Rack (el tempo, abans de l'estat: els delays amb sync)
+    {
+        auto gtr = std::make_shared<mibase::guitarrack::GuitarRack>();
+        gtr->posaTempo (&RellotgePlugins::global().tempo);
+        r = gtr;
+    }
     else if (mibase::rack::esRack (x.plugin))   // 0.70; 0.94: també el Mastering Studio
     {
         auto rk = std::make_shared<mibase::rack::Rack> (x.plugin == mibase::rack::idPluginMaster ? mibase::rack::Tipus::Master : mibase::rack::Tipus::Veu);
@@ -499,6 +508,12 @@ void GestorPlugins::restauraRacks (const mibase::Projecte& p)
 {
     auto fes = [this] (const mibase::Insert& x)
     {
+        if (x.plugin == mibase::guitarrack::idPlugin)   // 1.5: el Guitar Rack també torna enrere amb el desfer
+        {
+            auto it = reverbs.find (x.id);
+            if (it != reverbs.end() && it->second != nullptr && it->second->estat() != x.estat && ! x.estat.empty()) it->second->posaEstat (x.estat);
+            return;
+        }
         if (! mibase::rack::esRack (x.plugin)) return;
         auto it = reverbs.find (x.id);
         if (it == reverbs.end() || it->second == nullptr) return;
@@ -588,6 +603,18 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
             t << "intern (Limitador) · "_ca << juce::String::fromUTF8 (mibase::limitador::nomEstil ((int) d->valor (mibase::limitador::EstilP)))
               << " · reducció " << juce::String (d->mesures().reduccio.load(), 1) << " dB · " << juce::String (d->mesures().lufsCurt.load(), 1)
               << " LUFS · latència " << d->latencia() << " mostres\n";
+            return;
+        }
+        if (x.plugin == mibase::guitarrack::idPlugin)   // 1.5
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::guitarrack::GuitarRack*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (Guitar Rack), encara no creat\n"_ca; return; }
+            t << "intern (Guitar Rack) · "_ca << juce::String::fromUTF8 (mibase::guitarrack::amplis()[(size_t) d->ampli()].nom.c_str())
+              << " · " << juce::String::fromUTF8 (mibase::guitarrack::cabs()[(size_t) d->cab()].nom.c_str()) << " · " << d->numPedals() << " pedals:";
+            for (int i = 0; i < d->numPedals(); ++i)
+                t << " " << juce::String::fromUTF8 (d->pedal (i)->model().nom.c_str()) << (d->pedal (i)->on.load() ? "" : " (apagat)"_ca) << (d->pedal (i)->loop.load() ? " [loop]" : "");
+            t << "\n";
             return;
         }
         if (x.plugin == mibase::drive::idPlugin)   // 0.67
