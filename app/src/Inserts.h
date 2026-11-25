@@ -366,7 +366,7 @@ namespace inserts
         m.addItem (6, "Delay (Mibase): ecos de cinta, analògics, ping-pong…"_ca);
         m.addItem (7, "Decapitor (Mibase): saturació de cinta, consola, vàlvules o suau (per a la mescla)"_ca);
         m.addItem (13, "Guitar Rack (Mibase): amplis, pantalles, micròfons i pedals de guitarra"_ca);   // 1.5
-        m.addItem (8, "Drive (Mibase): pedal de crunch, overdrive, distorsió i fuzz"_ca);
+        // 1.7: el Drive sol ja no surt al menú (el substitueix el Guitar Rack); els projectes que el tenen continuen sonant
         m.addItem (9, "Limitador (Mibase): per al màster i els busos, amb LUFS"_ca);
         m.addItem (10, "Vocal Studio (Mibase): rack de veu amb mòduls, 8 macros i presets"_ca);   // 0.70
         m.addItem (11, "Tune (Mibase): afinació de la veu a l'escala"_ca);   // 0.80

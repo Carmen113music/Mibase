@@ -7,6 +7,34 @@ namespace
         using namespace mibase::guitarrack;
         const double fs = 48000.0;
 
+        prova ("1.7 tempo: els àudios segueixen els compassos (sense estirar-se) i els trossos d'una gravació van junts", []
+        {
+            using namespace mibase;
+            Projecte q;
+            q.tempo = 120.0;
+            const auto a = edicio::afegeixPresa (q, "Àudios/a.wav", "a", 10.0).id;
+            const auto b = edicio::afegeixPresa (q, "Àudios/b.wav", "b", 10.0).id;
+            edicio::afegeixPista (q, "A", "audio");
+            edicio::afegeixClip (q, 0, a, 4.0);                    // compàs 3 (120 bpm: 2 s per compàs)
+            Clip c1 = q.pistes[0].clips[0];
+            c1.inici = 0.0; c1.fi = 2.0;
+            q.pistes[0].clips[0] = c1;
+            auto c2 = c1; c2.inici = 2.0; c2.fi = 3.0;              // un altre tros de la mateixa gravació, enganxat
+            q.pistes[0].clips.push_back (c2);
+            q.pistes[0].takes.push_back (c1);                      // la presa al carril
+            edicio::afegeixClip (q, 0, b, 7.0);                    // un altre àudio, al compàs 4, temps 3
+            q.pistes[0].clips.back().inici = 0.0; q.pistes[0].clips.back().fi = 1.0;
+            midi::canviaTempo (q, 60.0);
+            const auto& v = q.pistes[0].clips;
+            comprova (std::abs (v[0].pos + v[0].inici - 8.0) < 1e-6, "el primer tros comença al compàs 3: " + std::to_string (v[0].pos + v[0].inici));
+            comprova (std::abs (v[0].fi - v[0].inici - 2.0) < 1e-9, "no s'estira");
+            comprova (std::abs (v[1].pos - v[0].pos) < 1e-9 && std::abs (v[1].pos + v[1].inici - (v[0].pos + v[0].fi)) < 1e-9, "el segon tros va enganxat");
+            comprova (std::abs (q.pistes[0].takes[0].pos - v[0].pos) < 1e-9, "la presa del carril també es mou");
+            comprova (std::abs (v[2].pos + v[2].inici - 14.0) < 1e-6, "l'altre àudio, al compàs 4 temps 3: " + std::to_string (v[2].pos + v[2].inici));
+            midi::canviaTempo (q, 120.0);
+            comprova (std::abs (q.pistes[0].clips[2].pos + q.pistes[0].clips[2].inici - 7.0) < 1e-6, "tornar al tempo d'abans el deixa on era");
+        });
+
         prova ("1.6 GUITAR RACK: IR de pantalla (sona com la simulació, es barreja, es desa i es treu)", [fs]
         {
             // la IR: la resposta de la nostra pròpia pantalla

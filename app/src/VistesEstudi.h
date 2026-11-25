@@ -150,6 +150,8 @@ public:
     /** 0.22: obre el clip d'àudio (pista, clip) al Vocal Editor. */
     std::function<void (int, int)> onObreVeu;
     std::function<void (int pista, int clip, bool nomesBiblioteca)> onEnviaSampler;   // 0.28
+    /** 1.7: canviar el nom de l'àudio d'un clip al mateix lloc (id de la presa i zona del nom). */
+    std::function<void (const std::string& idPresa, juce::Rectangle<int> zona)> onCanviaNomPresa;
     EstatEstudi::Rang rang0;   // 0.29
     std::function<bool (juce::Point<int> pantalla)> arrossegaFora;   // 0.29: si el ratolí és a sobre d'on es pot deixar un clip (el samplejador)
     /** La cola necessita fer un fitxer nou (preses diferents o forat entre mig). */
@@ -417,6 +419,8 @@ public:
     static constexpr int ampleNou = 74;   // 0.33: la columna dels botons de bus nou
     GestorPlugins* plugins = nullptr;   // 0.20: per als inserts
     std::function<void (int pista)> onCanviaNom;
+    /** 1.7: on és el nom d'una tira (per editar-lo al mateix lloc). Buit si no es veu. */
+    juce::Rectangle<int> rectNom (int pista) const { const auto r = rectTira (pista); return r.isEmpty() ? r : geo (r, false).nom; }
     /** 0.33: demana el nom i crea un bus (de grup o retorn). Si «pista» >= 0, aquella pista hi queda connectada:
         amb la sortida («comSortida») o amb un enviament nou. */
     std::function<void (bool fx, int pista, bool comSortida)> onBusNou;

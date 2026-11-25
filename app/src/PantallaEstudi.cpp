@@ -306,7 +306,21 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     }
     mescles.onRoda = nullptr;
     capcaleres.onCanviaNom = [this] (int i) { canviaNomEnLinia (i); };   // 1.3: al mateix lloc
-    mescles.onCanviaNom = [this] (int i) { canviaNom (i); };
+    mescles.onCanviaNom = [this] (int i)   // 1.7: també al mateix lloc
+    {
+        const auto zona = mescles.rectNom (i);
+        if (zona.isEmpty() || estat.pista (i) == nullptr) { canviaNom (i); return; }
+        const auto id = estat.projecte.pistes[(size_t) i].id;
+        const auto actual = dibuix::utf8 (estat.projecte.pistes[(size_t) i].nom);
+        EditorEnLinia::obre (mescles, zona, actual, [this, id, actual] (const juce::String& t)
+        {
+            const int k = ed::pistaPerId (estat.projecte, id);
+            if (k < 0 || t.trim().isEmpty() || t.trim() == actual) return;
+            estat.desfes.abans (estat.projecte);
+            estat.projecte.pistes[(size_t) k].nom = t.trim().toStdString();
+            estat.canviat ("Pista «"_ca + actual + "» ara es diu «"_ca + t.trim() + "»"_ca);
+        }, {}, 12.0f);
+    };
     mescles.onBusNou = [this] (bool fx, int pista, bool comSortida) { busNou (fx, pista, comSortida); };
     capcaleres.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
     pistes.onPistaNova = [this] (const juce::String& tipus, int canals) { pistaNova (tipus, canals); };
@@ -468,6 +482,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     pistes.onSample = [this] (const juce::File& fs, int fila, double t) { deixaSample (fs, fila, t); };
     pistes.onEnviaSampler = [this] (int pista, int clip, bool nomesBib) { enviaAlSampler (pista, clip, nomesBib); };
+    pistes.onCanviaNomPresa = [this] (const std::string& id, juce::Rectangle<int> zona) { canviaNomPresaEnLinia (id, zona); };   // 1.7
     pistes.arrossegaFora = [this] (juce::Point<int> q) { return editorSampler.isShowing() && editorSampler.getScreenBounds().contains (q); };
     panell.onDuplica = [this] { duplica(); };
     panell.onTreu = [this] { treu(); };
@@ -2252,7 +2267,7 @@ void PantallaEstudi::menuGraella()
 
 void PantallaEstudi::canviaTempo()
 {
-    dialeg = std::make_unique<DialegText> ("Tempo", "En bpm (de 30 a 300). Els clips d'àudio no es mouen; els MIDI segueixen els compassos."_ca, "Canvia'l"_ca,
+    dialeg = std::make_unique<DialegText> ("Tempo", "En bpm (de 30 a 300). Els clips (MIDI i àudio) es queden als mateixos compassos; els àudios no s'estiren."_ca, "Canvia'l"_ca,
         [] (const juce::String& t) -> juce::String
         {
             const auto v = t.trim().replaceCharacter (',', '.');
@@ -3026,7 +3041,8 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     if (! mods.isCommandDown() && (codi == juce::KeyPress::numberPadDivide || codi == '/' || car == '/')) { commutaBucle(); return true; }
     if (! mods.isCommandDown() && (codi == juce::KeyPress::numberPadMultiply || codi == '*' || car == '*')) { commutaSoloEditor(); return true; }
     if (cap && lletra ('M')) { silenciaTriat(); return true; }
-    if (mods.isCommandDown() && lletra ('G')) { demanaNomCarpeta (estat.indexsTriades(), {}); return true; }
+    if (mods.isCommandDown() && mods.isShiftDown() && lletra ('G')) { desfesGrup (estat.indexsTriades()); return true; }   // 1.7
+    if (mods.isCommandDown() && lletra ('G')) { menuGrup (estat.indexsTriades()); return true; }   // 1.7: carpeta, bus o totes dues
     if (cap && lletra ('L')) { commutaBucle(); return true; }
     if (cap && lletra ('P')) { mostraPianoRoll (! estat.pianoRoll); return true; }
     if (cap && lletra ('A'))   // 0.56: l'editor d'automatització de la pista triada
@@ -4007,39 +4023,61 @@ void PantallaEstudi::localitzaPresa (const std::string& id)
     repaint();
 }
 
+namespace
+{
+    juce::String nomSenseExtensio (const juce::String& n)
+    {
+        const auto sense = n.upToLastOccurrenceOf (".", false, false);
+        return sense.isEmpty() ? n : sense;
+    }
+}
+
 void PantallaEstudi::canviaNomPresa (const std::string& id)
 {
     const auto* s = ed::presa (estat.projecte, id);
     if (s == nullptr) return;
-    const auto vell = fitxerPresa (*s);
     juce::Component::SafePointer<PantallaEstudi> jo (this);
     dialeg = std::make_unique<DialegText> ("Canvia el nom de l'àudio"_ca,
         "Es canvia el nom del fitxer a la carpeta Àudios i el projecte el continua trobant."_ca, "Canvia"_ca,
         [] (const juce::String& t) { return juce::File::createLegalFileName (t.trim()).isEmpty() ? "Escriu un nom"_ca : juce::String(); },
-        [jo, id, vell] (const juce::String& t)
-        {
-            if (jo == nullptr) return;
-            auto& e = jo->estat;
-            const auto base = juce::File::createLegalFileName (t.trim());
-            auto nou = vell.getSiblingFile (base + vell.getFileExtension());
-            for (int k = 2; nou.exists() && nou != vell; ++k) nou = vell.getSiblingFile (base + " " + juce::String (k) + vell.getFileExtension());
-            if (nou != vell && ! vell.moveFileTo (nou))
-            {
-                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Canvia el nom"_ca,
-                                                        "No s'ha pogut canviar el nom del fitxer (potser és obert en un altre programa)."_ca);
-                return;
-            }
-            const auto relatiu = nou.getRelativePathFrom (e.carpeta).replaceCharacter ('\\', '/').toStdString();
-            const auto nom = t.trim().toStdString();
-            // el fitxer ha canviat al disc: totes les còpies de desfer també ho han de saber
-            ed::canviaFitxerPresa (e.projecte, id, relatiu, nom);
-            e.desfes.perTots ([&] (mibase::Projecte& q) { ed::canviaFitxerPresa (q, id, relatiu, nom); });
-            jo->historial.afegeix ("Pool: «"_ca + vell.getFileName() + "» ara es diu «" + nou.getFileName() + "»");
-            e.canviat ("Canviat el nom de l'àudio «"_ca + vell.getFileName() + "» a «" + nou.getFileName() + "»");
-            jo->desaAra();
-        },
-        dibuix::utf8 (s->nom).upToLastOccurrenceOf (".", false, false).isEmpty() ? dibuix::utf8 (s->nom) : dibuix::utf8 (s->nom).upToLastOccurrenceOf (".", false, false));
+        [jo, id] (const juce::String& t) { if (jo != nullptr) jo->aplicaNomPresa (id, t); },
+        nomSenseExtensio (dibuix::utf8 (s->nom)));
     DialegText::mostra (*this, dialeg);
+}
+
+void PantallaEstudi::canviaNomPresaEnLinia (const std::string& id, juce::Rectangle<int> zona)
+{
+    // 1.7: el nom de l'àudio, editable damunt del clip (Enter o clicar fora desa; Esc cancel·la)
+    const auto* s = ed::presa (estat.projecte, id);
+    if (s == nullptr) return;
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    EditorEnLinia::obre (pistes, zona, nomSenseExtensio (dibuix::utf8 (s->nom)), [jo, id] (const juce::String& t) { if (jo != nullptr) jo->aplicaNomPresa (id, t); },
+                         [] (const juce::String& t) { return juce::File::createLegalFileName (t.trim()).isEmpty() ? "Escriu un nom"_ca : juce::String(); }, 12.0f);
+}
+
+void PantallaEstudi::aplicaNomPresa (const std::string& id, const juce::String& t)
+{
+    const auto* s = ed::presa (estat.projecte, id);
+    if (s == nullptr || t.trim().isEmpty() || t.trim() == nomSenseExtensio (dibuix::utf8 (s->nom))) return;
+    const auto vell = fitxerPresa (*s);
+    auto& e = estat;
+    const auto base = juce::File::createLegalFileName (t.trim());
+    auto nou = vell.getSiblingFile (base + vell.getFileExtension());
+    for (int k = 2; nou.exists() && nou != vell; ++k) nou = vell.getSiblingFile (base + " " + juce::String (k) + vell.getFileExtension());
+    if (nou != vell && ! vell.moveFileTo (nou))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Canvia el nom"_ca,
+                                                "No s'ha pogut canviar el nom del fitxer (potser és obert en un altre programa)."_ca);
+        return;
+    }
+    const auto relatiu = nou.getRelativePathFrom (e.carpeta).replaceCharacter ('\\', '/').toStdString();
+    const auto nom = t.trim().toStdString();
+    // el fitxer ha canviat al disc: totes les còpies de desfer també ho han de saber
+    ed::canviaFitxerPresa (e.projecte, id, relatiu, nom);
+    e.desfes.perTots ([&] (mibase::Projecte& q) { ed::canviaFitxerPresa (q, id, relatiu, nom); });
+    historial.afegeix ("Pool: «"_ca + vell.getFileName() + "» ara es diu «" + nou.getFileName() + "»");
+    e.canviat ("Canviat el nom de l'àudio «"_ca + vell.getFileName() + "» a «" + nou.getFileName() + "»");
+    desaAra();
 }
 
 void PantallaEstudi::buscaPresa (const std::string& id)
@@ -4462,4 +4500,85 @@ void PantallaEstudi::menuTempo()
             estat.canviat ("Compàs: "_ca + juce::String (num) + "/" + juce::String (den));
         });
     }
+}
+
+// ---- 1.7: Ctrl+G amb opcions ----
+void PantallaEstudi::menuGrup (std::vector<int> v)
+{
+    if (v.empty()) { demanaNomCarpeta (v, {}); return; }
+    juce::PopupMenu m;
+    m.addSectionHeader (juce::String ((int) v.size()) + (v.size() == 1 ? " pista triada"_ca : " pistes triades"_ca));
+    m.addItem (3, "Carpeta + bus (la carpeta fa de bus: un sol volum i efectes per a totes)"_ca);
+    m.addItem (1, "Carpeta (només per ordenar: plegar i desplegar)"_ca);
+    m.addItem (2, "Pista de grup (bus): totes hi surten, un sol volum i efectes"_ca);
+    m.addSeparator();
+    m.addItem (4, "Envia a un efecte nou… (crea un retorn i un enviament de cada pista)"_ca);
+    m.addSeparator();
+    m.addItem (5, "Desfés el grup   (Ctrl+Maj+G)"_ca);
+    m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(), [this, v] (int r)
+    {
+        if (r == 1) { demanaNomCarpeta (v, {}); return; }
+        if (r == 5) { desfesGrup (v); return; }
+        if (r < 2 || r > 4) return;
+        const bool fx = r == 4;
+        juce::String proposat;
+        for (int n = 1; n < 100 && proposat.isEmpty(); ++n)
+        {
+            const auto nom = juce::String (fx ? "Retorn " : "Grup ") + juce::String (n);
+            bool hiEs = false;
+            for (auto& t : estat.projecte.pistes) hiEs = hiEs || dibuix::utf8 (t.nom) == nom;
+            for (auto& c : estat.projecte.carpetes) hiEs = hiEs || dibuix::utf8 (c.nom) == nom;
+            if (! hiEs) proposat = nom;
+        }
+        std::vector<std::string> ids;
+        for (int i : v) if (auto* t = estat.pista (i)) ids.push_back (t->id);
+        dialeg = std::make_unique<DialegText> (fx ? "Envia a un efecte nou"_ca : (r == 3 ? "Carpeta + bus"_ca : "Pista de grup (bus)"_ca),
+            fx ? "Es crea un retorn d'efectes i cada pista hi envia (0 dB). Posa-hi el plugin (reverb, delay…) al 100 % d'efecte."_ca
+               : "Les pistes triades sortiran per aquest bus."_ca,
+            "Crea"_ca,
+            [] (const juce::String& t) { return t.trim().isEmpty() ? "Escriu un nom"_ca : juce::String(); },
+            [this, r, fx, ids] (const juce::String& t)
+            {
+                estat.desfes.abans (estat.projecte);
+                const auto nom = t.trim().toStdString();
+                const auto idBus = ed::afegeixBus (estat.projecte, nom, fx).id;
+                int fets = 0;
+                for (const auto& id : ids)
+                {
+                    const int i = ed::pistaPerId (estat.projecte, id);
+                    if (i < 0 || mibase::esBus (estat.projecte.pistes[(size_t) i])) continue;
+                    if (fx) { if (ed::afegeixEnviament (estat.projecte, i, idBus) >= 0) ++fets; }
+                    else if (ed::posaSortida (estat.projecte, i, idBus)) ++fets;
+                }
+                if (r == 3)
+                {
+                    std::vector<int> dins;
+                    for (const auto& id : ids) if (const int i = ed::pistaPerId (estat.projecte, id); i >= 0) dins.push_back (i);
+                    if (const int b = ed::pistaPerId (estat.projecte, idBus); b >= 0) dins.push_back (b);
+                    ed::creaCarpeta (estat.projecte, nom, dins);
+                    estat.panellCarpetes = true;
+                    colocaSeccions();
+                }
+                estat.canviat ((fx ? "Efecte nou «"_ca : (r == 3 ? "Carpeta + bus «"_ca : "Bus de grup «"_ca)) + t.trim() + "» per a "_ca
+                               + juce::String (fets) + (fets == 1 ? " pista"_ca : " pistes"_ca));
+            }, proposat);
+        DialegText::mostra (*this, dialeg);
+    });
+}
+
+void PantallaEstudi::desfesGrup (std::vector<int> v)
+{
+    // treu les carpetes de les pistes triades i torna les seves sortides al màster (els busos es queden, per si de cas)
+    if (v.empty()) return;
+    estat.desfes.abans (estat.projecte);
+    std::set<std::string> carpetes;
+    int fetes = 0;
+    for (int i : v)
+        if (auto* t = estat.pista (i))
+        {
+            if (! t->carpeta.empty()) carpetes.insert (t->carpeta);
+            if (! mibase::esBus (*t) && ed::posaSortida (estat.projecte, i, {})) ++fetes;
+        }
+    for (const auto& c : carpetes) ed::esborraCarpeta (estat.projecte, c);
+    estat.canviat ("Grup desfet: "_ca + juce::String ((int) carpetes.size()) + " carpetes, "_ca + juce::String (fetes) + " pistes tornen al màster"_ca);
 }

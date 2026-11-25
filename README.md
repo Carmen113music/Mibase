@@ -132,6 +132,7 @@ Fitxer → Exporta obre una finestra amb les opcions:
 ### Carpetes de pistes
 - El botó de la **carpeta** (a dalt de la columna dels noms de pista) mostra o amaga el **panell de carpetes**, a l'esquerra dels noms. Sense carpetes, hi surten totes les pistes seguides.
 - **Carpeta nova** (botó de dalt del panell), o tria unes quantes pistes amb **Ctrl** (o **Maj**, per triar-les seguides) clicant-ne el nom i prem **Ctrl+G**: demana el nom i les posa juntes dins la carpeta.
+- **Ctrl+G amb opcions (1.7)**: amb pistes triades, surt un menú: **Carpeta + bus** (la carpeta fa de bus: un sol volum i efectes), **Carpeta** (només ordre), **Pista de grup (bus)**, o **Envia a un efecte nou** (crea un retorn i un enviament de cada pista). **Ctrl+Maj+G** desfà el grup (treu la carpeta i les pistes tornen a sortir pel màster; el bus es queda).
 - **Arrossega el nom d'una pista** del panell a una carpeta per posar-la-hi, o fora de les carpetes per treure-la'n. Les pistes d'una carpeta queden sempre seguides.
 - **Clic al nom de la carpeta**: en tria totes les pistes (amb Ctrl o Maj, també les d'altres carpetes). Amb diverses pistes triades, **M** les silencia totes.
 - La **fletxa** plega o desplega la carpeta: plegada, a la taula de treball totes les seves pistes es veuen com **una sola fila** (amb els clips de cada pista en franges fines, i M i S per a totes); doble clic a la fila la desplega. L'**ull** l'amaga de la taula de treball (continua sonant). Doble clic al nom (o botó dret): canviar-li el nom o esborrar-la (les pistes es queden).
@@ -141,7 +142,7 @@ Fitxer → Exporta obre una finestra amb les opcions:
 - **Clips MIDI**: amb el **llapis** (2) a una pista d'instrument fas un clip buit (arrossegant, o d'un compàs) i s'obre al Piano Roll. Els clips MIDI es mouen, es retallen, es tallen amb les tisores, s'ajunten amb la cola, es copien i s'enganxen com els d'àudio (no passen a pistes d'àudio, ni al revés). Dins el clip es veuen les notes en petit. **Doble clic** (o el menú del botó dret) l'obre al Piano Roll.
 - **Teclat MIDI**: quan la pista triada és d'instrument, el teclat (l'AKAI) la fa sonar. Si la pista triada és d'àudio, sona el so de prova del Diagnòstic, com abans. Si tens més d'un teclat, a la secció **Pista** del panell de l'esquerra pots dir quin teclat toca cada pista: aquella pista la toca sempre aquell teclat (encara que no estigui triada), i els altres teclats no la toquen.
 - **Gravar MIDI**: encén el botó vermell d'una pista d'instrument i prem 0 al teclat numèric. Sonen 2 compassos de pre-roll (o, si ja sona, Punch In a l'instant) i es grava el que toques al teclat, amb la velocitat, el pedal (sustain), la roda de modulació i el pitch bend. El que toques durant el compte queda amagat a l'esquerra del clip (no s'esborra).
-- **Canviar el tempo**: els clips MIDI segueixen els compassos (les notes es guarden en temps musical); els d'àudio no es mouen.
+- **Canviar el tempo**: tots els clips es queden als mateixos compassos (1.7). Els MIDI s'adapten al tempo; els d'àudio comencen al mateix compàs i temps però no s'estiren (duren el mateix). Els trossos d'una mateixa gravació (i les preses dels carrils) es mouen junts. Un sol pas de desfer.
 - La **dinàmica** d'un clip MIDI és la velocitat de les notes: els clips MIDI no tenen fades ni volum de clip (el fader de la pista sí).
 
 ### Mibase LEAD, el sinte de solistes (0.89)
@@ -394,6 +395,7 @@ Una eina a part (com els sintes) per passar de no tenir cap idea a una progressi
 - **Presets de cada pedal i de cada ampli (1.6)**: botó «Presets del pedal» (al pedal ampliat) i «PRESETS» (a l'ampli): valors de sempre, de fàbrica (com sona el pedal o l'ampli a cada cadena de fàbrica) i els teus (desar, esborrar).
 
 ### Drive de Mibase, el pedal (0.67)
+- **1.7**: ja no surt al menú d'efectes (el substitueix el **Guitar Rack**, que té tots aquests pedals i més). Els projectes que el tenen continuen sonant i s'obre igual.
 - **+ Efecte → Drive (Mibase)**: un pedal de guitarra amb quatre modes a dalt: **Crunch** (ampli de vàlvules que comença a trencar), **Overdrive** (com els pedals verds: mitjos endavant), **Distorsió** (dura i densa, per a rock i metal) i **Fuzz**. El pedal canvia de color amb el mode i el llum s'encén quan passa so.
 - Al pedal, els poms de sempre: **Gain**, **Tone** i **Level** (a 0 dB, el volum queda a prop de l'original). Al costat: **Bass** (greus després de distorsionar), **Mix** (barreja amb el so net; útil al baix), **Gate** (talla el brunzit quan no toques; a -80, apagat) i **Tight** (treu greus abans de distorsionar, per a riffs ràpids).
 - **24 presets** (Crunch, Overdrive, Distorsió, Fuzz, Baix i altres) i els teus. És el primer pedal de la futura col·lecció d'amplis i pedals.
@@ -604,6 +606,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **1.7.0** — **Els àudios segueixen els compassos** quan canvies el tempo (sense estirar-se; els trossos d'una gravació van junts). **Noms al mateix lloc**: a la taula de mescles (doble clic al nom) i l'àudio d'un clip (botó dret → «Canvia el nom de l'àudio…»). **Ctrl+G amb opcions** (carpeta, bus, carpeta + bus, envia a un efecte nou) i **Ctrl+Maj+G** per desfer-ho. **Línia del temps més clara**: números de compàs grans, línies de compàs més marcades i el fons de cada part de la cançó tenyit del seu color. El **Drive** sol ja no surt al menú (el substitueix el Guitar Rack).
 - **1.6.0** — **Guitar Rack, fase 2**: **IR de pantalla** (carregar un WAV, barrejar-lo amb la simulació, desat amb el projecte), **MIDI learn** de tots els poms i interruptors de l'ampli i dels pedals (també l'interruptor de peu) amb el teclat MIDI, i **presets de cada pedal i de cada ampli** (de fàbrica i propis).
 - **1.5.2** — Les automatitzacions es veuen: el fader i el pom de panorama de les pistes (columna de l'esquerra i taula de mescles) es mouen amb l'automatització de volum i panorama mentre sona; els pedals del Guitar Rack (poms, pedals d'expressió com el wah o el volum, i encès/apagat) i la Dinàmica també segueixen la seva automatització.
 - **1.5.1** — **Guitar Rack** amb textures: tolex gravat, reixes de teixit, cantoneres metàl·liques, ribet, panells de metall raspallat i pedals gastats (gra, ratllades, pintura saltada i rovell als més vells). **Font d'inspiració**: botó de configuració per triar el so del piano i de la guitarra (General MIDI o les teves guitarres .sf2).

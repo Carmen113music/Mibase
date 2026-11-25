@@ -277,6 +277,10 @@ private:
     void escoltaPresa (const std::string& id);
     void localitzaPresa (const std::string& id);
     void canviaNomPresa (const std::string& id);
+    void canviaNomPresaEnLinia (const std::string& id, juce::Rectangle<int> zona);   // 1.7
+    void menuGrup (std::vector<int> v);   // 1.7: Ctrl+G
+    void desfesGrup (std::vector<int> v);   // 1.7: Ctrl+Maj+G
+    void aplicaNomPresa (const std::string& id, const juce::String& nom);
     void buscaPresa (const std::string& id);
     void aLaPaperera (const std::vector<std::string>& ids);
     void buidaPaperera();
