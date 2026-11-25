@@ -43,6 +43,8 @@ add_library(mibase_motor STATIC
     src/AtmosPresets.cpp
     src/Neo.cpp
     src/NeoPresets.cpp
+    src/Vintage.cpp
+    src/VintagePresets.cpp
     src/Limitador.cpp
     src/LimitadorPresets.cpp
     src/Doubler.cpp
@@ -55,10 +57,17 @@ add_library(mibase_motor STATIC
     src/Estereo.cpp
     src/Clipper.cpp
     src/Transitoris.cpp
+    src/Multibanda.cpp
+    src/LowEnd.cpp
+    src/Diagnosi.cpp
+    src/FontInspiracio.cpp
     src/Convolucio.cpp
     src/Equalitzador.cpp
     src/Espectre.cpp
-    src/EqPresets.cpp)
+    src/EqPresets.cpp
+    src/GuitarRack.cpp
+    src/GuitarRackModels.cpp
+    src/GuitarRackPresets.cpp)
 
 target_include_directories(mibase_motor PUBLIC include)
 find_package(Threads REQUIRED)

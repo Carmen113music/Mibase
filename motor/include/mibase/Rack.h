@@ -25,6 +25,7 @@
     - Un mòdul amb latència (el Limitador) no fa barreja: sona sempre al 100 % (si no, sonaria desfasat). */
 namespace mibase { struct Projecte; }
 namespace mibase::loudness { class Mesurador; struct Mesures; }
+#include "mibase/Diagnosi.h"
 
 namespace mibase::rack
 {
@@ -50,6 +51,17 @@ namespace mibase::rack
     inline constexpr const char* idPluginMaster = "intern:masteringstudio";
     inline constexpr const char* nomPluginMaster = "Mastering Studio (Mibase)";
     enum class Tipus { Veu, Master };
+
+    /** 1.01: una cançó de referència carregada (la llegeix la interfície; el motor només la toca i en fa servir l'anàlisi). */
+    struct Referencia
+    {
+        std::string nom, cami;
+        double fs = 48000.0;
+        std::vector<float> L, R;
+        diagnosi::Analisi analisi;   // espectre, loudness i estèreo de tota la cançó
+    };
+    /** Què s'escolta a la sortida del Mastering Studio. */
+    enum Escolta : int { EscoltaMaster = 0, EscoltaOriginal = 1, EscoltaReferencia = 2 };
     inline bool esRack (const std::string& plugin) { return plugin == idPlugin || plugin == idPluginMaster; }
 
     constexpr int maxModuls = 24;     // 0.76: 24 entre la cadena principal i els retorns
@@ -145,8 +157,30 @@ namespace mibase::rack
 
         // ---- 0.94: només el Mastering Studio ----
         /** A/B: escolta el mix original (sense el rack, alineat amb el retard de la cadena). Sense clics (fosa de 20 ms). */
-        void posaOriginal (bool o) noexcept { escoltaOriginal.store (o, std::memory_order_relaxed); }
-        bool original() const noexcept { return escoltaOriginal.load (std::memory_order_relaxed); }
+        void posaOriginal (bool o) noexcept { escoltaMode.store (o ? EscoltaOriginal : EscoltaMaster, std::memory_order_relaxed); }
+        bool original() const noexcept { return escoltaMode.load (std::memory_order_relaxed) == EscoltaOriginal; }
+        /** 1.01: màster, original o referència (sense clics, fosa de 20 ms). */
+        void posaEscolta (int e) noexcept { escoltaMode.store (std::clamp (e, 0, 2), std::memory_order_relaxed); }
+        int escolta() const noexcept { return escoltaMode.load (std::memory_order_relaxed); }
+
+        // ---- 1.01: referències ----
+        struct EntradaRef { std::string nom, cami; };
+        /** La llista de referències del projecte (camins; l'àudio el carrega la interfície) i quina és l'activa. */
+        std::vector<EntradaRef> referencies;
+        int refActiva = -1;
+        /** L'àudio de la referència activa (o nul). La interfície la crida; el motor la toca al fil d'àudio sense esperes. */
+        void posaReferencia (std::shared_ptr<const Referencia> r);
+        std::shared_ptr<const Referencia> referencia() const { return refActual; }
+        /** Volum igualat de la referència: sona al mateix loudness que el màster (encès per defecte). */
+        void posaIgualaRef (bool g) noexcept { igualaRef.store (g, std::memory_order_relaxed); ++canvis; }
+        bool igualaReferencia() const noexcept { return igualaRef.load (std::memory_order_relaxed); }
+        /** On comença a sonar la referència (segons) i tornar-hi. */
+        void posaIniciRef (float s) noexcept { refInici.store (std::max (0.0f, s), std::memory_order_relaxed); demanaRefInici.store (true); ++canvis; }
+        float iniciRef() const noexcept { return refInici.load (std::memory_order_relaxed); }
+        void tornaIniciRef() noexcept { demanaRefInici.store (true); }
+        /** On és la referència ara (segons) i el guany que s'hi aplica (dB). */
+        float posicioRef() const noexcept { return posRefSeg.load (std::memory_order_relaxed); }
+        float guanyRefDb() const noexcept { return gRefDb.load (std::memory_order_relaxed); }
         /** Volum igualat: el que sona més fort (original o processat) s'abaixa fins al volum de l'altre (Short-Term).
             0.95: apagat per defecte (s'encén per comparar) i mai a les còpies d'exportar (vegeu GestorPlugins::efecteNou). */
         void posaIgualat (bool g) noexcept { igualatAB.store (g, std::memory_order_relaxed); ++canvis; }
@@ -273,7 +307,18 @@ namespace mibase::rack
         std::unique_ptr<loudness::Mesurador> lIn, lOut;
         Linia liniaSec;
         std::vector<float> secL, secR;
-        std::atomic<bool> escoltaOriginal { false }, igualatAB { false };   // 0.95: apagat per defecte
+        std::atomic<int> escoltaMode { EscoltaMaster };   // 1.01 (abans escoltaOriginal)
+        std::atomic<bool> igualatAB { false };   // 0.95: apagat per defecte
+        // 1.01: referència
+        std::shared_ptr<const Referencia> refActual;
+        std::vector<std::shared_ptr<const Referencia>> refsVives;   // les últimes, perquè el fil d'àudio no en llegeixi una d'esborrada
+        std::atomic<const Referencia*> refAudio { nullptr };
+        std::atomic<bool> igualaRef { true }, demanaRefInici { false };
+        std::atomic<float> refInici { 0.0f }, posRefSeg { 0.0f }, gRefDb { 0.0f };
+        std::vector<float> refL, refR;
+        double posRef = 0.0;
+        long long senseSenyal = 0;
+        float gRef = 1.0f, wP = 1.0f, wO = 0.0f, wR = 0.0f;
         std::atomic<int> objectiuLufs { 1 };
         std::atomic<float> lufsPers { -10.0f };   // 0.95
         std::atomic<float> compDb { 0.0f };
@@ -287,6 +332,18 @@ namespace mibase::rack
     float guanyLimitador (const Rack& r);
     /** Posa el guany del limitador i hi deixa el macro Loudness d'acord (si cal, n'estén el rang). */
     void posaGuanyLimitador (Rack& r, float db);
+    /** 1.2: «Generate Master Suggestion»: una cadena mínima per a aquesta mescla i aquest estil, amb el perquè de cada mòdul
+        i el que no cal fer. Fa servir l'anàlisi del mix (abans del màster) i, si n'hi ha, la referència del context. */
+    struct SuggerimentMaster
+    {
+        std::string estat;                                          // el Mastering Studio sencer (per a posaEstat)
+        std::vector<std::pair<std::string, std::string>> moduls;   // mòdul, perquè
+        std::vector<std::string> fora;                              // el que no s'hi ha posat, i per què
+        std::string resum;
+    };
+    const std::vector<std::string>& estilsSuggeriment();
+    SuggerimentMaster suggereixMaster (const diagnosi::Analisi& mix, int estil, const diagnosi::Context& ctx, int objectiuActual);
+
     /** El sostre del limitador (dBTP, amb 0,2 dB de marge) amb el True Peak encès. */
     void posaSostre (Rack& r, float dbtp);
 

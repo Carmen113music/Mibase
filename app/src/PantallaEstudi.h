@@ -1,4 +1,5 @@
 #pragma once
+#include <mibase/Diagnosi.h>
 #include "DialegExporta.h"
 
 #include <mibase/SeguimentCapcal.h>
@@ -57,6 +58,8 @@ public:
     void importaDeMenu();
     void exportaProjecte();
     void exportaMescla();
+    /** 1.00: l'ANALYZE del Mastering Studio: renderitza el mix (sense màster), el màster i, si cal, cada pista sola. */
+    std::shared_ptr<mibase::diagnosi::Informe> analitzaMaster (bool ambPistes, const mibase::diagnosi::Context& ctx);
     void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura, 4 play, 5 grava
     /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
     int estatTransport() const noexcept { return estat.transport; }
@@ -70,6 +73,9 @@ public:
     bool retardMinimActiu() const noexcept { return retardMinimBoto || estatTransport() >= 2; }
     bool retardMinimBoto = false;
     std::pair<juce::String, juce::String> textPosicio() const;
+    /** 1.2: la tonalitat per a la pantalla TO del transport («La m», «Mi M»; buida si encara no se sap) i el seu menú. */
+    std::pair<juce::String, juce::String> textTonalitat() const;
+    void menuTonalitat (juce::Rectangle<int> zonaPantalla);
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -170,6 +176,16 @@ private:
     juce::File sampleEscoltat;               // 0.40: el sample de la biblioteca que s'està escoltant
     juce::uint32 sampleEscoltatFins = 0;     // fins quan sona (ms del comptador)
     void canviaTempo();
+    // 1.3: tempo i nom de pista editables al mateix lloc
+    void canviaNomEnLinia (int pista);
+    void editaTempoEnLinia();
+    void menuTempo();
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    int clicsTempo = 0;
+    bool arrossegantTempo = false, tempoArrossegat = false;
+    double tempoInicial = 120.0;
+    mibase::Projecte projecteAbansTempo;
     void demanaImportar (int pista, double on);
     void importa (const juce::StringArray& fitxers, int pista, double on);
     bool importaUn (const juce::File& f, int& pista, double on, double& final, juce::String& error);
@@ -227,6 +243,9 @@ private:
     BotoColor btColor;
     Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Secundari };
     Boto btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Secundari };
+    Boto btFont { {}, dibuix::Icona::Font, Boto::Estil::Tecla };   // 0.97: Font d'inspiració
+    std::unique_ptr<juce::DocumentWindow> finestraFont;
+    void obreFont();
     juce::Rectangle<int> zonaBarra, zonaEines, zonaInfo;
 
     // Seccions.
@@ -258,6 +277,10 @@ private:
     void escoltaPresa (const std::string& id);
     void localitzaPresa (const std::string& id);
     void canviaNomPresa (const std::string& id);
+    void canviaNomPresaEnLinia (const std::string& id, juce::Rectangle<int> zona);   // 1.7
+    void menuGrup (std::vector<int> v);   // 1.7: Ctrl+G
+    void desfesGrup (std::vector<int> v);   // 1.7: Ctrl+Maj+G
+    void aplicaNomPresa (const std::string& id, const juce::String& nom);
     void buscaPresa (const std::string& id);
     void aLaPaperera (const std::vector<std::string>& ids);
     void buidaPaperera();

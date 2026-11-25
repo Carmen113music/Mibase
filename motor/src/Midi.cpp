@@ -1,3 +1,4 @@
+#include <map>
 #include <functional>
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
@@ -413,6 +414,28 @@ namespace mibase::midi
         for (auto& t : p.pistes)
             for (auto& c : t.clips)
                 if (esMou (t, c)) llocs.push_back ({ ticks (p, c.pos), ticks (p, c.pos + c.inici), ticks (p, c.pos + c.fi) });
+        // 1.7: els àudios també segueixen els compassos: el començament visible de cada clip es queda al mateix compàs i
+        // temps (el so no s'estira: «inici», «fi» i els fades no canvien). Els trossos d'una mateixa gravació (mateixa presa i
+        // mateix «pos», també les preses dels carrils) es mouen junts, com un bloc, amb el desplaçament del primer.
+        struct Grup { double ticksPrimer = 0.0, segPrimer = 0.0; std::vector<Clip*> clips; };
+        std::vector<Grup> grups;
+        for (auto& t : p.pistes)
+        {
+            std::map<std::pair<std::string, long long>, size_t> perClau;
+            auto afegeix = [&] (Clip& c)
+            {
+                if (esMou (t, c) || c.midi) return;
+                const auto clau = std::make_pair (c.presa, (long long) std::llround (c.pos * 1000.0));
+                const double vis = c.pos + c.inici;
+                auto it = perClau.find (clau);
+                if (it == perClau.end()) { perClau[clau] = grups.size(); grups.push_back ({ ticks (p, vis), vis, { &c } }); return; }
+                auto& g = grups[it->second];
+                g.clips.push_back (&c);
+                if (vis < g.segPrimer) { g.segPrimer = vis; g.ticksPrimer = ticks (p, vis); }
+            };
+            for (auto& c : t.clips) afegeix (c);
+            for (auto& c : t.takes) afegeix (c);
+        }
         canvi (p);
         // …i on li toca ser amb el mapa nou.
         size_t k = 0;
@@ -425,6 +448,12 @@ namespace mibase::midi
                     c.inici = segons (p, x.ini) - c.pos;
                     c.fi = segons (p, x.fi) - c.pos;
                 }
+        for (auto& g : grups)
+        {
+            const double d = segons (p, g.ticksPrimer) - g.segPrimer;
+            if (std::abs (d) < 1.0e-9) continue;
+            for (auto* c : g.clips) c->pos += d;
+        }
     }
 
     void canviaTempo (Projecte& p, double nou)
@@ -476,6 +505,7 @@ namespace mibase::midi
         if (instrument == "sinte:lead") return "Mibase LEAD";   // 0.89
         if (instrument == "sinte:atmos") return "Mibase ATMOS";   // 0.90
         if (instrument == "sinte:neo") return "Mibase NEO";   // 0.93
+        if (instrument == "sinte:vintage") return "Mibase VINTAGE";   // 1.4
         if (const int p = gm::programa (instrument); p >= 0) return std::string ("GM · ") + gm::nomPrograma (p);
         if (gm::RefSf2 ref; gm::llegeixRef (instrument, ref)) return ref.nom.empty() ? ref.fitxer : ref.nom;   // 0.43
         return instrument;

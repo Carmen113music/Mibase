@@ -10,6 +10,7 @@
 #include <mibase/MotorEstudi.h>
 #include <mibase/TeclatAcords.h>
 #include <mibase/Bateria.h>
+#include <mibase/FontInspiracio.h>
 #include <atomic>
 
 /** Connecta el motor amb la targeta d'àudio i els teclats MIDI (via JUCE),
@@ -53,6 +54,10 @@ public:
     /** 0.20: fa sonar un so (per escoltar els sons dels kits). Fil de la interfície; es guarda els últims perquè no
         s'esborrin mentre sonen. nullptr: atura'l. */
     void escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m);
+    /** 0.97: el que sona de la Font d'inspiració (a part del transport) i a quin parell de sortides va (el del màster). */
+    mibase::font::Reproductor& font() noexcept { return reproductorFont; }
+    std::atomic<int> parellFont { 0 };
+
     /** 0.20: pads per ordre de files a la pista de bateria «slot»: la nota 36 + k toca la fila k (notesFiles[k]).
         slot -1: desactivat. Fil de la interfície. */
     void setMapaBateria (int slot, const std::vector<int>& notesFiles);
@@ -106,6 +111,7 @@ private:
     juce::AudioDeviceManager gestor;
     mibase::MotorDiagnostic motorDiag;
     mibase::MotorEstudi motorEstudi;
+    mibase::font::Reproductor reproductorFont;   // 0.97
     std::unique_ptr<juce::PropertiesFile> ajustos;
     std::unique_ptr<EscanerPlugins> plugins;
 

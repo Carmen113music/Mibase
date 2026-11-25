@@ -458,6 +458,9 @@ namespace mibase
         bool ressaltaAcord = true;                // pinta les notes de l'acord que sona al capçal
         std::vector<CanviTonalitat> canvisTonalitat;   // per a més endavant (es desen i es llegeixen)
 
+        /** 0.97: la fila d'acords de la Font d'inspiració (font::textIdea). Buit = encara no s'ha fet servir. */
+        std::string fontInspiracio;
+
         /** El JSON tal com s'ha llegit: els camps que aquesta versió no coneix es conserven en desar. */
         std::string jsonOriginal;
     };

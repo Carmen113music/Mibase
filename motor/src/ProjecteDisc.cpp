@@ -658,6 +658,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
                 p.estructures.push_back (es);
             }
         p.estructuraActiva = j.value ("estructuraActiva", std::string());
+        p.fontInspiracio = j.value ("fontInspiracio", std::string());   // 0.97
         if (j.contains ("parts") && j["parts"].is_array())
             for (auto& e : j["parts"])
                 if (e.is_object())
@@ -788,6 +789,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             }
             j["estructures"] = estructures;
             j["estructuraActiva"] = p.estructuraActiva;
+            if (! p.fontInspiracio.empty()) j["fontInspiracio"] = p.fontInspiracio;   // 0.97
         }
         j["bucle"] = { { "marcat", p.bucle.marcat }, { "actiu", p.bucle.actiu }, { "de", p.bucle.de }, { "a", p.bucle.a } };
 

@@ -28,7 +28,8 @@ namespace
             const auto m1 = compassos (q.pistes[(size_t) iG].clips[0]), a1 = compassos (q.pistes[(size_t) iA].clips[0]);
             comprova (std::abs (m0.first - m1.first) < 1e-6 && std::abs (m0.second - m1.second) < 1e-6, "el clip MIDI comença i acaba als mateixos compassos");
             comprova (std::abs (a0.first - a1.first) < 1e-6 && std::abs (a0.second - a1.second) < 1e-6, "l'acord també (abans es quedava on era)");
-            comprova (q.pistes[(size_t) iV].clips[0].pos == 6.0 && q.pistes[(size_t) iV].clips[0].fi == 3.0, "l'àudio no es mou");
+            // 1.7: l'àudio comença al mateix compàs (compàs 4 a 120 → 7,2 s a 100) i no s'estira
+            comprova (std::abs (q.pistes[(size_t) iV].clips[0].pos - 7.2) < 1e-6 && q.pistes[(size_t) iV].clips[0].fi == 3.0, "l'àudio segueix el compàs sense estirar-se");
             comprova (std::abs (q.pistes[(size_t) iG].clips[0].fiVisible() - q.pistes[(size_t) iG].clips[0].iniciVisible() - 8.0 * 1.2) < 1e-6, "en segons, dura més (va més a poc a poc)");
             // Amb una part que té el seu tempo: canviar el tempo de la part tampoc mou la música.
             Part x; x.id = "p1"; x.nom = "Tornada"; x.de = 2.0; x.a = 4.0; x.tempo = 0.0;

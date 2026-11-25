@@ -3,6 +3,8 @@
 #include <mibase/Lead.h>
 #include <mibase/Atmos.h>
 #include <mibase/Neo.h>
+#include <mibase/Vintage.h>
+#include <mibase/Vintage.h>
 #include "BancGM.h"
 #include "Guitarres.h"
 #include "FinestraAcords.h"
@@ -258,14 +260,15 @@ void Regla::paint (juce::Graphics& g)
         const float x = estat.x (sc);
         const auto tr = ed::tramA (p, sc + 1e-6);
         const bool numera = c % cada == 0;
-        g.setColour (numera ? tema::linia2 : tema::linia);
-        g.fillRect (juce::Rectangle<float> (x, numera ? mig : h * 0.72f, 1.0f, h));
+        g.setColour (numera ? tema::suau.withAlpha (0.75f) : tema::linia);
+        g.fillRect (juce::Rectangle<float> (x, numera ? mig : h * 0.72f, numera ? 1.5f : 1.0f, h));
         if (numera)
         {
+            // 1.7: números de compàs grans i clars
             const int n = ed::numCompas (c);
-            g.setColour (n == 0 ? tema::accent : tema::textMig);
-            g.setFont (dibuix::mono (11.5f));
-            g.drawText (juce::String (n), juce::Rectangle<float> (x + 4.0f, mig, 40.0f, h - mig - 2.0f), juce::Justification::centredLeft);
+            g.setColour (n == 0 ? tema::accent : tema::text);
+            g.setFont (dibuix::lletra (juce::jlimit (12.0f, 15.0f, (h - mig) * 0.72f), true));
+            g.drawText (juce::String (n), juce::Rectangle<float> (x + 4.0f, mig, 44.0f, h - mig - 1.0f), juce::Justification::centredLeft);
         }
         const double spt = tr.segonsPerTemps();
         if (spt * estat.pxPerSegon >= 7.0)
@@ -691,12 +694,24 @@ void VistaPistes::pintaGraella (juce::Graphics& g)
     const int primer = juce::jmax (0, (int) std::floor (ed::compasDeSegons (p, juce::jmax (0.0, estat.t (0.0f)))));
     const int darrer = (int) std::ceil (ed::compasDeSegons (p, juce::jmax (0.0, estat.t ((float) getWidth()))));
     if (darrer - primer > 5000) return;
+    // 1.7: cada part de la cançó (Intro, Estrofa, Tornada…) tenyeix una mica el fons de les pistes
+    for (int i = 0; i < (int) p.parts.size(); ++i)
+    {
+        const auto& x = p.parts[(size_t) i];
+        const float xa = estat.x (ed::segonsDeCompas (p, x.de)), xb = estat.x (ed::segonsDeCompas (p, x.a));
+        if (xb < 0.0f || xa > (float) getWidth()) continue;
+        g.setColour (colorPart (x, i).withAlpha (0.055f));
+        g.fillRect (juce::Rectangle<float> (xa, 0.0f, xb - xa, h));
+        g.setColour (colorPart (x, i).withAlpha (0.35f));
+        g.fillRect (juce::Rectangle<float> (xa, 0.0f, 2.0f, h));
+    }
     for (int c = primer; c <= darrer; ++c)
     {
         const double sc = ed::segonsDeCompas (p, (double) c);
         const auto tr = ed::tramA (p, sc + 1e-6);
-        g.setColour (juce::Colours::white.withAlpha (0.15f));
-        g.fillRect (juce::Rectangle<float> (estat.x (sc), 0.0f, 1.0f, h));
+        // 1.7: les línies de compàs, més marcades que les dels temps
+        g.setColour (juce::Colours::white.withAlpha (0.2f));
+        g.fillRect (juce::Rectangle<float> (estat.x (sc), 0.0f, 1.5f, h));
         // 0.42: la subdivisió triada (1/8, 1/16, tresets…) si amb aquest zoom hi cap; si no, els temps; si no, només compassos
         const double spt = tr.segonsPerTemps(), pasG = spt * (double) juce::jmax (30LL, p.graella) / (double) mibase::ticksPerNegra;
         const double llarg = spt * tr.num;
@@ -1566,6 +1581,7 @@ void VistaPistes::menuClip (int pista, int clip, double t)
         m.addItem (4, "Treu la bandera", unic && s != nullptr && s->primer >= 0.0);
         m.addSeparator();
         m.addItem (5, "Treu els fades i el volum del clip", unic);
+        m.addItem (24, "Canvia el nom de l'àudio…"_ca, unic && s != nullptr);   // 1.7: al mateix lloc
     }
     m.addItem (9, "Treu el color propi", clip0.rgb != 0);
 
@@ -1576,6 +1592,15 @@ void VistaPistes::menuClip (int pista, int clip, double t)
         if (r == 20) { if (onObreMidi) onObreMidi (pista, clip); return; }
         if (r == 21) { if (onObreVeu) onObreVeu (pista, clip); return; }
         if (r == 22 || r == 23) { if (onEnviaSampler) onEnviaSampler (pista, clip, r == 23); return; }
+        if (r == 24)
+        {
+            const auto& c = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];
+            const auto rc = rectClip (pista, c);
+            const float xn = juce::jmax (rc.getX(), 0.0f) + 4.0f;
+            const auto zona = juce::Rectangle<float> (xn, rc.getY() + 1.0f, juce::jmax (140.0f, juce::jmin (260.0f, rc.getRight() - xn)), 20.0f).toNearestInt();
+            if (onCanviaNomPresa && ! c.presa.empty()) onCanviaNomPresa (c.presa, zona);
+            return;
+        }
         comencaCanvi();
         restaura();
         auto& c = estat.projecte.pistes[(size_t) pista].clips[(size_t) clip];
@@ -2948,6 +2973,7 @@ void Capcaleres::menu (int pista)
         sons.addItem (57, "Mibase SUB & BASS (sinte de baixos)"_ca, true, mibase::subbass::esSubBass (t));   // 0.88
         sons.addItem (60, "Mibase ATMOS (pads i atmosferes)"_ca, true, mibase::atmos::esAtmos (t));   // 0.90
         sons.addItem (61, "Mibase NEO (síntesi híbrida, disseny de so)"_ca, true, mibase::neo::esNeo (t));   // 0.93
+        sons.addItem (62, "Mibase VINTAGE (analògic clàssic)"_ca, true, mibase::analogic::esVintage (t));   // 1.4
         sons.addSeparator();
         sons.addItem (59, "Plugins VST3: a la columna esquerra, «Instrument»"_ca, false);
     }
@@ -3030,6 +3056,12 @@ void Capcaleres::menu (int pista)
             tt.nomInstrument.clear(); tt.estatInstrument.clear();
             evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: General MIDI "_ca + juce::String::fromUTF8 (mibase::gm::nomPrograma (r - 200));
             juce::MessageManager::callAsync ([this] { bancgm::assegura (this, {}); });
+        }
+        else if (r == 62 && ! mibase::analogic::esVintage (tt))   // 1.4
+        {
+            tt.instrument = mibase::analogic::idInstrument;
+            tt.nomInstrument.clear(); tt.estatInstrument.clear();
+            evolucio = "Pista «"_ca + dibuix::utf8 (tt.nom) + "»: Mibase VINTAGE"_ca;
         }
         else if (r == 61 && ! mibase::neo::esNeo (tt))   // 0.93
         {
@@ -3513,19 +3545,19 @@ void ColumnaEsquerra::paint (juce::Graphics& g)
 
     const bool actiu = sona (estat.projecte, *t);
     const auto color = EstatEstudi::colorPista (*t);
-    vintage::pom (g, rectPom().toFloat(), (float) t->pan, color, actiu);
+    vintage::pom (g, rectPom().toFloat(), (float) estat.panMostrat (*t), color, actiu);
     g.setColour (tema::suau);
     g.setFont (dibuix::lletra (10.5f, true));
     auto text = zonaPan.withTrimmedLeft (rectPom().getRight() - zonaPan.getX() + 8);
     g.drawText ("PAN", text.removeFromTop (zonaPan.getHeight() / 2), juce::Justification::bottomLeft);
     g.setColour (tema::textMig);
     g.setFont (dibuix::mono (12.0f));
-    g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
+    g.drawText (EstatEstudi::textPan (estat.panMostrat (*t)), text, juce::Justification::topLeft);
 
-    dibuixEstudi::faderVertical (g, zonaFader.toFloat(), t->faderDb, color, actiu,
+    dibuixEstudi::faderVertical (g, zonaFader.toFloat(), estat.faderMostrat (*t), color, actiu,
                                  estat.nivell (estat.pistaTriada, 0), estat.nivell (estat.pistaTriada, t->canals == 2 ? 1 : 0));
 
-    vintage::lcd (g, zonaLcd.reduced (2, 3).toFloat(), EstatEstudi::textDb (t->faderDb), {});
+    vintage::lcd (g, zonaLcd.reduced (2, 3).toFloat(), EstatEstudi::textDb (estat.faderMostrat (*t)), {});
 
     const int ample = 28, sep = 4;
     auto tecles = zonaTecles.withSizeKeepingCentre (ample * 3 + sep * 2, 26);
@@ -3822,21 +3854,21 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
 
         const bool actiu = sona (p, *t);
         auto pomR = ge.pan.withWidth (44).withX (ge.pan.getX());
-        vintage::pom (g, pomR.toFloat(), (float) t->pan, color, actiu);
+        vintage::pom (g, pomR.toFloat(), (float) estat.panMostrat (*t), color, actiu);
         auto text = ge.pan.withTrimmedLeft (48);
         g.setColour (tema::suau);
         g.setFont (dibuix::lletra (9.5f, true));
         g.drawText ("PAN", text.removeFromTop (ge.pan.getHeight() / 2), juce::Justification::bottomLeft);
         g.setColour (tema::textMig);
         g.setFont (dibuix::mono (11.5f));
-        g.drawText (EstatEstudi::textPan (t->pan), text, juce::Justification::topLeft);
+        g.drawText (EstatEstudi::textPan (estat.panMostrat (*t)), text, juce::Justification::topLeft);
 
         dibuixEstudi::teclaPetita (g, ge.tecles[0], "M", mutAra (estat.projecte, *t), vintage::ledBlau);
         dibuixEstudi::teclaPetita (g, ge.tecles[1], "S", t->solo, vintage::ledGroc);
         if (! mibase::esBus (*t)) dibuixEstudi::teclaPetita (g, ge.tecles[2], {}, t->grava, vintage::ledVermell, true);
 
-        dibuixEstudi::faderVertical (g, ge.fader.toFloat(), t->faderDb, color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
-        vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (t->faderDb), {});
+        dibuixEstudi::faderVertical (g, ge.fader.toFloat(), estat.faderMostrat (*t), color, actiu, estat.nivell (i, 0), estat.nivell (i, t->canals == 2 ? 1 : 0));
+        vintage::lcd (g, ge.lcd.toFloat(), EstatEstudi::textDb (estat.faderMostrat (*t)), {});
         g.setColour (tema::suau);
         g.setFont (dibuix::mono (12.0f));
         if (mibase::esBus (*t))

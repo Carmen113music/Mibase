@@ -3,6 +3,7 @@
 #include <mibase/Lead.h>
 #include <mibase/Atmos.h>
 #include <mibase/Neo.h>
+#include <mibase/Vintage.h>
 #include "Text.h"
 #include "Vintage.h"
 #include <map>
@@ -262,13 +263,13 @@ void EditorAutomatitzacio::menuLinia (juce::Component* on, const std::string& id
                 }
                 else m.addItem (-1, "Instrument: encara no s'ha obert (fes sonar la pista un moment)"_ca, false);
             }
-            else if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t) || mibase::neo::esNeo (*t))
+            else if (mibase::subbass::esSubBass (*t) || mibase::lead::esLead (*t) || mibase::atmos::esAtmos (*t) || mibase::neo::esNeo (*t) || mibase::analogic::esVintage (*t))
             {
                 // 0.88: tots els controls del SUB & BASS, per seccions
                 if (auto* o = plugins.parametresInstrument (t->id))
                 {
                     juce::PopupMenu sub;
-                    const juce::String nomS = mibase::neo::esNeo (*t) ? "NEO" : mibase::atmos::esAtmos (*t) ? "ATMOS" : mibase::lead::esLead (*t) ? "LEAD" : "SUB & BASS";
+                    const juce::String nomS = mibase::analogic::esVintage (*t) ? "VINTAGE" : mibase::neo::esNeo (*t) ? "NEO" : mibase::atmos::esAtmos (*t) ? "ATMOS" : mibase::lead::esLead (*t) ? "LEAD" : "SUB & BASS";
                     params (sub, o, [] (const std::string& id) { return au::objectiuInstrument (id); }, (nomS + " · ").toStdString());
                     m.addSubMenu ("Instrument · "_ca + nomS, sub);
                 }

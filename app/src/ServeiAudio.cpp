@@ -1,4 +1,5 @@
 #include "ServeiAudio.h"
+#include <mibase/GuitarRack.h>
 #include "Tancaments.h"
 #include <mibase/ContextMusical.h>
 
@@ -202,6 +203,13 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
             if (numSortides > 1 && sortides[1] != nullptr) sortides[1][i] += 0.8f * (R[(size_t) p0] + f * (R[(size_t) p0 + 1] - R[(size_t) p0]));
         }
     }
+
+    // 0.97: la Font d'inspiració, al parell del màster (si no hi és, a les dues primeres).
+    {
+        int c = 2 * parellFont.load (std::memory_order_relaxed);
+        if (c + 1 >= numSortides) c = 0;
+        reproductorFont.processa (c < numSortides ? sortides[c] : nullptr, c + 1 < numSortides ? sortides[c + 1] : nullptr, numMostres);
+    }
 }
 
 void ServeiAudio::escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m)
@@ -225,6 +233,7 @@ void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
     motorDiag.prepara (d->getCurrentSampleRate(), d->getCurrentBufferSizeSamples());
     motorEstudi.prepara (d->getCurrentSampleRate(), juce::jmax (d->getCurrentBufferSizeSamples(), 2048));
     fsDispositiu = d->getCurrentSampleRate() > 0 ? d->getCurrentSampleRate() : 48000.0;
+    reproductorFont.prepara (fsDispositiu, juce::jmax (d->getCurrentBufferSizeSamples(), 2048));   // 0.97
 
     // Les entrades actives arriben juntes a la crida d'àudio: per a cada entrada, la seva posició.
     std::vector<int> mapa;
@@ -312,6 +321,9 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     e.estat = dades[0];
     e.dada1 = m.getRawDataSize() > 1 ? dades[1] : 0;
     e.dada2 = m.getRawDataSize() > 2 ? dades[2] : 0;
+
+    // 1.6: els CC també van als Guitar Rack (MIDI learn: un pom o un pedal d'expressió del teclat)
+    if ((e.estat & 0xF0) == 0xB0 && e.dada1 < 120) mibase::guitarrack::GuitarRack::ccPerATots (e.dada1, e.dada2);
 
     // Pot haver-hi més d'un teclat (un fil per teclat): un sol productor alhora.
     const juce::SpinLock::ScopedLockType bloqueig (midiEntrant);

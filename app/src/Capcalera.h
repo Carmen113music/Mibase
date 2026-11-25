@@ -68,6 +68,14 @@ public:
     std::function<void()> onRetardMinim;
     std::function<bool()> onRetardMinimActiu;
     std::function<void (juce::Component&)> onMenuRetardMinim;   // 0.69
+    /** 1.2: la tonalitat per a la pantalla TO: {gran, petit} (gran buit = encara no se sap) i el menú en clicar-la. */
+    std::function<std::pair<juce::String, juce::String>()> onTonalitat;
+    std::function<void (juce::Rectangle<int> zonaPantalla)> onMenuTonalitat;
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (zonaTon.contains (e.getPosition()) && onMenuTonalitat) onMenuTonalitat (localAreaToGlobal (zonaTon));
+    }
 
     void setPantalla (Pantalla p)
     {
@@ -110,6 +118,9 @@ public:
         g.drawRoundedRectangle (marc.reduced (0.5f), 8.0f, 1.0f);
         vintage::lcd (g, zonaLcd.toFloat(), posicio.first.isEmpty() ? juce::String ("--.-") : posicio.first,
                       posicio.second.isEmpty() ? juce::String ("--:--.---") : posicio.second, "COMPÀS"_ca);
+        // 1.2: la tonalitat, sempre a la vista (buida amb un guió mentre no se sap)
+        if (! zonaTon.isEmpty())
+            vintage::lcd (g, zonaTon.toFloat(), tonalitat.first.isEmpty() ? juce::String ("-") : tonalitat.first, tonalitat.second, "TO");
     }
 
     void resized() override
@@ -119,9 +130,11 @@ public:
 
         // Dreta, fix: transport i pantalla (mai es mou ni queda tapat). Només dins d'un projecte.
         if (! transportVisible)
-            zonaLcd = zonaTransport = {};
+            zonaLcd = zonaTransport = zonaTon = {};
         else
         {
+        zonaTon = r.removeFromRight (onTonalitat ? 104 : 0);   // 1.2
+        if (onTonalitat) r.removeFromRight (6);
         zonaLcd = r.removeFromRight (156);
         r.removeFromRight (8);
         const int tecla = 42;
@@ -135,6 +148,7 @@ public:
             }
         }
         zonaLcd = zonaLcd.withY (zonaTransport.getY() - 2).withHeight (zonaTransport.getHeight() + 4);
+        zonaTon = zonaTon.withY (zonaLcd.getY()).withHeight (zonaLcd.getHeight());
         r.removeFromRight (18);
         }
 
@@ -179,6 +193,11 @@ private:
             posicio = p;
             repaint (zonaLcd);
         }
+        if (transportVisible && onTonalitat && comptador % 6 == 0)   // 1.2: cinc cops per segon n'hi ha prou
+        {
+            auto t = onTonalitat();
+            if (t != tonalitat) { tonalitat = t; repaint (zonaTon); }
+        }
     }
 
     ServeiAudio& servei;
@@ -197,6 +216,8 @@ private:
 
     juce::Rectangle<int> zonaTransport, zonaLcd;
     std::pair<juce::String, juce::String> posicio;
+    std::pair<juce::String, juce::String> tonalitat;   // 1.2
+    juce::Rectangle<int> zonaTon;
     int comptador = 0;
     Pantalla pantalla = Pantalla::Inici;
     bool hiHaProjecte = false, transportVisible = false;

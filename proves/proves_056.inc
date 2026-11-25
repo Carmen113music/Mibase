@@ -129,6 +129,27 @@ namespace
             std::filesystem::remove_all (dir);
         });
 
+        prova ("1.5.2 automatització: el mesclador diu el volum i el panorama d'ara (perquè el fader es mogui)", [&]
+        {
+            Projecte q;
+            q.clic = false;
+            const auto presa = afegeixPresa (q, "Àudios/a.wav", "a", 4.0).id;
+            auto& t = afegeixPista (q, "A", "audio");
+            afegeixClip (q, 0, presa, 0.0);
+            auto& a = au::afegeix (q, t, au::volum, "Volum");
+            au::posaPunt (a, { 0.0, 0.0, 0, 0 });
+            au::posaPunt (a, { 1.0, 0.8, 0, 0 });
+            afegeixPista (q, "B", "audio");
+            MapaAudios m { { presa, audio (0.5f) } };
+            auto pla = construeixPla (q, m);
+            Mesclador mx;
+            sona (*pla, 1.0, 256, &mx);
+            const float v = mx.volumAutomatitzat (slotDePista (q.pistes[0]));
+            comprova (std::abs (v - 0.4f) < 0.01f, "volum automatitzat a 1 s: " + std::to_string (v));
+            comprova (mx.panAutomatitzat (slotDePista (q.pistes[0])) < 0.0f, "sense panorama automatitzat: -1");
+            comprova (mx.volumAutomatitzat (slotDePista (q.pistes[1])) < 0.0f, "la pista sense automatització: -1");
+        });
+
         prova ("0.56 automatització: volum i panorama sonen seguint la corba (i en bucle)", [&]
         {
             Projecte q;

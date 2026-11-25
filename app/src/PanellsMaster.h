@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
+#include <mibase/Diagnosi.h>
 #include <mibase/Estereo.h>
 #include <mibase/Loudness.h>
 #include <mibase/Rack.h>
@@ -17,6 +19,16 @@ juce::Component* creaPanellLoudness (std::shared_ptr<mibase::loudness::Modul> m)
 /** 0.96: les finestres del Clipper i del Transient Shaper (poms, mesura de quant actua i un consell). */
 juce::Component* creaPanellClipper (std::shared_ptr<mibase::EfecteIntern> c);
 juce::Component* creaPanellTransitoris (std::shared_ptr<mibase::EfecteIntern> t);
+/** 0.99: les finestres del Multibanda (una columna per banda) i del Low End Focus. */
+juce::Component* creaPanellMultibanda (std::shared_ptr<mibase::EfecteIntern> m);
+juce::Component* creaPanellLowEnd (std::shared_ptr<mibase::EfecteIntern> g);
+
+/** 1.00: qui fa l'anàlisi (la PantallaEstudi, que sap renderitzar el projecte): torna l'informe, o nul si no pot. */
+using AnalitzadorMaster = std::function<std::shared_ptr<mibase::diagnosi::Informe> (bool ambPistes, const mibase::diagnosi::Context& ctx)>;
+void posaAnalitzadorMaster (AnalitzadorMaster a);
+/** 1.01: fa l'anàlisi ara (nul si no hi ha cap projecte obert o res que soni) i el context del rack (perfil i referència). */
+std::shared_ptr<mibase::diagnosi::Informe> analitzaAra (bool ambPistes, const mibase::diagnosi::Context& ctx);
+mibase::diagnosi::Context contextDe (const mibase::rack::Rack& r);
 
 /** Un avís curt i explicat si el mòdul està en una zona perillosa (buit si no n'hi ha). «master»: llindars de màster. */
 juce::String avisModul (const mibase::rack::Modul& m, bool master);

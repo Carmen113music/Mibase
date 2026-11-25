@@ -1,4 +1,5 @@
 #include "mibase/MotorEstudi.h"
+#include "mibase/Loudness.h"
 #include "mibase/Midi.h"
 #include "mibase/Edicio.h"
 #include "mibase/Elastic.h"
@@ -504,6 +505,7 @@ namespace mibase
         masterFet = false;
         clic.reinicia();
         apagaNotes();
+        for (auto& s : slots) { s.tornat = false; s.senseMarge = false; }   // 0.98
         margeInici = true;
     }
 
@@ -514,7 +516,11 @@ namespace mibase
         masterFet = false;
         clic.reinicia();
         for (auto& s : slots)
-            if (s.inst != nullptr) s.apagarTou = true;
+        {
+            if (s.inst == nullptr) continue;
+            if (s.tornat) { s.tornat = false; s.senseMarge = true; }   // 0.98: ja ha tornat abans (PDC): res a apagar
+            else s.apagarTou = true;
+        }
         margeInici = true;
     }
 
@@ -574,19 +580,61 @@ namespace mibase
         if (es.apagarTou)   // 0.71: nota per nota, abans de les notes noves del mateix instant
         {
             es.apagarTou = false;
-            std::uint16_t canals = 0;
-            for (int k = 0; k < es.n; ++k)
-            {
-                afegeixEvent (0, (std::uint8_t) (0x80 | es.act[(size_t) k].canal), es.act[(size_t) k].to, 0);
-                canals = (std::uint16_t) (canals | (1u << (es.act[(size_t) k].canal & 15)));
-            }
-            for (int c = 0; c < 16; ++c)   // el pedal, amunt (si no, les notes es quedarien sostingudes)
-                if (canals & (1u << c)) afegeixEvent (0, (std::uint8_t) (0xB0 | c), 64, 0);
-            es.n = 0;
+            apagaTou (es, 0);
         }
+        // En directe (piano roll, teclat): al començament del bloc.
+        for (int k = 0; k < numDirecte; ++k)
+            if (directe[k].slot == t.slot)
+                afegeixEvent (0, directe[k].estat, directe[k].dada1, directe[k].dada2);
+
+        // després d'un salt, les notes que cauen una mica abans també sonen: 1 ms (arrodoniments) més el que la pista
+        // llegeix avançada (PDC): si no, en fer play just sobre una nota amb un plugin que retarda, no sonava
+        const long long ms1 = std::max (1LL, std::llround (fs * 0.001));
+        const long long marge = margeAra && ! es.senseMarge ? ms1 + std::max (0LL, pos - posReal) : 0;
+        es.senseMarge = false;
+        // 0.98: la pista llegeix avançada (PDC) i el bucle torna: el tros que passa del final es llegeix de l'inici.
+        const long long llargB = bucleFiS - bucleIniS;
+        if (llargB <= 0 || ! reproduint) es.tornat = false;   // sense bucle (o aturat): res a esperar
+        if (llargB > 0 && reproduint && pos > posReal && posReal < bucleFiS)
+        {
+            if (pos >= bucleFiS)
+            {
+                if (! es.tornat) { apagaTou (es, 0); es.tornat = true; }
+                llegeixMidi (t, es, bucleIniS + (pos - bucleFiS) % llargB, n, 0, reproduint, 0);
+                return;
+            }
+            if (pos + n > bucleFiS)
+            {
+                const int talla = (int) (bucleFiS - pos);
+                llegeixMidi (t, es, pos, talla, 0, reproduint, marge);
+                apagaTou (es, talla);
+                es.tornat = true;
+                llegeixMidi (t, es, bucleIniS, n - talla, talla, reproduint, ms1);
+                return;
+            }
+        }
+        llegeixMidi (t, es, pos, n, 0, reproduint, marge);
+    }
+
+    void Mesclador::apagaTou (EstatSlot& es, int off) noexcept
+    {
+        std::uint16_t canals = 0;
+        for (int k = 0; k < es.n; ++k)
+        {
+            afegeixEvent (off, (std::uint8_t) (0x80 | es.act[(size_t) k].canal), es.act[(size_t) k].to, 0);
+            canals = (std::uint16_t) (canals | (1u << (es.act[(size_t) k].canal & 15)));
+        }
+        for (int c = 0; c < 16; ++c)   // el pedal, amunt (si no, les notes es quedarien sostingudes)
+            if (canals & (1u << c)) afegeixEvent (off, (std::uint8_t) (0xB0 | c), 64, 0);
+        es.n = 0;
+    }
+
+    void Mesclador::llegeixMidi (const Pla::Pista& t, EstatSlot& es, long long pos, int n, int base, bool reproduint, long long marge) noexcept
+    {
+        if (n <= 0) return;
         // 0.71: després d'un salt (play, bucle, tram), les notes que cauen fins a 1 ms abans del punt també sonen
         // (per arrodoniments, una nota just a l'inici del bucle podia quedar una mostra abans i no sonar mai).
-        const long long desde = margeAra ? pos - std::max (1LL, std::llround (fs * 0.001)) : pos;
+        const long long desde = pos - marge;
 
         // Notes que s'acaben dins aquest bloc.
         for (int k = 0; k < es.n;)
@@ -594,17 +642,12 @@ namespace mibase
             auto& a = es.act[(size_t) k];
             if (a.fi < pos + n)
             {
-                afegeixEvent ((int) std::clamp (a.fi - pos, 0LL, (long long) n - 1), (std::uint8_t) (0x80 | a.canal), a.to, 0);
+                afegeixEvent (base + (int) std::clamp (a.fi - pos, 0LL, (long long) n - 1), (std::uint8_t) (0x80 | a.canal), a.to, 0);
                 es.act[(size_t) k] = es.act[(size_t) (es.n - 1)];
                 --es.n;
             }
             else ++k;
         }
-
-        // En directe (piano roll, teclat): al començament del bloc.
-        for (int k = 0; k < numDirecte; ++k)
-            if (directe[k].slot == t.slot)
-                afegeixEvent (0, directe[k].estat, directe[k].dada1, directe[k].dada2);
 
         if (reproduint)
         {
@@ -616,7 +659,7 @@ namespace mibase
                 {
                     const long long s = std::llround (it->t * fs);
                     if (s >= pos + n) break;
-                    afegeixEvent ((int) std::max (0LL, s - pos), it->estat, it->dada1, it->dada2);
+                    afegeixEvent (base + (int) std::max (0LL, s - pos), it->estat, it->dada1, it->dada2);
                 }
             }
             // Notes que comencen dins aquest bloc (si la pista no està silenciada).
@@ -628,7 +671,7 @@ namespace mibase
                 {
                     const long long s = std::max (pos, std::llround (it->ini * fs));
                     if (s >= pos + n) break;
-                    const int off = (int) (s - pos);
+                    const int off = base + (int) (s - pos);
                     const long long fi = std::max (s + 1, std::llround (it->fi * fs));
                     // La mateixa nota ja sona: s'apaga abans de tornar-la a tocar.
                     bool ja = false;
@@ -659,7 +702,7 @@ namespace mibase
                                 --es.n;
                                 break;
                             }
-                        afegeixEvent ((int) (fi - pos), (std::uint8_t) (0x80 | it->canal), it->to, 0);
+                        afegeixEvent (base + (int) (fi - pos), (std::uint8_t) (0x80 | it->canal), it->to, 0);
                     }
                 }
             }
@@ -720,11 +763,11 @@ namespace mibase
 
             if (canalsPista == 2)
             {
-                pL[(size_t) i] += (float) env * l;
-                pR[(size_t) i] += (float) env * r;
+                pL[(size_t) (escriuDes + i)] += (float) env * l;
+                pR[(size_t) (escriuDes + i)] += (float) env * r;
             }
             else
-                pL[(size_t) i] += (float) env * (a.canals > 1 ? 0.5f * (l + r) : l);
+                pL[(size_t) (escriuDes + i)] += (float) env * (a.canals > 1 ? 0.5f * (l + r) : l);
         }
     }
 
@@ -820,6 +863,7 @@ namespace mibase
     {
         if (n <= 0) return;
         margeAra = margeInici && reproduint;   // 0.71
+        posReal = pos;                          // 0.98
         if (reproduint) margeInici = false;
         n = std::min (n, (int) pL.size());
 
@@ -916,6 +960,9 @@ namespace mibase
             const bool llegeixPan = ! t.autoPan.buida() && ! (t.lliurePan != nullptr && t.lliurePan->load (std::memory_order_relaxed));
             const float fader = ! llegeixVol ? t.guany : (float) automatitzacio::guanyDeVolum (t.autoVolum.a (segAuto));
             const float panAra = ! llegeixPan ? t.pan : (float) automatitzacio::panDe (t.autoPan.a (segAuto));
+            // 1.5.2: perquè el fader i el pom de la pista es moguin amb l'automatització
+            volAuto[(size_t) s].store (llegeixVol ? 1.0f + (float) t.autoVolum.a (segAuto) : 0.0f, std::memory_order_relaxed);
+            panAuto[(size_t) s].store (llegeixPan ? 1.0f + (float) t.autoPan.a (segAuto) : 0.0f, std::memory_order_relaxed);
             const float panL = panAra <= 0.0f ? 1.0f : 1.0f - panAra;
             const float panR = panAra >= 0.0f ? 1.0f : 1.0f + panAra;
             const float obert = t.obert ? 1.0f : 0.0f;
@@ -940,9 +987,19 @@ namespace mibase
                 std::fill (pL.begin(), pL.begin() + n, 0.0f);
                 if (t.canals == 2) std::fill (pR.begin(), pR.begin() + n, 0.0f);
                 if (reproduint && ! nomesCua)
+                {
+                    // 0.98: llegint avançat (PDC) amb el bucle: el tros que passa del final es llegeix de l'inici
+                    const long long llargB = bucleFiS - bucleIniS;
+                    const bool torna = llargB > 0 && posT > pos && pos < bucleFiS && posT + n > bucleFiS;
+                    const long long p0 = torna && posT >= bucleFiS ? bucleIniS + (posT - bucleFiS) % llargB : posT;
+                    const int talla = torna && posT < bucleFiS ? (int) (bucleFiS - posT) : n;
                     for (const auto& c : t.clips)
                         if (c.audio != nullptr)
-                            sonaClip (c, t.canals, posT, n);
+                        {
+                            sonaClip (c, t.canals, p0, talla);
+                            if (talla < n) { escriuDes = talla; sonaClip (c, t.canals, bucleIniS, n - talla); escriuDes = 0; }
+                        }
+                }
                 // 0.71: el que entra per la targeta (la guitarra, la veu), amb els efectes i el fader de la pista
                 if (t.escoltaEntrada >= 0 && entrades != nullptr && mapaEnt != nullptr)
                     for (int c = 0; c < t.canals; ++c)
@@ -1393,6 +1450,8 @@ namespace mibase
             std::fill (mixR.begin(), mixR.begin() + m, 0.0f);
             const bool ambClic = pla->clic || pos < compteFins;
             mesclador.setEntrades (entrades, numEntrades, mapaEntrades.data(), maxEntrades, fet);   // 0.71
+            if (potTornar) mesclador.setBucle ((long long) std::llround (pla->bucleIni * fs), fiBucle);   // 0.98
+            else mesclador.setBucle (-1, -1);
             mesclador.processa (*pla, pos, m, mixL.data(), mixR.data(), ambClic, vus.data(), true,
                                 fet == 0 ? directeBloc.data() : nullptr, fet == 0 ? numDirecte : 0);
 
@@ -1583,8 +1642,51 @@ namespace mibase
         return d;
     }
 
+    ComprovacioExport comprovaExport (const float* x, long long frames, double fs, int bits)
+    {
+        ComprovacioExport c;
+        c.bits = bits;
+        c.dither = bits == 16;
+        if (x == nullptr || frames <= 0 || fs <= 0.0) return c;
+        c.segons = (double) frames / fs;
+        auto nom = [] (double v, int d = 1) { char b[32]; std::snprintf (b, sizeof b, "%.*f", d, v); std::string s (b); for (auto& ch : s) if (ch == '.') ch = ','; return s; };
+        // silencis (per sota de -60 dBFS)
+        const float llindar = 0.001f;
+        long long a = 0, b = frames - 1;
+        while (a < frames && std::abs (x[2 * a]) < llindar && std::abs (x[2 * a + 1]) < llindar) ++a;
+        while (b > a && std::abs (x[2 * b]) < llindar && std::abs (x[2 * b + 1]) < llindar) --b;
+        c.silenciInici = (double) a / fs;
+        c.silenciFinal = (double) (frames - 1 - b) / fs;
+        // de cop: el so comença o s'acaba ja fort (els primers o els últims 5 ms passen de -30 dBFS)
+        const long long w = std::max<long long> (1, (long long) (0.005 * fs));
+        float pi = 0.0f, pf = 0.0f;
+        for (long long i = 0; i < std::min (w, frames); ++i) pi = std::max (pi, std::max (std::abs (x[2 * i]), std::abs (x[2 * i + 1])));
+        for (long long i = std::max (0LL, frames - w); i < frames; ++i) pf = std::max (pf, std::max (std::abs (x[2 * i]), std::abs (x[2 * i + 1])));
+        c.deCopInici = pi > 0.0316f;
+        c.deCopFinal = pf > 0.01f;
+        // loudness, pics i clips
+        std::vector<float> L ((size_t) frames), R ((size_t) frames);
+        for (long long i = 0; i < frames; ++i) { L[(size_t) i] = x[2 * i]; R[(size_t) i] = x[2 * i + 1]; }
+        const auto r = loudness::analitza (L.data(), R.data(), (size_t) frames, fs);
+        c.truePeak = r.truePeakMax; c.samplePeak = r.samplePeakMax; c.integrated = r.integrated; c.lra = r.lra; c.clips = r.clips;
+        // frases
+        if (c.silenciInici > 2.0) c.avisos.push_back ("Comença amb " + nom (c.silenciInici) + " s de silenci: potser cal retallar-lo.");
+        else c.be.push_back ("Inici: " + nom (c.silenciInici, 2) + " s de silenci.");
+        if (c.deCopInici && c.silenciInici < 0.001) c.avisos.push_back ("Comença de cop (el so ja és fort al primer instant): si no és volgut, posa-hi un fade d'entrada curt.");
+        if (c.silenciFinal > 3.0) c.avisos.push_back ("S'acaba amb " + nom (c.silenciFinal) + " s de silenci.");
+        if (c.deCopFinal) c.avisos.push_back ("S'acaba de cop (encara sona a l'últim instant): posa-hi un fade de sortida o deixa més cua.");
+        else c.be.push_back ("Final net (s'apaga sol).");
+        if (c.clips > 0) c.avisos.push_back ("Hi ha " + std::to_string (c.clips) + " mostres a 0 dBFS o més: es retallaran al fitxer. Baixa el sostre del limitador.");
+        if (c.truePeak > -0.1f) c.avisos.push_back ("True peak de " + nom (c.truePeak) + " dBTP: pot distorsionar en passar a MP3/AAC. Millor -1 dBTP.");
+        else if (c.truePeak > -1.0f) c.avisos.push_back ("True peak de " + nom (c.truePeak) + " dBTP: per a plataformes de streaming, millor -1 dBTP o menys (per a CD, d'acord).");
+        else c.be.push_back ("True peak " + nom (c.truePeak) + " dBTP.");
+        if (c.integrated > -70.0f) c.be.push_back ("Loudness " + nom (c.integrated) + " LUFS, LRA " + nom (c.lra) + " LU.");
+        c.be.push_back (c.dither ? "Dither triangular aplicat una sola vegada, al final (16 bits)." : "Sense dither: a " + std::to_string (bits) + " bits no cal.");
+        return c;
+    }
+
     bool exportaPla (const Pla& pla, double fs, double desDe, double finsA, int bits, double cua, const std::filesystem::path& desti,
-                     std::string& error, const std::function<void (double)>& progres, bool retallaCua)
+                     std::string& error, const std::function<void (double)>& progres, bool retallaCua, ComprovacioExport* comprovacio)
     {
         struct Tros { long long ini, fi; std::bitset<128> silenci; };
         std::vector<Tros> trossos;
@@ -1634,6 +1736,7 @@ namespace mibase
         m.setNomesCua (false);
         while (retallaCua && frames > minim && std::abs (tot[(size_t) (2 * frames - 1)]) < 3.0e-5f && std::abs (tot[(size_t) (2 * frames - 2)]) < 3.0e-5f) --frames;
         if (retallaCua) frames = std::min ((long long) (tot.size() / 2), frames + (long long) (0.05 * fs));
+        if (comprovacio != nullptr) *comprovacio = comprovaExport (tot.data(), frames, fs, bits);   // 1.3: abans del dither
         if (bits == 16)
         {
             // Dither triangular (TPDF) d'1 LSB: sense distorsió als finals que s'apaguen
@@ -1653,6 +1756,46 @@ namespace mibase
             return false;
         }
         return true;
+    }
+
+    void renderitzaPla (const Pla& pla, double fs, double desDe, double finsA, std::vector<float>& L, std::vector<float>& R,
+                        const std::function<void (double)>& progres)
+    {
+        L.clear(); R.clear();
+        struct Tros { long long ini, fi; std::bitset<128> silenci; };
+        std::vector<Tros> trossos;
+        if (! pla.ruta.empty())
+            for (const auto& t : pla.ruta)
+            {
+                const long long a = (long long) std::llround (t.ini * fs), b = (long long) std::llround (t.fi * fs);
+                if (b > a) trossos.push_back ({ a, b, t.silenci });
+            }
+        else if (finsA > desDe)
+            trossos.push_back ({ (long long) std::llround (desDe * fs), (long long) std::llround (finsA * fs), {} });
+        long long total = 0;
+        for (auto& t : trossos) total += t.fi - t.ini;
+        if (total <= 0) return;
+        L.reserve ((size_t) total); R.reserve ((size_t) total);
+        constexpr int bloc = 4096;
+        Mesclador m;
+        m.prepara (fs, bloc);
+        std::vector<float> bl (bloc), br (bloc);
+        for (size_t k = 0; k < trossos.size(); ++k)
+        {
+            const auto& t = trossos[k];
+            m.setSilenci (t.silenci);
+            if (k > 0) m.reiniciaBucle();
+            for (long long p = t.ini; p < t.fi; p += bloc)
+            {
+                const int n = (int) std::min ((long long) bloc, t.fi - p);
+                std::fill (bl.begin(), bl.end(), 0.0f);
+                std::fill (br.begin(), br.end(), 0.0f);
+                m.processa (pla, p, n, bl.data(), br.data(), false, nullptr);
+                L.insert (L.end(), bl.begin(), bl.begin() + n);
+                R.insert (R.end(), br.begin(), br.begin() + n);
+                if (progres) progres ((double) L.size() / (double) total);
+            }
+        }
     }
 
     Projecte projectePerExportar (const Projecte& p, const OpcionsExport& o, const std::vector<int>& pistes, std::pair<double, double>& tros)

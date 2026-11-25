@@ -22,13 +22,17 @@ target_sources(Mibase PRIVATE
     src/FinestraDelay.cpp
     src/FinestraSaturacio.cpp
     src/FinestraDrive.cpp
+    src/FinestraGuitarRack.cpp
     src/FinestraSubBass.cpp
+    src/FinestraFont.cpp
     src/FinestraLead.cpp
     src/FinestraAtmos.cpp
     src/FinestraNeo.cpp
+    src/FinestraVintage.cpp
     src/FinestraLimitador.cpp
     src/FinestraVocalStudio.cpp
     src/PanellsMaster.cpp
+    src/PanellReferencies.cpp
     src/FinestraFlotant.cpp
     src/FinestraEq.cpp
     src/EditorAutomatitzacio.cpp

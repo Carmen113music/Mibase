@@ -226,7 +226,11 @@ namespace
             corba.repaint();
             repaint (zonaGR.expanded (0, 20));
             repaint (zonaFont);
+            // 1.5.2: si l'automatització (o una altra finestra) mou un paràmetre, els poms el segueixen
+            const auto ara = din->estat();
+            if (ara != vistEstat) { vistEstat = ara; refresca(); }
         }
+        std::string vistEstat;
 
         // ---- 0.58: presets (OrigenPresets) ----
         std::vector<const Preset*> totsPresets()

@@ -198,6 +198,16 @@ namespace
 #include "proves_094.inc"
 #include "proves_095.inc"
 #include "proves_096.inc"
+#include "proves_097.inc"
+#include "proves_098.inc"
+#include "proves_099.inc"
+#include "proves_100.inc"
+#include "proves_101.inc"
+#include "proves_102.inc"
+#include "proves_103.inc"
+#include "proves_104.inc"
+#include "proves_105.inc"
+#include "proves_106.inc"
 
 int main()
 {
@@ -2412,6 +2422,16 @@ int main()
     proves094();
     proves095();
     proves096();
+    proves097();
+    proves098();
+    proves099();
+    proves100();
+    proves101();
+    proves102();
+    proves103();
+    proves104();
+    proves105();
+    proves106();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

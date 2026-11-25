@@ -631,7 +631,7 @@ namespace
                 addAndMakeVisible (*panellMaster);
                 btPreset.setTooltip ("Clica per veure tots els presets del màster (bàsics, objectiu sonor, gèneres, Carmen 113)"_ca);
                 btDesa.setTooltip ("Desa tot el Mastering Studio (mòduls, ajustos, macros i objectiu) com un preset teu"_ca);
-                setSize (1180, 840);
+                setSize (1180, 920);
             }
             if (rk->nomPreset().empty() && ! presetsFabrica (rk->tipusRack()).empty())
             {
@@ -671,6 +671,10 @@ namespace
                 w = std::make_unique<FinestraSimple> (t, pc, tanca);
             else if (auto* pt = creaPanellTransitoris (fx))
                 w = std::make_unique<FinestraSimple> (t, pt, tanca);
+            else if (auto* pm = creaPanellMultibanda (fx))   // 0.99
+                w = std::make_unique<FinestraSimple> (t, pm, tanca);
+            else if (auto* pl = creaPanellLowEnd (fx))
+                w = std::make_unique<FinestraSimple> (t, pl, tanca);
             else if (auto h = std::dynamic_pointer_cast<mibase::harmonitzador::Harmonitzador> (fx))   // 0.73
                 w = std::make_unique<FinestraSimple> (t, new PanellHarmonitzador (h), tanca);
             else if (auto tu = std::dynamic_pointer_cast<mibase::tune::Tune> (fx))   // 0.79
