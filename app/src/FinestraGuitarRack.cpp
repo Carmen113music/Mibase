@@ -218,31 +218,224 @@ namespace
         }
     }
 
+    // ============================================================================================ textures (es fan un sol cop)
+    /** Gra fi: punts clars i foscos transparents (pintura, metall). */
+    const juce::Image& imatgeGra()
+    {
+        static juce::Image im = []
+        {
+            juce::Image i (juce::Image::ARGB, 128, 128, true);
+            juce::Random r (11);
+            for (int y = 0; y < 128; ++y)
+                for (int x = 0; x < 128; ++x)
+                {
+                    const bool clar = r.nextBool();
+                    const auto a = (juce::uint8) r.nextInt (34);
+                    i.setPixelAt (x, y, juce::Colour::fromRGBA (clar ? 255 : 0, clar ? 255 : 0, clar ? 255 : 0, a));
+                }
+            return i;
+        }();
+        return im;
+    }
+    /** Tolex: pell gravada amb grumolls i plecs. */
+    const juce::Image& imatgeTolex()
+    {
+        static juce::Image im = []
+        {
+            juce::Image i (juce::Image::ARGB, 256, 256, true);
+            juce::Graphics g (i);
+            juce::Random r (23);
+            for (int k = 0; k < 5200; ++k)
+            {
+                const float x = r.nextFloat() * 256.0f, y = r.nextFloat() * 256.0f, d = 1.0f + r.nextFloat() * 3.2f;
+                g.setColour (r.nextInt (3) == 0 ? juce::Colours::white.withAlpha (0.07f) : juce::Colours::black.withAlpha (0.16f));
+                for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy)   // que encaixi en mosaic
+                    g.fillEllipse (x + (float) dx * 256.0f, y + (float) dy * 256.0f, d, d * (0.6f + r.nextFloat() * 0.8f));
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.08f));
+            for (int k = 0; k < 60; ++k)
+            {
+                const float x = r.nextFloat() * 256.0f, y = r.nextFloat() * 256.0f;
+                g.drawLine (x, y, x + r.nextFloat() * 18.0f - 9.0f, y + r.nextFloat() * 18.0f - 9.0f, 0.8f);
+            }
+            return i;
+        }();
+        return im;
+    }
+    /** Teixit de la reixa: fils trenats en cistell (es tenyeix amb el color de sota). */
+    const juce::Image& imatgeTeixit()
+    {
+        static juce::Image im = []
+        {
+            juce::Image i (juce::Image::ARGB, 32, 32, true);
+            juce::Graphics g (i);
+            for (int by = 0; by < 4; ++by)
+                for (int bx = 0; bx < 4; ++bx)
+                {
+                    const bool horitz = (bx + by) % 2 == 0;
+                    for (int f = 0; f < 2; ++f)
+                    {
+                        juce::Rectangle<float> fil = horitz ? juce::Rectangle<float> ((float) bx * 8, (float) by * 8 + (float) f * 4, 8, 4)
+                                                            : juce::Rectangle<float> ((float) bx * 8 + (float) f * 4, (float) by * 8, 4, 8);
+                        juce::ColourGradient cg (juce::Colours::white.withAlpha (0.22f), fil.getCentreX(), fil.getCentreY(),
+                                                 juce::Colours::black.withAlpha (0.35f), horitz ? fil.getCentreX() : fil.getX(), horitz ? fil.getY() : fil.getCentreY(), true);
+                        g.setGradientFill (cg);
+                        g.fillRect (fil);
+                    }
+                }
+            return i;
+        }();
+        return im;
+    }
+    /** Metall raspallat (panells d'ampli). */
+    const juce::Image& imatgeRaspallat()
+    {
+        static juce::Image im = []
+        {
+            juce::Image i (juce::Image::ARGB, 256, 64, true);
+            juce::Graphics g (i);
+            juce::Random r (5);
+            for (int y = 0; y < 64; ++y)
+            {
+                g.setColour ((r.nextBool() ? juce::Colours::white : juce::Colours::black).withAlpha (0.02f + r.nextFloat() * 0.07f));
+                g.drawHorizontalLine (y, 0.0f, 256.0f);
+            }
+            for (int k = 0; k < 120; ++k)
+            {
+                const float x = r.nextFloat() * 256.0f, y = r.nextFloat() * 64.0f;
+                g.setColour ((r.nextBool() ? juce::Colours::white : juce::Colours::black).withAlpha (0.08f));
+                g.drawLine (x, y, x + 20.0f + r.nextFloat() * 60.0f, y, 0.6f);
+            }
+            return i;
+        }();
+        return im;
+    }
+    void omplePatro (juce::Graphics& g, const juce::Path& forma, const juce::Image& im, float opacitat, float x = 0.0f, float y = 0.0f)
+    {
+        juce::Graphics::ScopedSaveState s (g);
+        g.setTiledImageFill (im, (int) x, (int) y, opacitat);
+        g.fillPath (forma);
+    }
+    juce::uint32 llavorDe (const std::string& t) { juce::uint32 h = 2166136261u; for (unsigned char c : t) h = (h ^ c) * 16777619u; return h; }
+
+    /** El pas dels anys: gra, brutícia a les vores, ratllades, pintura saltada i rovell. «quant» 0..1. */
+    void pintaDesgast (juce::Graphics& g, juce::Rectangle<float> r, float radi, const std::string& llavor, float quant, float escala)
+    {
+        juce::Path forma;
+        forma.addRoundedRectangle (r, radi);
+        juce::Graphics::ScopedSaveState ss (g);
+        g.reduceClipRegion (forma);
+        juce::Random rnd ((juce::int64) llavorDe (llavor));
+        omplePatro (g, forma, imatgeGra(), 0.55f, r.getX(), r.getY());
+        // brutícia a les vores i a baix
+        g.setGradientFill (juce::ColourGradient (juce::Colours::transparentBlack, r.getCentreX(), r.getCentreY() - r.getHeight() * 0.1f,
+                                                 juce::Colours::black.withAlpha (0.12f + 0.18f * quant), r.getX(), r.getBottom(), true));
+        g.fillRect (r);
+        const float w = r.getWidth(), h = r.getHeight();
+        // ratllades
+        const int nR = 4 + (int) (34.0f * quant);
+        for (int k = 0; k < nR; ++k)
+        {
+            const float x = r.getX() + rnd.nextFloat() * w, y = r.getY() + rnd.nextFloat() * h;
+            const float l = (0.04f + rnd.nextFloat() * 0.22f) * juce::jmin (w, h * 1.2f, 140.0f * escala), a = rnd.nextFloat() * juce::MathConstants<float>::twoPi;
+            juce::Path p;
+            p.startNewSubPath (x, y);
+            p.quadraticTo (x + std::cos (a) * l * 0.5f + rnd.nextFloat() * 4.0f - 2.0f, y + std::sin (a) * l * 0.5f + rnd.nextFloat() * 4.0f - 2.0f,
+                           x + std::cos (a) * l, y + std::sin (a) * l);
+            g.setColour (rnd.nextInt (4) == 0 ? juce::Colours::black.withAlpha (0.25f) : juce::Colour (0xffd9d9de).withAlpha (0.18f + 0.25f * rnd.nextFloat()));
+            g.strokePath (p, juce::PathStrokeType ((0.5f + rnd.nextFloat() * 0.7f) * escala));
+        }
+        // pintura saltada (es veu l'alumini), sobretot a les vores
+        const int nS = 2 + (int) (14.0f * quant);
+        for (int k = 0; k < nS; ++k)
+        {
+            const int costat = rnd.nextInt (4);
+            float x = r.getX() + rnd.nextFloat() * w, y = r.getY() + rnd.nextFloat() * h;
+            if (costat == 0) x = r.getX() + rnd.nextFloat() * 4.0f * escala;
+            if (costat == 1) x = r.getRight() - rnd.nextFloat() * 4.0f * escala;
+            if (costat == 2) y = r.getBottom() - rnd.nextFloat() * 4.0f * escala;
+            const float rad = (1.2f + rnd.nextFloat() * 4.0f * quant) * escala;
+            juce::Path p;
+            const int n = 6 + rnd.nextInt (4);
+            for (int j = 0; j < n; ++j)
+            {
+                const float t = (float) j / (float) n * juce::MathConstants<float>::twoPi, rr = rad * (0.55f + rnd.nextFloat() * 0.6f);
+                if (j == 0) p.startNewSubPath (x + std::cos (t) * rr, y + std::sin (t) * rr); else p.lineTo (x + std::cos (t) * rr, y + std::sin (t) * rr);
+            }
+            p.closeSubPath();
+            g.setColour (juce::Colour (0xffaeb0b6));
+            g.fillPath (p);
+            g.setColour (juce::Colours::black.withAlpha (0.35f));
+            g.strokePath (p, juce::PathStrokeType (0.6f));
+        }
+        // rovell (als pedals vells)
+        if (quant > 0.45f)
+        {
+            const int nO = 1 + (int) (10.0f * (quant - 0.45f));
+            for (int k = 0; k < nO; ++k)
+            {
+                const bool cantonada = rnd.nextBool();
+                const float x = cantonada ? (rnd.nextBool() ? r.getX() + w * 0.08f : r.getRight() - w * 0.08f) : r.getX() + rnd.nextFloat() * w;
+                const float y = cantonada ? (rnd.nextBool() ? r.getY() + w * 0.08f : r.getBottom() - w * 0.08f) : r.getBottom() - rnd.nextFloat() * h * 0.25f;
+                const float rad = (3.0f + rnd.nextFloat() * 8.0f) * escala;
+                g.setGradientFill (juce::ColourGradient (juce::Colour (0xff7a3a12).withAlpha (0.65f), x, y, juce::Colour (0xffa0541c).withAlpha (0.0f), x + rad, y, true));
+                g.fillEllipse (x - rad, y - rad, rad * 2.0f, rad * 2.0f);
+                g.setColour (juce::Colour (0xff4a2008).withAlpha (0.5f));
+                for (int j = 0; j < 5; ++j) g.fillEllipse (x + (rnd.nextFloat() - 0.5f) * rad, y + (rnd.nextFloat() - 0.5f) * rad, 1.2f * escala, 1.2f * escala);
+            }
+        }
+    }
+
     /** Teixit de reixa (pantalles i combos). */
     void pintaReixa (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c)
     {
         g.setColour (c);
         g.fillRect (r);
-        juce::Graphics::ScopedSaveState s (g);
-        g.reduceClipRegion (r.toNearestInt());
-        const float pas = 4.0f;
-        g.setColour (c.brighter (0.25f).withAlpha (0.35f));
-        for (float x = r.getX() - r.getHeight(); x < r.getRight(); x += pas) g.drawLine (x, r.getY(), x + r.getHeight(), r.getBottom(), 1.0f);
-        g.setColour (c.darker (0.6f).withAlpha (0.35f));
-        for (float x = r.getX(); x < r.getRight() + r.getHeight(); x += pas) g.drawLine (x, r.getY(), x - r.getHeight(), r.getBottom(), 1.0f);
-        g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.08f), r.getX(), r.getY(), juce::Colours::black.withAlpha (0.25f), r.getX(), r.getBottom(), false));
+        juce::Path forma;
+        forma.addRectangle (r);
+        omplePatro (g, forma, imatgeTeixit(), 1.0f, r.getX(), r.getY());
+        omplePatro (g, forma, imatgeGra(), 0.4f);
+        // la tela fa una mica de panxa: més clara al mig, ombra a les vores i sota el ribet
+        g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.06f), r.getCentreX(), r.getCentreY(),
+                                                 juce::Colours::black.withAlpha (0.4f), r.getX(), r.getY(), true));
         g.fillRect (r);
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.drawRect (r.reduced (1.0f), 3.0f);
     }
 
-    /** Tolex (la pell del moble). */
+    /** Cantoneres metàl·liques. */
+    void pintaCantoneres (juce::Graphics& g, juce::Rectangle<float> r, float mida)
+    {
+        for (int k = 0; k < 4; ++k)
+        {
+            const float x = (k % 2 == 0) ? r.getX() : r.getRight() - mida, y = (k < 2) ? r.getY() : r.getBottom() - mida;
+            juce::Path p;
+            p.addRoundedRectangle (x, y, mida, mida, mida * 0.3f);
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xffd8d8dc), x, y, juce::Colour (0xff4c4c52), x + mida, y + mida, false));
+            g.fillPath (p);
+            omplePatro (g, p, imatgeGra(), 0.8f);
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.strokePath (p, juce::PathStrokeType (1.0f));
+            pintaCargol (g, { x + mida * 0.5f, y + mida * 0.5f }, mida * 0.12f);
+        }
+    }
+
+    /** Tolex (la pell del moble), amb el gravat i el desgast de les cantonades. */
     void pintaTolex (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, float radi)
     {
+        juce::Path forma;
+        forma.addRoundedRectangle (r, radi);
         g.setGradientFill (juce::ColourGradient (c.brighter (0.18f), r.getX(), r.getY(), c.darker (0.35f), r.getX(), r.getBottom(), false));
-        g.fillRoundedRectangle (r, radi);
-        juce::Random rnd (17);
-        g.setColour ((c.getPerceivedBrightness() > 0.5f ? juce::Colours::black : juce::Colours::white).withAlpha (0.05f));
-        for (int i = 0; i < (int) (r.getWidth() * r.getHeight() / 90.0f); ++i)
-            g.fillRect (r.getX() + rnd.nextFloat() * r.getWidth(), r.getY() + rnd.nextFloat() * r.getHeight(), 1.5f, 1.5f);
+        g.fillPath (forma);
+        omplePatro (g, forma, imatgeTolex(), c.getPerceivedBrightness() > 0.5f ? 0.8f : 1.0f, r.getX(), r.getY());
+        omplePatro (g, forma, imatgeGra(), 0.35f);
+        // vores gastades
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            g.reduceClipRegion (forma);
+            g.setColour ((c.getPerceivedBrightness() > 0.5f ? juce::Colours::black : juce::Colours::white).withAlpha (0.07f));
+            g.drawRoundedRectangle (r.reduced (2.0f), radi, 4.0f);
+        }
         g.setColour (juce::Colours::white.withAlpha (0.1f));
         g.drawRoundedRectangle (r.reduced (1.0f), radi, 1.2f);
     }
@@ -359,6 +552,16 @@ namespace
         return 0;
     }
 
+    /** Quant de desgast té cada pedal (els clàssics vells, molt; els moderns, poc). */
+    float desgastPedal (const ModelPedal& m)
+    {
+        static const std::set<std::string> vells { "ts808", "ds1", "rat", "distplus", "muff", "dynacomp", "phase90", "memoryman", "smallclone", "smallstone",
+                                                   "univibe", "spaceecho", "fenderspring", "crybaby", "v847", "klon", "oc2", "ce2", "bf2", "tr2", "sd1", "ts9" };
+        static const std::set<std::string> nous { "timeline", "bigsky", "cali76", "keeley", "beod", "pog", "whammy", "holygrail", "ge7", "ns2" };
+        const float base = vells.count (m.clau) ? 0.78f : (nous.count (m.clau) ? 0.22f : 0.48f);
+        return juce::jlimit (0.0f, 1.0f, base + ((float) (llavorDe (m.clau) % 100) / 100.0f - 0.5f) * 0.2f);
+    }
+
     /** Dibuixa un pedal sencer. «valors» pot ser nul (els de sempre). */
     void pintaPedal (juce::Graphics& g, const ModelPedal& m, const Geometria& q, const Pedal* p, bool on, float llum, bool ambPoms, bool gran)
     {
@@ -433,6 +636,7 @@ namespace
                                  r.getBottomLeft().translated (w * 0.08f, -w * 0.08f), r.getBottomRight().translated (-w * 0.08f, -w * 0.08f) })
                     pintaCargol (g, pt, juce::jmax (1.5f, w * 0.03f));
         }
+        pintaDesgast (g, r, radi, m.clau, desgastPedal (m), juce::jmax (0.5f, w / 120.0f));
         if (m.forma == Forma::Ample)
         {
             // finestreta amb el tipus
@@ -1036,11 +1240,14 @@ namespace
             g.setColour (juce::Colours::black.withAlpha (0.5f));
             g.fillRoundedRectangle (c.translated (0, 6), 10.0f);
             pintaTolex (g, c, col (m.tolex), 10.0f);
+            pintaDesgast (g, c, 10.0f, "amp" + m.clau, 0.3f, 1.4f);
+            pintaCantoneres (g, c, c.getHeight() * 0.1f);
             auto in = c.reduced (c.getHeight() * 0.06f);
             auto reixa = in.removeFromTop (in.getHeight() * 0.5f).reduced (0, 2);
             pintaReixa (g, reixa, col (m.reixa));
-            g.setColour (juce::Colours::black.withAlpha (0.4f));
-            g.drawRect (reixa, 2.0f);
+            // ribet (el cordonet que envolta la reixa)
+            g.setColour ((m.marca == "Marshall" || m.marca == "Fender" || m.marca == "Vox" || m.marca == "Hiwatt" ? juce::Colour (0xffe9e3d2) : juce::Colour (0xff3a3a3e)).withAlpha (0.9f));
+            g.drawRoundedRectangle (reixa.expanded (3.0f), 3.0f, 2.2f);
             // logotip
             const auto clar = col (m.panell).getPerceivedBrightness() > 0.35f ? col (m.panell) : juce::Colour (0xffeeeeee);
             const auto colorLogo = col (m.reixa).getPerceivedBrightness() > 0.6f ? juce::Colour (0xff1a1a1a) : clar;
@@ -1057,8 +1264,15 @@ namespace
             const auto pc = col (m.panell);
             g.setGradientFill (juce::ColourGradient (pc.brighter (0.25f), f.getX(), f.getY(), pc.darker (0.3f), f.getX(), f.getBottom(), false));
             g.fillRoundedRectangle (f, 4.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.06f));
-            for (float x = f.getX(); x < f.getRight(); x += 2.0f) g.drawVerticalLine ((int) x, f.getY() + 1, f.getBottom() - 1);
+            {
+                juce::Path pf;
+                pf.addRoundedRectangle (f, 4.0f);
+                omplePatro (g, pf, imatgeRaspallat(), 1.0f, f.getX(), f.getY());
+                // brillantor de la placa (com un plexi o un metall polit)
+                g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.16f), f.getX(), f.getY(), juce::Colours::white.withAlpha (0.0f), f.getX() + f.getWidth() * 0.4f, f.getBottom(), false));
+                g.fillPath (pf);
+                pintaDesgast (g, f, 4.0f, "panell" + m.clau, 0.2f, 1.0f);
+            }
             g.setColour (juce::Colours::black.withAlpha (0.45f));
             g.drawRoundedRectangle (f, 4.0f, 1.5f);
             pintaJack (g, jackEntrada(), juce::jmax (5.0f, f.getHeight() * 0.09f));
@@ -1126,6 +1340,8 @@ namespace
             g.setColour (juce::Colours::black.withAlpha (0.5f));
             g.fillRoundedRectangle (r.translated (0, 6), 10.0f);
             pintaTolex (g, r, col (c.tolex), 10.0f);
+            pintaDesgast (g, r, 10.0f, "cab" + c.clau, 0.35f, 1.4f);
+            pintaCantoneres (g, r, r.getWidth() * 0.085f);
             auto reixa = r.reduced (r.getWidth() * 0.07f);
             reixa.removeFromBottom (r.getHeight() * 0.04f);
             // els altaveus es veuen una mica a través de la tela
@@ -1137,8 +1353,8 @@ namespace
                 g.setColour (juce::Colours::black.withAlpha (0.12f));
                 g.fillEllipse (a.withSizeKeepingCentre (a.getWidth() * 0.3f, a.getHeight() * 0.3f));
             }
-            g.setColour (juce::Colours::black.withAlpha (0.35f));
-            g.drawRect (reixa, 2.0f);
+            g.setColour (juce::Colour (0xffe9e3d2).withAlpha (c.tolex == 0xffe8792a ? 0.0f : 0.85f));
+            g.drawRoundedRectangle (reixa.expanded (3.0f), 3.0f, 2.2f);
             // placa amb el nom
             auto placa = juce::Rectangle<float> (reixa.getWidth() * 0.42f, juce::jmax (14.0f, reixa.getHeight() * 0.08f)).withCentre ({ reixa.getCentreX(), reixa.getY() + reixa.getHeight() * 0.07f });
             g.setColour (juce::Colour (0xff121212).withAlpha (0.85f));

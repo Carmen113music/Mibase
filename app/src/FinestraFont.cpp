@@ -5,6 +5,7 @@
 #include "EscGlobal.h"
 #include "EstatEstudi.h"
 #include "FinestraFlotant.h"
+#include "Guitarres.h"
 #include "ServeiAudio.h"
 #include "SinteUI.h"
 #include "Tema.h"
@@ -41,7 +42,7 @@ namespace
             idea = llegeixIdea (estat.projecte.fontInspiracio);
             if (idea.acords.empty()) afegeix (idea, mesProbable (tonalitat(), {}, 0), tempsCompas());
 
-            for (auto* c : std::initializer_list<juce::Component*> { &btTonalitat, &selInstr, &selPatroPiano, &selPatroGuitarra,
+            for (auto* c : std::initializer_list<juce::Component*> { &btTonalitat, &selInstr, &btSons, &selPatroPiano, &selPatroGuitarra,
                                                                       &btPlay, &btBucle, &btDesfes, &btEnvia })
             {
                 c->setWantsKeyboardFocus (false);
@@ -50,7 +51,8 @@ namespace
             }
             btTonalitat.setTooltip ("Tonalitat dels suggeriments (la de la cançó o una de triada aquí). Canviar-la no toca els acords que ja hi ha"_ca);
             btTonalitat.onClick = [this] { menuTonalitat(); };
-            selInstr.setTooltip ("Amb què sona: piano o guitarra de niló (General MIDI)"_ca);
+            btSons.onClick = [this] { menuSons(); };   // 1.5
+            actualitzaTextSons();
             selInstr.setTriat ((int) idea.instrument);
             selInstr.onCanvi = [this] (int i) { idea.instrument = (Instr) i; posaInstrument(); mostraPatrons(); canviaSo(); desa(); };
             selPatroPiano.setTriat (idea.patroPiano);
@@ -121,6 +123,7 @@ namespace
         Boto btBucle { "Bucle", dibuix::Icona::Bucle, Boto::Estil::Tecla };
         Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Secundari };
         Boto btEnvia { "ENVIA A LA PISTA D'ACORDS"_ca, std::nullopt, Boto::Estil::Primari };
+        Boto btSons { {}, dibuix::Icona::Ajustos, Boto::Estil::Secundari };   // 1.5: quin so fan el piano i la guitarra
         juce::Rectangle<int> zonaCap, zonaFila, zonaPeu;
 
         // ---- mides ----
@@ -266,11 +269,84 @@ namespace
                 bancSonant.clear();
                 return;
             }
-            const int prog = idea.instrument == Instr::Guitarra ? programaGuitarra : programaPiano;
+            // 1.5: el so que has triat amb el botó de configuració (si és una guitarra .sf2 que ja no hi és, el de sempre)
+            const auto so = soTriat (idea.instrument);
+            if (gm::RefSf2 ref; gm::llegeixRef (so, ref))
+                if (auto b = guitarres::banc (ref.fitxer))
+                {
+                    const std::string clau = so + "|" + guitarres::signatura (ref.fitxer);
+                    if (clau == bancSonant) return;
+                    bancSonant = clau;
+                    servei.font().posaInstrument (std::make_shared<gm::SinteGM> (b, ref.programa, ref.banc));
+                    return;
+                }
+            int prog = idea.instrument == Instr::Guitarra ? programaGuitarra : programaPiano;
+            if (so.rfind ("gm:", 0) == 0) prog = juce::jlimit (0, 127, juce::String (so.substr (3)).getIntValue());
             const std::string clau = bancgm::signatura() + "#" + std::to_string (prog);
             if (clau == bancSonant) return;
             bancSonant = clau;
             servei.font().posaInstrument (std::make_shared<gm::SinteGM> (banc, prog));
+        }
+
+        // ---- 1.5: quin so fa cada instrument (es recorda per a tots els projectes) ----
+        static const char* clauAjust (Instr i) { return i == Instr::Guitarra ? "fontSoGuitarra" : "fontSoPiano"; }
+        std::string soTriat (Instr i)
+        {
+            const auto v = servei.getAjustos().getValue (clauAjust (i)).toStdString();
+            return v.empty() ? "gm:" + std::to_string (i == Instr::Guitarra ? programaGuitarra : programaPiano) : v;
+        }
+        juce::String nomSo (Instr i)
+        {
+            const auto so = soTriat (i);
+            if (gm::RefSf2 r; gm::llegeixRef (so, r)) return juce::String::fromUTF8 (r.nom.c_str());
+            const int p = so.rfind ("gm:", 0) == 0 ? juce::jlimit (0, 127, juce::String (so.substr (3)).getIntValue()) : 0;
+            return juce::String::fromUTF8 (gm::nomPrograma (p));
+        }
+        void posaSo (Instr i, const std::string& so)
+        {
+            servei.getAjustos().setValue (clauAjust (i), juce::String (so));
+            servei.getAjustos().saveIfNeeded();
+            bancSonant.clear();
+            posaInstrument();
+            actualitzaTextSons();
+        }
+        void actualitzaTextSons()
+        {
+            btSons.setTooltip ("Quin so fan el piano i la guitarra (es recorda per a tots els projectes).\n"_ca
+                               + "Piano: "_ca + nomSo (Instr::Piano) + "\n" + "Guitarra: "_ca + nomSo (Instr::Guitarra));
+            selInstr.setTooltip ("Amb què sona: "_ca + nomSo (Instr::Piano) + " o "_ca + nomSo (Instr::Guitarra) + ". El botó del costat canvia els sons."_ca);
+        }
+        void menuSons()
+        {
+            const auto sp = soTriat (Instr::Piano), sg = soTriat (Instr::Guitarra);
+            auto prog = [] (const std::string& so) { return so.rfind ("gm:", 0) == 0 ? juce::String (so.substr (3)).getIntValue() : -1; };
+            juce::PopupMenu m;
+            m.addSectionHeader ("Piano: "_ca + nomSo (Instr::Piano));
+            m.addSubMenu ("So del piano (General MIDI)"_ca, bancgm::menu (1000, prog (sp)));
+            m.addSeparator();
+            m.addSectionHeader ("Guitarra: "_ca + nomSo (Instr::Guitarra));
+            m.addSubMenu ("So de la guitarra (General MIDI)"_ca, bancgm::menu (2000, prog (sg)));
+            m.addSubMenu ("Les meves guitarres (.sf2)"_ca, guitarres::menu (3000, sg));
+            m.addSeparator();
+            m.addItem (9000, "Torna als sons de sempre (piano de cua i guitarra de niló)"_ca);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btSons), [this] (int r)
+            {
+                if (r >= 1000 && r < 1128) posaSo (Instr::Piano, "gm:" + std::to_string (r - 1000));
+                else if (r >= 2000 && r < 2128) posaSo (Instr::Guitarra, "gm:" + std::to_string (r - 2000));
+                else if (r >= 3000 && r < 9000)
+                {
+                    const auto so = guitarres::tria (r - 3000);
+                    if (! so.empty()) posaSo (Instr::Guitarra, so);
+                }
+                else if (r == 9000)
+                {
+                    servei.getAjustos().removeValue ("fontSoPiano");
+                    servei.getAjustos().removeValue ("fontSoGuitarra");
+                    posaSo (Instr::Piano, "gm:" + std::to_string (programaPiano));
+                    posaSo (Instr::Guitarra, "gm:" + std::to_string (programaGuitarra));
+                }
+                if (r > 0) canviaSo();
+            });
         }
         long long ticksTemps() const { return font::ticksTemps (estat.projecte.compasDen); }
         double tempo() const { return estat.projecte.tempo; }
@@ -512,6 +588,8 @@ namespace
         btTonalitat.setBounds (f.removeFromLeft (250));
         f.removeFromLeft (14);
         selInstr.setBounds (f.removeFromLeft (selInstr.ampladaIdeal() + 10));
+        f.removeFromLeft (4);
+        btSons.setBounds (f.removeFromLeft (34));   // 1.5
         f.removeFromLeft (10);
         const auto rp = f.removeFromLeft (juce::jmax (selPatroPiano.ampladaIdeal(), selPatroGuitarra.ampladaIdeal()) + 10);
         selPatroPiano.setBounds (rp);
