@@ -2,6 +2,9 @@
 
 #include "mibase/ContextMusical.h"
 #include "mibase/Drive.h"
+#include "mibase/Harmonitzador.h"
+#include <climits>
+#include <cmath>
 #include "mibase/Reverb.h"
 #include "mibase/Saturacio.h"
 #include <array>
@@ -10,23 +13,26 @@
 #include <string>
 #include <vector>
 
-/** 1.13: «EVOLVE (Mibase)», efecte creatiu intern («intern:evolve»), fase 1.
+/** 1.13: «EVOLVE (Mibase)», efecte creatiu intern («intern:evolve»). 1.14: fase 2.
 
     Un sol pom gran, EVOLUTION (0–100 %), transforma el so a poc a poc: cada preset porta la seva «matriu
     d'evolució», una llista de rutes. Cada ruta mou un paràmetre des del seu valor base (el que hi ha a 0 %)
     fins a un valor objectiu, entre dos punts d'Evolution (on comença i on arriba) i amb una corba.
 
-    Mòduls d'aquesta fase (cadascun amb encès, Mix i els seus paràmetres): SCREAMER (saturació, overdrive,
-    distorsió, fuzz i plec d'ona, a ×4), FILTER (LP/HP/BP/Notch amb ressonància, drive i LFO amb el tempo),
-    PUMPER (ducking, trèmolo, gate rítmic i panoràmica, amb divisions amb punt i tresets) i SHIMMER (la Reverb
-    de Mibase per dins: shimmer, hall dens o ambient, amb freeze). Fases següents: Scatter, Granular, Reverser,
-    Pitch, mode Advanced complet i els LFO lliures. L'ordre dels mòduls es desa amb l'estat.
+    Mòduls (cadascun amb encès, Mix, nivell d'entrada i de sortida i els seus paràmetres), en l'ordre que es vulgui:
+    SCREAMER (saturació, overdrive, distorsió, fuzz i plec, a ×4), FILTER (LP/HP/BP/Notch amb LFO al tempo),
+    PUMPER (ducking, trèmolo, gate rítmic i pan), SHIMMER (la Reverb de Mibase per dins), i des de la 1.14
+    REVERSER (reverse delay, o reverse reverb: la cua invertida puja just abans de cada tros; mira endavant 2 trossos,
+    que el PDC compensa), PITCH (universal amb dos capçals per a qualsevol so, o Veu amb el motor del Vocal Studio:
+    conserva el color i mou formants; uns 36 ms de retard) i SCATTER (talls al tempo: repeticions, salts enrere,
+    trossos al revés i a doble velocitat, sempre iguals per al mateix tall). Dos LFO (forma, tempo o Hz, fase, offset)
+    es poden assignar a qualsevol paràmetre. Solo per escoltar un mòdul (no es desa ni s'exporta). Fase 3: Granular.
 
-    0 % = bypass real: el so surt idèntic (no passa per res; ni l'entrada ni la sortida). Per sobre, una protecció
-    suau impedeix que la sortida passi de 0 dBFS. Sense retard (latència 0).
+    0 % = bypass real: el so surt idèntic (amb el mateix retard que Mibase ja compensa, si n'hi ha). Per sobre, una
+    protecció suau impedeix que la sortida passi de 0 dBFS.
 
     Mateixes normes de fils que la resta d'efectes interns: paràmetres atòmics, prepara() fora del fil d'àudio,
-    processa() sense demanar memòria ni esperar-se. Les rutes i l'ordre es canvien des de la interfície. */
+    processa() sense demanar memòria ni esperar-se. Les rutes, les assignacions i l'ordre es canvien des de la interfície. */
 namespace mibase::evolve
 {
     inline constexpr const char* idPlugin = "intern:evolve";
@@ -40,8 +46,18 @@ namespace mibase::evolve
         FilOn, FilTipus, FilFreq, FilReso, FilDrive, FilLfoDiv, FilLfo, FilMix,
         PmpOn, PmpMode, PmpDiv, PmpDepth, PmpForma, PmpPatro,
         ShmOn, ShmTipus, ShmPitch, ShmAmt, ShmDecay, ShmSize, ShmDiff, ShmMod, ShmDamp, ShmFreeze, ShmMix,
+        // 1.14 (fase 2)
+        RevOn, RevMode, RevDiv, RevFeedback, RevPitch, RevDecay, RevMix,
+        PitOn, PitMode, PitSemi1, PitSemi2, PitNiv2, PitDetune, PitFi, PitFormant, PitMix,
+        ScaOn, ScaDiv, ScaDensity, ScaScatter, ScaFeedback, ScaMix,
+        NivIn, NivOut = NivIn + 8,                       // nivell d'entrada i de sortida de cada mòdul (8 llocs: el Granular hi cabrà)
+        L1Forma = NivOut + 8, L1Sync, L1Rate, L1Div, L1Depth, L1Fase, L1Offset,
+        L2Forma, L2Sync, L2Rate, L2Div, L2Depth, L2Fase, L2Offset,
         numParams
     };
+    constexpr int numLfos = 2;
+    constexpr int paramsPerLfo = L2Forma - L1Forma;
+    inline int paramLfo (int lfo, int k) { return L1Forma + lfo * paramsPerLfo + k; }   // k: 0 forma … 6 offset
 
     struct InfoParam
     {
@@ -55,7 +71,7 @@ namespace mibase::evolve
     std::string textValor (int p, float v);
     int paramDeClau (const std::string& clau);
 
-    enum Modul : int { MScreamer, MFiltre, MPumper, MShimmer, numModuls };
+    enum Modul : int { MScreamer, MFiltre, MPumper, MShimmer, MReverser, MPitch, MScatter, numModuls };
     const char* nomModul (int m);               // «SCREAMER»…
     const char* descripcioModul (int m);
     int paramOn (int m);                        // ScrOn, FilOn…
@@ -63,12 +79,18 @@ namespace mibase::evolve
     /** El primer i l'últim (exclòs) paràmetre del mòdul, inclòs l'encès. */
     int primerParam (int m);
     int finalParam (int m);
-    int modulDeParam (int p);                   // -1: global
+    int modulDeParam (int p);                   // -1: global (els nivells In/Out també diuen de quin mòdul són)
+    /** 1.14: paràmetres que canvien la latència: no poden ser destí de rutes ni de LFO. */
+    bool canviaLatencia (int p);
+    bool esModulable (int p);                   // pot ser destí d'una ruta o d'un LFO
 
     const char* nomModeScreamer (int m);        // Analògic, Overdrive, Distorsió, Fuzz, Plec
     const char* nomTipusFiltre (int t);         // LP, HP, BP, Notch
     const char* nomModePumper (int m);          // Ducking, Trèmolo, Gate, Pan
     const char* nomTipusShimmer (int t);        // Shimmer, Hall dens, Ambient
+    const char* nomModeReverser (int m);        // Reverse delay, Reverse reverb
+    const char* nomModePitch (int m);           // Universal, Veu
+    const char* nomFormaLfo (int f);            // Sinus, Triangle, Quadrada, Serra, Atzar
     int numDivisions();
     const char* nomDivisio (int i);             // 1/1, 1/2., … 1/32 (de més llarg a més curt)
     double divisioEnNegres (int i);
@@ -87,6 +109,16 @@ namespace mibase::evolve
         float valor = 0.0f;
         int corba = Lineal;
     };
+    /** 1.14: una assignació d'un LFO a un paràmetre. «quant»: -100..100 (% del recorregut del paràmetre). */
+    struct Assignacio
+    {
+        int lfo = 0;
+        int param = 0;
+        float quant = 0.0f;
+    };
+    /** El valor d'un LFO (-1..1) amb aquestes formes a la fase «f» (0..1); «cicle» és el número de cicle (per a l'atzar). */
+    float formaLfo (int forma, float f, long long cicle) noexcept;
+
     /** La forma de la corba (t de 0 a 1). */
     float aplicaCorba (int corba, float t) noexcept;
     /** El valor d'un paràmetre amb aquesta Evolution, a partir del valor base i de la ruta (si n'hi ha). */
@@ -99,6 +131,8 @@ namespace mibase::evolve
         std::atomic<float> bypass { 1.0f };                    // 1 = so original (0 %)
         std::array<std::atomic<float>, numModuls> activitat {}; // 0..1: quant treballa cada mòdul ara
         std::atomic<float> protegeix { 0.0f };                 // la protecció de sortida actua (0..1)
+        std::array<std::atomic<float>, numLfos> lfo {};        // 1.14: el valor de cada LFO ara (-1..1)
+        std::array<std::atomic<float>, numLfos> faseLfo {};
         std::atomic<std::uint32_t> blocs { 0 };
     };
 
@@ -106,6 +140,7 @@ namespace mibase::evolve
     {
     public:
         static constexpr int maxRutes = 64;
+        static constexpr int maxAssig = 24;
         static constexpr int subBloc = 32;
         using Bq = saturacio::Saturacio::Bq;
 
@@ -113,7 +148,8 @@ namespace mibase::evolve
         ~Evolve() override;
         void prepara (double fs, int maxBloc) override;
         void processa (float* L, float* R, int n) noexcept override;
-        int latencia() const noexcept override { return 0; }
+        /** 1.14: el Reverse reverb mira endavant (2 trossos) i el Pitch en mode Veu, uns 36 ms: el PDC ho compensa. */
+        int latencia() const noexcept override;
 
         int numParametres() const override { return numParams; }
         InfoParametre infoParametre (int i) const override;
@@ -133,6 +169,11 @@ namespace mibase::evolve
         void posaRutes (const std::vector<Ruta>& r);
         std::array<int, numModuls> ordre() const noexcept;
         void posaOrdre (const std::array<int, numModuls>& o) noexcept;
+        std::vector<Assignacio> assignacions() const;
+        void posaAssignacions (const std::vector<Assignacio>& v);
+        /** 1.14: escolta només un mòdul (-1: tots). No es desa mai (ni s'exporta). */
+        void posaSolo (int m) noexcept { solo.store (m); }
+        int soloActual() const noexcept { return solo.load(); }
 
         std::string estat() const override;
         void posaEstat (const std::string& s) override;
@@ -147,6 +188,9 @@ namespace mibase::evolve
         std::string estatAtzar (unsigned llavor) const;
 
     private:
+        struct AssigA { std::atomic<int> lfo { 0 }, param { 0 }; std::atomic<float> quant { 0.0f }; };
+        std::array<AssigA, maxAssig> as;
+        std::atomic<int> nAssig { 0 }, solo { -1 };
         struct RutaA
         {
             std::atomic<int> param { 0 }, corba { 0 };
@@ -186,6 +230,60 @@ namespace mibase::evolve
         } pmp;
         std::unique_ptr<reverb::Reverb> rev;
         float shmMixVist = -1.0f;
+
+        // ---- 1.14 ----
+        std::array<float, 8> nivIn {}, nivOut {};
+        double faseLliure[numLfos] {};
+        float valLfo[numLfos] {};
+        // retard general (latència): l'entrada passa per aquí; la cadena llegeix «latRev» mostres enrere i el so sec
+        // de referència, «latRev + latPit»
+        std::vector<float> retL, retR;
+        long long retW = 0, retMascara = 0;
+        int latRevAra = -1, latPitAra = -1;
+        struct Reverser
+        {
+            std::vector<float> rec[2], play[2];
+            int recN = 0, playN = 0, cap = 0;
+            double ph = 0.0;          // posició de lectura (mostres) dins del tros que sona
+            long long tros = LLONG_MIN;
+            float mix = 0.0f;
+        } rvs;
+        std::unique_ptr<reverb::Reverb> revSw;   // la reverb del Reverse reverb
+        struct Desplacador   // canvi de to «universal» (dos capçals que giren sobre un retard): serveix per a tot
+        {
+            double fase = 0.0;
+            void avanca (double r, double finestra) noexcept { fase += (1.0 - r) / finestra; fase -= std::floor (fase); }
+        };
+        struct Pitch
+        {
+            std::vector<float> buf[2];
+            long long w = 0, mascara = 0;
+            Desplacador d[2][2];     // [veu][canal]
+            double finestra = 2048.0;
+            float mix = 0.0f, niv2 = 0.0f;
+            canvito::Analitzador an;
+            canvito::Veu veu[2];
+            std::vector<float> sec[2];
+            long long secW = 0, secMascara = 0;
+            bool veuPreparada = false;
+        } pit;
+        struct Scatter
+        {
+            std::vector<float> buf[2];
+            long long w = 0, mascara = 0, valid = 0;
+            long long tros = LLONG_MIN, iniciTros = 0, q = 0;
+            int tipus = 0, k = 1, llarg = 1;
+            long long font = 0;
+            float mix = 0.0f, guany = 1.0f;
+        } sca;
+        float rawL[subBloc] {}, rawR[subBloc] {};
+
+        int latenciaRev (double bpm) const noexcept;
+        int latenciaPit() const noexcept;
+        void calculaLfos (int n, double negres, double bpm) noexcept;
+        void processaReverser (float* L, float* R, int n, double negres, double bpm) noexcept;
+        void processaPitch (float* L, float* R, int n, bool calla) noexcept;
+        void processaScatter (float* L, float* R, int n, double negres, double bpm) noexcept;
 
         void neteja() noexcept;
         void calculaEfectius (float evolution) noexcept;

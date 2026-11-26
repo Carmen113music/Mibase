@@ -37,7 +37,7 @@ namespace
     /** El color de cada mòdul (també a les marques del pom). */
     juce::Colour colorModul (int m)
     {
-        static const juce::uint32 c[numModuls] = { 0xffff6a3d, 0xff4fc3d9, 0xffb18cff, 0xfff5c445 };
+        static const juce::uint32 c[numModuls] = { 0xffff6a3d, 0xff4fc3d9, 0xffb18cff, 0xfff5c445, 0xff6fa8ff, 0xff7fd67a, 0xffff5fa2 };
         return juce::Colour (c[juce::jlimit (0, numModuls - 1, m)]);
     }
     /** El color del pom segons l'Evolution: fred i suau a baix, calent i viu a dalt. */
@@ -210,6 +210,550 @@ namespace
     };
 
     // ---------------------------------------------------------------------------------------------
+    // 1.14: peces del mode ADVANCED
+
+    /** Un paràmetre de valors discrets (tipus, ritme, patró…): clic → menú amb totes les opcions. */
+    class SelectorParam : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        SelectorParam (std::shared_ptr<Evolve> e, int param) : ev (std::move (e)), p (param)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            setTooltip (u8 (info (p).ajuda));
+        }
+        std::function<void()> onCanvi;
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().toFloat();
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (10.5f, true));
+            g.drawText (dibuix::majuscules (u8 (info (p).nom)), r.removeFromTop (14.0f), juce::Justification::centred);
+            auto c = r.withSizeKeepingCentre (r.getWidth() - 4.0f, juce::jmin (26.0f, r.getHeight())).withY (r.getY() + 4.0f);
+            g.setColour (juce::Colour (0xff0e0e12));
+            g.fillRoundedRectangle (c, 5.0f);
+            g.setColour (sobre ? tema::accent : tema::linia2);
+            g.drawRoundedRectangle (c.reduced (0.5f), 5.0f, 1.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (12.0f, true));
+            g.drawFittedText (u8 (textValor (p, ev->valor (p))) + "  " + juce::String::charToString (0x25BE), c.toNearestInt().reduced (4, 0), juce::Justification::centred, 1, 0.7f);
+        }
+        void mouseEnter (const juce::MouseEvent&) override { sobre = true; repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { sobre = false; repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            if (! e.mouseWasClicked()) return;
+            juce::PopupMenu m;
+            const auto& in = info (p);
+            const int actual = (int) std::lround (ev->valor (p));
+            for (int v = (int) in.mn; v <= (int) in.mx; ++v) m.addItem (v - (int) in.mn + 1, u8 (textValor (p, (float) v)), true, v == actual);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp = juce::Component::SafePointer<SelectorParam> (this)] (int r)
+            {
+                if (sp == nullptr || r <= 0) return;
+                sp->ev->posa (sp->p, info (sp->p).mn + (float) (r - 1));
+                if (sp->onCanvi) sp->onCanvi();
+                sp->repaint();
+            });
+        }
+        int param() const { return p; }
+    private:
+        std::shared_ptr<Evolve> ev;
+        int p;
+        bool sobre = false;
+    };
+
+    /** Un pom d'un paràmetre d'EVOLVE (valor base). */
+    std::unique_ptr<Pom> pomDe (std::shared_ptr<Evolve> ev, int p, const juce::String& nom = {})
+    {
+        const auto& in = info (p);
+        auto pom = std::make_unique<Pom> (nom.isEmpty() ? u8 (in.nom) : nom, 0.0, 1.0, (double) Evolve::normal (p, in.def), in.mn < 0.0f && in.mx > 0.0f,
+                                          [ev, p] (double v) { return u8 (ev->textParametre (p, (float) v)); });
+        pom->setTooltip (u8 (in.ajuda));
+        pom->onCanvi = [ev, p] (double v) { ev->posaParametre (p, (float) v); };
+        pom->onReinicia = [ev, p] { ev->posa (p, info (p).def); };
+        return pom;
+    }
+
+    /** Els controls del mòdul triat: tots els seus paràmetres, i el nivell d'entrada i de sortida. */
+    class EditorModul : public juce::Component
+    {
+    public:
+        EditorModul (std::shared_ptr<Evolve> e, int modul) : ev (std::move (e)), m (modul)
+        {
+            for (int p = primerParam (m) + 1; p < finalParam (m); ++p) afegeix (p);
+            afegeix (NivIn + m);
+            afegeix (NivOut + m);
+        }
+        void refresca()
+        {
+            for (auto& [p, pom] : poms) pom->setValor (ev->parametre (p), true);
+            for (auto& s : sels) s->repaint();
+        }
+        void paint (juce::Graphics& g) override
+        {
+            const auto col = colorModul (m);
+            auto r = getLocalBounds().toFloat();
+            g.setColour (juce::Colour (0xff1c1c22));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (col.withAlpha (0.6f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.5f);
+            auto cap = r.reduced (12.0f, 8.0f).removeFromTop (20.0f);
+            g.setColour (col);
+            g.setFont (dibuix::lletra (15.0f, true));
+            g.drawText (nomModul (m), cap, juce::Justification::centredLeft);
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.5f));
+            g.drawText (u8 (descripcioModul (m)), cap.withTrimmedLeft (110.0f), juce::Justification::centredLeft);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (10, 6);
+            r.removeFromTop (26);
+            const int n = (int) ordre.size();
+            const int perFila = juce::jmax (4, juce::jmin (n, r.getWidth() / 84));
+            const int files = (n + perFila - 1) / perFila;
+            const int w = r.getWidth() / perFila, h = juce::jmin (96, r.getHeight() / juce::jmax (1, files));
+            for (int i = 0; i < n; ++i)
+                ordre[(size_t) i]->setBounds (r.getX() + (i % perFila) * w, r.getY() + (i / perFila) * h, w - 4, h - 4);
+        }
+    private:
+        void afegeix (int p)
+        {
+            if (info (p).enter)
+            {
+                auto s = std::make_unique<SelectorParam> (ev, p);
+                addAndMakeVisible (*s);
+                ordre.push_back (s.get());
+                sels.push_back (std::move (s));
+            }
+            else
+            {
+                const bool esNivell = p >= NivIn;
+                auto pom = pomDe (ev, p, esNivell ? (p < NivOut ? "In"_ca : "Out"_ca) : juce::String());
+                addAndMakeVisible (*pom);
+                ordre.push_back (pom.get());
+                poms.push_back ({ p, std::move (pom) });
+            }
+        }
+        std::shared_ptr<Evolve> ev;
+        int m;
+        std::vector<std::pair<int, std::unique_ptr<Pom>>> poms;
+        std::vector<std::unique_ptr<SelectorParam>> sels;
+        std::vector<juce::Component*> ordre;
+    };
+
+    /** El tram d'una ruta (de 0 a 100 % d'Evolution): s'arrosseguen les vores o tot el tram. Hi surt la corba i on és l'Evolution. */
+    class BarraRang : public juce::Component
+    {
+    public:
+        std::function<void (float, float)> onCanvi;
+        float de = 0.0f, a = 100.0f, evo = 0.0f;
+        int corba = Lineal;
+        juce::Colour col = tema::accent;
+        void paint (juce::Graphics& g) override
+        {
+            const auto r = getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+            g.setColour (juce::Colour (0xff0e0e12));
+            g.fillRoundedRectangle (r, 4.0f);
+            for (float z : { 30.0f, 60.0f, 80.0f })
+            {
+                g.setColour (tema::linia);
+                g.drawVerticalLine ((int) x (z, r), r.getY(), r.getBottom());
+            }
+            // la corba dins del tram (alçada = quant s'ha mogut el paràmetre)
+            juce::Path p;
+            p.startNewSubPath (r.getX(), r.getBottom());
+            p.lineTo (x (de, r), r.getBottom());
+            for (int k = 0; k <= 24; ++k)
+            {
+                const float t = (float) k / 24.0f;
+                p.lineTo (x (de + (a - de) * t, r), r.getBottom() - aplicaCorba (corba, t) * r.getHeight());
+            }
+            p.lineTo (r.getRight(), r.getY());
+            g.setColour (col.withAlpha (0.18f));
+            juce::Path ple (p); ple.lineTo (r.getRight(), r.getBottom()); ple.closeSubPath();
+            g.fillPath (ple);
+            g.setColour (col);
+            g.strokePath (p, juce::PathStrokeType (1.6f));
+            for (float v : { de, a })
+            {
+                g.setColour (tema::text);
+                g.fillRoundedRectangle (juce::Rectangle<float> (5.0f, r.getHeight() + 2.0f).withCentre ({ x (v, r), r.getCentreY() }), 2.0f);
+            }
+            g.setColour (tema::text.withAlpha (0.8f));
+            g.drawVerticalLine ((int) x (evo, r), r.getY() - 2.0f, r.getBottom() + 2.0f);
+        }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            const auto r = getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+            const float px = (float) e.x;
+            agafa = std::fabs (px - x (de, r)) < 8.0f ? 1 : std::fabs (px - x (a, r)) < 8.0f ? 2 : 3;
+            de0 = de; a0 = a;
+        }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            const auto r = getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+            const float d = (float) e.getDistanceFromDragStartX() / r.getWidth() * 100.0f;
+            if (agafa == 1) de = juce::jlimit (0.0f, a, de0 + d);
+            else if (agafa == 2) a = juce::jlimit (de, 100.0f, a0 + d);
+            else { const float dd = juce::jlimit (-de0, 100.0f - a0, d); de = de0 + dd; a = a0 + dd; }
+            de = std::round (de); a = std::round (a);
+            if (onCanvi) onCanvi (de, a);
+            repaint();
+        }
+    private:
+        static float x (float v, juce::Rectangle<float> r) { return r.getX() + r.getWidth() * v / 100.0f; }
+        int agafa = 0;
+        float de0 = 0.0f, a0 = 0.0f;
+    };
+
+    /** Un menú amb tots els paràmetres que es poden moure, agrupats per mòdul. Torna (per «fes») l'índex triat. */
+    void menuParams (juce::Component* on, std::function<void (int)> fes, bool ambLfo)
+    {
+        juce::PopupMenu m, glob;
+        for (int p : { (int) DryWet, (int) Entrada, (int) Sortida }) glob.addItem (p + 1, u8 (info (p).nom));
+        m.addSubMenu ("Global", glob);
+        for (int mod = 0; mod < numModuls; ++mod)
+        {
+            juce::PopupMenu s;
+            for (int p = primerParam (mod); p < finalParam (mod); ++p) if (esModulable (p)) s.addItem (p + 1, u8 (info (p).nom));
+            s.addItem (NivIn + mod + 1, "In");
+            s.addItem (NivOut + mod + 1, "Out");
+            m.addSubMenu (nomModul (mod), s);
+        }
+        if (ambLfo)
+            for (int k = 0; k < numLfos; ++k)
+            {
+                juce::PopupMenu s;
+                for (int j = 0; j < paramsPerLfo; ++j) { const int p = paramLfo (k, j); if (esModulable (p)) s.addItem (p + 1, u8 (info (p).nom)); }
+                m.addSubMenu ("LFO " + juce::String (k + 1), s);
+            }
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (on), [fes] (int r) { if (r > 0) fes (r - 1); });
+    }
+    juce::String nomParam (int p)
+    {
+        const int m = modulDeParam (p);
+        if (m >= 0) return juce::String (nomModul (m)) + " · " + u8 (info (p).nom);
+        if (p >= L1Forma) return "LFO " + juce::String ((p - L1Forma) / paramsPerLfo + 1) + " · " + u8 (info (p).nom);
+        return u8 (info (p).nom);
+    }
+    juce::Colour colorParam (int p) { const int m = modulDeParam (p); return m >= 0 ? colorModul (m) : tema::accent; }
+
+    /** La matriu d'evolució: una fila per ruta. */
+    class EditorMatriu : public juce::Component
+    {
+    public:
+        EditorMatriu (std::shared_ptr<Evolve> e) : ev (std::move (e))
+        {
+            addAndMakeVisible (vista);
+            vista.setViewedComponent (&cos, false);
+            vista.setScrollBarsShown (true, false);
+            addAndMakeVisible (btAfegeix);
+            btAfegeix.setTooltip ("Una ruta nova: tria quin paràmetre ha de moure l'Evolution"_ca);
+            btAfegeix.onClick = [this]
+            {
+                menuParams (&btAfegeix, [this] (int p)
+                {
+                    auto v = ev->rutes();
+                    v.push_back ({ p, 0.0f, 100.0f, info (p).mx, Lineal });
+                    ev->posaRutes (v);
+                    torna();
+                }, true);
+            };
+            torna();
+        }
+        std::function<int()> modulTriat;
+        void torna()
+        {
+            files.clear();
+            const auto v = ev->rutes();
+            for (int i = 0; i < (int) v.size(); ++i)
+            {
+                auto f = std::make_unique<Fila> (*this, i, v[(size_t) i]);
+                cos.addAndMakeVisible (*f);
+                files.push_back (std::move (f));
+            }
+            signatura = sig();
+            resized();
+        }
+        void refresca()
+        {
+            if (sig() != signatura) { torna(); return; }
+            const auto v = ev->rutes();
+            const float evo = ev->valor (Hold) > 0.5f ? ev->mesures().evolution.load() : ev->valor (Evolution);
+            for (int i = 0; i < (int) files.size() && i < (int) v.size(); ++i) files[(size_t) i]->actualitza (v[(size_t) i], evo);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            auto dalt = r.removeFromTop (30);
+            btAfegeix.setBounds (dalt.removeFromRight (120).reduced (0, 3));
+            capcalera = dalt;
+            vista.setBounds (r);
+            const int h = 40;
+            cos.setSize (r.getWidth() - 10, juce::jmax (r.getHeight(), (int) files.size() * h));
+            for (int i = 0; i < (int) files.size(); ++i) files[(size_t) i]->setBounds (0, i * h, cos.getWidth(), h - 2);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f, true));
+            auto c = capcalera;
+            g.drawText ("PARÀMETRE"_ca, c.removeFromLeft (190).withTrimmedLeft (4), juce::Justification::centredLeft);
+            g.drawText ("TRAM (0 → 100 %) I CORBA"_ca, c.removeFromLeft (juce::jmax (120, c.getWidth() - 250)), juce::Justification::centredLeft);
+            g.drawText ("VALOR A DALT"_ca, c, juce::Justification::centredLeft);
+            if (files.empty())
+            {
+                g.setFont (dibuix::lletra (12.0f));
+                g.drawText ("Encara no hi ha rutes: l'Evolution no mou res. «+ Ruta» per afegir-ne."_ca, vista.getBounds(), juce::Justification::centred);
+            }
+        }
+    private:
+        struct Fila : public juce::Component
+        {
+            Fila (EditorMatriu& em, int index, const Ruta& r) : pare (em), i (index)
+            {
+                addAndMakeVisible (btParam);
+                addAndMakeVisible (barra);
+                addAndMakeVisible (btCorba);
+                addAndMakeVisible (btTreu);
+                btParam.setButtonText (nomParam (r.param));
+                btParam.setTooltip ("Canvia el paràmetre"_ca);
+                btParam.onClick = [this] { menuParams (&btParam, [this] (int p) { canvia ([p] (Ruta& x) { x.param = p; x.valor = info (p).mx; }); pare.torna(); }, true); };
+                barra.col = colorParam (r.param);
+                barra.onCanvi = [this] (float de, float a) { canvia ([de, a] (Ruta& x) { x.de = de; x.a = a; }); };
+                btCorba.setTooltip ("Corba: lineal, suau (entra a poc a poc), ràpida (entra de cop) o en S"_ca);
+                btCorba.onClick = [this] { canvia ([] (Ruta& x) { x.corba = (x.corba + 1) % numCorbes; }); };
+                btTreu.setTooltip ("Treu la ruta"_ca);
+                btTreu.onClick = [this]
+                {
+                    auto v = pare.ev->rutes();
+                    if (i < (int) v.size()) v.erase (v.begin() + i);
+                    pare.ev->posaRutes (v);
+                    juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<EditorMatriu> (&pare)] { if (sp != nullptr) sp->torna(); });
+                };
+                const int p = r.param;
+                valor = std::make_unique<Pom> ("", 0.0, 1.0, (double) Evolve::normal (p, r.valor), false, [p] (double v) { return u8 (textValor (p, Evolve::deNormal (p, (float) v))); });
+                valor->onCanvi = [this, p] (double v) { canvia ([p, v] (Ruta& x) { x.valor = Evolve::deNormal (p, (float) v); }); };
+                valor->setTooltip ("El valor del paràmetre quan l'Evolution arriba al final del tram (a l'inici, el valor base del mòdul)"_ca);
+                addAndMakeVisible (*valor);
+                actualitza (r, 0.0f);
+            }
+            void actualitza (const Ruta& r, float evo)
+            {
+                barra.de = r.de; barra.a = r.a; barra.corba = r.corba; barra.evo = evo;
+                barra.repaint();
+                btCorba.setButtonText (u8 (nomCorba (r.corba)));
+                valor->setValor (Evolve::normal (r.param, r.valor), true);
+            }
+            void canvia (std::function<void (Ruta&)> f)
+            {
+                auto v = pare.ev->rutes();
+                if (i >= (int) v.size()) return;
+                f (v[(size_t) i]);
+                pare.ev->posaRutes (v);
+            }
+            void resized() override
+            {
+                auto r = getLocalBounds();
+                btParam.setBounds (r.removeFromLeft (186).reduced (2, 3));
+                btTreu.setBounds (r.removeFromRight (30).reduced (2, 4));
+                btCorba.setBounds (r.removeFromRight (74).reduced (2, 4));
+                valor->setBounds (r.removeFromRight (140).withTrimmedTop (-14));   // el pom: només el valor (sense nom)
+                barra.setBounds (r.reduced (4, 2));
+            }
+            EditorMatriu& pare;
+            int i;
+            Boto btParam { "", std::nullopt, Boto::Estil::Subtil };
+            BarraRang barra;
+            Boto btCorba { "", std::nullopt, Boto::Estil::Secundari };
+            Boto btTreu { "", dibuix::Icona::Tanca, Boto::Estil::Subtil };
+            std::unique_ptr<Pom> valor;
+        };
+        std::string sig() const
+        {
+            std::string s;
+            for (const auto& r : ev->rutes()) s += std::to_string (r.param) + ",";
+            return s;
+        }
+        std::shared_ptr<Evolve> ev;
+        juce::Viewport vista;
+        juce::Component cos;
+        std::vector<std::unique_ptr<Fila>> files;
+        Boto btAfegeix { "+ Ruta", std::nullopt, Boto::Estil::Secundari };
+        juce::Rectangle<int> capcalera;
+        std::string signatura;
+    };
+
+    /** Un LFO: forma, tempo o Hz, profunditat, fase i offset, el dibuix de l'ona i a què està assignat. */
+    class EditorLfo : public juce::Component
+    {
+    public:
+        EditorLfo (std::shared_ptr<Evolve> e, int lfo) : ev (std::move (e)), k (lfo)
+        {
+            for (int j : { 0, 1, 3 }) { auto s = std::make_unique<SelectorParam> (ev, paramLfo (k, j)); addAndMakeVisible (*s); sels.push_back (std::move (s)); }
+            for (int j : { 2, 4, 5, 6 })
+            {
+                auto pom = pomDe (ev, paramLfo (k, j));
+                addAndMakeVisible (*pom);
+                poms.push_back ({ paramLfo (k, j), std::move (pom) });
+            }
+            addAndMakeVisible (btAssigna);
+            btAssigna.setTooltip ("Tria un paràmetre perquè aquest LFO el mogui"_ca);
+            btAssigna.onClick = [this]
+            {
+                menuParams (&btAssigna, [this] (int p)
+                {
+                    auto v = ev->assignacions();
+                    v.push_back ({ k, p, 30.0f });
+                    ev->posaAssignacions (v);
+                    torna();
+                }, false);
+            };
+            torna();
+        }
+        void torna()
+        {
+            files.clear();
+            const auto v = ev->assignacions();
+            for (int i = 0; i < (int) v.size(); ++i)
+                if (v[(size_t) i].lfo == k)
+                {
+                    auto f = std::make_unique<FilaAs> (*this, i, v[(size_t) i]);
+                    addAndMakeVisible (*f);
+                    files.push_back (std::move (f));
+                }
+            signatura = sig();
+            resized();
+        }
+        void refresca()
+        {
+            if (sig() != signatura) { torna(); return; }
+            for (auto& [p, pom] : poms) pom->setValor (ev->parametre (p), true);
+            const bool sync = ev->valor (paramLfo (k, 1)) > 0.5f;
+            for (auto& [p, pom] : poms) if (p == paramLfo (k, 2)) pom->setEnabled (! sync);
+            for (auto& s : sels) { s->setEnabled (s->param() != paramLfo (k, 3) || sync); s->repaint(); }
+            const auto v = ev->assignacions();
+            for (auto& f : files) if (f->i < (int) v.size()) f->valor->setValor ((v[(size_t) f->i].quant + 100.0) / 200.0, true);
+            repaint (ona);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().toFloat();
+            g.setColour (juce::Colour (0xff1c1c22));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (tema::linia);
+            g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+            g.setColour (tema::accent);
+            g.setFont (dibuix::lletra (14.0f, true));
+            g.drawText ("LFO " + juce::String (k + 1), r.reduced (12.0f, 8.0f).removeFromTop (18.0f), juce::Justification::centredLeft);
+            // l'ona, amb el punt d'on és ara
+            const auto o = ona.toFloat();
+            g.setColour (juce::Colour (0xff0e0e12));
+            g.fillRoundedRectangle (o, 5.0f);
+            const int forma = (int) ev->valor (paramLfo (k, 0));
+            const float dep = ev->valor (paramLfo (k, 4)) * 0.01f, off = ev->valor (paramLfo (k, 6)) * 0.01f;
+            juce::Path p;
+            for (int i = 0; i <= 120; ++i)
+            {
+                const float f = (float) i / 120.0f;
+                const float v = juce::jlimit (-1.0f, 1.0f, formaLfo (forma, f, (long long) (f * 3.0f)) * dep + off);
+                const float xx = o.getX() + f * o.getWidth(), yy = o.getCentreY() - v * o.getHeight() * 0.42f;
+                if (i == 0) p.startNewSubPath (xx, yy); else p.lineTo (xx, yy);
+            }
+            g.setColour (tema::accent.withAlpha (0.9f));
+            g.strokePath (p, juce::PathStrokeType (1.6f));
+            const float fa = ev->mesures().faseLfo[(size_t) k].load(), va = ev->mesures().lfo[(size_t) k].load();
+            g.setColour (tema::text);
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ o.getX() + fa * o.getWidth(), o.getCentreY() - va * o.getHeight() * 0.42f }));
+            if (files.empty())
+            {
+                g.setColour (tema::suau);
+                g.setFont (dibuix::lletra (11.5f));
+                g.drawText ("No mou res: «+ Assigna»."_ca, zonaFiles, juce::Justification::centredLeft);
+            }
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds().reduced (10, 8);
+            auto cap = r.removeFromTop (20);
+            btAssigna.setBounds (cap.removeFromRight (110));
+            r.removeFromTop (4);
+            auto fila = r.removeFromTop (juce::jmin (84, r.getHeight() / 2));
+            ona = fila.removeFromLeft (juce::jmin (170, fila.getWidth() / 3)).reduced (0, 6);
+            fila.removeFromLeft (6);
+            const int n = (int) (sels.size() + poms.size());
+            const int w = fila.getWidth() / juce::jmax (1, n);
+            int x = fila.getX();
+            for (auto& s : sels) { s->setBounds (x, fila.getY(), w - 2, juce::jmin (52, fila.getHeight())); x += w; }
+            for (auto& [p, pom] : poms) { pom->setBounds (x, fila.getY(), w - 2, fila.getHeight()); x += w; }
+            r.removeFromTop (6);
+            zonaFiles = r;
+            int y = r.getY();
+            for (auto& f : files) { f->setBounds (r.getX(), y, r.getWidth(), 26); y += 28; }
+        }
+    private:
+        struct FilaAs : public juce::Component
+        {
+            FilaAs (EditorLfo& el, int index, const Assignacio& a) : pare (el), i (index)
+            {
+                nom = nomParam (a.param);
+                col = colorParam (a.param);
+                valor = std::make_unique<Pom> ("", 0.0, 1.0, 0.5, true, [] (double v) { return juce::String (juce::roundToInt (v * 200.0 - 100.0)) + " %"; });
+                valor->onCanvi = [this] (double v)
+                {
+                    auto w = pare.ev->assignacions();
+                    if (i < (int) w.size()) { w[(size_t) i].quant = (float) (v * 200.0 - 100.0); pare.ev->posaAssignacions (w); }
+                };
+                valor->setTooltip ("Quant el mou (i cap a on): % del recorregut del paràmetre"_ca);
+                valor->setValor ((a.quant + 100.0) / 200.0, true);
+                addAndMakeVisible (*valor);
+                addAndMakeVisible (btTreu);
+                btTreu.onClick = [this]
+                {
+                    auto w = pare.ev->assignacions();
+                    if (i < (int) w.size()) w.erase (w.begin() + i);
+                    pare.ev->posaAssignacions (w);
+                    juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<EditorLfo> (&pare)] { if (sp != nullptr) sp->torna(); });
+                };
+            }
+            void paint (juce::Graphics& g) override
+            {
+                g.setColour (col);
+                g.fillEllipse (4.0f, getHeight() * 0.5f - 4.0f, 8.0f, 8.0f);
+                g.setColour (tema::text);
+                g.setFont (dibuix::lletra (12.0f));
+                g.drawText (nom, getLocalBounds().withTrimmedLeft (18).withWidth (getWidth() - 170), juce::Justification::centredLeft);
+            }
+            void resized() override
+            {
+                auto r = getLocalBounds();
+                btTreu.setBounds (r.removeFromRight (26).reduced (2));
+                valor->setBounds (r.removeFromRight (130).withTrimmedTop (-14));
+            }
+            EditorLfo& pare;
+            int i;
+            juce::String nom;
+            juce::Colour col;
+            std::unique_ptr<Pom> valor;
+            Boto btTreu { "", dibuix::Icona::Tanca, Boto::Estil::Subtil };
+        };
+        std::string sig() const
+        {
+            std::string s;
+            for (const auto& a : ev->assignacions()) s += std::to_string (a.lfo) + ":" + std::to_string (a.param) + ",";
+            return s;
+        }
+        std::shared_ptr<Evolve> ev;
+        int k;
+        std::vector<std::unique_ptr<SelectorParam>> sels;
+        std::vector<std::pair<int, std::unique_ptr<Pom>>> poms;
+        std::vector<std::unique_ptr<FilaAs>> files;
+        Boto btAssigna { "+ Assigna", std::nullopt, Boto::Estil::Secundari };
+        juce::Rectangle<int> ona, zonaFiles;
+        std::string signatura;
+    };
+
+    // ---------------------------------------------------------------------------------------------
     class PanellEvolve : public juce::Component, private juce::Timer, public OrigenPresets
     {
     public:
@@ -263,11 +807,18 @@ namespace
                 addAndMakeVisible (*pom);
                 poms.push_back ({ p, std::move (pom) });
             }
+            // 1.14: SIMPLE / ADVANCED
+            addAndMakeVisible (segVista);
+            segVista.setTooltip ("SIMPLE: el pom gran. ADVANCED: cada mòdul, l'ordre de la cadena, la matriu d'Evolution i els LFO."_ca);
+            segVista.onCanvi = [this] (int k) { ev->posa (Vista, (float) k); canviaVista (true); };
+            addChildComponent (segPest);
+            segPest.onCanvi = [this] (int) { mostraPestanya(); };
             setSize (900, 640);
+            canviaVista (false);
             refresca();
             startTimerHz (30);
         }
-        ~PanellEvolve() override { stopTimer(); }
+        ~PanellEvolve() override { stopTimer(); ev->posaSolo (-1); }   // el solo no es queda mai encès sense la finestra
 
         void refresca()
         {
@@ -278,6 +829,11 @@ namespace
             btCat.setButtonText (cat.isEmpty() ? "Totes"_ca : cat);
             btHold.setToggleState (ev->valor (Hold) > 0.5f, juce::dontSendNotification);
             for (auto& [p, pom] : poms) pom->setValor (ev->parametre (p), true);
+            segVista.setTriat (avancat() ? 1 : 0);
+            if (avancat() != vistaAra) canviaVista (false);
+            if (editor != nullptr) editor->refresca();
+            if (matriu != nullptr) matriu->refresca();
+            for (auto& l : lfos) if (l != nullptr) l->refresca();
             vist = ev->estat();
             repaint();
         }
@@ -330,6 +886,7 @@ namespace
             // la cadena de mòduls
             const auto o = ev->ordre();
             const float so = ev->valor (Hold) > 0.5f ? ev->mesures().evolution.load() : ev->valor (Evolution);
+            if (avancat()) { pintaCadena (g, o); return; }
             for (int k = 0; k < numModuls; ++k)
             {
                 const int m = o[(size_t) k];
@@ -364,7 +921,7 @@ namespace
                 // què fa ara
                 g.setColour (tema::suau);
                 g.setFont (dibuix::lletra (11.0f));
-                g.drawText (resum (m, so), in.removeFromTop (16.0f), juce::Justification::centredLeft);
+                g.drawFittedText (resum (m, so), in.removeFromTop (16.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
                 const float ent = entradaModul (*ev, m);
                 g.drawText (! on ? "Apagat"_ca : ent < 0.0f ? "No entra amb Evolution"_ca : "Entra al "_ca + juce::String (juce::roundToInt (ent)) + " %",
                             in.removeFromTop (16.0f), juce::Justification::centredLeft);
@@ -393,6 +950,8 @@ namespace
             btReset.setBounds (dalt.removeFromRight (76));
             dalt.removeFromRight (6);
             btAtzar.setBounds (dalt.removeFromRight (110));
+            dalt.removeFromRight (10);
+            segVista.setBounds (dalt.removeFromRight (180));
             {
                 auto pr = r.removeFromTop (36).reduced (14, 4);
                 btCat.setBounds (pr.removeFromLeft (130));
@@ -407,11 +966,49 @@ namespace
             }
             if (navegador != nullptr) navegador->setBounds (getLocalBounds());
             r.reduce (14, 8);
+            auto pom = [&] (int p) -> Pom* { for (auto& [q, x] : poms) if (q == p) return x.get(); return nullptr; };
+            if (avancat())
+            {
+                // ADVANCED: la cadena a l'esquerra, el mòdul triat al mig (i a sota, la matriu o els LFO), el pom a la dreta
+                auto esq = r.removeFromLeft (220);
+                r.removeFromLeft (10);
+                auto dre = r.removeFromRight (210);
+                r.removeFromRight (10);
+                zonaCadena = esq;
+                const int hf = juce::jmin (52, (esq.getHeight() - 30) / numModuls);
+                esq.removeFromTop (22);
+                for (int k = 0; k < numModuls; ++k)
+                {
+                    files[(size_t) k] = esq.removeFromTop (hf).withTrimmedBottom (4);
+                    leds[(size_t) k] = juce::Rectangle<int> (12, 12).withCentre ({ files[(size_t) k].getX() + 26, files[(size_t) k].getY() + 15 });
+                    solos[(size_t) k] = juce::Rectangle<int> (22, 18).withPosition (files[(size_t) k].getRight() - 28, files[(size_t) k].getY() + 6);
+                }
+                dial.setBounds (dre.removeFromTop (juce::jmin (210, dre.getWidth())));
+                auto fp = dre.removeFromTop (96);
+                const int w3 = fp.getWidth() / 3;
+                pom (Entrada)->setBounds (fp.removeFromLeft (w3));
+                pom (DryWet)->setBounds (fp.removeFromLeft (w3));
+                pom (Sortida)->setBounds (fp);
+                dre.removeFromTop (8);
+                auto m = dre.removeFromTop (juce::jmin (140, dre.getHeight() - 20)).withSizeKeepingCentre (60, juce::jmin (140, dre.getHeight() - 20));
+                mesIn = m.removeFromLeft (24);
+                mesOut = m.removeFromRight (24);
+                if (editor != nullptr) editor->setBounds (r.removeFromTop (juce::jlimit (150, 250, r.getHeight() * 36 / 100)));
+                r.removeFromTop (8);
+                segPest.setBounds (r.removeFromTop (28).withWidth (260));
+                r.removeFromTop (6);
+                if (matriu != nullptr) matriu->setBounds (r);
+                const int hl = r.getHeight() / 2;
+                if (lfos[0] != nullptr) lfos[0]->setBounds (r.withHeight (hl - 4));
+                if (lfos[1] != nullptr) lfos[1]->setBounds (r.withTrimmedTop (hl + 4));
+                zonaAjuda = {};
+                return;
+            }
             zonaAjuda = r.removeFromBottom (20);
             // la cadena, a baix
             auto cad = r.removeFromBottom (juce::jlimit (84, 120, r.getHeight() / 5));
             r.removeFromBottom (8);
-            const int gap = 22, w = (cad.getWidth() - gap * (numModuls - 1)) / numModuls;
+            const int gap = 14, w = (cad.getWidth() - gap * (numModuls - 1)) / numModuls;
             for (int k = 0; k < numModuls; ++k)
             {
                 targetes[(size_t) k] = cad.removeFromLeft (w);
@@ -421,7 +1018,6 @@ namespace
             // columnes dels costats i el pom al mig
             const int col = juce::jlimit (110, 170, r.getWidth() / 6);
             auto esq = r.removeFromLeft (col), dre = r.removeFromRight (col);
-            auto pom = [&] (int p) -> Pom* { for (auto& [q, x] : poms) if (q == p) return x.get(); return nullptr; };
             const int hp = juce::jmin (120, esq.getHeight() / 2 - 10);
             pom (Entrada)->setBounds (esq.removeFromTop (hp));
             esq.removeFromTop (10);
@@ -437,14 +1033,56 @@ namespace
         void mouseDown (const juce::MouseEvent& e) override
         {
             const auto o = ev->ordre();
+            arrossega = desti = -1;
             for (int k = 0; k < numModuls; ++k)
+            {
+                const int mod = o[(size_t) k];
                 if (leds[(size_t) k].expanded (6).contains (e.getPosition()))
                 {
-                    const int p = paramOn (o[(size_t) k]);
+                    const int p = paramOn (mod);
                     ev->posa (p, ev->valor (p) > 0.5f ? 0.0f : 1.0f);
                     refresca();
                     return;
                 }
+                if (! avancat()) continue;
+                if (solos[(size_t) k].contains (e.getPosition()))
+                {
+                    ev->posaSolo (ev->soloActual() == mod ? -1 : mod);
+                    repaint();
+                    return;
+                }
+                if (files[(size_t) k].contains (e.getPosition()))
+                {
+                    if (triat != mod) { triat = mod; triaModul(); }
+                    arrossega = k;
+                    return;
+                }
+            }
+        }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (arrossega < 0 || ! avancat()) return;
+            desti = -1;
+            for (int k = 0; k < numModuls; ++k)
+                if (e.y < files[(size_t) k].getCentreY()) { desti = k; break; }
+            if (desti < 0) desti = numModuls;
+            repaint (zonaCadena);
+        }
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (arrossega >= 0 && desti >= 0 && desti != arrossega && desti != arrossega + 1)
+            {
+                auto o = ev->ordre();
+                std::vector<int> v (o.begin(), o.end());
+                const int m = v[(size_t) arrossega];
+                v.erase (v.begin() + arrossega);
+                v.insert (v.begin() + (desti > arrossega ? desti - 1 : desti), m);
+                for (int k = 0; k < numModuls; ++k) o[(size_t) k] = v[(size_t) k];
+                ev->posaOrdre (o);
+                refresca();
+            }
+            arrossega = desti = -1;
+            repaint (zonaCadena);
         }
 
         bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
@@ -460,6 +1098,11 @@ namespace
                                      + (v (FilLfo) > 0.5f ? " · LFO "_ca + u8 (nomDivisio ((int) v (FilLfoDiv))) : juce::String());
                 case MPumper: return u8 (nomModePumper ((int) v (PmpMode))) + " · "_ca + u8 (nomDivisio ((int) v (PmpDiv)))
                                      + ((int) v (PmpMode) == 2 ? " · "_ca + u8 (nomPatro ((int) v (PmpPatro))) : juce::String());
+                case MReverser: return u8 (nomModeReverser ((int) v (RevMode))) + " · "_ca + u8 (nomDivisio ((int) v (RevDiv)))
+                                       + ((int) v (RevPitch) > 0 ? " · "_ca + u8 (textValor (RevPitch, v (RevPitch))) : juce::String());
+                case MPitch: return u8 (nomModePitch ((int) v (PitMode))) + " · "_ca + u8 (textValor (PitSemi1, v (PitSemi1)))
+                                    + (v (PitNiv2) > 0.5f ? " / "_ca + u8 (textValor (PitSemi2, v (PitSemi2))) : juce::String());
+                case MScatter: return u8 (nomDivisio ((int) v (ScaDiv))) + " · "_ca + juce::String (juce::roundToInt (v (ScaDensity))) + " % trencat"_ca;
                 default: return u8 (nomTipusShimmer ((int) v (ShmTipus))) + " " + u8 (textValor (ShmPitch, v (ShmPitch))) + " · "_ca + u8 (textValor (ShmDecay, v (ShmDecay)))
                                 + (v (ShmFreeze) > 0.5f ? " · FREEZE"_ca : juce::String());
             }
@@ -471,8 +1114,110 @@ namespace
             dial.repaint();
             repaint (mesIn.getUnion (mesOut).expanded (40, 20));
             for (auto& t : targetes) repaint (t);
+            if (avancat())
+            {
+                repaint (zonaCadena);
+                if (matriu != nullptr && matriu->isVisible()) matriu->refresca();
+                for (auto& l : lfos) if (l != nullptr && l->isVisible()) l->refresca();
+            }
             const auto ara = ev->estat();
             if (ara != vist) refresca();   // automatització o desfer
+        }
+
+        // ---- 1.14: ADVANCED ----
+        bool avancat() const { return ev->valor (Vista) > 0.5f; }
+        void canviaVista (bool perUsuari)
+        {
+            vistaAra = avancat();
+            for (int i = 0; i < numModuls; ++i) targetes[(size_t) i] = files[(size_t) i] = {};
+            if (vistaAra)
+            {
+                if (matriu == nullptr) { matriu = std::make_unique<EditorMatriu> (ev); addChildComponent (*matriu); }
+                for (int k = 0; k < numLfos; ++k) if (lfos[(size_t) k] == nullptr) { lfos[(size_t) k] = std::make_unique<EditorLfo> (ev, k); addChildComponent (*lfos[(size_t) k]); }
+                triaModul();
+                segPest.setVisible (true);
+                mostraPestanya();
+                if (perUsuari)
+                    if (auto* w = findParentComponentOfClass<juce::DocumentWindow>(); w != nullptr && (w->getWidth() < 1180 || w->getHeight() < 820))
+                        w->setSize (juce::jmax (1180, w->getWidth()), juce::jmax (820, w->getHeight()));
+            }
+            else
+            {
+                if (editor != nullptr) editor->setVisible (false);
+                if (matriu != nullptr) matriu->setVisible (false);
+                for (auto& l : lfos) if (l != nullptr) l->setVisible (false);
+                segPest.setVisible (false);
+                ev->posaSolo (-1);
+            }
+            resized();
+            repaint();
+        }
+        void triaModul()
+        {
+            editor = std::make_unique<EditorModul> (ev, triat);
+            addAndMakeVisible (*editor);
+            editor->refresca();
+            resized();
+            repaint (zonaCadena);
+        }
+        void mostraPestanya()
+        {
+            const bool m = segPest.getTriat() == 0;
+            if (matriu != nullptr) matriu->setVisible (avancat() && m);
+            for (auto& l : lfos) if (l != nullptr) l->setVisible (avancat() && ! m);
+        }
+        void pintaCadena (juce::Graphics& g, const std::array<int, numModuls>& o)
+        {
+            g.setColour (tema::suau);
+            g.setFont (dibuix::lletra (11.0f, true));
+            g.drawText ("CADENA (arrossega per canviar l'ordre)"_ca, zonaCadena.withHeight (18), juce::Justification::centredLeft);
+            const int solo1 = ev->soloActual();
+            for (int k = 0; k < numModuls; ++k)
+            {
+                const int m = o[(size_t) k];
+                const auto r = files[(size_t) k].toFloat();
+                const bool on = ev->valor (paramOn (m)) > 0.5f;
+                const float act = ev->mesures().activitat[(size_t) m].load();
+                const auto col = colorModul (m);
+                g.setColour (m == triat ? juce::Colour (0xff2a2a33) : juce::Colour (0xff1c1c22));
+                g.fillRoundedRectangle (r, 6.0f);
+                g.setColour (m == triat ? col : tema::linia);
+                g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, m == triat ? 1.5f : 1.0f);
+                // agafador
+                g.setColour (tema::linia2);
+                for (int j = 0; j < 3; ++j) g.fillRect (r.getX() + 7.0f, r.getY() + 10.0f + j * 4.0f, 8.0f, 1.5f);
+                const auto led = leds[(size_t) k].toFloat();
+                g.setColour (on ? col : juce::Colour (0xff3a3a42));
+                g.fillEllipse (led);
+                g.setColour (on ? tema::text : tema::suau);
+                g.setFont (dibuix::lletra (12.5f, true));
+                g.drawText (nomModul (m), r.withTrimmedLeft (40.0f).withHeight (30.0f), juce::Justification::centredLeft);
+                // solo
+                const auto so = solos[(size_t) k].toFloat();
+                g.setColour (solo1 == m ? tema::guitarra : juce::Colour (0xff0e0e12));
+                g.fillRoundedRectangle (so, 3.0f);
+                g.setColour (solo1 == m ? juce::Colours::black : tema::suau);
+                g.setFont (dibuix::lletra (11.0f, true));
+                g.drawText ("S", so, juce::Justification::centred);
+                // activitat
+                auto b = r.reduced (40.0f, 0.0f).withY (r.getBottom() - 9.0f).withHeight (4.0f);
+                g.setColour (juce::Colour (0xff0e0e12));
+                g.fillRoundedRectangle (b, 2.0f);
+                g.setColour (col);
+                g.fillRoundedRectangle (b.withWidth (b.getWidth() * juce::jlimit (0.0f, 1.0f, act)), 2.0f);
+            }
+            if (arrossega >= 0 && desti >= 0)
+            {
+                const int y = desti < numModuls ? files[(size_t) desti].getY() - 2 : files[(size_t) numModuls - 1].getBottom() + 1;
+                g.setColour (tema::accent);
+                g.fillRect (zonaCadena.getX(), y - 1, zonaCadena.getWidth(), 3);
+            }
+            if (solo1 >= 0)
+            {
+                g.setColour (tema::guitarra);
+                g.setFont (dibuix::lletra (11.0f, true));
+                g.drawText ("SOLO: només sona "_ca + juce::String (nomModul (solo1)), zonaCadena.withTop (files[(size_t) numModuls - 1].getBottom() + 6).withHeight (16), juce::Justification::centredLeft);
+            }
         }
 
         // ---- A/B ----
@@ -646,7 +1391,14 @@ namespace
         std::array<std::string, 2> slots;
         std::array<juce::String, 2> noms;
         std::vector<std::pair<int, std::unique_ptr<Pom>>> poms;
-        std::array<juce::Rectangle<int>, numModuls> targetes, leds;
+        std::array<juce::Rectangle<int>, numModuls> targetes, leds, files, solos;
+        Segmentat segVista { { "SIMPLE", "ADVANCED" } }, segPest { { "MATRIU D'EVOLUTION"_ca, "LFO 1 · LFO 2"_ca } };
+        int triat = MScreamer, arrossega = -1, desti = -1;
+        bool vistaAra = false;
+        std::unique_ptr<EditorModul> editor;
+        std::unique_ptr<EditorMatriu> matriu;
+        std::array<std::unique_ptr<EditorLfo>, numLfos> lfos;
+        juce::Rectangle<int> zonaCadena;
         juce::Rectangle<int> mesIn, mesOut, zonaAjuda;
         std::string vist;
         juce::TooltipWindow tips { this, 500 };
