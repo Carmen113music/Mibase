@@ -33,7 +33,13 @@ namespace mibase::limitador
     const InfoParam& info (int p);
     std::string textValor (int p, float v);
 
-    constexpr double lookaheadMs = 5.0;   // la latència (fixa) del limitador
+    constexpr double lookaheadMs = 5.0;   // la latència (fixa) del limitador: mai més de 5 ms (vegeu margeLatencia)
+    /** 1.12: la latència es queda 12 mostres per sota de 5 ms perquè, amb el Clipper (12 mostres) davant, el Mastering Studio
+        sencer no passi del llindar de «Retard mínim» (5 ms) a cap freqüència de mostreig. */
+    constexpr int margeLatencia = 12;
+    /** 1.12: el true peak es busca amb el mateix sobremostreig x4 que el mesurador (FIR de 4 × 12): el pic que troba
+        correspon a unes 6 mostres enrere, i el guany s'avança aquestes mostres. */
+    constexpr int tapsTp = 12, retardTp = 6;
 
     struct Preset { std::string nom, categoria, descripcio, estat; };
     const std::vector<std::string>& categories();
@@ -108,7 +114,9 @@ namespace mibase::limitador
         std::vector<float> gDelay[2];  // retard del guany (perquè el so i el guany quadrin amb qualsevol estil)
         double suma[2] {};
         float relEnv[2] { 1.0f, 1.0f };
-        float hist4[2][3] {};          // les darreres mostres (true peak aproximat)
+        float histTp[2][tapsTp] {};    // 1.12: les darreres mostres (true peak amb el FIR x4)
+        int posTp = 0;
+        std::array<std::array<float, tapsTp>, 4> firTp {};
         int w = 0;
         float sGain = 1.0f, sCeil = 1.0f, grMitja = 0.0f;
         int finAnterior = -1;

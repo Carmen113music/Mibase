@@ -57,7 +57,26 @@ namespace mibase::diagnosi
         return e;
     }
 
+    namespace
+    {
+        float referenciaCrua (int b);
+    }
+
     float referencia (int b)
+    {
+        // 1.12: relativa a la mitjana de 500 Hz–2 kHz, igual que la corba del mix (abans era relativa a 1 kHz i hi havia 0,4 dB de biaix)
+        static const float mitjana = []
+        {
+            float m = 0.0f;
+            for (int k = 12; k <= 18; ++k) m += referenciaCrua (k);
+            return m / 7.0f;
+        }();
+        return referenciaCrua (b) - mitjana;
+    }
+
+    namespace
+    {
+    float referenciaCrua (int b)
     {
         // forma mitjana orientativa d'un pop/rock d'avui (terços d'octava, relativa a 500 Hz–2 kHz)
         static const float pf[] = { 31.5f, 50.0f, 100.0f, 200.0f, 400.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 12500.0f, 16000.0f };
@@ -72,6 +91,7 @@ namespace mibase::diagnosi
                 return pd[k - 1] + t * (pd[k] - pd[k - 1]);
             }
         return pd[n - 1];
+    }
     }
 
     Analisi analitza (const float* L, const float* R, std::size_t n, double fs)
@@ -387,7 +407,7 @@ namespace mibase::diagnosi
         {
             Troballa t; t.mena = Mena::Preferencia; t.confianca = Confianca::Baixa;
             t.titol = "Mescla estreta";
-            t.on = "El Side és a " + num (mix.sideMidDb) + " dB del Mid.";
+            t.on = mix.sideMidDb < -60.0f ? std::string ("La mescla és mono (no hi ha res als costats).") : "El Side és a " + num (mix.sideMidDb) + " dB del Mid.";
             t.perque = "Pot sonar petita, però és una decisió de mescla i de gust.";
             t.eina = "Estèreo (amplada dels aguts)";
             t.canvi = "+15 % d'amplada als aguts.";
@@ -438,7 +458,7 @@ namespace mibase::diagnosi
                     t.on = "Integrated " + num (m.loud.integrated) + " LUFS; el perfil " + ctx.perfil + " vol " + num (ctx.lufsObjectiu, 0) + ".";
                     t.perque = d > 0 ? "Les plataformes l'abaixaran igualment: només hi perds dinàmica." : "Sonarà més fluix que altres cançons del mateix estil.";
                     t.eina = "Limitador";
-                    t.canvi = (d > 0 ? "Baixa " : "Puja ") + num (std::abs (d)) + " dB el guany del limitador (després, comprova-ho amb «Ajusta al perfil» mentre sona).";
+                    t.canvi = (d > 0 ? "Baixa " : "Puja ") + num (std::abs (d)) + " dB el volum: el guany del limitador i, si ja és a 0, l'Entrada del rack (després, comprova-ho amb «Ajusta al perfil» mentre sona).";
                     t.objectiu = "Arribar al perfil triat.";
                     t.accio = { Accio::Loudness, 0, -d };
                     t.accio.sostre = ctx.truePeakObjectiu;
@@ -601,6 +621,7 @@ namespace mibase::diagnosi
             q->posaBanda (o, b);
         }
         r.posaOn (i, true);
+        r.reancoraMacros();   // 1.12
         r.marcaModificat();
     }
 
@@ -631,7 +652,8 @@ namespace mibase::diagnosi
                 auto* q = eqMaster (r);
                 if (q == nullptr) return false;
                 int k = -1;
-                for (int i = 1; i < eq::maxBandes && k < 0; ++i)   // una campana que ja hi és, a menys de mitja octava
+                // 1.12: només les bandes de l'assistent (de la 6 en amunt): les 0–5 són les del preset i els macros hi van enllaçats
+                for (int i = 6; i < eq::maxBandes && k < 0; ++i)   // una campana que ja hi és, a menys de mitja octava
                 {
                     const auto b = q->banda (i);
                     if (b.usada && b.tipus == eq::Bell && std::abs (std::log2 (b.freq / a.freq)) < 0.5f) k = i;
@@ -684,13 +706,13 @@ namespace mibase::diagnosi
             {
                 if (rack::limitadorFinal (r) < 0) r.afegeix ("limitm", troba (r, "loudness") >= 0 ? troba (r, "loudness") : -1);
                 if (rack::limitadorFinal (r) < 0) return false;
-                if (std::abs (a.guany) > 0.01f) rack::posaGuanyLimitador (r, rack::guanyLimitador (r) + a.guany);
+                if (std::abs (a.guany) > 0.01f) rack::posaGuanyTotal (r, rack::guanyTotal (r) + a.guany);   // 1.12: també per abaixar
                 rack::posaSostre (r, a.sostre);
                 fet = true;
                 break;
             }
         }
-        if (fet) r.marcaModificat();
+        if (fet) { r.reancoraMacros(); r.marcaModificat(); }   // 1.12: que tocar un macro no desfaci el canvi
         return fet;
     }
 }

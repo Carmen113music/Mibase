@@ -269,6 +269,13 @@ namespace mibase::rack
         m.fx->prepara (fs, maxBloc);
         m.secL.assign ((size_t) maxBloc, 0.0f);
         m.secR.assign ((size_t) maxBloc, 0.0f);
+        // 1.12: retard del sec per a l'apagat dels mòduls amb latència (fins a 100 ms o el doble de la seva latència)
+        int mida = 1;
+        while (mida < std::max ((int) (0.1 * fs), 2 * std::max (0, m.fx->latencia())) + maxBloc) mida <<= 1;
+        m.retL.assign ((size_t) mida, 0.0f);
+        m.retR.assign ((size_t) mida, 0.0f);
+        m.retMascara = mida - 1;
+        m.retW = 0;
     }
 
     int Rack::latencia() const noexcept
@@ -279,7 +286,7 @@ namespace mibase::rack
         for (size_t i = 0; i < c->moduls.size(); ++i)
         {
             const auto& m = c->moduls[i];
-            if (! m->on.load (std::memory_order_relaxed)) continue;
+            // 1.12: un mòdul amb latència apagat també retarda (el sec), així la latència no salta en apagar-lo
             const int k = i < c->camins.size() ? c->camins[i] : 0;
             (k == 0 ? r : ret[k - 1]) += std::max (0, m->fx->latencia());
         }
@@ -311,8 +318,57 @@ namespace mibase::rack
     void Rack::aplica (Modul& m, float* L, float* R, int n) noexcept
     {
         const bool on = m.on.load (std::memory_order_relaxed);
+        // 1.12: un mòdul amb latència (Limitador, Clipper amb oversampling, Harmonitzador…) no es para mai: així,
+        // en tornar-lo a encendre, no comença buit (abans feia un clic) i la latència de la cadena no salta.
+        // Apagat, sona el sec retardat la mateixa estona; el pas d'un a l'altre és una fosa d'un bloc.
+        if (const int lat = m.fx->latencia(); lat > 0 && ! m.retL.empty() && ! m.secL.empty())
+        {
+            const float obj = on ? 1.0f : 0.0f;
+            double eIn = 0.0;
+            if (on) for (int i = 0; i < n; ++i) eIn += (double) L[i] * L[i] + (double) R[i] * R[i];
+            const int cap = (int) m.secL.size();
+            const int retard = std::min (lat, m.retMascara);
+            for (int ofs = 0; ofs < n; ofs += cap)
+            {
+                const int k = std::min (n - ofs, cap);
+                std::copy_n (L + ofs, k, m.secL.data());
+                std::copy_n (R + ofs, k, m.secR.data());
+                m.fx->processa (L + ofs, R + ofs, k);
+                for (int i = 0; i < k; ++i)   // el sec, retardat com el mòdul
+                {
+                    m.retL[(size_t) m.retW] = m.secL[(size_t) i];
+                    m.retR[(size_t) m.retW] = m.secR[(size_t) i];
+                    const int j = (m.retW - retard) & m.retMascara;
+                    m.secL[(size_t) i] = m.retL[(size_t) j];
+                    m.secR[(size_t) i] = m.retR[(size_t) j];
+                    m.retW = (m.retW + 1) & m.retMascara;
+                }
+                if (obj >= 1.0f && m.mixAnt >= 1.0f) continue;
+                const float g0 = m.mixAnt + (obj - m.mixAnt) * (float) ofs / (float) n;
+                const float g1 = m.mixAnt + (obj - m.mixAnt) * (float) (ofs + k) / (float) n;
+                const float dg = (g1 - g0) / (float) k;
+                float g = g0;
+                for (int i = 0; i < k; ++i)
+                {
+                    g += dg;
+                    L[ofs + i] = m.secL[(size_t) i] + (L[ofs + i] - m.secL[(size_t) i]) * g;
+                    R[ofs + i] = m.secR[(size_t) i] + (R[ofs + i] - m.secR[(size_t) i]) * g;
+                }
+            }
+            m.mixAnt = obj;
+            m.estavaOn = true;
+            if (on && eIn > 1.0e-9 * n)
+            {
+                double eOut = 0.0;
+                for (int i = 0; i < n; ++i) eOut += (double) L[i] * L[i] + (double) R[i] * R[i];
+                const float d = (float) std::clamp (10.0 * std::log10 (std::max (eOut, 1.0e-20) / eIn), -24.0, 24.0);
+                m.canviSuau += (d - m.canviSuau) * 0.05f;
+                m.canviDb.store (m.canviSuau, std::memory_order_relaxed);
+            }
+            else if (! on) { m.canviSuau = 0.0f; m.canviDb.store (0.0f, std::memory_order_relaxed); }
+            return;
+        }
         float objectiu = on ? std::clamp (m.mix.load (std::memory_order_relaxed), 0.0f, 1.0f) : 0.0f;
-        if (on && m.fx->latencia() > 0) objectiu = 1.0f;   // desfasat: sense barreja
         if (objectiu <= 0.0f && m.mixAnt <= 0.0f)
         {
             if (m.estavaOn) { m.fx->buida(); m.estavaOn = false; }   // apagat del tot: la cua vella, fora
@@ -389,7 +445,7 @@ namespace mibase::rack
             bool hiHa = false;
             int latRet[maxRetorns] {}, maxLat = 0;
             for (size_t i = 0; i < nm; ++i)
-                if (camiDe (i) > 0 && c->moduls[i]->on.load (std::memory_order_relaxed))
+                if (camiDe (i) > 0)   // 1.12: encès o no (vegeu latencia())
                     latRet[camiDe (i) - 1] += std::max (0, c->moduls[i]->fx->latencia());
             for (int k = 0; k < maxRetorns; ++k)
                 if (c->retorns[(size_t) k].actiu && ! retL[(size_t) k].empty()) { hiHa = true; maxLat = std::max (maxLat, latRet[k]); }
@@ -548,11 +604,13 @@ namespace mibase::rack
 
     void Rack::posaReferencia (std::shared_ptr<const Referencia> r)
     {
+        // 1.12: la vella es guarda fins que el fil d'àudio segur que ja no la llegeix (dos blocs després), com les cadenes
+        auto vella = refActual;
         refActual = r;
-        if (r != nullptr) refsVives.push_back (r);
         refAudio.store (r.get(), std::memory_order_release);
         demanaRefInici.store (true);
-        while (refsVives.size() > 3) refsVives.erase (refsVives.begin());   // les velles: ja no les llegeix ningú
+        if (vella != nullptr) refsVives.push_back ({ vella, epoca.load (std::memory_order_acquire) });
+        recull();
     }
 
     // ---- paràmetres ----
@@ -659,6 +717,7 @@ namespace mibase::rack
     {
         const auto e = epoca.load (std::memory_order_acquire);
         guardades.erase (std::remove_if (guardades.begin(), guardades.end(), [e] (const Guardada& g) { return e >= g.retirada + 2; }), guardades.end());
+        refsVives.erase (std::remove_if (refsVives.begin(), refsVives.end(), [e] (const RefRetirada& g) { return e >= g.retirada + 2; }), refsVives.end());   // 1.12
     }
 
     int Rack::afegeix (const std::string& clau, int pos, int cami)
@@ -782,7 +841,12 @@ namespace mibase::rack
 
     void Rack::buida() noexcept
     {
-        for (auto& m : ui->moduls) m->fx->buida();
+        for (auto& m : ui->moduls)
+        {
+            m->fx->buida();
+            std::fill (m->retL.begin(), m->retL.end(), 0.0f);   // 1.12
+            std::fill (m->retR.begin(), m->retR.end(), 0.0f);
+        }
         liniaPrincipal.buida();
         for (auto& l : liniesRetorn) l.buida();
         liniaSec.buida();
@@ -914,5 +978,114 @@ namespace mibase::rack
             publica (c);
         }
         catch (...) {}
+    }
+
+    // ---- 1.12 ----
+    void Rack::posaEstatSuau (const std::string& s)
+    {
+        Rack t (tipusR);
+        t.posaTempo (tempo);
+        t.posaEstat (s);
+        const int n = t.numModuls();
+        bool igual = n == numModuls();
+        for (int i = 0; igual && i < n; ++i)
+            igual = t.modul (i)->clau == modul (i)->clau && t.cami (i) == cami (i);
+        if (! igual) { posaEstat (s); return; }
+        for (int i = 0; i < n; ++i)
+        {
+            auto* a = modul (i);
+            const auto* b = t.modul (i);
+            const auto e = b->fx->estat();
+            if (a->fx->estat() != e) a->fx->posaEstat (e);
+            a->on.store (b->on.load());
+            a->mix.store (b->mix.load());
+        }
+        for (int p = 0; p < numParams; ++p) par[(size_t) p].store (t.par[(size_t) p].load());
+        noms = t.noms;
+        presetNom = t.presetNom;
+        presetMod = t.presetMod;
+        if (esMaster())
+        {
+            igualatAB.store (t.igualatAB.load());
+            objectiuLufs.store (t.objectiuLufs.load());
+            lufsPers.store (t.lufsPers.load());
+            if (! t.referencies.empty()) { referencies = t.referencies; refActiva = t.refActiva; refInici.store (t.refInici.load()); igualaRef.store (t.igualaRef.load()); }
+        }
+        if (t.ui->enllacos != ui->enllacos || t.ui->retorns != ui->retorns)
+        {
+            auto c = copia();
+            c->enllacos = t.ui->enllacos;
+            c->retorns = t.ui->retorns;
+            publica (c);
+        }
+        else ++canvis;
+    }
+
+    void Rack::reancoraMacros()
+    {
+        auto c = copia();
+        bool canvi = false;
+        for (auto& e : c->enllacos)
+        {
+            float p;
+            if (e.modul == -1) { if (e.param < Envia1 || e.param >= numParams) continue; p = parametre (e.param); }
+            else
+            {
+                if (e.modul < 0 || e.modul >= (int) c->moduls.size()) continue;
+                const auto& fx = *c->moduls[(size_t) e.modul]->fx;
+                if (e.param < 0 || e.param >= fx.numParametres()) continue;
+                p = fx.parametre (e.param);
+            }
+            const float v = std::clamp (par[(size_t) (Macro1 + e.macro)].load (std::memory_order_relaxed), 0.0f, 1.0f);
+            const float ara = e.mn + (e.mx - e.mn) * v;
+            if (std::abs (ara - p) < 1.0e-4f) continue;
+            // el mateix recorregut, desplaçat perquè amb el macro on és el paràmetre quedi on és ara
+            float a = e.mn + (p - ara), b = e.mx + (p - ara);
+            if (a < 0.0f || a > 1.0f)
+            {
+                a = std::clamp (a, 0.0f, 1.0f);
+                if (v > 1.0e-3f) b = a + (p - a) / v;
+            }
+            if (b < 0.0f || b > 1.0f)
+            {
+                b = std::clamp (b, 0.0f, 1.0f);
+                if (v < 1.0f - 1.0e-3f) a = (p - b * v) / (1.0f - v);
+            }
+            e.mn = std::clamp (a, 0.0f, 1.0f);
+            e.mx = std::clamp (b, 0.0f, 1.0f);
+            canvi = true;
+        }
+        if (canvi) publica (c);
+    }
+
+    void apagaEscoltes (EfecteIntern& fx)
+    {
+        if (auto* r = dynamic_cast<Rack*> (&fx))
+        {
+            for (int i = 0; i < r->numModuls(); ++i) apagaEscoltes (*r->modul (i)->fx);
+            return;
+        }
+        if (auto* l = dynamic_cast<limitador::Limitador*> (&fx)) l->posa (limitador::Igualat, 0.0f);
+        else if (auto* e = dynamic_cast<estereo::Estereo*> (&fx)) e->posa (estereo::Mono, 0.0f);
+        else if (auto* m = dynamic_cast<multibanda::Multibanda*> (&fx)) { for (int b = 0; b < multibanda::maxBandes; ++b) m->posa (multibanda::index (b, multibanda::Solo), 0.0f); }
+        else if (auto* d = dynamic_cast<dinamica::Dinamica*> (&fx)) d->posa (dinamica::Escolta, 0.0f);
+    }
+
+    bool escoltaEncesa (const EfecteIntern& fx)
+    {
+        if (auto* r = dynamic_cast<const Rack*> (&fx))
+        {
+            for (int i = 0; i < r->numModuls(); ++i) if (escoltaEncesa (*r->modul (i)->fx)) return true;
+            return false;
+        }
+        if (auto* l = dynamic_cast<const limitador::Limitador*> (&fx)) return l->valor (limitador::Igualat) > 0.5f;
+        if (auto* e = dynamic_cast<const estereo::Estereo*> (&fx)) return e->valor (estereo::Mono) > 0.5f;
+        if (auto* m = dynamic_cast<const multibanda::Multibanda*> (&fx))
+        {
+            for (int b = 0; b < m->numBandes(); ++b) if (m->valor (multibanda::index (b, multibanda::Solo)) > 0.5f) return true;
+            return false;
+        }
+        if (auto* d = dynamic_cast<const dinamica::Dinamica*> (&fx)) return d->valor (dinamica::Escolta) > 0.5f;
+        return false;
     }
 }
