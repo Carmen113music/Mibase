@@ -194,6 +194,13 @@ namespace mibase
         int getNuclis() const noexcept { return nuclis.load (std::memory_order_relaxed); }
         /** 1.10: quants fils de treball pot tenir (els fils del processador menys un, fins a 15). */
         static int maxAjudants() noexcept;
+        /** 1.11: amb el botó encès, els altres nuclis només s'hi connecten quan la feina de les pistes passa d'aquesta part
+            del temps de cada bloc (0.30 = 30 %); es desconnecten quan baixa del 60 % d'aquest llindar. 0 = sempre. */
+        void setLlindarNuclis (float x) noexcept { llindarNuclis.store (x, std::memory_order_relaxed); }
+        /** 1.11: per al diagnòstic: si ara es reparteix i quina part del bloc fa servir la feina de les pistes (el pic,
+            que baixa a poc a poc). */
+        std::atomic<bool> repartintAra { false };
+        std::atomic<float> carregaPistes { 0.0f };
         /** 1.10: si no és nul, cada fil de treball el crida en començar (el programa hi posa la prioritat de l'àudio). */
         static inline void (*preparaFilTreballador)() = nullptr;
         /** 0.64: per trobar on es perd el so (el fil d'àudio escriu, la interfície llegeix). Els «pic» baixen sols
@@ -296,6 +303,9 @@ namespace mibase
         std::unique_ptr<Equip> equipViu;
         std::atomic<Equip*> equip { nullptr };
         std::atomic<int> nuclis { 1 };
+        std::atomic<float> llindarNuclis { 0.30f };   // 1.11
+        float carregaPic = 0.0f;                      // 1.11: només el fil d'àudio
+        bool repartint = false;
         std::vector<int> llistaApart;     // les pistes «a part» d'aquest bloc
         struct Bloc { const Pla* pla = nullptr; int n = 0, ns = 0, llindar = 0, numDirecte = 0; bool reproduint = false, minim = false;
                       const EventDirecte* directe = nullptr; } bloc;

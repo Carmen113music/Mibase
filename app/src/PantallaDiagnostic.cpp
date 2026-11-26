@@ -273,7 +273,7 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
     addAndMakeVisible (btNuclis);
     btNuclis.setClickingTogglesState (true);
     btNuclis.setToggleState (servei.getDiversosNuclis(), juce::dontSendNotification);
-    btNuclis.setTooltip ("Reparteix el càlcul de les pistes entre els nuclis del processador. El so és el mateix; "_ca
+    btNuclis.setTooltip ("Reparteix el càlcul de les pistes entre els nuclis del processador quan cal (Mibase ho decideix sol). El so és el mateix; "_ca
                          "si dona problemes, apaga'l i tot torna a anar com abans."_ca);
     btNuclis.onClick = [this]
     {
@@ -827,6 +827,11 @@ void PantallaDiagnostic::actualitzaEstat()
             text << "\nPitjor bloc: "_ca << juce::String (pitjor, 2) << " ms de " << juce::String (marge, 2) << " ms ("
                  << juce::String ((int) std::lround (100.0f * pitjor / marge)) << " %)  ·  al límit: "_ca
                  << (int) servei.blocsAlLimit.load() << "  ·  tard: " << (int) servei.blocsTard.load();
+        // 1.11: què decideix Mibase amb els nuclis
+        const auto& mes = servei.estudi().mesclador;
+        text << "\nPistes: " << juce::String ((int) std::lround (100.0f * mes.carregaPistes.load())) << " % del bloc  ·  "
+             << (mes.getNuclis() <= 1 ? juce::String ("un nucli") : mes.repartintAra.load() ? "repartint entre "_ca + juce::String (mes.getNuclis()) + " nuclis"
+                                                                                           : juce::String ("un nucli (no cal repartir)"));
     }
     etEstat.setText (text, juce::dontSendNotification);
 
@@ -929,7 +934,9 @@ juce::String PantallaDiagnostic::textDiagnostic()
           << "  ·  Blocs massa grans: "_ca << servei.motor().blocsMassaGrans.load() << "\n"
           << "Nuclis per a les pistes: "_ca << servei.estudi().mesclador.getNuclis() << " (diversos nuclis: "_ca
           << (servei.getDiversosNuclis() ? "encès"_ca : "apagat") << "; processador amb "_ca
-          << juce::SystemStats::getNumPhysicalCpus() << " nuclis físics)\n"
+          << juce::SystemStats::getNumPhysicalCpus() << " nuclis físics)  ·  ara: "_ca
+          << (servei.estudi().mesclador.repartintAra.load() ? "repartint"_ca : "un nucli")
+          << "  ·  feina de les pistes: "_ca << juce::String ((int) std::lround (100.0f * servei.estudi().mesclador.carregaPistes.load())) << " % del bloc\n"
           << "Pitjor bloc des que s'ha engegat: "_ca << juce::String (servei.pitjorBlocTotalMs.load(), 2) << " ms de "
           << juce::String (servei.margeBlocMs.load(), 2) << " ms  ·  al límit (més del 80 %): "_ca << (int) servei.blocsAlLimit.load()
           << "  ·  tard (clic segur): "_ca << (int) servei.blocsTard.load() << "\n"

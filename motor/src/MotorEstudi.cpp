@@ -1,5 +1,6 @@
 #include "mibase/MotorEstudi.h"
 
+#include <chrono>
 #include <semaphore>
 #include <thread>
 #if defined (__x86_64__) || defined (_M_X64) || defined (__i386__) || defined (_M_IX86)
@@ -902,6 +903,7 @@ namespace mibase
             for (auto& t : treballadors) t.join();
         }
         int mida() const noexcept { return (int) treballadors.size(); }
+        std::atomic<long long> treballNs { 0 };   // 1.11: la suma del temps de totes les pistes (de tots els fils)
 
         /** Fil d'àudio: calcula les pistes de la llista amb l'ajuda de «ajudants» fils. Torna quan totes estan fetes. */
         void fes (const int* llista, int total, int ajudants) noexcept
@@ -922,7 +924,10 @@ namespace mibase
             const int total = (int) ((v >> 32) & 0xFFFF), idx = (int) (v & 0xFFFFFFFFull);
             if (idx >= total) return false;
             const auto& b = mes.bloc;
+            const auto t0 = std::chrono::steady_clock::now();
             mes.calculaApart (f, *b.pla, llistaAra[idx], b.n, b.ns, b.reproduint, b.minim, b.llindar, b.directe, b.numDirecte);
+            treballNs.fetch_add ((long long) std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - t0).count(),
+                                 std::memory_order_relaxed);
             fets.fetch_add (1, std::memory_order_acq_rel);
             return true;
         }
@@ -1170,14 +1175,31 @@ namespace mibase
                 if (feines[(size_t) q].apart) llistaApart[(size_t) numApart++] = q;
             const int nc = nuclis.load (std::memory_order_acquire);
             Equip* eq = nc > 1 ? equip.load (std::memory_order_acquire) : nullptr;
-            if (eq != nullptr && numApart >= 2)
+            long long treball = 0;   // 1.11: quant temps (de càlcul) han fet servir aquestes pistes
+            if (eq != nullptr && numApart >= 2 && repartint)
             {
                 bloc = { &pla, n, ns, llindar, numDirecte, reproduint, minim, directe };
+                eq->treballNs.store (0, std::memory_order_relaxed);
                 eq->fes (llistaApart.data(), numApart, std::min ({ nc - 1, eq->mida(), numApart - 1 }));
+                treball = eq->treballNs.load (std::memory_order_relaxed);
             }
             else
+            {
+                const auto t0 = std::chrono::steady_clock::now();
                 for (int k = 0; k < numApart; ++k)
                     calculaApart (fil0, pla, llistaApart[(size_t) k], n, ns, reproduint, minim, llindar, directe, numDirecte);
+                treball = (long long) std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::steady_clock::now() - t0).count();
+            }
+            // 1.11: Mibase decideix sol si cal repartir. La càrrega és un pic que puja de cop i baixa a poc a poc (la meitat
+            // cada segon); es connecten els altres nuclis quan passa del llindar i es desconnecten quan baixa del 60 %.
+            const float frac = (float) ((double) treball * 1.0e-9 * fs / std::max (1, n));
+            carregaPic = std::max (frac, carregaPic * (float) std::exp2 (-(double) n / fs));
+            const float ll = llindarNuclis.load (std::memory_order_relaxed);
+            if (eq == nullptr || numApart < 2) repartint = false;
+            else if (! repartint && carregaPic > ll) repartint = true;
+            else if (repartint && carregaPic < 0.6f * ll) repartint = false;
+            repartintAra.store (repartint, std::memory_order_relaxed);
+            carregaPistes.store (carregaPic, std::memory_order_relaxed);
         }
 
         for (size_t q = 0; q < pla.pistes.size(); ++q)

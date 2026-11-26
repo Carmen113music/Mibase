@@ -19,7 +19,7 @@
 namespace
 {
     /** Fa sonar 5 s d'un projecte variat (sintes, àudio, busos, enviaments, sidechain) i en torna l'empremta. */
-    unsigned long long empremta110 (int bloc, int nuclis)
+    unsigned long long empremta110 (int bloc, int nuclis, float llindar = 0.0f, bool* repartia = nullptr)
     {
         using namespace mibase;
         using namespace mibase::edicio;
@@ -110,6 +110,7 @@ namespace
         Mesclador mes;
         mes.prepara (fs, 2048);
         mes.setNuclis (nuclis);
+        mes.setLlindarNuclis (llindar);   // 1.11: 0 = reparteix sempre (per comprovar el so)
         std::vector<float> L ((size_t) bloc), R ((size_t) bloc);
         unsigned long long h = 1469598103934665603ull;
         for (long long pos = 0; pos < (long long) (fs * 5.0); pos += bloc)
@@ -124,6 +125,7 @@ namespace
                     h = (h ^ u) * 1099511628211ull;
                 }
         }
+        if (repartia != nullptr) *repartia = mes.repartintAra.load();
         return h;
     }
 
@@ -140,6 +142,50 @@ namespace
                     comprova (empremta110 (bloc, k) == u, "bloc de " + std::to_string (bloc) + " amb " + std::to_string (k)
                               + " nuclis (aquí n'hi ha " + std::to_string (mx) + ")");
             }
+        });
+        prova ("1.11 nuclis: Mibase decideix sol quan cal repartir", []
+        {
+            if (mibase::Mesclador::maxAjudants() < 1) return;   // màquina d'un sol fil: res a provar
+            bool rep = true;
+            const auto u = empremta110 (256, 2, 100.0f, &rep);     // llindar impossible: no reparteix mai
+            comprova (! rep, "amb poca feina, un sol nucli");
+            bool rep2 = false;
+            comprova (empremta110 (256, 2, 0.0f, &rep2) == u, "repartint, el mateix so");
+            comprova (rep2, "amb el llindar a 0, reparteix");
+            bool rep3 = true;
+            empremta110 (256, 1, 0.0f, &rep3);
+            comprova (! rep3, "amb el botó apagat, mai");
+        });
+        prova ("1.11 nuclis: es desconnecten quan la feina baixa", []
+        {
+            using namespace mibase;
+            if (Mesclador::maxAjudants() < 1) return;
+            Projecte p;
+            for (int k = 0; k < 3; ++k)
+            {
+                auto& t = edicio::afegeixPista (p, "S" + std::to_string (k), "midi");
+                t.instrument = "intern:lead";
+                Clip c = midi::clipNou (0.0, 8.0);
+                midi::afegeix (c, { 0, 7000, 60 + k, 100, 0 });
+                t.clips = { c };
+            }
+            MapaAudios m;
+            auto pla = construeixPla (p, m, [] (const Pista&) -> std::shared_ptr<Instrument>
+            { auto l = std::make_shared<lead::Lead>(); l->prepara (48000.0, 4096); return l; },
+            [] (const Insert&) -> std::shared_ptr<Efecte> { return nullptr; });
+            Mesclador mes;
+            mes.prepara (48000.0, 2048);
+            mes.setNuclis (2);
+            mes.setLlindarNuclis (0.0f);
+            std::vector<float> L (256), R (256);
+            long long pos = 0;
+            auto sona = [&] (int blocs) { for (int b = 0; b < blocs; ++b, pos += 256) mes.processa (*pla, pos, 256, L.data(), R.data(), false, nullptr, true); };
+            sona (4);
+            comprova (mes.repartintAra.load(), "amb el llindar a 0, reparteix");
+            mes.setLlindarNuclis (50.0f);       // ara la feina és «poca»: el pic ha de baixar per sota de 30
+            sona (10);
+            comprova (! mes.repartintAra.load(), "torna a un sol nucli");
+            comprova (mes.carregaPistes.load() > 0.0f, "es mesura la càrrega");
         });
         prova ("1.10 nuclis: es pot encendre i apagar mentre sona", []
         {

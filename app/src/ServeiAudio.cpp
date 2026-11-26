@@ -242,6 +242,7 @@ void ServeiAudio::setDiversosNuclis (bool b)
     // El fil d'àudio i un nucli per a cadascun dels altres nuclis físics (els «fils» del processador no compten).
     const int n = b ? juce::jmax (2, juce::SystemStats::getNumPhysicalCpus()) : 1;
     motorEstudi.mesclador.setNuclis (n);
+    pitjorBlocMs = 0.0f; pitjorBlocTotalMs = 0.0f; blocsAlLimit = 0; blocsTard = 0;   // 1.11: mesura nova
     if (ajustos != nullptr) { ajustos->setValue ("audio.diversosNuclis", b); ajustos->saveIfNeeded(); }
 }
 
