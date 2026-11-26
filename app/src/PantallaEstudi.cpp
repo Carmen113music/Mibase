@@ -137,6 +137,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     if (! estat.projecte.pistes.empty()) estat.pistaTriada = 0;
     if (auto* t = estat.pista (estat.pistaTriada)) idTriadaAbans = t->id;   // 0.72
     posaAnalitzadorMaster ([this] (bool ambPistes, const mibase::diagnosi::Context& ctx) { return analitzaMaster (ambPistes, ctx); });   // 1.00
+    posaFaderMaster ({ [this] { return estat.projecte.masterDb; },   // 1.12: el panell del màster avisa si no és a 0 dB
+                       [this] { estat.desfes.abans (estat.projecte); estat.projecte.masterDb = 0.0; estat.canviat ("Volum del màster: 0,0 dB"_ca); } });
     // 0.78: «Implementa a pistes reals» / «Treu la cadena» des de la finestra del Vocal Studio
     plugins.onAccioRack = [this] (const std::string& idInsert, int accio) -> int
     {
@@ -657,6 +659,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     posaAnalitzadorMaster ({});   // 1.00
+    posaFaderMaster ({});         // 1.12
     inserts::obreVeu() = nullptr;
     inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;

@@ -304,6 +304,8 @@ std::shared_ptr<mibase::Efecte> GestorPlugins::efecteNou (const mibase::Insert& 
             rk->posaOriginal (false);
             rk->posaIgualat (false);
         }
+        // 1.12: els botons d'escoltar (Escolta igualat, Escolta en mono, Solo d'una banda, Escolta SC) mai a l'exportació
+        if (r != nullptr) mibase::rack::apagaEscoltes (*r);
         r->prepara (fs, bloc);
         return r;
     }

@@ -29,6 +29,10 @@ void posaAnalitzadorMaster (AnalitzadorMaster a);
 /** 1.01: fa l'anàlisi ara (nul si no hi ha cap projecte obert o res que soni) i el context del rack (perfil i referència). */
 std::shared_ptr<mibase::diagnosi::Informe> analitzaAra (bool ambPistes, const mibase::diagnosi::Context& ctx);
 mibase::diagnosi::Context contextDe (const mibase::rack::Rack& r);
+/** 1.12: el fader del màster va després del Mastering Studio: si no és a 0 dB, el que s'exporta no és el que mesura el rack.
+    La PantallaEstudi diu quant val i el sap posar a 0 dB (amb desfer). */
+struct FaderMaster { std::function<double()> llegeix; std::function<void()> posaA0; };
+void posaFaderMaster (FaderMaster f);
 
 /** Un avís curt i explicat si el mòdul està en una zona perillosa (buit si no n'hi ha). «master»: llindars de màster. */
 juce::String avisModul (const mibase::rack::Modul& m, bool master);

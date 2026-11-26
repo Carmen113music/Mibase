@@ -629,7 +629,7 @@ namespace
                 for (auto* b : { &btRetorn, &btPistes, &btTreuCadena, &btSolo }) b->setVisible (false);
                 panellMaster.reset (creaPanellMaster (rk));
                 addAndMakeVisible (*panellMaster);
-                btPreset.setTooltip ("Clica per veure tots els presets del màster (bàsics, objectiu sonor, gèneres, Carmen 113)"_ca);
+                btPreset.setTooltip ("Clica per veure tots els presets del màster (bàsics, objectiu sonor i gèneres)"_ca);
                 btDesa.setTooltip ("Desa tot el Mastering Studio (mòduls, ajustos, macros i objectiu) com un preset teu"_ca);
                 setSize (1180, 920);
             }
@@ -1173,7 +1173,16 @@ namespace
         void aplicaPreset (const Preset& p)
         {
             finestresModuls.clear();   // els mòduls d'abans se'n van
+            // 1.12: el perfil de loudness que has triat i els teus LUFS del CD es queden (abans, el preset els canviava)
+            const int objectiu = rk->objectiu();
+            const float lufs = rk->lufsPersonal();
             rk->posaEstat (p.estat);
+            if (rk->esMaster())
+            {
+                if (objectiu > 0) rk->posaObjectiu (objectiu);   // amb «Cap», el del preset
+                rk->posaLufsPersonal (lufs);
+                if (rk->lufsObjectiu() < -0.5f) mibase::rack::posaSostre (*rk, rk->truePeakObjectiu());
+            }
             rk->posaNomPreset (p.nom);
             refesFiles();
             refresca();
@@ -1361,7 +1370,8 @@ namespace
         juce::String desc;
         if (auto* t = busca (m->clau)) desc = u8 (t->descripcio);
         if (m->fx->latencia() > 0)   // 0.73: el retard de debò de cada mòdul (Limitador 5 ms, Harmonitzador i Octava uns 36 ms)
-            desc = "Sempre al 100 % (retarda "_ca + juce::String (juce::roundToInt (1000.0 * m->fx->latencia() / 48000.0)) + " ms, Mibase ho compensa)."_ca;
+            desc = "Sempre al 100 % (retarda "_ca + juce::String (1000.0 * m->fx->latencia() / juce::jmax (8000.0, rk->frequencia()), 1).replaceCharacter ('.', ',')
+                   + " ms, Mibase ho compensa; apagat, també, perquè no faci clics)."_ca;   // 1.12: amb la freqüència de debò
         // 0.94: avisos (en taronja) si el mòdul és en una zona perillosa
         const auto avis = avisModul (*m, rk->esMaster());
         if (avis.isNotEmpty()) { g.setColour (vintage::ledTaronja); desc = avis; }

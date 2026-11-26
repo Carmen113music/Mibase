@@ -101,7 +101,7 @@ namespace
             btMatching.onClick = [this]
             {
                 if (rk->referencia() == nullptr) return;
-                if (masterAn == nullptr) compara();
+                compara();   // 1.12: sempre amb el màster d'ara (amb una anàlisi vella, aplicar-lo dos cops el duplicava)
                 if (masterAn == nullptr) return;
                 dg::aplicaMatching (*rk, *masterAn, rk->referencia()->analisi, (float) quantitat / 100.0f);
                 avis = "EQ matching aplicat al "_ca + juce::String (quantitat) + " % (mòdul «EQ matching», el pots retocar). Torna a comparar per veure com queda."_ca;
@@ -299,7 +299,7 @@ namespace
             for (int k = 0; k < (int) rk->referencies.size(); ++k)
                 if (rk->referencies[(size_t) k].cami == cami) { rk->refActiva = k; rk->posaReferencia (nullptr); carregaReferenciaActiva (*rk); refresca(); return; }
             juce::String error;
-            auto ref = carregaReferencia (f, error);
+            auto ref = carregaReferencia (f, error, rk->frequencia());
             if (ref == nullptr) { avis = error; repaint(); return; }
             rk->referencies.push_back ({ ref->nom, cami });
             rk->refActiva = (int) rk->referencies.size() - 1;
@@ -480,10 +480,11 @@ namespace
     };
 }
 
-std::shared_ptr<const rack::Referencia> carregaReferencia (const juce::File& f, juce::String& error)
+std::shared_ptr<const rack::Referencia> carregaReferencia (const juce::File& f, juce::String& error, double fsDesti)
 {
     const auto cami = f.getFullPathName().toStdString();
-    if (auto r = memoria()[cami].lock()) return r;
+    const auto clau = cami + "@" + std::to_string ((int) std::lround (fsDesti));   // 1.12: una per freqüència
+    if (auto r = memoria()[clau].lock()) return r;
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> lector (fm.createReaderFor (f));
@@ -498,11 +499,30 @@ std::shared_ptr<const rack::Referencia> carregaReferencia (const juce::File& f, 
     ref->nom = f.getFileNameWithoutExtension().toStdString();
     ref->cami = cami;
     ref->fs = fs;
-    ref->L.assign (buf.getReadPointer (0), buf.getReadPointer (0) + n);
-    ref->R.assign (lector->numChannels >= 2 ? buf.getReadPointer (1) : buf.getReadPointer (0), (lector->numChannels >= 2 ? buf.getReadPointer (1) : buf.getReadPointer (0)) + n);
-    ref->analisi = dg::analitza (ref->L.data(), ref->R.data(), ref->L.size(), fs);
+    const float* fontR = lector->numChannels >= 2 ? buf.getReadPointer (1) : buf.getReadPointer (0);
+    if (fsDesti > 1000.0 && std::abs (fsDesti - fs) > 0.5)
+    {
+        // 1.12: a la freqüència del projecte, amb un interpolador sinc amb finestra (sense perdre aguts)
+        const double rati = fs / fsDesti;
+        const int m = (int) std::floor ((double) n / rati) - 64;
+        ref->L.assign ((size_t) juce::jmax (0, m), 0.0f);
+        ref->R.assign ((size_t) juce::jmax (0, m), 0.0f);
+        juce::WindowedSincInterpolator iL, iR;
+        if (m > 0)
+        {
+            iL.process (rati, buf.getReadPointer (0), ref->L.data(), m);
+            iR.process (rati, fontR, ref->R.data(), m);
+        }
+        ref->fs = fsDesti;
+    }
+    else
+    {
+        ref->L.assign (buf.getReadPointer (0), buf.getReadPointer (0) + n);
+        ref->R.assign (fontR, fontR + n);
+    }
+    ref->analisi = dg::analitza (ref->L.data(), ref->R.data(), ref->L.size(), ref->fs);
     juce::MouseCursor::hideWaitCursor();
-    memoria()[cami] = ref;
+    memoria()[clau] = ref;
     return ref;
 }
 
@@ -510,7 +530,7 @@ bool carregaReferenciaActiva (rack::Rack& r)
 {
     if (r.refActiva < 0 || r.refActiva >= (int) r.referencies.size()) return false;
     juce::String error;
-    auto ref = carregaReferencia (juce::File (u8 (r.referencies[(size_t) r.refActiva].cami)), error);
+    auto ref = carregaReferencia (juce::File (u8 (r.referencies[(size_t) r.refActiva].cami)), error, r.frequencia());
     if (ref == nullptr) return false;
     r.posaReferencia (ref);
     return true;

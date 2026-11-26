@@ -305,7 +305,7 @@ Una eina a part (com els sintes) per passar de no tenir cap idea a una progressi
   | Broadcast (EBU R128) | -23 | -1 dBTP |
 
   Triar un perfil posa el sostre del limitador al seu true peak (amb 0,2 dB de marge).
-- **Ajusta al perfil** (0.95): prem-lo i **reprodueix la cançó** (o la tornada en bucle). Escolta uns 10 s, corregeix el guany del limitador (i el macro Loudness) per arribar als LUFS del perfil, ho torna a escoltar i repeteix fins que hi és (±0,5 LU). Si per arribar-hi el limitador hauria de reduir més de 8 dB (perdries el cop), **s'atura i t'ho diu**: no força res. «Atura l'ajust» el para.
+- **Ajusta al perfil** (0.95): prem-lo i **reprodueix la cançó** (o la tornada en bucle). Escolta uns 10 s, corregeix el guany del limitador (i el macro Loudness) per arribar als LUFS del perfil, ho torna a escoltar i repeteix fins que hi és (±0,5 LU). Si la mescla ja és més forta que el perfil, l'abaixa amb l'**Entrada** del rack (1.12). Només diu «Fet» si hi ha arribat; si no, diu on s'ha quedat. Si per arribar-hi el limitador hauria de reduir més de 8 dB (perdries el cop), **s'atura i t'ho diu**: no força res. «Atura l'ajust» el para.
 - **ANALITZA** (1.00): escolta tota la cançó **sense reproduir-la** (com en exportar): el mix (abans del màster), el màster i, amb **«i les pistes»** encès, cada pista per separat (tarda més: una passada per pista; mentrestant Mibase espera). Obre l'**Informe del màster**:
   - el resum del mix i del màster (LUFS, LRA, true peak, pics sobre el volum, correlació);
   - **Què faria un enginyer de màster**: per ordre, i primer el que és millor arreglar a la mescla;
@@ -608,6 +608,20 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **1.12.0** — **Auditoria del Mastering Studio: correccions.** (L'informe és al projecte: `claude/auditoria-rack-master-fase1.md`.)
+  - **Exportació segura**: els botons d'escoltar (*Escolta igualat* del Limitador, *Escolta en mono* de l'Estèreo, *Solo* d'una banda del Multibanda, *Escolta SC* de la Dinàmica) ja no surten mai al fitxer exportat. Si n'hi ha un d'encès, el mòdul ho avisa en taronja.
+  - **Fader del màster**: va després del Mastering Studio. Si no és a 0 dB, el panell del màster mostra un botó per posar-lo a 0 dB (es pot desfer), perquè el que exportes sigui el que mesura el rack.
+  - **Ajusta al perfil i Suggereix** també saben **abaixar** una mescla que ja és més forta que el perfil (amb l'Entrada del rack). «Fet» només quan hi arriba; si no, ho diu. Si l'*Escolta igualat* del limitador era encesa, l'apaga abans de mesurar.
+  - **Limitador**: busca els pics entre mostres amb el mateix sobremostreig x4 que el mesurador. Abans passava fins a 0,6 dB per sobre del sostre; ara, com a molt 0,1 dB. La latència es queda una mica per sota de 5 ms: amb el Clipper, el Mastering Studio ja no es desactiva amb «Retard mínim» (abans passava a 44,1 kHz).
+  - **Sense clics**: apagar i tornar a encendre el Limitador (o qualsevol mòdul amb latència) amb la música sonant ja no fa clic, i la latència no salta.
+  - **Assistent coherent amb els macros**: aplicar una proposta ja no trepitja les bandes de l'EQ que mouen els macros, i tocar un macro ja no desfà la proposta.
+  - **Targetes de l'assistent**: el mode guiat recorda què has aplicat en canviar de pas (no es pot aplicar dos cops). L'A/B i el «Desfés» ja no tornen a crear els mòduls (sense forats). Si després d'aplicar una proposta has fet altres canvis, «Desfés» t'avisa abans de perdre'ls.
+  - **EQ matching**: sempre torna a comparar abans d'aplicar (abans, prémer-lo dos cops el duplicava).
+  - **Presets i suggerència**: carregar un preset ja no canvia el perfil de loudness que has triat ni els teus LUFS del CD.
+  - **Mode guiat, color**: «Afegeix cinta/consola» canvia l'estil de la saturació que ja hi havia (no l'esborra) i «Sense color» l'apaga (no l'esborra).
+  - **Referències**: es converteixen a la freqüència del projecte quan es carreguen, amb un bon convertidor (abans, si no coincidien, la referència sonava més apagada a l'A/B).
+  - **Analitza+**: la corba de referència ja no té 0,4 dB de biaix. Una mescla mono es diu «mono» (no «-251 dB»).
+  - Petites coses: el retard dels mòduls en ms es calcula amb la freqüència de debò; el tooltip dels presets ja no parla de Carmen 113; el limitador gasta una mica menys de CPU; les referències velles s'alliberen de manera segura.
 - **1.11.0** — **Diversos nuclis automàtic**: amb el botó encès, Mibase mesura la feina de les pistes a cada bloc i només fa servir els altres nuclis quan passa del 30 % del temps del bloc (els deixa quan baixa del 18 %). Amb projectes lleugers es queda en un nucli i no perd rendiment (a la 1.10 la càrrega pujava una mica). En canviar el botó, el «pitjor bloc» i els comptadors es reinicien. El diagnòstic diu la feina de les pistes i si està repartint.
 - **1.10.0** — **Motor d'àudio, pas 3: diversos nuclis.** Nou botó **Diversos nuclis** a Preferències (apagat per defecte): les pistes es calculen repartides entre els nuclis físics del processador; els fils de treball tenen la prioritat d'àudio de Windows (MMCSS «Pro Audio»). El so és idèntic amb un nucli o amb diversos (comprovat bit a bit i amb el detector de curses entre fils). El diagnòstic diu quants nuclis es fan servir.
 - **1.9.0** — **Motor d'àudio, pas 2** (preparació per fer servir diversos nuclis): el mesclador calcula la feina pesada de cada pista (instrument, clips, entrada i efectes) a la seva pròpia memòria, abans de fer la suma, que es fa en el mateix ordre de sempre. Per a tu no canvia res: el so és idèntic, mostra per mostra (comprovat amb una «empremta» del so abans i després i amb totes les proves del motor).
