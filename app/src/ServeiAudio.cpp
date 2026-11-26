@@ -353,6 +353,7 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
 
     const auto* dades = m.getRawData();
     mibase::EsdevenimentMidi e;
+    midiRebuts.fetch_add (1, std::memory_order_relaxed);   // 1.13
     e.estat = dades[0];
     e.dada1 = m.getRawDataSize() > 1 ? dades[1] : 0;
     e.dada2 = m.getRawDataSize() > 2 ? dades[2] : 0;
@@ -385,10 +386,12 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     else if ((e.estat & 0xF0) == 0x80 || ((e.estat & 0xF0) == 0x90 && e.dada2 == 0)) cm.notaOff (e.dada1 & 127);
     else if ((e.estat & 0xF0) == 0xB0 && (e.dada1 == 123 || e.dada1 == 120)) cm.totesOff();
     const bool perHarmonitzador = cm.escoltantTeclat.load (std::memory_order_relaxed) > 0;
-    auto envia = [this, desti, perHarmonitzador] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    auto envia = [this, desti, slot, perHarmonitzador] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
     {
-        if (! motorEstudi.enviaTeclat (es, d1, d2, desti) && ! perHarmonitzador)
+        const bool aPista = motorEstudi.enviaTeclat (es, d1, d2, desti);
+        if (! aPista && ! perHarmonitzador)
             motorDiag.enviaMidi ({ es, d1, d2 });
+        midiDarrerDesti.store (aPista ? slot : (perHarmonitzador ? -4 : -1), std::memory_order_relaxed);   // 1.13
     };
     // Primer el Chord Pad; el que hi passa tal qual, per l'escala (bloquejat / assistit).
     teclatAcords.tradueix (e.estat, e.dada1, e.dada2, acords, [this, &envia] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)

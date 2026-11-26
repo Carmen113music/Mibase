@@ -396,6 +396,21 @@ Una eina a part (com els sintes) per passar de no tenir cap idea a una progressi
 - **MIDI learn (1.6)**: botó dret sobre qualsevol pom de l'ampli, l'interruptor (Bright…), Power, qualsevol control d'un pedal ampliat o l'interruptor de peu (botó dret al pedal) → «Aprèn» i mou un pom, fader o pedal del teclat. Surt «MIDI?» mentre aprèn i «CC 21» quan ja està lligat. Un CC mou un sol control. Es desa amb el projecte.
 - **Presets de cada pedal i de cada ampli (1.6)**: botó «Presets del pedal» (al pedal ampliat) i «PRESETS» (a l'ampli): valors de sempre, de fàbrica (com sona el pedal o l'ampli a cada cadena de fàbrica) i els teus (desar, esborrar).
 
+### EVOLVE de Mibase, un pom que transforma el so (1.13, fase 1)
+- **+ Efecte → EVOLVE (Mibase)**, a qualsevol pista d'àudio, d'instrument, bus o al màster. Pensat per treballar en post (no per gravar sentint-lo).
+- **El pom EVOLUTION** (al mig, ben gran): **0 %** = el so original, sense tocar (bypass real); **10–30 %** subtil (moviment i color); **30–60 %** evident (textures i espai); **60–80 %** intens; **80–100 %** extrem. Arrossega amunt o avall (Maj = fi), roda del ratolí, o **doble clic** per tornar al valor del preset. Al voltant del pom, un **punt de color** marca on entra cada mòdul; l'anell canvia de color (de fred a calent) i brilla amb el so.
+- Cada preset porta la seva **matriu d'evolució**: el pom no puja només volums, sinó que mou molts paràmetres alhora, cadascun des d'un punt d'entrada fins a un punt final i amb la seva corba (lineal, suau, ràpida o en S). Per exemple, a *Rhythmic Pump* el bombeig passa de negres a corxeres al 75 %.
+- **Mòduls** (en cadena, a baix; la llum els encén o apaga, la barra diu quant treballen ara):
+  - **SCREAMER**: Analògic, Overdrive, Distorsió, Fuzz o Plec (l'ona es doblega), a 4 vegades la freqüència de mostreig. El volum es compensa sol.
+  - **FILTER**: LP, HP, BP o Notch, amb ressonància, drive i un LFO amb el tempo que el fa moure.
+  - **PUMPER**: Ducking (bombeig com un sidechain), Trèmolo, Gate rítmic (8 patrons de 16 passos) o Pan, amb el tempo: de 1/1 a 1/32, amb punt i tresets. Segueix els compassos de la cançó mentre sona.
+  - **SHIMMER**: la Reverb de Mibase per dins: Shimmer (+12, +7, +5 o -12), Hall dens o Ambient, cues de fins a 20 s i Freeze.
+- **RANDOMIZE**: una combinació nova (2–4 mòduls, entrades escalonades), sempre dins de límits segurs. **RESET**: torna al preset tal com era. **HOLD**: deixa l'Evolution que sona ara quieta (ni el pom ni l'automatització la mouen fins que l'apagues). **A/B**: compara dues configuracions.
+- **Input**, **Dry/Wet** i **Output** als costats, amb els mesuradors IN/OUT. La sortida té una **protecció** suau: no passa mai de 0 dBFS (si actua, surt «PROTECCIÓ»).
+- **14 presets** en 5 categories: ATMOSPHERES (Dream Clouds, Cinematic Pad, Infinite Guitar), VOCALS (Angel Choir, Dark Vocal, Ghost Voice), GUITARS (Shimmer Guitar, Massive Fuzz, Space Guitar, Cinematic Guitar), RHYTHMIC (Rhythmic Pump, Pulsating Synth) i EXTREME (Sound Destruction, Digital Storm). Selector de **categoria** (les fletxes passen pels presets d'aquella categoria), preferits, presets propis (`Documents\Mibase\Evolve\presets.json`).
+- **Automatització** («A» → EVOLVE): l'Evolution, Dry/Wet, Input, Output, Hold, l'encès de cada mòdul i tots els seus paràmetres.
+- **Properes fases**: Scatter, Granular, Reverser i Pitch, el mode Advanced (canviar l'ordre arrossegant, escoltar cada mòdul sol, editar la matriu) i dos LFO lliures. Els presets de GLITCH & EXPERIMENTAL arribaran amb el Scatter i el Granular.
+
 ### Drive de Mibase, el pedal (0.67)
 - **1.7**: ja no surt al menú d'efectes (el substitueix el **Guitar Rack**, que té tots aquests pedals i més). Els projectes que el tenen continuen sonant i s'obre igual.
 - **+ Efecte → Drive (Mibase)**: un pedal de guitarra amb quatre modes a dalt: **Crunch** (ampli de vàlvules que comença a trencar), **Overdrive** (com els pedals verds: mitjos endavant), **Distorsió** (dura i densa, per a rock i metal) i **Fuzz**. El pedal canvia de color amb el mode i el llum s'encén quan passa so.
@@ -608,6 +623,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **1.13.0** — **EVOLVE (fase 1)**: efecte creatiu nou amb un sol pom gran, **EVOLUTION** (0 % = so original sense tocar; 100 % = transformació extrema, sense saturar mai). Quatre mòduls en cadena (**Screamer**, **Filter**, **Pumper** i **Shimmer**), una matriu d'evolució per preset (cada paràmetre entra a un punt i amb una corba), **14 presets** en 5 categories, **Randomize**, **Reset**, **Hold**, **A/B**, Input, Dry/Wet i Output. Tot automatitzable. De passada: el **diagnòstic** («Copia el diagnòstic») diu quants missatges MIDI han arribat del teclat i a quina pista ha anat el darrer.
 - **1.12.0** — **Auditoria del Mastering Studio: correccions.** (L'informe és al projecte: `claude/auditoria-rack-master-fase1.md`.)
   - **Exportació segura**: els botons d'escoltar (*Escolta igualat* del Limitador, *Escolta en mono* de l'Estèreo, *Solo* d'una banda del Multibanda, *Escolta SC* de la Dinàmica) ja no surten mai al fitxer exportat. Si n'hi ha un d'encès, el mòdul ho avisa en taronja.
   - **Fader del màster**: va després del Mastering Studio. Si no és a 0 dB, el panell del màster mostra un botó per posar-lo a 0 dB (es pot desfer), perquè el que exportes sigui el que mesura el rack.

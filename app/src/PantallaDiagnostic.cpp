@@ -977,6 +977,13 @@ juce::String PantallaDiagnostic::textDiagnostic()
         t << m.name << (gestor.isMidiInputDeviceEnabled (m.identifier) ? " (activat)" : " (no activat)") << "\n";
     if (juce::MidiInput::getAvailableDevices().isEmpty())
         t << "Cap teclat MIDI.\n";
+    {
+        // 1.13: quants missatges han arribat i a on ha anat el darrer
+        const int d = servei.midiDarrerDesti.load();
+        const juce::String on = d == -3 ? "encara cap"_ca : d == -1 ? "el so de prova"_ca : d == -4 ? "l'Harmonitzador (teclat MIDI)"_ca
+                              : servei.nomSlotMidi ? "la pista «"_ca + servei.nomSlotMidi (d) + "»"_ca : "la pista del slot "_ca + juce::String (d);
+        t << "Missatges MIDI rebuts: "_ca << (int) servei.midiRebuts.load() << " · el darrer ha anat a "_ca << on << "\n";
+    }
 
     if (const auto darrer = tancaments::darrer(); darrer.isNotEmpty())   // 0.83
     {

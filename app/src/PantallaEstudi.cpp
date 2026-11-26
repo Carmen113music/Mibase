@@ -131,6 +131,11 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     estat.projecte = p;
     estat.fitxer = f;
+    servei.nomSlotMidi = [this] (int slot)   // 1.13: per al diagnòstic MIDI
+    {
+        for (const auto& t : estat.projecte.pistes) if (mibase::slotDePista (t) == slot) return juce::String::fromUTF8 (t.nom.c_str());
+        return "slot "_ca + juce::String (slot);
+    };
     estat.carpeta = f.getParentDirectory();
     estat.pxPerSegon = ajustos.getDoubleValue ("estudi.zoom", 48.0);
     estat.altPista = juce::jmax (VistaPistes::alcadaMinima, ajustos.getIntValue ("estudi.altPista", 80));
@@ -660,6 +665,7 @@ PantallaEstudi::~PantallaEstudi()
 {
     posaAnalitzadorMaster ({});   // 1.00
     posaFaderMaster ({});         // 1.12
+    servei.nomSlotMidi = nullptr; // 1.13
     inserts::obreVeu() = nullptr;
     inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;

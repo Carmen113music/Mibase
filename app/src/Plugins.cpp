@@ -4,6 +4,7 @@
 #include "FinestraDelay.h"
 #include "FinestraSaturacio.h"
 #include "FinestraDrive.h"
+#include "FinestraEvolve.h"
 #include "FinestraGuitarRack.h"
 #include "FinestraLimitador.h"
 #include "FinestraVocalStudio.h"
@@ -441,6 +442,8 @@ void GestorPlugins::obreFinestra (const std::string& clau, const juce::String& t
             finestres[clau] = creaFinestraLimitador (lm, titol, [this, clau] { finestres.erase (clau); });
         else if (auto tu = std::dynamic_pointer_cast<mibase::tune::Tune> (r->second))   // 0.80
             finestres[clau] = creaFinestraTune (tu, titol, [this, clau] { finestres.erase (clau); });
+        else if (auto evo = std::dynamic_pointer_cast<mibase::evolve::Evolve> (r->second))   // 1.13
+            finestres[clau] = creaFinestraEvolve (evo, titol, [this, clau] { finestres.erase (clau); });
         else if (auto gtr = std::dynamic_pointer_cast<mibase::guitarrack::GuitarRack> (r->second))   // 1.5
             finestres[clau] = creaFinestraGuitarRack (gtr, titol, [this, clau] { finestres.erase (clau); });
         else if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (r->second))   // 0.70
@@ -470,6 +473,12 @@ std::shared_ptr<mibase::EfecteIntern> GestorPlugins::creaIntern (const mibase::I
         auto gtr = std::make_shared<mibase::guitarrack::GuitarRack>();
         gtr->posaTempo (&RellotgePlugins::global().tempo);
         r = gtr;
+    }
+    else if (x.plugin == mibase::evolve::idPlugin)   // 1.13: EVOLVE (el tempo, abans de l'estat)
+    {
+        auto evo = std::make_shared<mibase::evolve::Evolve>();
+        evo->posaTempo (&RellotgePlugins::global().tempo);
+        r = evo;
     }
     else if (mibase::rack::esRack (x.plugin))   // 0.70; 0.94: també el Mastering Studio
     {
@@ -617,6 +626,19 @@ juce::String GestorPlugins::informe (const mibase::Projecte& p) const
             for (int i = 0; i < d->numPedals(); ++i)
                 t << " " << juce::String::fromUTF8 (d->pedal (i)->model().nom.c_str()) << (d->pedal (i)->on.load() ? "" : " (apagat)"_ca) << (d->pedal (i)->loop.load() ? " [loop]" : "");
             t << "\n";
+            return;
+        }
+        if (x.plugin == mibase::evolve::idPlugin)   // 1.13
+        {
+            auto r = reverbs.find (x.id);
+            auto* d = r != reverbs.end() ? dynamic_cast<mibase::evolve::Evolve*> (r->second.get()) : nullptr;
+            if (d == nullptr) { t << "intern (EVOLVE), encara no creat\n"_ca; return; }
+            t << "intern (EVOLVE) · Evolution "_ca << juce::String (d->mesures().evolution.load(), 1) << " %" << (d->valor (mibase::evolve::Hold) > 0.5f ? " (Hold)" : "")
+              << " · rutes "_ca << (int) d->rutes().size() << " · mòduls:"_ca;
+            for (int m : d->ordre())
+                t << " " << mibase::evolve::nomModul (m) << (d->valor (mibase::evolve::paramOn (m)) > 0.5f ? "" : " (apagat)"_ca)
+                  << " " << juce::String (d->mesures().activitat[(size_t) m].load() * 100.0f, 0) << "%";
+            t << " · sortida "_ca << dB (d->mesures().sortida.load()) << " dB\n";
             return;
         }
         if (x.plugin == mibase::drive::idPlugin)   // 0.67

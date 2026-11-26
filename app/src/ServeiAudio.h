@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "Historial.h"
 #include "EscanerPlugins.h"
 #include "Plugins.h"
@@ -107,6 +109,12 @@ public:
     std::atomic<unsigned long long> blocsAudio { 0 };
     std::atomic<unsigned int> msUltimBloc { 0 };
     std::atomic<float> picSortidaAudio { 0.0f };
+    // 1.13: per al diagnòstic MIDI: quants missatges han arribat del teclat i on ha anat el darrer
+    // (>= 0: el slot d'una pista; -1: so de prova; -4: només l'Harmonitzador; -3: encara cap)
+    std::atomic<unsigned int> midiRebuts { 0 };
+    std::atomic<int> midiDarrerDesti { -3 };
+    /** 1.13: el nom de la pista d'un slot (el posa la pantalla de l'estudi; fil de la interfície). */
+    std::function<juce::String (int)> nomSlotMidi;
     // 1.10: calcular les pistes amb diversos nuclis (es desa a les preferències; apagat per defecte)
     bool getDiversosNuclis() const;
     void setDiversosNuclis (bool b);
