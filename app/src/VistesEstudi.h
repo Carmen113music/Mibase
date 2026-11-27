@@ -268,6 +268,8 @@ public:
     bool esEstreta (int fila) const;
     juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
+    juce::Rectangle<int> rectSo (int fila) const;   // 1.21: tria l'instrument i el so (al costat del botó de l'instrument)
+    std::function<void (int pista, juce::Rectangle<int> zonaPantalla)> onMenuSo;   // 1.21
     juce::Rectangle<int> rectPreses (int fila) const;   // 0.81: plega / desplega les preses
     std::function<void (int pista)> onConsolidaComp;      // 0.81
     std::function<void (int pista)> onPrint;              // 0.82

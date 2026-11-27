@@ -305,6 +305,14 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btFont.setLlum (juce::Colour (0xff5fd4c4));
     btFont.onClick = [this] { obreFont(); };
     addAndMakeVisible (btFont);
+    btBarraMescles.setTooltip ("Taula de mescles (F9): en una finestra a part"_ca);
+    btBarraMescles.setLlum (vintage::ledTaronja);
+    btBarraMescles.onClick = [this] { commutaMescles(); };
+    addAndMakeVisible (btBarraMescles);
+    btBarraEstructura.setTooltip ("Taula d'estructura (torna-hi a clicar per tornar a la taula de treball)"_ca);
+    btBarraEstructura.setLlum (vintage::ledTaronja);
+    btBarraEstructura.onClick = [this] { estat.vistaEstructura = ! estat.vistaEstructura; estat.vistaMescles = false; colocaSeccions(); estat.avisa(); };
+    addAndMakeVisible (btBarraEstructura);
 
     // Seccions.
     for (auto* sec : std::initializer_list<SeccioEstudi*> { &esquerra, &capcaleres, &regla, &pistes, &mescles, &panell })
@@ -315,6 +323,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     mescles.onRoda = nullptr;
     esquerra.onMescles = [this] { commutaMescles(); };   // 1.16
     capcaleres.onCanviaNom = [this] (int i) { canviaNomEnLinia (i); };   // 1.3: al mateix lloc
+    capcaleres.onMenuSo = [this] (int i, juce::Rectangle<int> zona)   // 1.21
+    {
+        estat.pistaTriada = i;
+        esquerra.opcions.actualitza();
+        esquerra.opcions.menuInstrumentA (zona);
+    };
     mescles.onCanviaNom = [this] (int i)   // 1.7: també al mateix lloc
     {
         const auto zona = mescles.rectNom (i);
@@ -572,7 +586,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     divEsquerra.onDobleClic = [this] { if (esquerra.ambEditor()) ampleEsquerraEditor = 270; else ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
-    divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (132, ampleInici + dx); colocaSeccions(); };
+    divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (150, ampleInici + dx); colocaSeccions(); };
     divNoms.onDobleClic = [this] { ampleNoms = 170; colocaSeccions(); divNoms.onAcaba(); };
     // 1.20: les columnes de Pro Tools també s'estiren i s'arronsen per la vora dreta
     addChildComponent (divColumnes);
@@ -945,17 +959,23 @@ void PantallaEstudi::colocaSeccions()
     const bool m = estat.foraTreball();
 
     const bool ambEditor = estat.pianoRoll && ! m && ! esquerra.acordsTriada();   // amb un editor obert, la columna esquerra té el panell d'harmonia (0.37: no amb la pista d'Acords triada)
-    int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
+    // 1.21: amb les columnes de Pro Tools, la columna esquerra només surt si hi ha un editor obert (el panell d'harmonia)
+    const bool ambEsquerra = ! ambColumnes || ambEditor;
+    int esq = ! ambEsquerra ? 0 : ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
     const bool ambCarpetes = estat.panellCarpetes && ! m;
     int carp = ambCarpetes ? ampleCarpetes : 0;
     int sobra = esq + (m ? 0 : noms + carp) + pan + 320 - r.getWidth();
     auto encongeix = [&sobra] (int& v, int minim) { if (sobra > 0) { const int t = juce::jmin (sobra, v - minim); if (t > 0) { v -= t; sobra -= t; } } };
     encongeix (pan, 200);
     if (! m) encongeix (noms, 140);
-    encongeix (esq, ambEditor ? 230 : 110);
+    if (ambEsquerra) encongeix (esq, ambEditor ? 230 : 110);
     if (ambCarpetes) encongeix (carp, 120);
 
     esquerra.setBounds (r.removeFromLeft (esq));
+    esquerra.setVisible (ambEsquerra);   // 1.21
+    divEsquerra.setVisible (ambEsquerra);
+    btBarraMescles.setToggleState (estat.mesclesFinestra, juce::dontSendNotification);
+    btBarraEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
     {
         auto zDreta = r.removeFromRight (pan);
         pestDreta.setBounds (zDreta.removeFromTop (34).reduced (8, 4));
@@ -1100,6 +1120,10 @@ void PantallaEstudi::resized()
     b.removeFromLeft (16);
     btFont.setBounds (b.removeFromLeft (40));   // 0.97
     b.removeFromLeft (16);
+    btBarraEstructura.setBounds (b.removeFromRight (40));   // 1.21
+    b.removeFromRight (3);
+    btBarraMescles.setBounds (b.removeFromRight (40));
+    b.removeFromRight (16);
     zonaInfo = b;
 
     colocaSeccions();

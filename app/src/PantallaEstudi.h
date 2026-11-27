@@ -245,6 +245,9 @@ private:
     Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Secundari };
     Boto btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Secundari };
     Boto btFont { {}, dibuix::Icona::Font, Boto::Estil::Tecla };   // 0.97: Font d'inspiració
+    // 1.21: taula de mescles (F9) i taula d'estructura, a la dreta de la barra d'eines (la columna esquerra s'amaga)
+    Boto btBarraMescles { {}, dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    Boto btBarraEstructura { {}, dibuix::Icona::Notes, Boto::Estil::Tecla };
     std::unique_ptr<juce::DocumentWindow> finestraFont;
     void obreFont();
     juce::Rectangle<int> zonaBarra, zonaEines, zonaInfo;

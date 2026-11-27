@@ -2967,6 +2967,12 @@ void Capcaleres::paint (juce::Graphics& g)
             vintage::tecla (g, rb, false, false, EstatEstudi::colorPista (t));
             dibuix::pintaIcona (g, mibase::esKit (t) ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (3.0f).withSizeKeepingCentre (juce::jmin (rb.getWidth(), rb.getHeight()) - 6.0f, juce::jmin (rb.getWidth(), rb.getHeight()) - 6.0f), tema::text);
         }
+        if (const auto rso = rectSo (i); ! rso.isEmpty())   // 1.21: tria l'instrument i el so
+        {
+            vintage::tecla (g, rso.toFloat(), false, false, EstatEstudi::colorPista (t));
+            const float m = (float) juce::jmin (rso.getWidth(), rso.getHeight()) - 6.0f;
+            dibuix::pintaIcona (g, dibuix::Icona::Piano, rso.toFloat().withSizeKeepingCentre (m, m), tema::text);
+        }
         if (const auto rs = rectSegueix (i); ! rs.isEmpty())
             dibuixEstudi::teclaPetita (g, rs, "Ac", t.segueixAcords, juce::Colour (0xffb18cff));   // 0.41: lila quan està encès
         if (const auto z = rectES (i); ! z.isEmpty())   // 0.36: sempre un sol botó E/S
@@ -3178,7 +3184,10 @@ juce::Rectangle<int> Capcaleres::rectPreses (int fila) const
 
 juce::Rectangle<int> Capcaleres::zonaES (int fila) const
 {
-    return rectCellaDalt (fila, 2);   // 1.20: a sobre del botó de gravar
+    // 1.20: a sobre del botó de gravar. 1.21: a les pistes d'instrument, una més a la dreta (instrument, so, Ac, E/S)
+    const bool midi = fila >= 0 && fila < estat.numPistes() && mibase::esMidi (estat.projecte.pistes[(size_t) fila])
+                      && ! mibase::esAcords (estat.projecte.pistes[(size_t) fila]);
+    return rectCellaDalt (fila, midi ? 3 : 2);
 }
 
 juce::Rectangle<int> Capcaleres::rectES (int fila) const
@@ -3224,7 +3233,16 @@ juce::Rectangle<int> Capcaleres::rectSegueix (int fila) const
     if (fila < 0 || fila >= estat.numPistes()) return {};
     const auto& t = estat.projecte.pistes[(size_t) fila];
     if (! mibase::esMidi (t) || mibase::esAcords (t) || mibase::esKit (t)) return {};
-    return rectCellaDalt (fila, 1);   // 1.20: a sobre de la S
+    return rectCellaDalt (fila, 2);   // 1.21: a sobre del gravar (el so va al costat de l'instrument)
+}
+
+juce::Rectangle<int> Capcaleres::rectSo (int fila) const
+{
+    // 1.21: a les pistes d'instrument (no a la bateria ni a la pista d'Acords), al costat del botó de l'instrument
+    if (fila < 0 || fila >= estat.numPistes()) return {};
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (! mibase::esMidi (t) || mibase::esAcords (t) || mibase::esKit (t)) return {};
+    return rectCellaDalt (fila, 1);
 }
 
 juce::Rectangle<int> Capcaleres::rectObreInstrument (int fila) const
@@ -3308,6 +3326,12 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
     if (estat.pistaTriada != fila) estat.capTriat();
     estat.pistaTriada = fila;
 
+    if (! e.mods.isPopupMenu() && rectSo (fila).contains (e.getPosition()))   // 1.21
+    {
+        estat.avisa();
+        if (onMenuSo) onMenuSo (fila, localAreaToGlobal (rectSo (fila)));
+        return;
+    }
     if (! e.mods.isPopupMenu() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && rectObreInstrument (fila).contains (e.getPosition()))
     {
         estat.avisa();

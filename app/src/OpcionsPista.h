@@ -301,6 +301,12 @@ public:
     }
     void obreSubBass (const std::string& id) { obreSinteMibase (id); }
 private:
+public:
+    /** 1.21: el menú de l'instrument (sintes, General MIDI, guitarres, samplejador, kit, VST3) de la pista triada, obert
+        des d'un altre lloc (el botó de so de la capçalera); «zona» en coordenades de pantalla. */
+    void menuInstrumentA (juce::Rectangle<int> zona) { destiMenu = zona; menuInstrument(); }
+private:
+    std::optional<juce::Rectangle<int>> destiMenu;
     void menuInstrument()
     {
         auto* t = estat.pista (estat.pistaTriada);
@@ -324,7 +330,10 @@ private:
         m.addItem (3, "Samplejador"_ca, true, sampler);
         m.addItem (4, "Kit de bateria"_ca, true, kit);   // 0.39
         if (plugins != nullptr) m.addSubMenu ("Instruments VST3", plugins->menu (true, 1000, *tipus));
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btInstrument), [this, tipus] (int r)
+        auto opcions = juce::PopupMenu::Options().withTargetComponent (&btInstrument);
+        if (destiMenu.has_value()) opcions = juce::PopupMenu::Options().withTargetScreenArea (*destiMenu);   // 1.21: des de la capçalera
+        destiMenu.reset();
+        m.showMenuAsync (opcions, [this, tipus] (int r)
         {
             auto* p = estat.pista (estat.pistaTriada);
             if (p == nullptr) return;
