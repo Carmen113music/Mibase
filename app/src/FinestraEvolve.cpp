@@ -27,7 +27,8 @@ namespace
     {
         static BibliotecaPresets b;
         static bool carregada = false;
-        if (! carregada) { carregada = true; b.carrega (dibuix::cami (fitxerBiblioteca())); }
+        // 1.15: abans es carregava amb el filtre del Drive i els presets propis d'EVOLVE no tornaven en obrir Mibase
+        if (! carregada) { carregada = true; b.prefix = "mibase-evolve="; b.carrega (dibuix::cami (fitxerBiblioteca())); }
         return b;
     }
     void desaBiblioteca() { biblioteca().desa (dibuix::cami (fitxerBiblioteca())); }
@@ -37,7 +38,7 @@ namespace
     /** El color de cada mòdul (també a les marques del pom). */
     juce::Colour colorModul (int m)
     {
-        static const juce::uint32 c[numModuls] = { 0xffff6a3d, 0xff4fc3d9, 0xffb18cff, 0xfff5c445, 0xff6fa8ff, 0xff7fd67a, 0xffff5fa2 };
+        static const juce::uint32 c[numModuls] = { 0xffff6a3d, 0xff4fc3d9, 0xffb18cff, 0xfff5c445, 0xff6fa8ff, 0xff7fd67a, 0xffff5fa2, 0xff3fd0b0 };
         return juce::Colour (c[juce::jlimit (0, numModuls - 1, m)]);
     }
     /** El color del pom segons l'Evolution: fred i suau a baix, calent i viu a dalt. */
@@ -273,6 +274,33 @@ namespace
         return pom;
     }
 
+    /** 1.15: si l'Evolution o un LFO mouen aquest paràmetre, un anell de color al voltant del pom: del valor base al que sona ara. */
+    bool esModulat (const Evolve& ev, int p)
+    {
+        for (const auto& r : ev.rutes()) if (r.param == p) return true;
+        for (const auto& a : ev.assignacions()) if (a.param == p) return true;
+        return false;
+    }
+    void dibuixaModulacio (juce::Graphics& g, const Evolve& ev, int p, juce::Rectangle<int> limits, juce::Colour col)
+    {
+        if (ev.mesures().bypass.load() > 0.99f || ! esModulat (ev, p)) return;
+        auto r = limits.toFloat();
+        r.removeFromTop (14.0f);
+        r.removeFromBottom (18.0f);
+        const auto c = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), r.getHeight()), juce::jmin (r.getWidth(), r.getHeight()));
+        const float radi = c.getWidth() * 0.5f + 2.0f;
+        if (radi < 6.0f) return;
+        const float pi = juce::MathConstants<float>::pi;
+        const float b = Evolve::normal (p, ev.valor (p)), e = Evolve::normal (p, ev.mesures().efectiu[(size_t) p].load());
+        auto angle = [&] (float t) { return -0.75f * pi + t * 1.5f * pi; };
+        juce::Path arc;
+        arc.addCentredArc (c.getCentreX(), c.getCentreY(), radi, radi, 0.0f, angle (juce::jmin (b, e)), angle (juce::jmax (b, e)) + 0.001f, true);
+        g.setColour (col.withAlpha (0.85f));
+        g.strokePath (arc, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (col);
+        g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (c.getCentre().getPointOnCircumference (radi, angle (e))));
+    }
+
     /** Els controls del mòdul triat: tots els seus paràmetres, i el nivell d'entrada i de sortida. */
     class EditorModul : public juce::Component
     {
@@ -287,6 +315,10 @@ namespace
         {
             for (auto& [p, pom] : poms) pom->setValor (ev->parametre (p), true);
             for (auto& s : sels) s->repaint();
+        }
+        void paintOverChildren (juce::Graphics& g) override
+        {
+            for (auto& [p, pom] : poms) dibuixaModulacio (g, *ev, p, pom->getBounds(), colorModul (m));
         }
         void paint (juce::Graphics& g) override
         {
@@ -327,7 +359,7 @@ namespace
             }
             else
             {
-                const bool esNivell = p >= NivIn;
+                const bool esNivell = p >= NivIn && p < (int) NivOut + 8;
                 auto pom = pomDe (ev, p, esNivell ? (p < NivOut ? "In"_ca : "Out"_ca) : juce::String());
                 addAndMakeVisible (*pom);
                 ordre.push_back (pom.get());
@@ -759,7 +791,9 @@ namespace
     public:
         explicit PanellEvolve (std::shared_ptr<Evolve> e) : ev (std::move (e)), dial (ev)
         {
-            for (auto* b : { &btAnt, &btSeg, &btPreset, &btDesa, &btCat, &btAtzar, &btReset, &btHold }) addAndMakeVisible (b);
+            for (auto* b : { &btAnt, &btSeg, &btPreset, &btDesa, &btCat, &btAtzar, &btReset, &btHold, &btFitxer }) addAndMakeVisible (b);
+            btFitxer.setTooltip ("Exporta presets a un fitxer (.evolve) per passar-los a un altre ordinador, o importa'n"_ca);
+            btFitxer.onClick = [this] { menuFitxer(); };
             addAndMakeVisible (btFav);
             addAndMakeVisible (segAB);
             addAndMakeVisible (dial);
@@ -813,7 +847,7 @@ namespace
             segVista.onCanvi = [this] (int k) { ev->posa (Vista, (float) k); canviaVista (true); };
             addChildComponent (segPest);
             segPest.onCanvi = [this] (int) { mostraPestanya(); };
-            setSize (900, 640);
+            setSize (980, 640);
             canviaVista (false);
             refresca();
             startTimerHz (30);
@@ -938,6 +972,11 @@ namespace
                         zonaAjuda, juce::Justification::centredLeft);
         }
 
+        void paintOverChildren (juce::Graphics& g) override
+        {
+            for (auto& [p, pom] : poms) dibuixaModulacio (g, *ev, p, pom->getBounds(), tema::accent);
+        }
+
         void resized() override
         {
             auto r = getLocalBounds();
@@ -957,12 +996,14 @@ namespace
                 btCat.setBounds (pr.removeFromLeft (130));
                 pr.removeFromLeft (8);
                 btAnt.setBounds (pr.removeFromLeft (28));
-                btPreset.setBounds (pr.removeFromLeft (juce::jmin (320, pr.getWidth() - 170)));
+                btPreset.setBounds (pr.removeFromLeft (juce::jmin (320, pr.getWidth() - 270)));
                 btSeg.setBounds (pr.removeFromLeft (28));
                 pr.removeFromLeft (6);
                 btFav.setBounds (pr.removeFromLeft (26));
                 pr.removeFromLeft (6);
                 btDesa.setBounds (pr.removeFromLeft (80));
+                pr.removeFromLeft (6);
+                btFitxer.setBounds (pr.removeFromLeft (90));
             }
             if (navegador != nullptr) navegador->setBounds (getLocalBounds());
             r.reduce (14, 8);
@@ -1103,6 +1144,8 @@ namespace
                 case MPitch: return u8 (nomModePitch ((int) v (PitMode))) + " · "_ca + u8 (textValor (PitSemi1, v (PitSemi1)))
                                     + (v (PitNiv2) > 0.5f ? " / "_ca + u8 (textValor (PitSemi2, v (PitSemi2))) : juce::String());
                 case MScatter: return u8 (nomDivisio ((int) v (ScaDiv))) + " · "_ca + juce::String (juce::roundToInt (v (ScaDensity))) + " % trencat"_ca;
+                case MGranular: return juce::String (juce::roundToInt (v (GraSize))) + " ms · "_ca + juce::String (juce::roundToInt (v (GraDens))) + " /s"
+                                       + (v (GraFreeze) > 0.5f ? " · FREEZE"_ca : juce::String());
                 default: return u8 (nomTipusShimmer ((int) v (ShmTipus))) + " " + u8 (textValor (ShmPitch, v (ShmPitch))) + " · "_ca + u8 (textValor (ShmDecay, v (ShmDecay)))
                                 + (v (ShmFreeze) > 0.5f ? " · FREEZE"_ca : juce::String());
             }
@@ -1114,9 +1157,11 @@ namespace
             dial.repaint();
             repaint (mesIn.getUnion (mesOut).expanded (40, 20));
             for (auto& t : targetes) repaint (t);
+            for (auto& [p, pom] : poms) repaint (pom->getBounds().expanded (4));
             if (avancat())
             {
                 repaint (zonaCadena);
+                if (editor != nullptr) editor->repaint();
                 if (matriu != nullptr && matriu->isVisible()) matriu->refresca();
                 for (auto& l : lfos) if (l != nullptr && l->isVisible()) l->refresca();
             }
@@ -1218,6 +1263,75 @@ namespace
                 g.setFont (dibuix::lletra (11.0f, true));
                 g.drawText ("SOLO: només sona "_ca + juce::String (nomModul (solo1)), zonaCadena.withTop (files[(size_t) numModuls - 1].getBottom() + 6).withHeight (16), juce::Justification::centredLeft);
             }
+        }
+
+        // ---- 1.15: importar / exportar presets (fitxers .evolve) ----
+        static juce::File carpetaExport()
+        {
+            return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Mibase").getChildFile ("Evolve");
+        }
+        void menuFitxer()
+        {
+            juce::PopupMenu m;
+            m.addItem (1, "Exporta el so d'ara com un preset…"_ca);
+            m.addItem (2, "Exporta tots els meus presets…"_ca, ! biblioteca().usuari.empty());
+            m.addSeparator();
+            m.addItem (3, "Importa presets (.evolve)…"_ca);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&btFitxer), [sp = juce::Component::SafePointer<PanellEvolve> (this)] (int r)
+            {
+                if (sp == nullptr || r <= 0) return;
+                if (r == 3) sp->importa(); else sp->exporta (r == 2);
+            });
+        }
+        void exporta (bool tots)
+        {
+            BibliotecaPresets b;
+            juce::String nom = nomsPreset()[ev.get()];
+            if (tots) b.usuari = biblioteca().usuari;
+            else
+            {
+                if (nom.isEmpty() || nom == "(atzar)"_ca) nom = "Evolve";
+                b.usuari.push_back ({ nom.toStdString(), "Meus", "", ev->estat() });
+            }
+            carpetaExport().createDirectory();
+            const auto proposta = carpetaExport().getChildFile (juce::File::createLegalFileName (tots ? juce::String ("Els meus presets EVOLVE") : nom) + ".evolve");
+            tria = std::make_unique<juce::FileChooser> ("Exporta presets d'EVOLVE"_ca, proposta, "*.evolve");
+            tria->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                [this, b] (const juce::FileChooser& fc)
+                {
+                    auto f = fc.getResult();
+                    if (f == juce::File()) return;
+                    if (! f.hasFileExtension ("evolve")) f = f.withFileExtension ("evolve");
+                    const bool ok = b.desa (dibuix::cami (f));
+                    juce::AlertWindow::showMessageBoxAsync (ok ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon, "EVOLVE",
+                        ok ? "Desat: "_ca + f.getFileName() + " (" + juce::String ((int) b.usuari.size()) + " preset" + (b.usuari.size() == 1 ? "" : "s") + ")"
+                           : "No s'ha pogut desar el fitxer."_ca);
+                });
+        }
+        void importa()
+        {
+            tria = std::make_unique<juce::FileChooser> ("Importa presets d'EVOLVE"_ca, carpetaExport(), "*.evolve");
+            tria->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
+            {
+                const auto f = fc.getResult();
+                if (! f.existsAsFile()) return;
+                BibliotecaPresets b;
+                b.prefix = "mibase-evolve=";
+                int n = 0;
+                if (b.carrega (dibuix::cami (f)))
+                    for (auto p : b.usuari)
+                    {
+                        if (p.estat.rfind ("mibase-evolve=", 0) != 0) continue;   // només presets d'EVOLVE
+                        if (biblioteca().busca (p.nom) != nullptr) p.nom = biblioteca().nomLliure (p.nom);
+                        biblioteca().desaPreset (p);
+                        ++n;
+                    }
+                if (n > 0) desaBiblioteca();
+                juce::AlertWindow::showMessageBoxAsync (n > 0 ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon, "EVOLVE",
+                    n > 0 ? "Importats: "_ca + juce::String (n) + " preset" + (n == 1 ? "" : "s") + ". Són a «Meus» (o a la seva carpeta)."_ca
+                          : "Aquest fitxer no té cap preset d'EVOLVE."_ca);
+                refresca();
+            });
         }
 
         // ---- A/B ----
@@ -1382,6 +1496,8 @@ namespace
         Boto btPreset { "(sense preset)"_ca, std::nullopt, Boto::Estil::Secundari };
         BotoEstrella btFav;
         Boto btDesa { "Desa", dibuix::Icona::Disc, Boto::Estil::Secundari };
+        Boto btFitxer { "Fitxer", dibuix::Icona::FletxaAvall, Boto::Estil::Secundari };   // 1.15: importar / exportar
+        std::unique_ptr<juce::FileChooser> tria;
         Boto btCat { "Totes"_ca, dibuix::Icona::FletxaAvall, Boto::Estil::Secundari };
         Boto btAtzar { "RANDOMIZE", std::nullopt, Boto::Estil::Secundari };
         Boto btReset { "RESET", std::nullopt, Boto::Estil::Secundari };
@@ -1414,7 +1530,7 @@ namespace
             setUsingNativeTitleBar (true);
             setContentOwned (new PanellEvolve (std::move (e)), true);
             setResizable (true, true);
-            setResizeLimits (760, 560, 1700, 1200);
+            setResizeLimits (900, 560, 1700, 1200);
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
         }

@@ -39,6 +39,10 @@ namespace mibase::drive
     class BibliotecaPresets
     {
     public:
+        /** 1.15: si no és buit, només accepta en carregar els estats que comencen així. Abans sempre era «mibase-drive=», i els
+            presets propis dels sintes, del Guitar Rack, del Vintage i de l'EVOLVE (que fan servir aquesta mateixa biblioteca, cadascun
+            amb el seu fitxer) no tornaven en obrir Mibase. */
+        std::string prefix;
         std::vector<Preset> usuari;
         std::vector<std::string> favorits;
         bool carrega (const std::filesystem::path& fitxer);
