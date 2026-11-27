@@ -79,8 +79,8 @@ public:
 
 private:
     // 0.13: meitat de baix = capçal; meitat de dalt = bucle (selecció) i parts de la cançó.
-    struct Lloc { int vora = 0; int part = -1; };   // vora: -1 inici, 1 final (del bucle si part = -1)
-    enum class Accio { Res, Capcal, Vora, Seleccio, Seleccionant };
+    struct Lloc { int vora = 0; int part = -1; int marca = 0; };   // vora: -1 inici, 1 final (del bucle si part = -1); marca (1.18): 1 inici de la cançó, 2 final
+    enum class Accio { Res, Capcal, Vora, Seleccio, Seleccionant, Marca };
     Lloc queHiHa (juce::Point<int> p) const;
     double compas (double t) const;
     std::pair<double, double> seleccio (double ta, double tb) const;
@@ -378,6 +378,7 @@ public:
     PanellSeguidors seguidors { estat };
     bool acordsTriada() const { auto* t = estat.pista (estat.pistaTriada); return t != nullptr && mibase::esAcords (*t); }
     OpcionsPista opcions { estat };
+    std::function<void()> onMescles;   // 1.16: la taula de mescles va en una finestra a part
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
