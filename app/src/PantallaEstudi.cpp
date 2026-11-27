@@ -1874,7 +1874,7 @@ void PantallaEstudi::tic()
         estat.volumAuto[(size_t) sl] = v;
         estat.panAuto[(size_t) sl] = pn;
     }
-    if (canviAuto) { esquerra.repaint(); if (mescles.isVisible()) mescles.repaint(); }
+    if (canviAuto) { esquerra.repaint(); if (mescles.isVisible()) mescles.repaint(); if (columnes.isVisible()) columnes.repaint(); }   // 1.22: també les columnes
     if (canvi)
     {
         if (capcaleres.isVisible()) capcaleres.repaint (capcaleres.getWidth() - 20, 0, 20, capcaleres.getHeight());

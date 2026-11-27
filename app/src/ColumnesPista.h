@@ -393,11 +393,17 @@ private:
                 const bool alMaster = t.sortida.empty() && t.sortidaTargeta < 0;
                 caixa (g, z, "OUT  "_ca + (alMaster ? juce::String ("Master") : EstatEstudi::textDesti (estat.projecte, t)), alMaster ? tema::textMig : tema::text);
             }
-            else pintaVolPan (g, z, t.faderDb, t.pan, false);
+            else
+            {
+                // 1.22: el que sona ara (si l'automatització llegeix, el seu valor, en groc)
+                const bool autoVol = std::abs (estat.faderMostrat (t) - t.faderDb) > 1.0e-6 || estat.volumLlegit (t);
+                const bool autoPan = std::abs (estat.panMostrat (t) - t.pan) > 1.0e-6 || estat.panLlegit (t);
+                pintaVolPan (g, z, estat.faderMostrat (t), estat.panMostrat (t), false, autoVol, autoPan);
+            }
         }
     }
 
-    void pintaVolPan (juce::Graphics& g, juce::Rectangle<int> z, double db, double pan, bool master)
+    void pintaVolPan (juce::Graphics& g, juce::Rectangle<int> z, double db, double pan, bool master, bool autoVol = false, bool autoPan = false)
     {
         g.setColour (juce::Colour (0xff101014));
         g.fillRoundedRectangle (z.toFloat(), 3.0f);
@@ -405,14 +411,14 @@ private:
         g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 3.0f, 1.0f);
         g.setFont (dibuix::mono (9.5f));
         auto esq = master ? z : z.withWidth (z.getWidth() / 2);
-        g.setColour (vintage::ledVerd);
+        g.setColour (autoVol ? vintage::ledGroc : vintage::ledVerd);   // 1.22: groc = l'automatització mana
         const bool curt = z.getWidth() < 110;
         g.drawFittedText ((curt ? "" : "vol ") + (db <= -59.9 ? juce::String ("-oo") : juce::String (db, 1)), esq.reduced (3, 0), juce::Justification::centredLeft, 1, 0.8f);
         if (master) return;
         auto dre = z.withTrimmedLeft (z.getWidth() / 2);
         g.setColour (tema::linia2);
         g.fillRect (dre.getX(), z.getY() + 3, 1, z.getHeight() - 6);
-        g.setColour (vintage::ledVerd);
+        g.setColour (autoPan ? vintage::ledGroc : vintage::ledVerd);
         g.drawFittedText ((curt ? "" : "pan ") + textPanCurt (pan), dre.reduced (3, 0), juce::Justification::centredLeft, 1, 0.8f);
     }
 

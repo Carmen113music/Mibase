@@ -304,6 +304,15 @@ public:
         if (v < 0.0f || ! teLinia (t, mibase::automatitzacio::pan)) return t.pan;
         return mibase::automatitzacio::panDe (v);
     }
+    /** 1.22: l'automatització de volum (o de panorama) d'aquesta pista està llegint ara mateix (sonant). */
+    bool volumLlegit (const mibase::Pista& t) const
+    {
+        return volumAuto[(size_t) (mibase::slotDePista (t) % mibase::maxSlots)] >= 0.0f && teLinia (t, mibase::automatitzacio::volum);
+    }
+    bool panLlegit (const mibase::Pista& t) const
+    {
+        return panAuto[(size_t) (mibase::slotDePista (t) % mibase::maxSlots)] >= 0.0f && teLinia (t, mibase::automatitzacio::pan);
+    }
     static bool teLinia (const mibase::Pista& t, const char* objectiu)
     {
         for (const auto& a : t.autos) if (a.objectiu == objectiu && ! a.punts.empty()) return true;
