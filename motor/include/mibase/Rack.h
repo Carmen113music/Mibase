@@ -95,6 +95,9 @@ namespace mibase::rack
         std::atomic<float> canviDb { 0.0f };   // 0.94: quant canvia el volum (RMS sortida − entrada, dB): «quant actua»
         // fil d'àudio
         std::vector<float> secL, secR;
+        // 1.12: un mòdul amb latència no es para mai: apagat, sona el sec retardat la mateixa estona (sense clics ni salts)
+        std::vector<float> retL, retR;
+        int retW = 0, retMascara = 0;
         float mixAnt = 1.0f;
         bool estavaOn = true;
         float canviSuau = 0.0f;
@@ -217,6 +220,16 @@ namespace mibase::rack
         void buida() noexcept override;
 
         void posaTempo (const std::atomic<double>* t) noexcept { tempo = t; }
+        /** 1.12: la freqüència de mostreig amb què s'ha preparat (per a la interfície: referències, textos en ms). */
+        double frequencia() const noexcept { return fs; }
+        /** 1.12: el volum d'entrada del rack (dB, -24..24). L'assistent de loudness el fa servir per abaixar. */
+        void posaEntradaDb (float db) noexcept { par[Entrada].store (std::clamp (db, -24.0f, 24.0f), std::memory_order_relaxed); ++canvis; }
+        /** 1.12: com posaEstat, però si la cadena té els mateixos mòduls (mateixes claus i camins) no els torna a crear:
+            només en canvia els ajustos. Així l'A/B i el «Desfés» de l'assistent no fan forats ni clics. */
+        void posaEstatSuau (const std::string& s);
+        /** 1.12: després de canviar un paràmetre a mà (l'assistent, el matching…), recol·loca els enllaços dels macros perquè,
+            amb el macro on és, el paràmetre quedi on és ara (si no, tocar el macro desfaria el canvi). */
+        void reancoraMacros();
 
         // ---- interfície (fil de la interfície) ----
         /** La cadena d'ara (no la guardis gaire: si es canvia, n'hi ha una de nova). */
@@ -311,7 +324,8 @@ namespace mibase::rack
         std::atomic<bool> igualatAB { false };   // 0.95: apagat per defecte
         // 1.01: referència
         std::shared_ptr<const Referencia> refActual;
-        std::vector<std::shared_ptr<const Referencia>> refsVives;   // les últimes, perquè el fil d'àudio no en llegeixi una d'esborrada
+        struct RefRetirada { std::shared_ptr<const Referencia> r; unsigned long long retirada; };
+        std::vector<RefRetirada> refsVives;   // 1.12: les velles es guarden fins que el fil d'àudio segur que ja no les llegeix
         std::atomic<const Referencia*> refAudio { nullptr };
         std::atomic<bool> igualaRef { true }, demanaRefInici { false };
         std::atomic<float> refInici { 0.0f }, posRefSeg { 0.0f }, gRefDb { 0.0f };
@@ -332,6 +346,16 @@ namespace mibase::rack
     float guanyLimitador (const Rack& r);
     /** Posa el guany del limitador i hi deixa el macro Loudness d'acord (si cal, n'estén el rang). */
     void posaGuanyLimitador (Rack& r, float db);
+    /** 1.12: el guany «total» de loudness: el del limitador (0..24) més l'Entrada del rack. Per pujar es fa servir el
+        limitador; per abaixar per sota de 0 (una mescla ja més forta que el perfil), l'Entrada. */
+    float guanyTotal (const Rack& r);
+    void posaGuanyTotal (Rack& r, float db);
+
+    /** 1.12: els controls que només serveixen per escoltar (Escolta igualat del limitador, Escolta en mono de l'Estèreo,
+        Solo de les bandes del Multibanda, Escolta SC de la Dinàmica) no han d'arribar mai a l'exportació. «apagaEscoltes»
+        els apaga (també dins d'un rack); «escoltaEncesa» diu si n'hi ha algun d'encès (per avisar). */
+    void apagaEscoltes (EfecteIntern& fx);
+    bool escoltaEncesa (const EfecteIntern& fx);
     /** 1.2: «Generate Master Suggestion»: una cadena mínima per a aquesta mescla i aquest estil, amb el perquè de cada mòdul
         i el que no cal fer. Fa servir l'anàlisi del mix (abans del màster) i, si n'hi ha, la referència del context. */
     struct SuggerimentMaster
@@ -353,7 +377,7 @@ namespace mibase::rack
         no força res. La interfície crida «actualitza» unes 10 vegades per segon. */
     struct AssistentLoudness
     {
-        enum class Estat { Apagat, Escoltant, Fet, Massa, NoArriba, SenseLimitador };
+        enum class Estat { Apagat, Escoltant, Fet, Massa, NoArriba, SenseLimitador, NoConvergeix };   // 1.12: NoConvergeix
         Estat estat = Estat::Apagat;
         float objectiu = -14.0f, sostre = -1.0f;
         int iteracions = 0;

@@ -17,9 +17,13 @@ namespace
     }
 }
 
+void instalaPrioritatFilsAudio();   // 1.10 (FilsAudio.cpp)
+
 ServeiAudio::ServeiAudio (Historial& h) : historial (h)
 {
     ajustos = std::make_unique<juce::PropertiesFile> (opcionsAjustos());
+    instalaPrioritatFilsAudio();
+    if (getDiversosNuclis()) setDiversosNuclis (true);   // 1.10
     plugins = std::make_unique<EscanerPlugins> (ajustos->getFile().getSiblingFile ("Plugins.xml"));
 
     // Fins a 32 entrades i 2 sortides (0.18; les altres s'activen a Preferències). Si hi ha ajustos desats, es fan servir.
@@ -165,6 +169,11 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
                                                     float* const* sortides, int numSortides, int numMostres,
                                                     const juce::AudioIODeviceCallbackContext&)
 {
+    // 1.8: els números minúsculs (cues de reverbs, filtres i delays que s'apaguen) es tracten com a zero.
+    // Si no, el processador els calcula molt més a poc a poc i poden fer clics en els silencis.
+    const juce::ScopedNoDenormals senseDenormals;
+    const auto tic0 = juce::Time::getHighResolutionTicks();   // 1.8: per mesurar quant triga el bloc
+
     // Fil d'àudio: només el motor, que no demana memòria ni s'espera mai.
     motorDiag.processa (entrades, numEntrades, sortides, numSortides, numMostres);
     {
@@ -210,6 +219,31 @@ void ServeiAudio::audioDeviceIOCallbackWithContext (const float* const* entrades
         if (c + 1 >= numSortides) c = 0;
         reproductorFont.processa (c < numSortides ? sortides[c] : nullptr, c + 1 < numSortides ? sortides[c + 1] : nullptr, numMostres);
     }
+
+    // 1.8: temps del bloc (sense demanar memòria ni esperar: només números atòmics).
+    {
+        const float ms = (float) juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - tic0) * 1000.0f;
+        const float marge = fsDispositiu > 0.0 ? (float) (1000.0 * numMostres / fsDispositiu) : 0.0f;
+        margeBlocMs.store (marge, std::memory_order_relaxed);
+        if (ms > pitjorBlocMs.load (std::memory_order_relaxed)) pitjorBlocMs.store (ms, std::memory_order_relaxed);
+        if (ms > pitjorBlocTotalMs.load (std::memory_order_relaxed)) pitjorBlocTotalMs.store (ms, std::memory_order_relaxed);
+        if (marge > 0.0f && ms > 0.8f * marge) blocsAlLimit.fetch_add (1, std::memory_order_relaxed);
+        if (marge > 0.0f && ms > marge) blocsTard.fetch_add (1, std::memory_order_relaxed);
+    }
+}
+
+bool ServeiAudio::getDiversosNuclis() const
+{
+    return ajustos != nullptr && ajustos->getBoolValue ("audio.diversosNuclis", false);
+}
+
+void ServeiAudio::setDiversosNuclis (bool b)
+{
+    // El fil d'àudio i un nucli per a cadascun dels altres nuclis físics (els «fils» del processador no compten).
+    const int n = b ? juce::jmax (2, juce::SystemStats::getNumPhysicalCpus()) : 1;
+    motorEstudi.mesclador.setNuclis (n);
+    pitjorBlocMs = 0.0f; pitjorBlocTotalMs = 0.0f; blocsAlLimit = 0; blocsTard = 0;   // 1.11: mesura nova
+    if (ajustos != nullptr) { ajustos->setValue ("audio.diversosNuclis", b); ajustos->saveIfNeeded(); }
 }
 
 void ServeiAudio::escoltaSo (std::shared_ptr<const mibase::bateria::Mostra> m)
@@ -233,6 +267,7 @@ void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
     motorDiag.prepara (d->getCurrentSampleRate(), d->getCurrentBufferSizeSamples());
     motorEstudi.prepara (d->getCurrentSampleRate(), juce::jmax (d->getCurrentBufferSizeSamples(), 2048));
     fsDispositiu = d->getCurrentSampleRate() > 0 ? d->getCurrentSampleRate() : 48000.0;
+    pitjorBlocMs = 0.0f; pitjorBlocTotalMs = 0.0f; blocsAlLimit = 0; blocsTard = 0;   // 1.8: mesura nova
     reproductorFont.prepara (fsDispositiu, juce::jmax (d->getCurrentBufferSizeSamples(), 2048));   // 0.97
 
     // Les entrades actives arriben juntes a la crida d'àudio: per a cada entrada, la seva posició.
@@ -318,6 +353,7 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
 
     const auto* dades = m.getRawData();
     mibase::EsdevenimentMidi e;
+    midiRebuts.fetch_add (1, std::memory_order_relaxed);   // 1.13
     e.estat = dades[0];
     e.dada1 = m.getRawDataSize() > 1 ? dades[1] : 0;
     e.dada2 = m.getRawDataSize() > 2 ? dades[2] : 0;
@@ -350,10 +386,12 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
     else if ((e.estat & 0xF0) == 0x80 || ((e.estat & 0xF0) == 0x90 && e.dada2 == 0)) cm.notaOff (e.dada1 & 127);
     else if ((e.estat & 0xF0) == 0xB0 && (e.dada1 == 123 || e.dada1 == 120)) cm.totesOff();
     const bool perHarmonitzador = cm.escoltantTeclat.load (std::memory_order_relaxed) > 0;
-    auto envia = [this, desti, perHarmonitzador] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
+    auto envia = [this, desti, slot, perHarmonitzador] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)
     {
-        if (! motorEstudi.enviaTeclat (es, d1, d2, desti) && ! perHarmonitzador)
+        const bool aPista = motorEstudi.enviaTeclat (es, d1, d2, desti);
+        if (! aPista && ! perHarmonitzador)
             motorDiag.enviaMidi ({ es, d1, d2 });
+        midiDarrerDesti.store (aPista ? slot : (perHarmonitzador ? -4 : -1), std::memory_order_relaxed);   // 1.13
     };
     // Primer el Chord Pad; el que hi passa tal qual, per l'escala (bloquejat / assistit).
     teclatAcords.tradueix (e.estat, e.dada1, e.dada2, acords, [this, &envia] (std::uint8_t es, std::uint8_t d1, std::uint8_t d2)

@@ -69,7 +69,7 @@ public:
         btPrimer.setToggleState (true, juce::dontSendNotification);
         btHumanitza.onClick = [this]
         {
-            const double ms = msTemps.getValor(), pv = pctVel.getValor();
+            const double ms = std::round (msTemps.getValor()), pv = std::round (pctVel.getValor());
             const bool fixa = btPrimer.getToggleState();
             const auto llavor = (std::uint32_t) ++llavors;
             ordre ([=, this] (mibase::Clip& k, std::vector<int>& sel, long long d, long long, long long)
@@ -80,7 +80,7 @@ public:
         swingPas.setTriat (1);
         btSwing.onClick = [this]
         {
-            const double pc = swingPct.getValor();
+            const double pc = std::round (swingPct.getValor());
             const long long p = swingPas.getTriat() == 0 ? mibase::ticksPerNegra / 2 : mibase::ticksPerNegra / 4;
             ordre ([=] (mibase::Clip& k, std::vector<int>& sel, long long d, long long, long long) { mibase::bateria::swing (k, sel, pc, p, d); },
                    "Swing "_ca + juce::String ((int) pc) + " %");
@@ -167,18 +167,15 @@ public:
         y += 6;
         titol (yEines);
         {
-            auto r = fila (26); const int m = r.getWidth() / 2 - 3;
-            msTemps.setBounds (r.removeFromLeft (m)); pctVel.setBounds (r.removeFromRight (m));
+            // 1.14: abans eren caixes de números; ara són poms com la resta
+            auto r = fila (64); const int m = r.getWidth() / 3;
+            msTemps.setBounds (r.removeFromLeft (m)); pctVel.setBounds (r.removeFromLeft (m)); swingPct.setBounds (r);
         }
         {
             auto r = fila (28); const int m = r.getWidth() / 2 - 3;
             btPrimer.setBounds (r.removeFromLeft (m)); btHumanitza.setBounds (r.removeFromRight (m));
         }
-        {
-            auto r = fila (26);
-            swingPct.setBounds (r.removeFromLeft (r.getWidth() / 2 - 3)); r.removeFromLeft (6);
-            swingPas.setBounds (r);
-        }
+        swingPas.setBounds (fila (26));
         btSwing.setBounds (fila (28));
         {
             auto r = fila (28);
@@ -480,10 +477,11 @@ private:
                                                                  const int k = (int) std::lround (v); return juce::String (n[k % 12]) + juce::String (k / 12 - 1) + " (" + juce::String (k) + ")"; } };
     Boto btFilaNova { "+ Fila", std::nullopt, Boto::Estil::Secundari };
     Boto btTreuFila { "Treu la fila", std::nullopt, Boto::Estil::Secundari };
-    CaixaNumero msTemps { "± ms"_ca, 0, 40, 8 }, pctVel { "± vel %"_ca, 0, 50, 10 };
+    Pom msTemps { "± ms"_ca, 0.0, 40.0, 8.0, false, [] (double v) { return juce::String (juce::roundToInt (v)) + " ms"; } },
+        pctVel { "± vel"_ca, 0.0, 50.0, 10.0, false, [] (double v) { return juce::String (juce::roundToInt (v)) + " %"; } };   // 1.14: poms
     Boto btPrimer { "1r temps quiet", std::nullopt, Boto::Estil::Tecla };
     Boto btHumanitza { "Humanitza", std::nullopt, Boto::Estil::Primari };
-    CaixaNumero swingPct { "Swing %", 50, 75, 58 };
+    Pom swingPct { "Swing", 50.0, 75.0, 58.0, false, [] (double v) { return juce::String (juce::roundToInt (v)) + " %"; } };
     Segmentat swingPas { { "1/8", "1/16" } };
     Boto btSwing { "Aplica el swing", std::nullopt, Boto::Estil::Secundari };
     Segmentat copsRedoble { { "2", "3", "4" } };

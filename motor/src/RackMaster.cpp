@@ -50,6 +50,7 @@ namespace mibase::rack
             int limEstil = limitador::Transparent; float limGain = 3, ceil = -1;
             int objectiu = 1;
             bool eq = true, st = true;   // 1.2: la suggerència pot no posar-hi l'EQ ni l'Estèreo
+            float entrada = 0;           // 1.12: l'Entrada del rack (dB): negativa si el mix ja és més fort que el perfil
         };
 
         struct Enl { int modul, param; float mn, mx; };
@@ -186,6 +187,7 @@ namespace mibase::rack
                 k.iLim = k.r.afegeix ("limitm", l);
             }
             k.r.posaObjectiu (c.objectiu);
+            if (std::abs (c.entrada) > 0.01f) k.r.posaEntradaDb (c.entrada);   // 1.12
 
             const int bGreus = eq::indexParam (1, eq::PGuany), bCos = eq::indexParam (2, eq::PGuany);
             const int bPres = eq::indexParam (4, eq::PGuany), bAire = eq::indexParam (5, eq::PGuany);
@@ -223,7 +225,7 @@ namespace mibase::rack
             // ---- Bàsics ----
             { auto& c = nou ("Bàsics", "Màster net", "El punt de partida: treu el subgreu inútil, cohesió molt suau (1–2 dB) i limitador transparent. Vigila: és neutre a propòsit; mou els macros.");
               c.thr = -16; c.ratio = 1.5f; c.limGain = 3; }
-            { auto& c = nou ("Bàsics", "Només limitador", "Per a una mescla que ja sona com vols: només puja el volum sense passar del sostre. Vigila: si el limitador redueix més de 3–4 dB, perds cop.");
+            { auto& c = nou ("Bàsics", "Només limitador", "Per a una mescla que ja sona com vols: només puja el volum sense passar del sostre (l'EQ i l'Estèreo hi són neutres, perquè els macros tinguin on actuar). Vigila: si el limitador redueix més de 3–4 dB, perds cop.");
               c.comp = false; c.limGain = 4; }
             { auto& c = nou ("Bàsics", "Dinàmica natural", "Gairebé no comprimeix: respecta els cops i les diferències entre estrofa i tornada. Per a cançons que respiren. Vigila: sonarà més fluix que un màster comercial (és normal).");
               c.thr = -14; c.ratio = 1.5f; c.atac = 40; c.rel = 250; c.limGain = 2; c.objectiu = 3; }
@@ -321,6 +323,26 @@ namespace mibase::rack
         r.marcaModificat();
     }
 
+    // 1.12: el guany de loudness total (limitador + Entrada del rack)
+    float guanyTotal (const Rack& r) { return guanyLimitador (r) + r.entradaDb(); }
+
+    void posaGuanyTotal (Rack& r, float db)
+    {
+        const float ePos = std::max (0.0f, r.entradaDb());   // si hi havies pujat l'Entrada a mà, es respecta
+        const float cal = db - ePos;
+        if (cal >= 0.0f)
+        {
+            if (r.entradaDb() != ePos) r.posaEntradaDb (ePos);
+            posaGuanyLimitador (r, std::min (cal, 24.0f));
+        }
+        else
+        {
+            if (guanyLimitador (r) > 0.0f) posaGuanyLimitador (r, 0.0f);
+            r.posaEntradaDb (std::max (-24.0f, ePos + cal));
+        }
+        r.marcaModificat();
+    }
+
     void posaSostre (Rack& r, float dbtp)
     {
         const int i = limitadorFinal (r);
@@ -337,6 +359,7 @@ namespace mibase::rack
         objectiu = lufs; sostre = tp;
         iteracions = 0; grMax = 0.0f; error = 0.0f; mesurat = loudnessSilenci;
         if (limitadorFinal (r) < 0) { estat = Estat::SenseLimitador; return; }
+        apagaEscoltes (*r.modul (limitadorFinal (r))->fx);   // 1.12: amb l'«Escolta igualat» encès, la mesura enganyaria
         posaSostre (r, tp);
         r.reiniciaMesures();
         reiniciVist = false;
@@ -358,12 +381,13 @@ namespace mibase::rack
         error = objectiu - integ;
         if (std::abs (error) <= 0.5f) { estat = Estat::Fet; return estat; }
         if (error > 0.0f && grMax > grMaxima) { estat = Estat::Massa; return estat; }
-        const float ara = guanyLimitador (r);
-        if (error > 0.0f && ara >= 23.95f) { estat = Estat::NoArriba; return estat; }
-        if (++iteracions > maxVoltes) { estat = Estat::Fet; return estat; }
+        if (error > 0.0f && guanyLimitador (r) >= 23.95f) { estat = Estat::NoArriba; return estat; }
+        if (error < 0.0f && r.entradaDb() <= -23.95f) { estat = Estat::NoConvergeix; return estat; }
+        // 1.12: «Fet» només si hi ha arribat (abans deia «Fet» encara que s'hagués quedat lluny)
+        if (++iteracions > maxVoltes) { estat = std::abs (error) <= 1.0f ? Estat::Fet : Estat::NoConvergeix; return estat; }
         // quan el limitador ja treballa, el volum puja menys que el guany: hi anem una mica més de pressa
         const float factor = error > 0.0f && grMax > 2.0f ? 1.3f : 1.0f;
-        posaGuanyLimitador (r, ara + error * factor);
+        posaGuanyTotal (r, guanyTotal (r) + error * factor);   // 1.12: per abaixar, l'Entrada del rack
         r.reiniciaMesures();
         reiniciVist = false;
         grMax = 0.0f;
@@ -483,8 +507,12 @@ namespace mibase::rack
         float g = mix.loud.integrated > -70.0f ? lufsObj - mix.loud.integrated : 3.0f;
         g -= (c.comp ? c.makeup : 0.0f) + (c.clip ? c.clipDrive : 0.0f);
         c.limGain = std::clamp (g + 1.0f, 0.0f, 14.0f);   // +1: el limitador també treu volum
+        if (g < 0.0f) c.entrada = std::max (-24.0f, g);   // 1.12: el mix ja és més fort que el perfil: s'abaixa a l'entrada
         s.moduls.push_back ({ "Limitador", "Perfil " + std::string (obj.nom) + " (" + n1 (lufsObj) + " LUFS, sostre " + n1 (obj.truePeak) + " dBTP). El mix és a "
-                              + n1 (mix.loud.integrated) + " LUFS: guany inicial de " + n1 (c.limGain) + " dB. Després, «Ajusta al perfil» mentre sona per afinar-lo." });
+                              + n1 (mix.loud.integrated) + " LUFS: "
+                              + (c.entrada < 0.0f ? "ja és més fort que el perfil, així que l'Entrada del rack baixa " + n1 (-c.entrada) + " dB i el limitador no puja res."
+                                                  : "guany inicial de " + n1 (c.limGain) + " dB.")
+                              + " Després, «Ajusta al perfil» mentre sona per afinar-lo." });
         s.estat = fes (c);
         {   // la llista, en l'ordre de la cadena
             static const char* const ordre[] = { "EQ de màster", "De-esser de màster", "Compressor de màster", "Low End Focus", "Transient Shaper",

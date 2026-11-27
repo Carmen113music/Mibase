@@ -131,12 +131,19 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     estat.projecte = p;
     estat.fitxer = f;
+    servei.nomSlotMidi = [this] (int slot)   // 1.13: per al diagnòstic MIDI
+    {
+        for (const auto& t : estat.projecte.pistes) if (mibase::slotDePista (t) == slot) return juce::String::fromUTF8 (t.nom.c_str());
+        return "slot "_ca + juce::String (slot);
+    };
     estat.carpeta = f.getParentDirectory();
     estat.pxPerSegon = ajustos.getDoubleValue ("estudi.zoom", 48.0);
     estat.altPista = juce::jmax (VistaPistes::alcadaMinima, ajustos.getIntValue ("estudi.altPista", 80));
     if (! estat.projecte.pistes.empty()) estat.pistaTriada = 0;
     if (auto* t = estat.pista (estat.pistaTriada)) idTriadaAbans = t->id;   // 0.72
     posaAnalitzadorMaster ([this] (bool ambPistes, const mibase::diagnosi::Context& ctx) { return analitzaMaster (ambPistes, ctx); });   // 1.00
+    posaFaderMaster ({ [this] { return estat.projecte.masterDb; },   // 1.12: el panell del màster avisa si no és a 0 dB
+                       [this] { estat.desfes.abans (estat.projecte); estat.projecte.masterDb = 0.0; estat.canviat ("Volum del màster: 0,0 dB"_ca); } });
     // 0.78: «Implementa a pistes reals» / «Treu la cadena» des de la finestra del Vocal Studio
     plugins.onAccioRack = [this] (const std::string& idInsert, int accio) -> int
     {
@@ -657,6 +664,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 PantallaEstudi::~PantallaEstudi()
 {
     posaAnalitzadorMaster ({});   // 1.00
+    posaFaderMaster ({});         // 1.12
+    servei.nomSlotMidi = nullptr; // 1.13
     inserts::obreVeu() = nullptr;
     inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;

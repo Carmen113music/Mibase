@@ -52,6 +52,7 @@ namespace inserts
                                    : x.plugin == mibase::saturacio::idPlugin ? "Decapitor · "_ca
                                    : x.plugin == mibase::drive::idPlugin ? "Drive · "_ca
                                    : x.plugin == mibase::guitarrack::idPlugin ? "Guitar Rack · "_ca   // 1.5
+                                   : x.plugin == mibase::evolve::idPlugin ? "EVOLVE · "_ca   // 1.13
                                    : x.plugin == mibase::tune::idPlugin ? "Tune · "_ca   // 0.80
                                    : x.plugin == mibase::limitador::idPlugin ? "Limitador · "_ca
                                    : x.plugin == mibase::rack::idPlugin ? "Vocal Studio · "_ca
@@ -366,6 +367,7 @@ namespace inserts
         m.addItem (6, "Delay (Mibase): ecos de cinta, analògics, ping-pong…"_ca);
         m.addItem (7, "Decapitor (Mibase): saturació de cinta, consola, vàlvules o suau (per a la mescla)"_ca);
         m.addItem (13, "Guitar Rack (Mibase): amplis, pantalles, micròfons i pedals de guitarra"_ca);   // 1.5
+        m.addItem (14, "EVOLVE (Mibase): un sol pom que transforma el so (distorsió, filtre, bombeig, shimmer)"_ca);   // 1.13
         // 1.7: el Drive sol ja no surt al menú (el substitueix el Guitar Rack); els projectes que el tenen continuen sonant
         m.addItem (9, "Limitador (Mibase): per al màster i els busos, amb LUFS"_ca);
         m.addItem (10, "Vocal Studio (Mibase): rack de veu amb mòduls, 8 macros i presets"_ca);   // 0.70
@@ -395,15 +397,15 @@ namespace inserts
                 juce::MessageManager::callAsync ([pista] { if (obreVeu()) obreVeu() (pista); });
                 return;
             }
-            if (r >= 3 && r <= 13)
+            if (r >= 3 && r <= 14)
             {
                 std::string id;
                 canvia (estat, plugins, pista, [&] (std::vector<mibase::Insert>& l)
                 {
                     mibase::Insert x;
                     x.id = id = "i" + std::to_string (++estat.projecte.comptador);
-                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin, mibase::limitador::idPlugin, mibase::rack::idPlugin, mibase::tune::idPlugin, mibase::rack::idPluginMaster, mibase::guitarrack::idPlugin };
-                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin, mibase::limitador::nomPlugin, mibase::rack::nomPlugin, mibase::tune::nomPlugin, mibase::rack::nomPluginMaster, mibase::guitarrack::nomPlugin };
+                    static const char* const ids[] = { mibase::reverb::idPlugin, mibase::dinamica::idPlugin, mibase::eq::idPlugin, mibase::delay::idPlugin, mibase::saturacio::idPlugin, mibase::drive::idPlugin, mibase::limitador::idPlugin, mibase::rack::idPlugin, mibase::tune::idPlugin, mibase::rack::idPluginMaster, mibase::guitarrack::idPlugin, mibase::evolve::idPlugin };
+                    static const char* const noms[] = { mibase::reverb::nomPlugin, mibase::dinamica::nomPlugin, mibase::eq::nomPlugin, mibase::delay::nomPlugin, mibase::saturacio::nomPlugin, mibase::drive::nomPlugin, mibase::limitador::nomPlugin, mibase::rack::nomPlugin, mibase::tune::nomPlugin, mibase::rack::nomPluginMaster, mibase::guitarrack::nomPlugin, mibase::evolve::nomPlugin };
                     x.plugin = ids[r - 3];
                     x.nom = noms[r - 3];
                     if (nou || k >= (int) l.size()) l.push_back (x);
@@ -411,7 +413,7 @@ namespace inserts
                 }, "Efecte: "_ca + juce::String::fromUTF8 (r == 3 ? mibase::reverb::nomPlugin : r == 4 ? mibase::dinamica::nomPlugin : r == 5 ? mibase::eq::nomPlugin
                                                      : r == 6 ? mibase::delay::nomPlugin : r == 7 ? mibase::saturacio::nomPlugin : r == 8 ? mibase::drive::nomPlugin
                                                      : r == 9 ? mibase::limitador::nomPlugin : r == 10 ? mibase::rack::nomPlugin : r == 11 ? mibase::tune::nomPlugin
-                                                     : r == 13 ? mibase::guitarrack::nomPlugin : mibase::rack::nomPluginMaster));
+                                                     : r == 13 ? mibase::guitarrack::nomPlugin : r == 14 ? mibase::evolve::nomPlugin : mibase::rack::nomPluginMaster));
                 juce::MessageManager::callAsync ([&estat, plugins, pista, id]
                 {
                     if (auto* l = llista (estat, pista))

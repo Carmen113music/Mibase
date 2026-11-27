@@ -9,6 +9,7 @@
 #include "Text.h"
 #include "Vintage.h"
 #include <cmath>
+#include <map>
 #include <deque>
 #include <mibase/Clipper.h>
 #include <mibase/Dinamica.h>
@@ -102,14 +103,28 @@ namespace
     }
 
     AnalitzadorMaster& analitzador() { static AnalitzadorMaster a; return a; }
+    FaderMaster& faderMaster() { static FaderMaster f; return f; }   // 1.12
+    /** 1.12: el fader del màster (dB), o 0 si no hi ha projecte. */
+    double dbFaderMaster() { return faderMaster().llegeix ? faderMaster().llegeix() : 0.0; }
 
     // ------------------------------------------------------------------
+    /** 1.12: l'estat d'una targeta, a part, perquè el mode guiat el recordi en canviar de pas (abans tornava a «Pendent»
+        i es podia aplicar dues vegades). */
+    struct EstatTargeta
+    {
+        enum Estat { Pendent, Provant, Aplicada, Ignorada };
+        Estat estat = Pendent;
+        bool escoltaDespres = true;
+        std::string abans, despres;
+    };
+
     /** 1.00: una troballa de l'informe, amb Aplica / A-B / Ignora. */
     class Targeta : public juce::Component
     {
     public:
-        Targeta (std::shared_ptr<mibase::rack::Rack> r, mibase::diagnosi::Troballa t, std::function<void()> canviat)
-            : rk (std::move (r)), tr (std::move (t)), avisa (std::move (canviat))
+        Targeta (std::shared_ptr<mibase::rack::Rack> r, mibase::diagnosi::Troballa t, std::function<void()> canviat,
+                 std::shared_ptr<EstatTargeta> e = nullptr)
+            : rk (std::move (r)), tr (std::move (t)), avisa (std::move (canviat)), es (e != nullptr ? std::move (e) : std::make_shared<EstatTargeta>())
         {
             const bool teAccio = tr.accio.tipus != mibase::diagnosi::Accio::Cap;
             for (auto* b : { &btAplica, &btAB, &btIgnora }) { addAndMakeVisible (*b); b->setClickingTogglesState (false); }
@@ -121,21 +136,27 @@ namespace
             btIgnora.setTooltip ("No ho vull: si l'havies provada o aplicada, torna a com estava."_ca);
             btAplica.onClick = [this]
             {
-                if (estat == Aplicada) { rk->posaEstat (abans); estat = Pendent; }
-                else if (estat == Provant) { rk->posaEstat (despres); estat = Aplicada; }
-                else { prova(); estat = Aplicada; }
+                if (es->estat == EstatTargeta::Aplicada) { desfes ([this] { es->estat = EstatTargeta::Pendent; }); return; }
+                if (es->estat == EstatTargeta::Provant) { rk->posaEstatSuau (es->despres); es->estat = EstatTargeta::Aplicada; }
+                else { prova(); es->estat = EstatTargeta::Aplicada; }
                 refresca();
             };
             btAB.onClick = [this]
             {
-                if (estat == Pendent) { prova(); estat = Provant; escoltaDespres = true; }
-                else { escoltaDespres = ! escoltaDespres; rk->posaEstat (escoltaDespres ? despres : abans); if (estat == Aplicada) estat = Provant; }
+                if (es->estat == EstatTargeta::Pendent) { prova(); es->estat = EstatTargeta::Provant; es->escoltaDespres = true; }
+                else
+                {
+                    // 1.12: «suau»: només canvia els ajustos, no torna a crear els mòduls (abans, cada clic feia un petit forat)
+                    es->escoltaDespres = ! es->escoltaDespres;
+                    rk->posaEstatSuau (es->escoltaDespres ? es->despres : es->abans);
+                    if (es->estat == EstatTargeta::Aplicada) es->estat = EstatTargeta::Provant;
+                }
                 refresca();
             };
             btIgnora.onClick = [this]
             {
-                if (estat == Provant || estat == Aplicada) rk->posaEstat (abans);
-                estat = Ignorada;
+                if (es->estat == EstatTargeta::Provant || es->estat == EstatTargeta::Aplicada) { desfes ([this] { es->estat = EstatTargeta::Ignorada; }); return; }
+                es->estat = EstatTargeta::Ignorada;
                 refresca();
             };
             refresca();
@@ -144,6 +165,9 @@ namespace
         void paint (juce::Graphics& g) override
         {
             using namespace mibase::diagnosi;
+            const auto estat = es->estat;
+            const bool escoltaDespres = es->escoltaDespres;
+            constexpr auto Aplicada = EstatTargeta::Aplicada, Provant = EstatTargeta::Provant, Ignorada = EstatTargeta::Ignorada;
             auto r = getLocalBounds().toFloat();
             const juce::Colour c = tr.mena == Mena::Problema ? vintage::ledTaronja : tr.mena == Mena::Oportunitat ? ambre : tema::suau;
             g.setColour (juce::Colours::black.withAlpha (estat == Ignorada ? 0.15f : 0.32f));
@@ -197,29 +221,42 @@ namespace
             btAplica.setBounds (b.removeFromRight (110));
         }
     private:
-        enum Estat { Pendent, Provant, Aplicada, Ignorada };
         void prova()
         {
-            abans = rk->estat();
+            es->abans = rk->estat();
             mibase::diagnosi::aplica (*rk, tr.accio);
-            despres = rk->estat();
-            escoltaDespres = true;
+            es->despres = rk->estat();
+            es->escoltaDespres = true;
+        }
+        /** 1.12: torna a l'estat d'abans. Si després d'aplicar-la s'ha tocat el rack, avisa que també es perdrien aquells canvis. */
+        void desfes (std::function<void()> fet)
+        {
+            auto fes = [this, fet]
+            {
+                rk->posaEstatSuau (es->abans);
+                fet();
+                refresca();
+            };
+            if (es->estat != EstatTargeta::Aplicada || rk->estat() == es->despres) { fes(); return; }
+            juce::Component::SafePointer<Targeta> jo (this);
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Desfer aquesta proposta"_ca,
+                "Després d'aplicar-la has fet altres canvis al Mastering Studio. Si la desfàs, el rack tornarà a com era abans d'aplicar-la i també es perdran aquells canvis."_ca,
+                "Desfés igualment"_ca, "Cancel·la"_ca, this, juce::ModalCallbackFunction::create ([jo, fes] (int r) { if (jo != nullptr && r == 1) fes(); }));
         }
         void refresca()
         {
-            btAplica.setButtonText (estat == Aplicada ? "Desfés"_ca : "Aplica");
-            btAB.setButtonText (estat == Pendent ? "Escolta A/B" : escoltaDespres ? "A/B: després"_ca : "A/B: abans");
-            for (auto* b : { &btAplica, &btAB }) b->setEnabled (estat != Ignorada);
-            btIgnora.setEnabled (estat != Ignorada);
+            const auto estat = es->estat;
+            btAplica.setButtonText (estat == EstatTargeta::Aplicada ? "Desfés"_ca : "Aplica");
+            btAB.setButtonText (estat == EstatTargeta::Pendent ? "Escolta A/B" : es->escoltaDespres ? "A/B: després"_ca : "A/B: abans");
+            for (auto* b : { &btAplica, &btAB }) b->setEnabled (estat != EstatTargeta::Ignorada);
+            btIgnora.setEnabled (estat != EstatTargeta::Ignorada);
             repaint();
             if (avisa) avisa();
         }
         std::shared_ptr<mibase::rack::Rack> rk;
         mibase::diagnosi::Troballa tr;
         std::function<void()> avisa;
-        Estat estat = Pendent;
-        bool escoltaDespres = true;
-        std::string abans, despres;
+        std::shared_ptr<EstatTargeta> es;
         Boto btAplica { "Aplica", std::nullopt, Boto::Estil::Primari };
         Boto btAB { "Escolta A/B", std::nullopt, Boto::Estil::Secundari };
         Boto btIgnora { "Ignora", std::nullopt, Boto::Estil::Secundari };
@@ -380,7 +417,14 @@ namespace
             btAplica.onClick = [this]
             {
                 if (aplicada) { rk->posaEstat (abans); aplicada = false; }
-                else { abans = rk->estat(); rk->posaEstat (sug.estat); aplicada = true; }
+                else
+                {
+                    abans = rk->estat();
+                    const float lufs = rk->lufsPersonal();   // 1.12: els teus LUFS del CD no es perden
+                    rk->posaEstat (sug.estat);
+                    rk->posaLufsPersonal (lufs);
+                    aplicada = true;
+                }
                 btAplica.setButtonText (aplicada ? "Desfés (torna a la cadena d'abans)"_ca : "Aplica al Mastering Studio"_ca);
                 repaint();
             };
@@ -641,6 +685,7 @@ namespace
                 sp->btAccio.setButtonText (final ? "Comprova el màster"_ca : "Analitza");
                 if (i == nullptr) { sp->avis = "No s'ha pogut escoltar (cal un projecte obert amb alguna cosa que soni)."_ca; sp->repaint(); return; }
                 if (final) sp->infFinal = i; else sp->inf = i;
+                sp->estatsTargetes.clear();   // 1.12: una anàlisi nova ja mesura el que s'hagi aplicat
                 sp->avis = final ? (sp->troballesPas().empty() ? "Tot a punt: cap problema al màster."_ca : "Revisa el que surt a sota."_ca)
                                  : "Fet. Mira el resum a sota i ves als passos següents."_ca;
                 sp->refesTargetes();
@@ -657,25 +702,35 @@ namespace
             }
             return rk->numModuls();
         }
+        /** 1.12: si ja hi ha una saturació, en canvia l'estil i l'encén (es conserven els seus ajustos i els enllaços dels
+            macros); si no n'hi ha, n'afegeix una de suau. «Sense color» l'apaga (no l'esborra): es pot tornar a encendre. */
+        int colorAra() const
+        {
+            for (int i = 0; i < rk->numModuls(); ++i) if (rk->modul (i)->clau == "colorm" && rk->cami (i) == 0) return i;
+            return -1;
+        }
         void posaColor (int estilSat)
         {
-            treuColor();
-            const int i = rk->afegeix ("colorm", posAbansFinal());
+            int i = colorAra();
+            const bool nova = i < 0;
+            if (nova) i = rk->afegeix ("colorm", posAbansFinal());
             if (auto* s = i >= 0 ? dynamic_cast<mibase::saturacio::Saturacio*> (rk->modul (i)->fx.get()) : nullptr)
             {
                 s->posa (mibase::saturacio::EstilP, (float) estilSat);
-                s->posa (mibase::saturacio::Drive, 1.5f);
-                s->posa (mibase::saturacio::Mix, 30.0f);
+                if (nova) { s->posa (mibase::saturacio::Drive, 1.5f); s->posa (mibase::saturacio::Mix, 30.0f); }
+                rk->posaOn (i, true);
+                rk->reancoraMacros();
             }
             rk->marcaModificat();
-            avis = (estilSat == mibase::saturacio::A ? "Cinta"_ca : "Consola"_ca) + " suau afegida (30 % en paral·lel). La pots retocar al rack."_ca;
+            avis = (estilSat == mibase::saturacio::A ? "Cinta"_ca : "Consola"_ca)
+                   + (nova ? " suau afegida (30 % en paral·lel). La pots retocar al rack."_ca : ": la saturació que ja hi havia ara és d'aquest estil (els seus ajustos es mantenen)."_ca);
             repaint();
         }
         void treuColor()
         {
-            for (int i = rk->numModuls() - 1; i >= 0; --i) if (rk->modul (i)->clau == "colorm") rk->treu (i);
+            for (int i = 0; i < rk->numModuls(); ++i) if (rk->modul (i)->clau == "colorm") rk->posaOn (i, false);
             rk->marcaModificat();
-            avis = "Sense saturació."_ca;
+            avis = "Saturació apagada (no l'he esborrat: la pots tornar a encendre)."_ca;
             repaint();
         }
         std::vector<mibase::diagnosi::Troballa> troballesPas() const
@@ -690,7 +745,15 @@ namespace
         void refesTargetes()
         {
             targetes.clear();
-            for (auto& t : troballesPas()) { auto c = std::make_unique<Targeta> (rk, t, nullptr); contingut.addAndMakeVisible (*c); targetes.push_back (std::move (c)); }
+            for (auto& t : troballesPas())
+            {
+                // 1.12: cada targeta recorda si s'ha aplicat (es pot anar i tornar de pas sense aplicar-ho dos cops)
+                auto& e = estatsTargetes[(pas == 7 ? "final:" : "") + t.titol];
+                if (e == nullptr) e = std::make_shared<EstatTargeta>();
+                auto c = std::make_unique<Targeta> (rk, t, nullptr, e);
+                contingut.addAndMakeVisible (*c);
+                targetes.push_back (std::move (c));
+            }
             colocaTargetes();
             contingut.repaint();
         }
@@ -739,6 +802,7 @@ namespace
         }
         std::shared_ptr<mibase::rack::Rack> rk;
         std::shared_ptr<mibase::diagnosi::Informe> inf, infFinal;
+        std::map<std::string, std::shared_ptr<EstatTargeta>> estatsTargetes;   // 1.12
         std::vector<std::unique_ptr<Boto>> passos;
         std::vector<std::unique_ptr<Targeta>> targetes;
         Boto btAnterior { "Anterior", std::nullopt, Boto::Estil::Secundari };
@@ -820,6 +884,9 @@ namespace
             addAndMakeVisible (btReinicia);
             btReinicia.setTooltip ("Torna a començar les mesures (Integrated, LRA, màxims). Després, reprodueix la cançó sencera."_ca);
             btReinicia.onClick = [this] { assistent.atura(); rk->reiniciaMesures(); hIn.buida(); hOut.buida(); };
+            addChildComponent (btFader);   // 1.12
+            btFader.setTooltip ("El fader del màster va després del Mastering Studio: si no és a 0 dB, el fitxer exportat no és el que mesura el rack (pot passar del sostre o quedar més fluix). Es pot desfer."_ca);
+            btFader.onClick = [] { if (faderMaster().posaA0) faderMaster().posaA0(); };
             refresca();
             startTimerHz (10);
         }
@@ -968,6 +1035,7 @@ namespace
             zonaHistorial = r.removeFromTop (juce::jlimit (40, 100, r.getHeight() / 3));
             r.removeFromTop (8);
             zonaLectura = r;
+            if (btFader.isVisible()) { btFader.setBounds (zonaLectura.removeFromTop (28)); zonaLectura.removeFromTop (4); }   // 1.12
         }
 
         bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }
@@ -988,7 +1056,7 @@ namespace
             if (objLufs < -0.5f && valid (integ) && out.segons.load() > 20.0)
             {
                 const float d = integ - objLufs;
-                if (d > 2.0f) a.add (num (d) + " LU més fort que l'objectiu: la plataforma l'abaixarà i només hauràs perdut dinàmica. Baixa el macro Loudness."_ca);
+                if (d > 2.0f) a.add (num (d) + " LU més fort que l'objectiu: la plataforma l'abaixarà i només hauràs perdut dinàmica. Prem «Ajusta al perfil»: també sap abaixar (amb l'Entrada del rack)."_ca);
                 else if (d < -3.0f) a.add (num (-d) + " LU més fluix que l'objectiu. Si la cançó és tranquil·la, pot ser el que vols; si no, puja el macro Loudness."_ca);
             }
             if (valid (out.rms.load()) && crest > 0.5f && crest < 6.0f)
@@ -1021,6 +1089,8 @@ namespace
                                       + " el limitador hauria de reduir més de 8 dB i perdries el cop. Prova un perfil més fluix o puja Densitat."_ca;
                 case E::NoArriba: return "El limitador ja és al màxim i no hi arriba: la mescla és molt fluixa. Puja-la abans del màster."_ca;
                 case E::SenseLimitador: return "Cal un Limitador al final de la cadena (Afegeix un mòdul > Limitador)."_ca;
+                case E::NoConvergeix: return "No he pogut arribar a "_ca + num (a.objectiu) + " LUFS: m'he quedat a " + num (a.mesurat)
+                                             + ". Potser la música ha canviat molt mentre escoltava (posa la tornada en bucle) o el volum d'Entrada ja és al mínim."_ca;
             }
             return {};
         }
@@ -1033,6 +1103,12 @@ namespace
                 btAjusta.setButtonText (assistent.actiu() ? "Atura l'ajust"_ca : "Ajusta al perfil"_ca);
             }
             else if (btAjusta.getButtonText() != "Ajusta al perfil"_ca) btAjusta.setButtonText ("Ajusta al perfil"_ca);
+            {   // 1.12: avís del fader del màster
+                const double f = dbFaderMaster();
+                const bool cal = std::abs (f) > 0.05;
+                if (cal) btFader.setButtonText ("El fader del màster és a "_ca + signe ((float) f) + " dB: posa'l a 0 dB"_ca);
+                if (cal != btFader.isVisible()) { btFader.setVisible (cal); resized(); }
+            }
             if (const auto* in = rk->loudnessEntrada()) hIn.afegeix (in->shortTerm.load());
             if (const auto* out = rk->loudnessSortida()) hOut.afegeix (out->shortTerm.load());
             if (const auto* out = rk->loudnessSortida(); out != nullptr && out->segons.load() < 0.2) { hIn.buida(); hOut.buida(); }
@@ -1047,6 +1123,7 @@ namespace
         Boto btIgualat { "Igualat", std::nullopt, Boto::Estil::Tecla };
         Boto btReinicia { "Reinicia les mesures"_ca, std::nullopt, Boto::Estil::Secundari };
         Boto btAjusta { "Ajusta al perfil"_ca, std::nullopt, Boto::Estil::Primari };   // 0.95
+        Boto btFader { "", std::nullopt, Boto::Estil::Primari };   // 1.12
         Boto btAnalitza { "ANALITZA", std::nullopt, Boto::Estil::Primari };   // 1.00
         Boto btRef { "Ref.", std::nullopt, Boto::Estil::Tecla };   // 1.01
         Boto btReferencies { "Referències…"_ca, std::nullopt, Boto::Estil::Secundari };
@@ -1556,6 +1633,7 @@ juce::Component* creaPanellLowEnd (std::shared_ptr<mibase::EfecteIntern> e)
 }
 
 void posaAnalitzadorMaster (AnalitzadorMaster a) { analitzador() = std::move (a); }
+void posaFaderMaster (FaderMaster f) { faderMaster() = std::move (f); }
 std::shared_ptr<mibase::diagnosi::Informe> analitzaAra (bool ambPistes, const mibase::diagnosi::Context& ctx)
 {
     return analitzador() ? analitzador() (ambPistes, ctx) : nullptr;
@@ -1623,6 +1701,8 @@ juce::String activitatModul (const mibase::rack::Modul& m, float& quant)
 juce::String avisModul (const mibase::rack::Modul& m, bool master)
 {
     if (! m.on.load()) return {};
+    if (mibase::rack::escoltaEncesa (*m.fx))   // 1.12: un botó d'escoltar encès (no s'exporta, però el que sents no és el màster)
+        return "Hi ha un botó d'escolta encès (igualat, mono, solo o SC): el que sents no és el màster. No s'exporta."_ca;
     if (auto* l = dynamic_cast<mibase::limitador::Limitador*> (m.fx.get()))
     {
         const float gr = l->mesures().reduccio.load();

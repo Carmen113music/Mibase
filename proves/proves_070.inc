@@ -58,9 +58,9 @@ namespace
             const int iE = r.afegeix ("eq", 0);
             comprova (iE == 0 && r.numModuls() == 3 && r.modul (1)->clau == "compressor" && r.modul (2)->clau == "limitador", "afegeix al lloc demanat");
             (void) iC; (void) iL;
-            comprova (r.latencia() == 240, "la latència és la del Limitador (5 ms)");
+            comprova (r.latencia() == 228, "la latència és la del Limitador (una mica menys de 5 ms)");
             r.posaOn (2, false);
-            comprova (r.latencia() == 0, "apagat, no compta");
+            comprova (r.latencia() == 228, "1.12: apagat, la latència no canvia (sona el sec retardat: sense clics)");
             r.posaOn (2, true);
             r.mou (2, 0);
             comprova (r.modul (0)->clau == "limitador" && r.modul (1)->clau == "eq" && r.modul (2)->clau == "compressor", "mou a dalt");

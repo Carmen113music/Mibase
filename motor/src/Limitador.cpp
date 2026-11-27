@@ -39,12 +39,6 @@ namespace mibase::limitador
             for (auto& c : s) if (c == '.') c = ',';
             return s;
         }
-        /** Hermite: el valor a mig camí entre x0 i x1 (per al true peak aproximat). */
-        inline float entre (float xm1, float x0, float x1, float x2, float f) noexcept
-        {
-            const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
-            return ((c3 * f + c2) * f + c1) * f + x0;
-        }
     }
 
     const char* nomEstil (int e) { return noms[std::clamp (e, 0, numEstils - 1)]; }
@@ -72,7 +66,20 @@ namespace mibase::limitador
     void Limitador::prepara (double nouFs, int)
     {
         fs = nouFs > 0.0 ? nouFs : 48000.0;
-        lat = std::max (1, (int) std::lround (lookaheadMs * 0.001 * fs));
+        // 1.12: mai per sobre de 5 ms (abans s'arrodonia: a 44,1 kHz feia 221 mostres i el «Retard mínim» saltava el màster)
+        lat = std::max (retardTp + 2, (int) std::floor (lookaheadMs * 0.001 * fs) - margeLatencia);
+        // FIR de sobremostreig x4 (sinc amb finestra de Blackman, 48 coeficients): el mateix del mesurador de loudness
+        {
+            constexpr int Lx = 4, N = Lx * tapsTp;
+            const double c = (N - 1) / 2.0, pi = 3.14159265358979323846;
+            for (int i = 0; i < N; ++i)
+            {
+                const double x = (i - c) / Lx;
+                const double sn = std::abs (x) < 1e-9 ? 1.0 : std::sin (pi * x) / (pi * x);
+                const double wn = 0.42 - 0.5 * std::cos (2.0 * pi * i / (N - 1)) + 0.08 * std::cos (4.0 * pi * i / (N - 1));
+                firTp[(size_t) (i % Lx)][(size_t) (i / Lx)] = (float) (sn * wn);
+            }
+        }
         mida = 1;
         while (mida < lat * 2 + 8) mida <<= 1;
         mascara = mida - 1;
@@ -101,11 +108,12 @@ namespace mibase::limitador
             std::fill (gDelay[c].begin(), gDelay[c].end(), 1.0f);
             suma[c] = 0.0;
             relEnv[c] = 1.0f;
-            for (auto& h : hist4[c]) h = 0.0f;
+            for (auto& h : histTp[c]) h = 0.0f;
             k1[c].neteja(); k2[c].neteja();
         }
         w = 0;
         t = 0;
+        posTp = 0;
         for (int c = 0; c < 2; ++c) dqCap[c] = dqCua[c] = 0;
         finAnterior = -1;
         primer = true;
@@ -189,8 +197,11 @@ namespace mibase::limitador
         if (demanaBuidar.exchange (false)) neteja();
         const int e = (int) valor (EstilP);
         // finestra de l'estil (≤ lat) i retard del guany perquè tot quadri amb la latència fixa
-        const int fin = std::clamp ((int) std::lround (mirarMs[std::clamp (e, 0, numEstils - 1)] * 0.001 * fs), 1, lat);
-        const int retG = lat - fin + 1;   // el so va retardat «lat»: el guany calculat ara és per a la mostra de fa «fin - 1»
+        // 1.12: la finestra deixa lloc per al retard de la detecció del true peak
+        const int fin = std::clamp ((int) std::lround (mirarMs[std::clamp (e, 0, numEstils - 1)] * 0.001 * fs), 1, lat - retardTp);
+        const bool tpAra = valor (TruePeak) > 0.5f;
+        // el so va retardat «lat»: el guany calculat ara és per a la mostra de fa «fin - 1» (i, amb true peak, «retardTp» abans)
+        const int retG = lat - fin + 1 - (tpAra ? retardTp : 0);
         if (fin != finAnterior)
         {
             for (int c = 0; c < 2; ++c)
@@ -215,7 +226,7 @@ namespace mibase::limitador
         const float ceilObj = std::pow (10.0f, valor (Ceiling) / 20.0f);
         if (primer) { sGain = gainObj; sCeil = ceilObj; primer = false; }
         const float link = valor (Link) * 0.01f;
-        const bool tp = valor (TruePeak) > 0.5f, autoR = valor (AutoRel) > 0.5f, igualat = valor (Igualat) > 0.5f;
+        const bool tp = tpAra, autoR = valor (AutoRel) > 0.5f, igualat = valor (Igualat) > 0.5f;
         const float relMs = valor (Release);
         const float clip = retallador[std::clamp (e, 0, numEstils - 1)];
         const float sm = 1.0f - std::exp (-1.0f / (float) (0.02 * fs));
@@ -223,6 +234,7 @@ namespace mibase::limitador
         const int mostresTros = (int) (0.1 * fs);
         const int mostresHist = (int) (0.05 * fs);
         float picE = 0.0f, picS = 0.0f, grMax = 0.0f;
+        float cR = 0.0f;   // 1.12: el coeficient del release es calcula cada 16 mostres (abans, una exp per mostra i canal)
         float* io[2] = { L, R };
         for (int i = 0; i < n; ++i)
         {
@@ -242,14 +254,23 @@ namespace mibase::limitador
                 x[c] = v;
                 // pic (amb els pics entre mostres, si cal)
                 float p = std::fabs (v);
-                if (tp)
+                // (el guany no és constant entre mostres i el pic del so ja limitat surt una mica més alt: un marge de 0,3 dB)
+                constexpr float margeTp = 1.035f;
+                if (tp)   // 1.12: els pics entre mostres amb el FIR x4 (com el mesurador; abans, una estimació de 3 punts que se'n deixava)
                 {
-                    auto& h = hist4[c];   // h[0] = x[n-3], h[1] = x[n-2], h[2] = x[n-1]
-                    for (float f : { 0.25f, 0.5f, 0.75f }) p = std::max (p, std::fabs (entre (h[0], h[1], h[2], v, f)));
-                    h[0] = h[1]; h[1] = h[2]; h[2] = v;
+                    auto& h = histTp[c];
+                    h[posTp] = v;
+                    for (int ph = 1; ph < 4; ++ph)
+                    {
+                        float y = 0.0f;
+                        int j = posTp;
+                        for (int k = 0; k < tapsTp; ++k) { y += firTp[(size_t) ph][(size_t) k] * h[j]; j = j == 0 ? tapsTp - 1 : j - 1; }
+                        p = std::max (p, std::fabs (y) * margeTp);
+                    }
                 }
                 g[c] = p > sCeil ? sCeil / p : 1.0f;
             }
+            if (tp) posTp = posTp + 1 == tapsTp ? 0 : posTp + 1;
             // enllaç estèreo
             const float gm = std::min (g[0], g[1]);
             for (int c = 0; c < 2; ++c) g[c] = link * gm + (1.0f - link) * g[c];
@@ -269,9 +290,12 @@ namespace mibase::limitador
                 }
                 const float mn = dqV[c][(size_t) (dqCap[c] & mascara)];
                 // 2) release (el guany puja a poc a poc; baixa de cop)
-                float rel = relMs;
-                if (autoR) rel = relMs * (0.4f + 2.5f * std::min (1.0f, grMitja / 6.0f));   // limita estona: més lent
-                const float cR = 1.0f - std::exp (-1.0f / (float) (std::max (1.0f, rel) * 0.001f * fs));
+                if (c == 0 && (i & 15) == 0)
+                {
+                    float rel = relMs;
+                    if (autoR) rel = relMs * (0.4f + 2.5f * std::min (1.0f, grMitja / 6.0f));   // limita estona: més lent
+                    cR = 1.0f - std::exp (-1.0f / (float) (std::max (1.0f, rel) * 0.001f * fs));
+                }
                 float& r = relEnv[c];
                 r = mn < r ? mn : r + (mn - r) * cR;
                 // 3) mitjana de «fin» mostres (atac suau que acaba just a temps)

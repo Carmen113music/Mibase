@@ -42,9 +42,9 @@ namespace
         {
             limitador::Limitador d;
             d.prepara (48000.0, 256);
-            comprova (d.latencia() == 240, "mira 5 ms endavant (240 mostres a 48 kHz)");
+            comprova (d.latencia() == 228, "mira endavant una mica menys de 5 ms (1.12: 240 − 12 mostres a 48 kHz)");
             d.posa (limitador::EstilP, limitador::Transparent);   // l'estil no canvia la latència
-            comprova (d.latencia() == 240, "la latència no depèn de l'estil");
+            comprova (d.latencia() == 228, "la latència no depèn de l'estil");
             // un so fluix amb +6 dB: surt el mateix, 6 dB més fort i retardat 240 mostres
             d.posa (limitador::Gain, 6);
             auto L = sinus (0.1f, 440.0f, 48000), R = L;
@@ -52,7 +52,7 @@ namespace
             passa (d, L, R);
             const float g = std::pow (10.0f, 6.0f / 20.0f);
             float err = 0;
-            for (int i = 24000; i < 48000; ++i) err = std::max (err, std::fabs (L[(size_t) i] - orig[(size_t) i - 240] * g));
+            for (int i = 24000; i < 48000; ++i) err = std::max (err, std::fabs (L[(size_t) i] - orig[(size_t) i - 228] * g));
             comprova (err < 1e-3f, "sense limitar: el mateix so, més fort i retardat la latència");
             // igualat: el mateix volum que l'original
             limitador::Limitador q;

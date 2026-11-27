@@ -269,6 +269,20 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
         refrescaControls();
     };
 
+    // 1.10: calcular les pistes amb diversos nuclis del processador (com Cubase). Apagat per defecte.
+    addAndMakeVisible (btNuclis);
+    btNuclis.setClickingTogglesState (true);
+    btNuclis.setToggleState (servei.getDiversosNuclis(), juce::dontSendNotification);
+    btNuclis.setTooltip ("Reparteix el càlcul de les pistes entre els nuclis del processador quan cal (Mibase ho decideix sol). El so és el mateix; "_ca
+                         "si dona problemes, apaga'l i tot torna a anar com abans."_ca);
+    btNuclis.onClick = [this]
+    {
+        servei.setDiversosNuclis (btNuclis.getToggleState());
+        historial.afegeix (btNuclis.getToggleState() ? "Diversos nuclis: encès ("_ca + juce::String (servei.estudi().mesclador.getNuclis()) + " nuclis)."
+                                                     : "Diversos nuclis: apagat (un sol nucli)."_ca);
+        actualitzaEstat();
+    };
+
     // Proves de so.
     addAndMakeVisible (btClic);
     btClic.setClickingTogglesState (true);
@@ -530,6 +544,7 @@ void PantallaDiagnostic::resized()
         llistaMidi.setBounds (z);
     }
     etEstat.setBounds (zonaEstat.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (8));
+    btNuclis.setBounds (zonaEstat.reduced (14, 0).removeFromTop (alcadaTitol).removeFromRight (170).reduced (0, 3));   // 1.10
 
     {
         auto z = zonaHistorial.reduced (14, 0).withTrimmedBottom (12);
@@ -804,6 +819,19 @@ void PantallaDiagnostic::actualitzaEstat()
 
         const int talls = d->getXRunCount();
         text << "  ·  Talls: "_ca << (talls >= 0 ? juce::String (talls) : juce::String ("el controlador no ho diu"));
+
+        // 1.8: el pitjor bloc de l'últim mig segon, comparat amb el temps que hi ha.
+        const float marge = servei.margeBlocMs.load();
+        const float pitjor = servei.pitjorBlocMs.exchange (0.0f);
+        if (marge > 0.0f)
+            text << "\nPitjor bloc: "_ca << juce::String (pitjor, 2) << " ms de " << juce::String (marge, 2) << " ms ("
+                 << juce::String ((int) std::lround (100.0f * pitjor / marge)) << " %)  ·  al límit: "_ca
+                 << (int) servei.blocsAlLimit.load() << "  ·  tard: " << (int) servei.blocsTard.load();
+        // 1.11: què decideix Mibase amb els nuclis
+        const auto& mes = servei.estudi().mesclador;
+        text << "\nPistes: " << juce::String ((int) std::lround (100.0f * mes.carregaPistes.load())) << " % del bloc  ·  "
+             << (mes.getNuclis() <= 1 ? juce::String ("un nucli") : mes.repartintAra.load() ? "repartint entre "_ca + juce::String (mes.getNuclis()) + " nuclis"
+                                                                                           : juce::String ("un nucli (no cal repartir)"));
     }
     etEstat.setText (text, juce::dontSendNotification);
 
@@ -904,6 +932,14 @@ juce::String PantallaDiagnostic::textDiagnostic()
           << "Càrrega: "_ca << juce::String (gestor.getCpuUsage() * 100.0, 1) << " %  ·  Talls: "_ca
           << (d->getXRunCount() >= 0 ? juce::String (d->getXRunCount()) : juce::String ("el controlador no ho diu"))
           << "  ·  Blocs massa grans: "_ca << servei.motor().blocsMassaGrans.load() << "\n"
+          << "Nuclis per a les pistes: "_ca << servei.estudi().mesclador.getNuclis() << " (diversos nuclis: "_ca
+          << (servei.getDiversosNuclis() ? "encès"_ca : "apagat") << "; processador amb "_ca
+          << juce::SystemStats::getNumPhysicalCpus() << " nuclis físics)  ·  ara: "_ca
+          << (servei.estudi().mesclador.repartintAra.load() ? "repartint"_ca : "un nucli")
+          << "  ·  feina de les pistes: "_ca << juce::String ((int) std::lround (100.0f * servei.estudi().mesclador.carregaPistes.load())) << " % del bloc\n"
+          << "Pitjor bloc des que s'ha engegat: "_ca << juce::String (servei.pitjorBlocTotalMs.load(), 2) << " ms de "
+          << juce::String (servei.margeBlocMs.load(), 2) << " ms  ·  al límit (més del 80 %): "_ca << (int) servei.blocsAlLimit.load()
+          << "  ·  tard (clic segur): "_ca << (int) servei.blocsTard.load() << "\n"
           << "Panell del controlador: " << (d->hasControlPanel() ? "sí"_ca : "no") << "\n";
     }
 
@@ -941,6 +977,13 @@ juce::String PantallaDiagnostic::textDiagnostic()
         t << m.name << (gestor.isMidiInputDeviceEnabled (m.identifier) ? " (activat)" : " (no activat)") << "\n";
     if (juce::MidiInput::getAvailableDevices().isEmpty())
         t << "Cap teclat MIDI.\n";
+    {
+        // 1.13: quants missatges han arribat i a on ha anat el darrer
+        const int d = servei.midiDarrerDesti.load();
+        const juce::String on = d == -3 ? "encara cap"_ca : d == -1 ? "el so de prova"_ca : d == -4 ? "l'Harmonitzador (teclat MIDI)"_ca
+                              : servei.nomSlotMidi ? "la pista «"_ca + servei.nomSlotMidi (d) + "»"_ca : "la pista del slot "_ca + juce::String (d);
+        t << "Missatges MIDI rebuts: "_ca << (int) servei.midiRebuts.load() << " · el darrer ha anat a "_ca << on << "\n";
+    }
 
     if (const auto darrer = tancaments::darrer(); darrer.isNotEmpty())   // 0.83
     {
