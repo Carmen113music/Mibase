@@ -8,6 +8,7 @@
 #include "EditorSampler.h"
 #include "EditorAutomatitzacio.h"
 #include "Inserts.h"
+#include "ColumnesPista.h"   // 1.19
 #include "PanellBiblioteca.h"
 #include "PanellPool.h"
 #include "FinestraProgres.h"
@@ -244,6 +245,9 @@ private:
     Boto btDesfes { {}, dibuix::Icona::Desfes, Boto::Estil::Secundari };
     Boto btRefes { {}, dibuix::Icona::Refes, Boto::Estil::Secundari };
     Boto btFont { {}, dibuix::Icona::Font, Boto::Estil::Tecla };   // 0.97: Font d'inspiració
+    // 1.21: taula de mescles (F9) i taula d'estructura, a la dreta de la barra d'eines (la columna esquerra s'amaga)
+    Boto btBarraMescles { {}, dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    Boto btBarraEstructura { {}, dibuix::Icona::Notes, Boto::Estil::Tecla };
     std::unique_ptr<juce::DocumentWindow> finestraFont;
     void obreFont();
     juce::Rectangle<int> zonaBarra, zonaEines, zonaInfo;
@@ -253,6 +257,10 @@ private:
     Capcaleres capcaleres { estat };
     PanellCarpetes carpetes { estat };
     Boto btCarpetes { {}, dibuix::Icona::Carpeta, Boto::Estil::Tecla };
+    // 1.19: columnes a l'estil de Pro Tools (inserts, enviaments, E/S, vol i pan) al costat dels noms
+    ColumnesPista columnes { estat };
+    Boto btColumnes { {}, dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    bool ambColumnes = false;
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
@@ -289,6 +297,7 @@ private:
     std::string copiaAlPool (const juce::File& f, const juce::String& nomBase, juce::String& error);
     juce::File paperera() const { return audios().getChildFile ("Paperera"); }
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
+    Divisor divColumnes;   // 1.20: la vora dreta de les columnes de Pro Tools
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20
@@ -302,6 +311,13 @@ private:
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
+    // 1.16: la taula de mescles en una finestra a part (F9), que l'Esc no tanca
+    std::unique_ptr<juce::DocumentWindow> finestraMescles;
+    void commutaMescles();
+    void tancaFinestraMescles();
+    // 1.16: marcadors F1–F4
+    void desaMarcador (int m);
+    void vesAMarcador (int m);
     int altPianoRoll = 430, altInici = 0;
     juce::ScrollBar barraV { true }, barraH { false };
     int ampleEsquerra = 132, ampleNoms = 190, ampleCarpetes = 190, amplePanell = 270, ampleInici = 0;

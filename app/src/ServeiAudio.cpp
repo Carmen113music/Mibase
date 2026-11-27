@@ -277,6 +277,14 @@ void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
     for (int e = 0; e < juce::jmax (actives.getHighestBit() + 1, 0) && e < mibase::MotorEstudi::maxEntrades; ++e)
         mapa.push_back (actives[e] ? k++ : -1);
     motorEstudi.setMapaEntrades (mapa);
+
+    // 1.17: el mateix per a les sortides (per a les sortides directes de les pistes)
+    std::vector<int> mapaS;
+    const auto activesS = d->getActiveOutputChannels();
+    int ks = 0;
+    for (int c = 0; c < juce::jmax (activesS.getHighestBit() + 1, 0) && c < mibase::maxSortidesDirectes; ++c)
+        mapaS.push_back (activesS[c] ? ks++ : -1);
+    motorEstudi.setMapaSortides (mapaS);
 }
 
 juce::StringArray ServeiAudio::getNomsEntrades()
@@ -288,6 +296,19 @@ juce::StringArray ServeiAudio::getNomsEntrades()
         const auto tots = d->getInputChannelNames();
         for (int e = 0; e < tots.size() && e < mibase::MotorEstudi::maxEntrades; ++e)
             noms.add (actives[e] ? tots[e] : juce::String());   // buit: entrada apagada
+    }
+    return noms;
+}
+
+juce::StringArray ServeiAudio::getNomsSortides()
+{
+    juce::StringArray noms;
+    if (auto* d = gestor.getCurrentAudioDevice())
+    {
+        const auto actives = d->getActiveOutputChannels();
+        const auto tots = d->getOutputChannelNames();
+        for (int c = 0; c < tots.size() && c < mibase::maxSortidesDirectes; ++c)
+            noms.add (actives[c] ? tots[c] : juce::String());   // buit: sortida apagada
     }
     return noms;
 }

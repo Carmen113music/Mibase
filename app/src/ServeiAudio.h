@@ -34,6 +34,7 @@ public:
     bool enMarxa() { return gestor.getCurrentAudioDevice() != nullptr && gestor.getCurrentAudioDevice()->isPlaying(); }
     /** Noms de les entrades de la targeta («Entrada 1», «Input 2»…). */
     juce::StringArray getNomsEntrades();
+    juce::StringArray getNomsSortides();   // 1.17: totes les sortides (buit: apagada)
     /** Retard d'anada i tornada per alinear les gravacions, en segons: el mesurat si n'hi ha; si no, el que diu la targeta.
         «mesurat» diu d'on surt. */
     double retardGravacio (bool& mesurat);
