@@ -323,6 +323,10 @@ namespace mibase
         ParamsGuitarra guitarra;                   // 0.44: controls de la guitarra virtual
         // ---- 0.33 ----
         std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        /** 1.17: sortida directa a la targeta, sense passar pel màster: canal de la targeta (0 = el primer, comptant
+            també els apagats a les Preferències); -1 = no (va on diu «sortida»). canalsTargeta: 1 mono, 2 parell. */
+        int sortidaTargeta = -1;
+        int canalsTargeta = 2;
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
         std::vector<Automatitzacio> autos;         // 0.56: automatització

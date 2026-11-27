@@ -126,6 +126,9 @@ namespace mibase::edicio
     bool potSidechain (const Projecte& p, const std::string& origen, const std::string& desti);
     /** Sortida d'una pista: id d'un bus, o buit per a la sortida. Si no es pot (cercle), no canvia res i torna false. */
     bool posaSortida (Projecte& p, int pista, const std::string& bus);
+    /** 1.17: la pista (o el bus) surt directa per la targeta, pel canal «canal» (0 = el primer de la targeta) i, si
+        canals == 2, també pel següent (L, R). No passa pel màster ni per cap bus. Per tornar: posaSortida. */
+    bool posaSortidaTargeta (Projecte& p, int pista, int canal, int canals);
     /** Enviament nou (post-fader, 0 dB, al mig). Torna'n l'índex, o -1 si no es pot. */
     int afegeixEnviament (Projecte& p, int pista, const std::string& bus);
     /** Canvia la destinació d'un enviament (false si no es pot). */

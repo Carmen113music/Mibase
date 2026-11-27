@@ -223,6 +223,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     sincronitzaVeu();   // 0.22: les preses corregides es preparen encara que no s'obri el Vocal Editor
 
     estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
     estat.onCapcalMogut = [this] (double t) { if (estat.transport == 1) { plugins.buidaCues(); servei.estudi().situa (t); } };
     rellotge.tic = [this] { tic(); };
     rellotge.startTimerHz (30);
@@ -1314,6 +1315,7 @@ void PantallaEstudi::grava (double cursor)
     }
 
     estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
     const auto& noms = estat.nomsEntrades;
     const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
     if (darrera >= noms.size() || noms[t.entrada].isEmpty() || noms[darrera].isEmpty())
@@ -1459,6 +1461,7 @@ void PantallaEstudi::punchIn (int pista)
     else
     {
         estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
         const auto& noms = estat.nomsEntrades;
         const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
         if (darrera >= noms.size() || noms[t.entrada].isEmpty() || noms[darrera].isEmpty())
@@ -1824,6 +1827,7 @@ void PantallaEstudi::tic()
     {
         auto noms = servei.getNomsEntrades();
         if (noms != estat.nomsEntrades) { estat.nomsEntrades = noms; capcaleres.repaint(); }
+        estat.nomsSortides = servei.getNomsSortides();   // 1.17
     }
 }
 
@@ -3914,6 +3918,7 @@ void PantallaEstudi::gravaSampler()
     const auto& t = estat.projecte.pistes[(size_t) pista];
     const int entrada = t.sampler.entradaGrava, canals = t.sampler.canalsGrava;
     estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
     const auto& noms = estat.nomsEntrades;
     const int darrera = entrada + (canals == 2 ? 1 : 0);
     if (darrera >= noms.size() || noms[entrada].isEmpty() || noms[darrera].isEmpty())

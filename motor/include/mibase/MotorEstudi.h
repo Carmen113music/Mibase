@@ -86,6 +86,10 @@ namespace mibase
             // ---- 0.33: busos i enviaments ----
             int bus = -1;            // és un bus: quin buffer d'entrada té (0..maxBusos-1); -1 = pista normal
             int desti = -1;          // buffer del bus on va el so; -1 = a la sortida
+            /** 1.17: sortida directa a la targeta (canal de la targeta, comptant també els apagats; -1 = cap): el so no
+                passa pel màster. canalsDirecta: 1 = un canal sol (mono), 2 = aquest i el següent (L, R). */
+            int sortidaDirecta = -1;
+            int canalsDirecta = 2;
             bool armada = false;     // 0.68: té el botó de gravar encès (amb «Retard mínim», sense plugins que retarden)
             int escoltaEntrada = -1; // 0.71: armada i amb «escolta»: la primera entrada de la targeta que se sent (-1 = cap)
             bool obert = true;       // false: només sonen els seus enviaments (alimenta un retorn en solo)
@@ -144,6 +148,7 @@ namespace mibase
     constexpr int maxSlots = 128;
     constexpr int maxBusos = 32;        // 0.33: busos (de grup i retorns) que poden sonar alhora
     constexpr int maxSidechain = 32;    // 0.56: efectes amb sidechain que poden sonar alhora
+    constexpr int maxSortidesDirectes = 64;   // 1.17: canals de la targeta per a les sortides directes
 
     /** Canal de la taula de cada pista (a partir del seu identificador, que no canvia). */
     int slotDePista (const Pista& t) noexcept;
@@ -246,6 +251,10 @@ namespace mibase
             «directe»: missatges en directe per als instruments (sonen al començament del bloc). */
         void processa (const Pla& pla, long long pos, int n, float* L, float* R, bool ambClic, Mesurador* vus,
                        bool reproduint = true, const EventDirecte* directe = nullptr, int numDirecte = 0) noexcept;
+        /** 1.17: el que ha anat a les sortides directes de la targeta en el darrer processa (canal c de la targeta).
+            usatsDirecte(): un bit per canal amb so. No va a L/R (ni a l'exportació de la mescla). */
+        std::uint64_t usatsDirecte() const noexcept { return usatsDir; }
+        const float* canalDirecte (int c) const noexcept { return dirBuf.data() + (std::ptrdiff_t) c * maxN; }
         /** Torna a començar (el volum salta directament al valor, sense pujar a poc a poc) i apaga les notes que sonen
             (play, situar el capçal, tornar a l'inici del bucle). */
         void reinicia() noexcept;
@@ -354,6 +363,8 @@ namespace mibase
         static constexpr int maxEnviaSuau = 8;   // enviaments per pista amb el nivell suavitzat (la resta, a salts)
         std::vector<float> gEnvia;               // maxSlots * maxEnviaSuau * 2 (L, R); negatiu = encara no
         std::vector<float> busL, busR;           // maxBusos * maxN: el que arriba a cada bus en aquest bloc
+        std::vector<float> dirBuf;               // 1.17: maxSortidesDirectes * maxN: les sortides directes
+        std::uint64_t usatsDir = 0;
         int maxN = 16;
         void envia (const Pla::Pista& t, int mode, const float* xL, const float* xR, int n, int nb) noexcept;
         // 0.56
@@ -386,6 +397,9 @@ namespace mibase
         void prepara (double fs, int maxBloc);
         /** Per a cada entrada de la targeta (0 = entrada 1), quina posició té a la crida d'àudio (o -1 si està apagada). */
         void setMapaEntrades (const std::vector<int>& mapa);
+        /** 1.17: per a cada canal de sortida de la targeta, la seva posició a la crida d'àudio (només hi arriben els
+            actius); -1 = apagat. Es crida amb la targeta aturada. */
+        void setMapaSortides (const std::vector<int>& mapa);
         double getFs() const noexcept { return fs; }
 
         // ---- Fil de la interfície ----
@@ -486,6 +500,7 @@ namespace mibase
     private:
         std::vector<float> mixL, mixR;
         std::array<int, maxEntrades> mapaEntrades {};
+        std::array<int, maxSortidesDirectes> mapaSortides {};   // 1.17
 
         Pla* pla = nullptr;    // el que sona (només el toca el fil d'àudio)
         std::atomic<bool> ambPla { false };

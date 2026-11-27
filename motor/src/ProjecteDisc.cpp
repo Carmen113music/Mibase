@@ -387,6 +387,8 @@ namespace mibase::disc
                 t.notes = e.value ("notes", std::string());   // 0.87
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
+                t.sortidaTargeta = std::clamp (e.value ("sortidaTargeta", -1), -1, 63);   // 1.17
+                t.canalsTargeta = e.value ("canalsTargeta", 2) == 1 ? 1 : 2;
                 t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
                 if (e.contains ("enviaments") && e["enviaments"].is_array())
                     for (auto& v : e["enviaments"])
@@ -903,6 +905,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.notes.empty()) pista["notes"] = t.notes;   // 0.87
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
+            if (t.sortidaTargeta >= 0) { pista["sortidaTargeta"] = t.sortidaTargeta; pista["canalsTargeta"] = t.canalsTargeta; }   // 1.17
             if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
             if (! t.enviaments.empty())
             {

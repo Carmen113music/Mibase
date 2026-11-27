@@ -317,6 +317,8 @@ namespace mibase::edicio
         q.faderDb = o.faderDb;
         q.pan = o.pan;
         q.sortida = o.sortida;
+        q.sortidaTargeta = o.sortidaTargeta;   // 1.17
+        q.canalsTargeta = o.canalsTargeta;
         q.entrada = o.entrada;
         q.escolta = o.escolta;
         q.enviaments = o.enviaments;
