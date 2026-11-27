@@ -172,6 +172,7 @@ public:
             // 0.33: si la pista va a un bus, es diu aquí (es tria a la taula de mescles).
             const int d = t != nullptr ? mibase::edicio::pistaPerId (estat.projecte, t->sortida) : -1;
             btSortida.setButtonText (d >= 0 ? "Sortida: "_ca + juce::String::fromUTF8 (estat.projecte.pistes[(size_t) d].nom.c_str())
+                                   : t->sortidaTargeta >= 0 ? "Sortida: "_ca + EstatEstudi::textTargeta (*t)   // 1.17
                                             : "Sortida: Màster (L+R)"_ca);
         }
         resized();

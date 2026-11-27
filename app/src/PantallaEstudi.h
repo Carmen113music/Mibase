@@ -8,6 +8,7 @@
 #include "EditorSampler.h"
 #include "EditorAutomatitzacio.h"
 #include "Inserts.h"
+#include "ColumnesPista.h"   // 1.19
 #include "PanellBiblioteca.h"
 #include "PanellPool.h"
 #include "FinestraProgres.h"
@@ -253,6 +254,10 @@ private:
     Capcaleres capcaleres { estat };
     PanellCarpetes carpetes { estat };
     Boto btCarpetes { {}, dibuix::Icona::Carpeta, Boto::Estil::Tecla };
+    // 1.19: columnes a l'estil de Pro Tools (inserts, enviaments, E/S, vol i pan) al costat dels noms
+    ColumnesPista columnes { estat };
+    Boto btColumnes { {}, dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    bool ambColumnes = false;
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
@@ -302,6 +307,13 @@ private:
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
+    // 1.16: la taula de mescles en una finestra a part (F9), que l'Esc no tanca
+    std::unique_ptr<juce::DocumentWindow> finestraMescles;
+    void commutaMescles();
+    void tancaFinestraMescles();
+    // 1.16: marcadors F1–F4
+    void desaMarcador (int m);
+    void vesAMarcador (int m);
     int altPianoRoll = 430, altInici = 0;
     juce::ScrollBar barraV { true }, barraH { false };
     int ampleEsquerra = 132, ampleNoms = 190, ampleCarpetes = 190, amplePanell = 270, ampleInici = 0;

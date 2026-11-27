@@ -126,6 +126,9 @@ namespace mibase::edicio
     bool potSidechain (const Projecte& p, const std::string& origen, const std::string& desti);
     /** Sortida d'una pista: id d'un bus, o buit per a la sortida. Si no es pot (cercle), no canvia res i torna false. */
     bool posaSortida (Projecte& p, int pista, const std::string& bus);
+    /** 1.17: la pista (o el bus) surt directa per la targeta, pel canal «canal» (0 = el primer de la targeta) i, si
+        canals == 2, també pel següent (L, R). No passa pel màster ni per cap bus. Per tornar: posaSortida. */
+    bool posaSortidaTargeta (Projecte& p, int pista, int canal, int canals);
     /** Enviament nou (post-fader, 0 dB, al mig). Torna'n l'índex, o -1 si no es pot. */
     int afegeixEnviament (Projecte& p, int pista, const std::string& bus);
     /** Canvia la destinació d'un enviament (false si no es pot). */
@@ -189,6 +192,9 @@ namespace mibase::edicio
     /** Enganxa el tros amb el començament a «on», a les mateixes pistes. «insereix»: aparta el que hi ha;
         si no, trepitja (el que hi havia sota els clips nous es treu). Retorna els clips nous. */
     std::vector<RefClip> enganxaRetall (Projecte& p, const Retall& r, double on, bool insereix);
+    /** 1.16: el mateix retall, però començant a la pista «primera» (la de més amunt del retall hi va; les altres, a sota
+        en el mateix ordre). Per enganxar on has fet el requadre, com a Pro Tools. */
+    Retall retallAPista (const Retall& r, int primera);
 
     std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats);
     void treuTriats (Projecte& p, const std::vector<RefClip>& triats);
