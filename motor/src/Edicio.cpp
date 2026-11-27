@@ -533,6 +533,16 @@ namespace mibase::edicio
         return nous;
     }
 
+    Retall retallAPista (const Retall& r, int primera)
+    {
+        if (r.buit() || primera < 0) return r;
+        int dalt = r.clips.front().first;
+        for (auto& c : r.clips) dalt = std::min (dalt, c.first);
+        auto nou = r;
+        for (auto& c : nou.clips) c.first += primera - dalt;
+        return nou;
+    }
+
     std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats)
     {
         std::vector<RefClip> nous;

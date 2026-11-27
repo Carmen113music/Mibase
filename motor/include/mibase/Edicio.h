@@ -189,6 +189,9 @@ namespace mibase::edicio
     /** Enganxa el tros amb el començament a «on», a les mateixes pistes. «insereix»: aparta el que hi ha;
         si no, trepitja (el que hi havia sota els clips nous es treu). Retorna els clips nous. */
     std::vector<RefClip> enganxaRetall (Projecte& p, const Retall& r, double on, bool insereix);
+    /** 1.16: el mateix retall, però començant a la pista «primera» (la de més amunt del retall hi va; les altres, a sota
+        en el mateix ordre). Per enganxar on has fet el requadre, com a Pro Tools. */
+    Retall retallAPista (const Retall& r, int primera);
 
     std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats);
     void treuTriats (Projecte& p, const std::vector<RefClip>& triats);

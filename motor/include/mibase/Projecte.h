@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -445,6 +446,8 @@ namespace mibase
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
         std::vector<Insert> insertsMaster;   // 0.19: cadena de màstering
         int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
+        /** 1.16: marcadors F1–F4 (segons; negatiu = no desat). Maj+F1…F4 hi desa el capçal; F1…F4 hi va. */
+        std::array<double, 4> marcadors { -1.0, -1.0, -1.0, -1.0 };
         int comptador = 0;       // per fer identificadors únics
 
         // ---- Harmonia (0.8) ----
