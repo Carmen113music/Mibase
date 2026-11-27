@@ -300,7 +300,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btDesfes.onClick = [this] { desfes (false); };
     btRefes.setTooltip ("Refés (Ctrl+Y)"_ca);
     btRefes.onClick = [this] { desfes (true); };
-    btFont.setTooltip ("Font d'inspiració (F9): fes una progressió d'acords amb les fletxes i envia-la a la pista d'Acords"_ca);
+    btFont.setTooltip ("Font d'inspiració (F8): fes una progressió d'acords amb les fletxes i envia-la a la pista d'Acords"_ca);
     btFont.setLlum (juce::Colour (0xff5fd4c4));
     btFont.onClick = [this] { obreFont(); };
     addAndMakeVisible (btFont);
@@ -312,6 +312,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         sec->onRoda = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { roda (e, w); };
     }
     mescles.onRoda = nullptr;
+    esquerra.onMescles = [this] { commutaMescles(); };   // 1.16
     capcaleres.onCanviaNom = [this] (int i) { canviaNomEnLinia (i); };   // 1.3: al mateix lloc
     mescles.onCanviaNom = [this] (int i)   // 1.7: també al mateix lloc
     {
@@ -457,8 +458,11 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     // 0.46: amb una finestra a part al davant (guitarra virtual, sinte, plugin…), les tecles del transport també van
     teclaGlobal() = [this] (const juce::KeyPress& k)
     {
-        if (k.getModifiers().isAnyModifierKeyDown()) return false;
         const int c = k.getKeyCode();
+        // 1.16: F1–F4 (amb Maj o sense), F8 i F9 també des de les finestres a part (taula de mescles, plugins…)
+        const bool tecFun = (c >= juce::KeyPress::F1Key && c <= juce::KeyPress::F4Key) || c == juce::KeyPress::F8Key || c == juce::KeyPress::F9Key;
+        if (tecFun && ! k.getModifiers().isCommandDown() && ! k.getModifiers().isAltDown()) return keyPressed (k);
+        if (k.getModifiers().isAnyModifierKeyDown()) return false;
         const bool transport = c == juce::KeyPress::spaceKey || c == 'L' || c == 'l' || esNumpad0 (k)
                             || c == juce::KeyPress::homeKey || c == juce::KeyPress::returnKey;
         return transport && keyPressed (k);
@@ -670,6 +674,11 @@ PantallaEstudi::~PantallaEstudi()
     inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;
     teclaGlobal() = nullptr;
+    if (finestraMescles != nullptr)   // 1.16: la taula de mescles torna a casa abans de tancar
+    {
+        finestraMescles->clearContentComponent();
+        finestraMescles.reset();
+    }
     informePlugins() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);
@@ -844,7 +853,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         if (btGraella.getButtonText() != nom) btGraella.setButtonText (nom);
     }
 
-    if (mescles.isVisible() != estat.vistaMescles || taulaEstructura.isVisible() != estat.vistaEstructura)
+    if ((finestraMescles == nullptr && mescles.isVisible() != estat.vistaMescles) || taulaEstructura.isVisible() != estat.vistaEstructura)
         colocaSeccions();
     actualitzaBarres();
     repaint (zonaBarra);
@@ -968,7 +977,7 @@ void PantallaEstudi::colocaSeccions()
     }
     const int baixSeccions = r.getBottom();
 
-    mescles.setVisible (estat.vistaMescles);
+    if (finestraMescles == nullptr) mescles.setVisible (estat.vistaMescles);   // 1.16: a la finestra a part no es toca
     taulaEstructura.setVisible (estat.vistaEstructura);
     panell.setVisible (! estat.vistaEstructura && dreta == 0);
     biblioteca.setVisible (! estat.vistaEstructura && dreta == 1);
@@ -982,7 +991,7 @@ void PantallaEstudi::colocaSeccions()
 
     if (m)
     {
-        mescles.setBounds (r);
+        if (finestraMescles == nullptr) mescles.setBounds (r);
         // La taula d'estructura també ocupa el lloc del panell d'info (hi van les parts per arrossegar).
         taulaEstructura.ampleDreta = panell.getWidth();
         taulaEstructura.setBounds (r.withRight (panell.getRight()));
@@ -2824,8 +2833,9 @@ void PantallaEstudi::copia (bool retalla)
         return;
     }
     const auto n = (int) estat.portaretalls.clips.size();
+    estat.destiEnganxa.actiu = false;   // 1.16: el requadre de copiar no és on s'enganxa
     estat.info = (retalla ? "Retallat: "_ca : "Copiat: "_ca) + juce::String (n) + (n == 1 ? " clip" : " clips")
-               + " · Ctrl+V l'enganxa al capçal"_ca;
+               + " · Ctrl+V l'enganxa al capçal, o fes un requadre on el vulguis i Ctrl+V"_ca;
     if (retalla) treu();
     else estat.avisa();
 }
@@ -2838,11 +2848,20 @@ void PantallaEstudi::enganxa()
         estat.avisa();
         return;
     }
+    // 1.16: si després de copiar has fet un requadre, s'enganxa allà (inici del requadre, a partir de la seva pista de dalt),
+    // com a Pro Tools; si no, al capçal com sempre.
+    const auto desti = estat.destiEnganxa;
+    const bool alRequadre = desti.actiu && estat.pista (desti.pista) != nullptr;
+    const auto retall = alRequadre ? ed::retallAPista (estat.portaretalls, desti.pista) : estat.portaretalls;
     estat.desfes.abans (estat.projecte);
-    estat.triats = ed::enganxaRetall (estat.projecte, estat.portaretalls, estat.capcal, estat.insereix);
+    estat.triats = ed::enganxaRetall (estat.projecte, retall, alRequadre ? desti.t : estat.capcal, estat.insereix);
     estat.rang.actiu = false;
+    estat.destiEnganxa.actiu = false;
     if (! estat.triats.empty()) estat.pistaTriada = estat.triats.back().pista;
-    estat.info = estat.insereix ? "Enganxat inserint: el que hi havia s'ha apartat"_ca : "Enganxat trepitjant el que hi havia"_ca;
+    const int perduts = (int) retall.clips.size() - (int) estat.triats.size();
+    estat.info = (alRequadre ? "Enganxat al requadre"_ca : "Enganxat al capçal"_ca)
+               + (estat.insereix ? juce::String (", inserint") : juce::String (", trepitjant el que hi havia"))
+               + (perduts > 0 ? " · "_ca + juce::String (perduts) + " no hi cabien (pista d'un altre tipus o no n'hi ha prou)"_ca : juce::String());
     estat.canviat();
 }
 
@@ -3037,7 +3056,15 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     const bool cap = ! mods.isAnyModifierKeyDown();
     auto lletra = [codi] (char c) { return codi == c || codi == c + 32; };
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { treu(); return true; }
-    if (codi == juce::KeyPress::F9Key) { obreFont(); return true; }   // 0.97
+    if (codi == juce::KeyPress::F8Key) { obreFont(); return true; }   // 0.97 (1.16: F8; abans F9)
+    if (codi == juce::KeyPress::F9Key) { commutaMescles(); return true; }   // 1.16: taula de mescles en una finestra a part
+    // 1.16: marcadors. Maj+F1…F4 desa on és el capçal; F1…F4 hi porta el capçal.
+    for (int m = 0; m < 4; ++m)
+        if (codi == juce::KeyPress::F1Key + m && ! mods.isCommandDown() && ! mods.isAltDown())
+        {
+            if (mods.isShiftDown()) desaMarcador (m); else vesAMarcador (m);
+            return true;
+        }
     if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
     if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
     if (cap && lletra ('X') && estat.rang.actiu) { fesCrossfade(); return true; }
@@ -4413,7 +4440,7 @@ void PantallaEstudi::treuAcords (const mibase::Clip& c0, const juce::String& nom
 }
 
 //==============================================================================
-// 0.97: Font d'inspiració (una finestra a part, com els sintes). F9 o el botó l'obren i la tanquen.
+// 0.97: Font d'inspiració (una finestra a part, com els sintes). F8 (abans F9) o el botó l'obren i la tanquen.
 void PantallaEstudi::obreFont()
 {
     if (finestraFont != nullptr)
@@ -4590,4 +4617,100 @@ void PantallaEstudi::desfesGrup (std::vector<int> v)
         }
     for (const auto& c : carpetes) ed::esborraCarpeta (estat.projecte, c);
     estat.canviat ("Grup desfet: "_ca + juce::String ((int) carpetes.size()) + " carpetes, "_ca + juce::String (fetes) + " pistes tornen al màster"_ca);
+}
+
+//==============================================================================
+// 1.16: la taula de mescles en una finestra a part. F9 (o la pestanya «Taula de mescles») l'obre i la tanca; l'Esc no la
+// tanca, perquè es pugui deixar oberta a una segona pantalla. Recorda on era i la mida.
+namespace
+{
+    class FinestraMescles : public juce::DocumentWindow
+    {
+    public:
+        FinestraMescles (juce::Component& taula, std::function<void()> enTancar)
+            : juce::DocumentWindow ("Taula de mescles · Mibase"_ca, tema::fons, juce::DocumentWindow::allButtons), tanca (std::move (enTancar))
+        {
+            setUsingNativeTitleBar (true);
+            setResizable (true, true);
+            setResizeLimits (420, 300, 10000, 10000);
+            setContentNonOwned (&taula, false);
+            centreWithSize (1200, 640);
+        }
+        void closeButtonPressed() override { if (tanca) tanca(); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }   // Espai, F9, F1–F4… (l'Esc tanca la resta, no aquesta)
+    private:
+        std::function<void()> tanca;
+    };
+}
+
+void PantallaEstudi::commutaMescles()
+{
+    if (finestraMescles != nullptr) { tancaFinestraMescles(); return; }
+    estat.vistaMescles = false;
+    removeChildComponent (&mescles);
+    mescles.setVisible (true);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    finestraMescles = std::make_unique<FinestraMescles> (mescles, [jo]
+    {
+        // es tanca més tard: no es pot esborrar la finestra des de dins seu
+        juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->tancaFinestraMescles(); });
+    });
+    const auto lloc = ajustos.getValue ("mescles.finestra");
+    if (lloc.isNotEmpty()) finestraMescles->restoreWindowStateFromString (lloc);
+    finestraMescles->setVisible (true);
+    quedaSobreMibase (*finestraMescles);
+    estat.mesclesFinestra = true;
+    estat.info = "Taula de mescles oberta (F9 la tanca; l'Esc no)"_ca;
+    colocaSeccions();
+    estat.avisa();
+}
+
+void PantallaEstudi::tancaFinestraMescles()
+{
+    if (finestraMescles == nullptr) return;
+    ajustos.setValue ("mescles.finestra", finestraMescles->getWindowStateAsString());
+    ajustos.saveIfNeeded();
+    finestraMescles->clearContentComponent();
+    finestraMescles.reset();
+    addChildComponent (mescles);
+    mescles.setVisible (false);
+    estat.mesclesFinestra = false;
+    estat.vistaMescles = false;
+    colocaSeccions();
+    estat.avisa();
+    if (potAgafarFocus()) grabKeyboardFocus();
+}
+
+//==============================================================================
+// 1.16: marcadors. Maj+F1…F4 desa el capçal; F1…F4 hi va (també mentre sona: la música salta).
+void PantallaEstudi::desaMarcador (int m)
+{
+    if (m < 0 || m >= (int) estat.projecte.marcadors.size()) return;
+    estat.desfes.abans (estat.projecte);
+    estat.projecte.marcadors[(size_t) m] = estat.capcal;
+    estat.canviat();
+    estat.info = "Marcador F"_ca + juce::String (m + 1) + " desat a " + dibuix::utf8 (ed::textPosicio (estat.projecte, estat.capcal)) + " · F" + juce::String (m + 1) + " hi torna";
+    estat.avisa();
+}
+
+void PantallaEstudi::vesAMarcador (int m)
+{
+    if (m < 0 || m >= (int) estat.projecte.marcadors.size()) return;
+    const double t = estat.projecte.marcadors[(size_t) m];
+    if (t < 0.0)
+    {
+        estat.info = "F"_ca + juce::String (m + 1) + ": encara no hi ha marcador. Maj+F" + juce::String (m + 1) + " el desa on és el capçal";
+        estat.avisa();
+        return;
+    }
+    if (estat.transport >= 2) return;   // gravant, el capçal no es toca
+    estat.mouCapcal (t, true);
+    const double visibles = pistes.getWidth() / estat.pxPerSegon;
+    if (estat.capcal < estat.iniciVista || estat.capcal > estat.iniciVista + visibles * 0.9)
+        estat.iniciVista = juce::jmax (0.0, estat.capcal - visibles * 0.25);
+    seguiment.reinicia();
+    zonaEditors.reiniciaSeguiment();
+    actualitzaBarres();
+    estat.info = "Marcador F"_ca + juce::String (m + 1);
+    estat.avisa();
 }

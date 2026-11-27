@@ -306,6 +306,9 @@ namespace mibase::disc
         p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
         p.masterDb = std::clamp (j.value ("masterDb", 0.0), -60.0, 6.0);
         p.sortidaMaster = std::clamp (j.value ("sortidaMaster", 0), 0, 31);
+        if (j.contains ("marcadors") && j["marcadors"].is_array())   // 1.16
+            for (size_t k = 0; k < p.marcadors.size() && k < j["marcadors"].size(); ++k)
+                if (j["marcadors"][k].is_number()) p.marcadors[k] = j["marcadors"][k].get<double>();
         p.insertsMaster = insertsDeJson (j, "insertsMaster");
         {
             const auto snap = j.value ("snap", std::string ("compas"));
@@ -751,6 +754,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
         j["sortidaMaster"] = p.sortidaMaster;
+        j["marcadors"] = p.marcadors;   // 1.16
         if (! p.insertsMaster.empty()) j["insertsMaster"] = insertsAJson (p.insertsMaster);
         j["comptador"] = p.comptador;
         {

@@ -294,6 +294,21 @@ void Regla::paint (juce::Graphics& g)
             g.drawText (txt, r, juce::Justification::centred);
         }
 
+    // 1.16: marcadors F1–F4 (Maj+F1…F4 els desa): una banderola amb el número a la meitat de baix
+    for (int k = 0; k < (int) p.marcadors.size(); ++k)
+    {
+        if (p.marcadors[(size_t) k] < 0.0) continue;
+        const float xm = estat.x (p.marcadors[(size_t) k]);
+        if (xm < -20.0f || xm > w + 2.0f) continue;
+        auto r = juce::Rectangle<float> (xm, mig + 2.0f, 16.0f, 12.0f);
+        g.setColour (tema::accent.withAlpha (0.9f));
+        g.fillRect (xm - 0.5f, mig + 1.0f, 1.5f, h - mig - 1.0f);
+        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (juce::Colours::black);
+        g.setFont (dibuix::mono (10.0f));
+        g.drawText ("F" + juce::String (k + 1), r, juce::Justification::centred);
+    }
+
     const float xc = estat.x (estat.capcal);
     juce::Path tri;
     tri.addTriangle (xc - 6.0f, h - 10.0f, xc + 6.0f, h - 10.0f, xc, h);
@@ -1328,6 +1343,21 @@ void VistaPistes::paint (juce::Graphics& g)
         }
     }
 
+    // 1.16: on anirà el Ctrl+V (el requadre fet després de copiar): una ratlla discontínua a la pista
+    if (estat.destiEnganxa.actiu && ! estat.portaretalls.buit() && estat.altDe (estat.destiEnganxa.pista) > 0)
+    {
+        const float xd = estat.x (estat.destiEnganxa.t), yd = (float) estat.yPista (estat.destiEnganxa.pista);
+        const float ad = (float) estat.altDe (estat.destiEnganxa.pista);
+        g.setColour (tema::accent);
+        const float guions[] = { 4.0f, 3.0f };
+        g.drawDashedLine (juce::Line<float> (xd, yd + 2.0f, xd, yd + ad - 2.0f), guions, 2, 2.0f);
+        auto r = juce::Rectangle<float> (xd + 3.0f, yd + 3.0f, 44.0f, 13.0f);
+        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (juce::Colours::black);
+        g.setFont (dibuix::mono (9.5f));
+        g.drawText ("Ctrl+V", r, juce::Justification::centred);
+    }
+
     pintaCapcal (g, estat.x (estat.capcal), h, estat.transport);
 }
 
@@ -2101,7 +2131,10 @@ void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
 
     estat.triats = afegeix ? triatsOriginals : std::vector<ed::RefClip>();
     estat.rang.actiu = false;
+    estat.destiEnganxa.actiu = false;
     if (pb < pa || tb <= ta) return;
+    // 1.16: el requadre també diu on anirà el Ctrl+V (inici del requadre, pista de dalt), com a Pro Tools
+    estat.destiEnganxa = { true, juce::jmax (0.0, tEina (ta)), pa };
 
     if (estat.modeRang)
     {
@@ -2466,7 +2499,13 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             }
             nomesSeleccio = false;
             if (estat.triats.size() == 1) estat.pistaTriada = estat.triats[0].pista;
-            if (! estat.rang.actiu && estat.triats.empty()) estat.info.clear();
+            if (! estat.rang.actiu && estat.triats.empty())
+            {
+                if (estat.destiEnganxa.actiu && ! estat.portaretalls.buit() && estat.pista (estat.destiEnganxa.pista) != nullptr)
+                    estat.info = "Ctrl+V enganxa aquí: "_ca + posicio (estat.projecte, estat.destiEnganxa.t) + " · «"_ca
+                               + dibuix::utf8 (estat.pista (estat.destiEnganxa.pista)->nom) + "»"_ca;
+                else estat.info.clear();
+            }
             estat.avisa();
             break;
 
@@ -3451,7 +3490,7 @@ ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
         b->setLlum (vintage::ledTaronja);
     }
     btTreball.onClick = [this] { estat.vistaMescles = estat.vistaEstructura = false; estat.avisa(); };
-    btMescles.onClick = [this] { estat.vistaMescles = true; estat.vistaEstructura = false; estat.avisa(); };
+    btMescles.onClick = [this] { if (onMescles) onMescles(); };   // 1.16: obre o tanca la finestra de la taula de mescles (F9)
     btEstructura.onClick = [this] { estat.vistaEstructura = true; estat.vistaMescles = false; estat.avisa(); };
     changeListenerCallback (nullptr);
 }
@@ -3466,7 +3505,7 @@ void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
     if (opcions.isVisible()) opcions.actualitza();
     if (alt != altOpcions) { altOpcions = alt; resized(); }
     btTreball.setToggleState (! estat.foraTreball(), juce::dontSendNotification);
-    btMescles.setToggleState (estat.vistaMescles, juce::dontSendNotification);
+    btMescles.setToggleState (estat.mesclesFinestra, juce::dontSendNotification);
     btEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
     if (panellEditor != nullptr && panellEditor->isVisible() != ambEditor())
     {

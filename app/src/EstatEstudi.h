@@ -242,6 +242,9 @@ public:
 
     /** El que s'ha copiat (Ctrl+C). */
     mibase::edicio::Retall portaretalls;
+    /** 1.16: on anirà el Ctrl+V (com a Pro Tools): l'inici i la pista de dalt del darrer requadre fet després de copiar.
+        Si no n'hi ha, s'enganxa al capçal com abans. */
+    struct DestiEnganxa { bool actiu = false; double t = 0.0; int pista = 0; } destiEnganxa;
 
     /** Text d'informació de dalt (el valor del que s'arrossega). */
     juce::String info;
@@ -254,6 +257,8 @@ public:
 
     /** Taula de treball (pistes) o taula de mescles. */
     bool vistaMescles = false;
+    /** 1.16: la taula de mescles és en una finestra a part (F9), que es pot deixar oberta a una altra pantalla. */
+    bool mesclesFinestra = false;
     /** 0.15: taula d'estructura (en lloc de la taula de treball). */
     bool vistaEstructura = false;
     bool foraTreball() const noexcept { return vistaMescles || vistaEstructura; }
@@ -599,7 +604,7 @@ public:
 
     /** Tria un sol clip (i la seva pista). */
     void triaClip (int p, int c) { triats = { { p, c } }; pistaTriada = p; rang.actiu = false; }
-    void capTriat() { triats.clear(); rang.actiu = false; }
+    void capTriat() { triats.clear(); rang.actiu = false; destiEnganxa.actiu = false; }
 
     /** Color d'un clip: el seu, si en té; si no, el de la pista. */
     juce::Colour colorClip (int p, const mibase::Clip& c) const
