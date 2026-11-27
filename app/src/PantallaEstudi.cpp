@@ -229,7 +229,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     rellotge.startTimerHz (30);
 
     ampleEsquerra = ajustos.getIntValue ("estudi.ampleEsquerra", 132);
-    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms3", 244);   // 0.41: més ampla, perquè hi càpiguen «Ac» i E/S
+    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms4", 170);   // 1.20: més estreta (les tecles van en dues files de 3)   // 0.41: més ampla, perquè hi càpiguen «Ac» i E/S
     amplePanell = ajustos.getIntValue ("estudi.amplePanell", 270);
 
     // Caixa d'eines.
@@ -558,7 +558,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         {
             ajustos.setValue ("estudi.ampleEsquerra", ampleEsquerra);
             ajustos.setValue ("estudi.ampleEsquerraEditor", ampleEsquerraEditor);
-            ajustos.setValue ("estudi.ampleNoms3", ampleNoms);
+            ajustos.setValue ("estudi.ampleNoms4", ampleNoms);
             ajustos.setValue ("estudi.amplePanell", amplePanell);
             ajustos.saveIfNeeded();
         };
@@ -572,8 +572,22 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     divEsquerra.onDobleClic = [this] { if (esquerra.ambEditor()) ampleEsquerraEditor = 270; else ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
-    divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (120, ampleInici + dx); colocaSeccions(); };
-    divNoms.onDobleClic = [this] { ampleNoms = 244; colocaSeccions(); divNoms.onAcaba(); };
+    divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (132, ampleInici + dx); colocaSeccions(); };
+    divNoms.onDobleClic = [this] { ampleNoms = 170; colocaSeccions(); divNoms.onAcaba(); };
+    // 1.20: les columnes de Pro Tools també s'estiren i s'arronsen per la vora dreta
+    addChildComponent (divColumnes);
+    divColumnes.setTooltip ("Arrossega per fer les columnes més amples o més estretes. Doble clic: mida inicial."_ca);
+    columnes.ampleBase = juce::jlimit (ColumnesPista::ampleBaseMinim, ColumnesPista::ampleBaseMaxim,
+                                       ajustos.getIntValue ("estudi.ampleColumnes", ColumnesPista::ampleBaseInicial));
+    divColumnes.onComenca = [this] { ampleInici = columnes.getWidth(); };
+    divColumnes.onArrossega = [this] (int dx)
+    {
+        const double base = (ampleInici + dx - ColumnesPista::separacio * 5) / columnes.factorAmple();
+        columnes.ampleBase = juce::jlimit (ColumnesPista::ampleBaseMinim, ColumnesPista::ampleBaseMaxim, juce::roundToInt (base));
+        colocaSeccions();
+    };
+    divColumnes.onDobleClic = [this] { columnes.ampleBase = ColumnesPista::ampleBaseInicial; colocaSeccions(); divColumnes.onAcaba(); };
+    divColumnes.onAcaba = [this] { ajustos.setValue ("estudi.ampleColumnes", columnes.ampleBase); ajustos.saveIfNeeded(); };
     divPanell.onComenca = [this] { ampleInici = panell.getWidth(); };
     divPanell.onArrossega = [this] (int dx) { amplePanell = juce::jmax (200, ampleInici - dx); colocaSeccions(); };
     divPanell.onDobleClic = [this] { amplePanell = 270; colocaSeccions(); divPanell.onAcaba(); };
@@ -1003,6 +1017,7 @@ void PantallaEstudi::colocaSeccions()
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes, &btColumnes })
         c->setVisible (! m);
     columnes.setVisible (! m && ambColumnes);   // 1.19
+    divColumnes.setVisible (! m && ambColumnes);   // 1.20
     btColumnes.setToggleState (ambColumnes, juce::dontSendNotification);
     carpetes.setVisible (ambCarpetes);
     divCarpetes.setVisible (ambCarpetes);
@@ -1037,11 +1052,12 @@ void PantallaEstudi::colocaSeccions()
         barraV.setBounds (temps.removeFromRight (gruixBarres));
         pistes.setBounds (temps);
         divNoms.setBounds (capcaleres.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
+        if (ambColumnes) divColumnes.setBounds (columnes.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
     }
 
     divEsquerra.setBounds (esquerra.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
     divPanell.setBounds (panell.getX() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
-    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll, &divCarpetes }) d->toFront (false);
+    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll, &divCarpetes, &divColumnes }) d->toFront (false);
 
     actualitzaBarres();
     repaint();

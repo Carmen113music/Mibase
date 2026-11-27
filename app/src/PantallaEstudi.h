@@ -294,6 +294,7 @@ private:
     std::string copiaAlPool (const juce::File& f, const juce::String& nomBase, juce::String& error);
     juce::File paperera() const { return audios().getChildFile ("Paperera"); }
     Divisor divEsquerra, divNoms, divPanell, divCarpetes;
+    Divisor divColumnes;   // 1.20: la vora dreta de les columnes de Pro Tools
     ZonaEditors zonaEditors { estat, [this] (PianoRoll& pr) { configuraEditor (pr); } };
     PanellHarmonia panellHarmonia { estat, [this] { return zonaEditors.actiu(); }, ajustos, [this] { return servei.getTeclatsMidi(); } };
     PanellBateria panellBateria { estat, [this] { return zonaEditors.actiu(); } };   // 0.20

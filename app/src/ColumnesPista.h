@@ -14,7 +14,15 @@ public:
     GestorPlugins* plugins = nullptr;
     int altTitol = 34;   // l'alçada de la regla: a dalt hi van els títols de les columnes
 
-    static constexpr int ampleInserts = 122, ampleEnvia = 118, ampleES = 116, separacio = 4;
+    /** 1.20: l'amplada d'una columna d'inserts (la dels enviaments és igual i la d'E/S, una mica més ampla). Es canvia
+        arrossegant la vora dreta del panell. */
+    int ampleBase = ampleBaseInicial;
+    static constexpr int ampleBaseInicial = 84, ampleBaseMinim = 48, ampleBaseMaxim = 170, separacio = 3;
+    int ampleInsertsAra() const { return ampleBase; }
+    int ampleEnviaAra() const { return ampleBase; }
+    int ampleESAra() const { return ampleBase + ampleBase / 8; }
+    /** Quantes columnes «de base» fa el panell (per passar d'una amplada total a ampleBase). */
+    double factorAmple() const { return (ambSegonaColumna() ? 2.0 : 1.0) + 1.0 + 1.125; }
     static constexpr int altSlot = 17, gapSlot = 2;
 
     /** Alguna pista (o el màster) té la primera columna plena (3 inserts)? Llavors surt la segona, a totes alhora. */
@@ -26,7 +34,7 @@ public:
     }
     int ampladaIdeal() const
     {
-        return ampleInserts * (ambSegonaColumna() ? 2 : 1) + ampleEnvia + ampleES + separacio * 5;
+        return ampleInsertsAra() * (ambSegonaColumna() ? 2 : 1) + ampleEnviaAra() + ampleESAra() + separacio * 5;
     }
     std::function<void()> onAmpladaCanviada;
 
@@ -41,10 +49,11 @@ public:
             auto r = getLocalBounds().removeFromTop (altTitol);
             vintage::panell (g, r.toFloat());
             g.setColour (tema::suau);
-            g.setFont (dibuix::lletra (10.5f, true));
-            g.drawText ("INSERTS A-C", c.insA.withY (0).withHeight (altTitol), juce::Justification::centred);
-            if (! c.insB.isEmpty()) g.drawText ("INSERTS D-F", c.insB.withY (0).withHeight (altTitol), juce::Justification::centred);
-            g.drawText ("ENVIAMENTS A-C", c.envia.withY (0).withHeight (altTitol), juce::Justification::centred);
+            g.setFont (dibuix::lletra (10.0f, true));
+            const bool curt = ampleBase < 100;
+            g.drawFittedText (curt ? "INSERTS A-C" : "INSERTS A-C", c.insA.withY (0).withHeight (altTitol), juce::Justification::centred, 1, 0.7f);
+            if (! c.insB.isEmpty()) g.drawFittedText ("INSERTS D-F", c.insB.withY (0).withHeight (altTitol), juce::Justification::centred, 1, 0.7f);
+            g.drawFittedText (curt ? "ENVIAMENTS" : "ENVIAMENTS A-C", c.envia.withY (0).withHeight (altTitol), juce::Justification::centred, 1, 0.7f);
             g.drawText ("E/S", c.es.withY (0).withHeight (altTitol), juce::Justification::centred);
         }
 
@@ -106,8 +115,9 @@ public:
         }
         if (lloc.col == Col::VolPan)
         {
+            // 1.20: clica i, sense deixar anar, surt el fader (o el pan) i ja el mous; en deixar anar, desapareix
             const bool pan = i >= 0 && pos.x >= lloc.r.getCentreX();
-            obrePopup (i, pan, lloc.r);
+            comencaPopup (i, pan, lloc.r, e.position);
             return;
         }
         if (i < 0) return;
@@ -174,6 +184,7 @@ public:
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
+        if (popup != nullptr) { mouPopup (e); return; }
         if (arrossegaEnvia < 0 || filaEnvia < 0 || filaEnvia >= estat.numPistes()) return;
         auto& t = estat.projecte.pistes[(size_t) filaEnvia];
         if (arrossegaEnvia >= (int) t.enviaments.size()) return;
@@ -191,6 +202,7 @@ public:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        if (popup != nullptr) { tancaPopup(); return; }
         if (arrossegaEnvia >= 0) acabaCanvi();
         arrossegaEnvia = -1;
     }
@@ -198,6 +210,18 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
         const auto lloc = troba (e.getPosition());
+        if (lloc.col == Col::VolPan)   // 1.20: doble clic: 0 dB (o el pan al mig)
+        {
+            tancaPopup();
+            const bool pan = lloc.fila >= 0 && e.x >= lloc.r.getCentreX();
+            comencaCanvi();
+            if (lloc.fila < 0) estat.projecte.masterDb = 0.0;
+            else if (pan) estat.projecte.pistes[(size_t) lloc.fila].pan = 0.0;
+            else estat.projecte.pistes[(size_t) lloc.fila].faderDb = 0.0;
+            canviFet = true;
+            acabaCanvi();
+            return;
+        }
         if (lloc.col != Col::Envia || lloc.fila < 0) return;
         const auto& t = estat.projecte.pistes[(size_t) lloc.fila];
         if (lloc.k >= (int) t.enviaments.size()) return;
@@ -234,10 +258,11 @@ private:
     {
         Columnes c;
         int x = separacio;
-        c.insA = { x, 0, ampleInserts, getHeight() }; x += ampleInserts + separacio;
-        if (ambSegonaColumna()) { c.insB = { x, 0, ampleInserts, getHeight() }; x += ampleInserts + separacio; }
-        c.envia = { x, 0, ampleEnvia, getHeight() }; x += ampleEnvia + separacio;
-        c.es = { x, 0, ampleES, getHeight() };
+        const int ai = ampleInsertsAra(), ae = ampleEnviaAra();
+        c.insA = { x, 0, ai, getHeight() }; x += ai + separacio;
+        if (ambSegonaColumna()) { c.insB = { x, 0, ai, getHeight() }; x += ai + separacio; }
+        c.envia = { x, 0, ae, getHeight() }; x += ae + separacio;
+        c.es = { x, 0, juce::jmax (20, getWidth() - x - separacio), getHeight() };
         return c;
     }
     /** Quantes files hi caben (1 a 3) amb l'alçada de les pistes d'ara. */
@@ -320,7 +345,7 @@ private:
             {
                 g.setColour (k == (int) t.enviaments.size() ? tema::suau : tema::linia2);
                 g.setFont (dibuix::lletra (10.0f));
-                g.drawText (k == (int) t.enviaments.size() ? "+ Enviament"_ca : juce::String::fromUTF8 ("—"), z, juce::Justification::centred);
+                g.drawText (k == (int) t.enviaments.size() ? (ampleBase < 90 ? juce::String ("+") : "+ Enviament"_ca) : juce::String::fromUTF8 ("—"), z, juce::Justification::centred);
                 continue;
             }
             const auto& e = t.enviaments[(size_t) k];
@@ -331,8 +356,8 @@ private:
             g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ (float) z.getX() + 8.0f, (float) z.getCentreY() }));
             g.setColour (encesa ? tema::text : tema::suau);
             g.setFont (dibuix::lletra (10.0f));
-            g.drawText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("?"), z.withTrimmedLeft (15).withTrimmedRight (30),
-                        juce::Justification::centredLeft, true);
+            g.drawFittedText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("?"), z.withTrimmedLeft (15).withTrimmedRight (26),
+                              juce::Justification::centredLeft, 1, 0.8f);
             g.setColour (encesa ? tema::textMig : tema::suau);
             g.setFont (dibuix::mono (9.5f));
             g.drawText (e.nivellDb <= -59.9 ? juce::String ("-oo") : juce::String (e.nivellDb, 1), z.withTrimmedRight (3), juce::Justification::centredRight);
@@ -381,13 +406,14 @@ private:
         g.setFont (dibuix::mono (9.5f));
         auto esq = master ? z : z.withWidth (z.getWidth() / 2);
         g.setColour (vintage::ledVerd);
-        g.drawText ("vol " + (db <= -59.9 ? juce::String ("-oo") : juce::String (db, 1)), esq.reduced (4, 0), juce::Justification::centredLeft);
+        const bool curt = z.getWidth() < 110;
+        g.drawFittedText ((curt ? "" : "vol ") + (db <= -59.9 ? juce::String ("-oo") : juce::String (db, 1)), esq.reduced (3, 0), juce::Justification::centredLeft, 1, 0.8f);
         if (master) return;
         auto dre = z.withTrimmedLeft (z.getWidth() / 2);
         g.setColour (tema::linia2);
         g.fillRect (dre.getX(), z.getY() + 3, 1, z.getHeight() - 6);
         g.setColour (vintage::ledVerd);
-        g.drawText ("pan " + textPanCurt (pan), dre.reduced (4, 0), juce::Justification::centredLeft);
+        g.drawFittedText ((curt ? "" : "pan ") + textPanCurt (pan), dre.reduced (3, 0), juce::Justification::centredLeft, 1, 0.8f);
     }
 
     static juce::String textPanCurt (double pan)
@@ -413,17 +439,21 @@ private:
     }
 
     //==========================================================================
-    /** El fader (o el panorama) que surt en clicar «vol» (o «pan»). */
+    /** 1.20: el fader (o el panorama) que surt mentre es manté el clic a «vol» (o «pan»). Només es dibuixa: el ratolí el
+        porta la columna (que és qui ha rebut el clic). */
     class Popup : public juce::Component
     {
     public:
         Popup (ColumnesPista& c, int fila, bool pan) : col (c), i (fila), esPan (pan)
         {
+            setInterceptsMouseClicks (false, false);
             setSize (pan ? 220 : 70, pan ? 52 : 230);
         }
         void paint (juce::Graphics& g) override
         {
             g.fillAll (tema::fons);
+            g.setColour (tema::linia2);
+            g.drawRect (getLocalBounds());
             if (esPan)
             {
                 const auto car = carril();
@@ -445,42 +475,6 @@ private:
             g.setFont (dibuix::mono (10.0f));
             g.drawText (EstatEstudi::textDb (db), getLocalBounds().removeFromBottom (16), juce::Justification::centred);
         }
-        void mouseDown (const juce::MouseEvent& e) override
-        {
-            col.comencaCanvi();
-            y0 = e.position;
-            v0 = esPan ? (float) valor() : EstatEstudi::posFader (valor());
-            if (esPan) posa (juce::jlimit (-1.0, 1.0, (double) ((e.position.x - carril().getX()) / carril().getWidth() * 2.0f - 1.0f)));
-        }
-        void mouseDrag (const juce::MouseEvent& e) override
-        {
-            const bool fi = e.mods.isShiftDown();
-            if (esPan)
-            {
-                posa (juce::jlimit (-1.0, 1.0, (double) ((e.position.x - carril().getX()) / carril().getWidth() * 2.0f - 1.0f)));
-                return;
-            }
-            const float alt = juce::jmax (40.0f, carrilFader.getHeight());
-            const float v = juce::jlimit (0.0f, 1.0f, v0 - (e.position.y - y0.y) / alt * (fi ? 0.1f : 1.0f));
-            posa (EstatEstudi::dbFader (v));
-        }
-        void mouseUp (const juce::MouseEvent&) override { col.acabaCanvi(); }
-        void mouseDoubleClick (const juce::MouseEvent&) override
-        {
-            col.comencaCanvi();
-            posa (0.0);   // 0 dB o al mig
-            col.acabaCanvi();
-        }
-
-    private:
-        ColumnesPista& col;
-        int i;
-        bool esPan;
-        juce::Point<float> y0;
-        float v0 = 0.0f;
-        juce::Rectangle<float> carrilFader;
-
-        juce::Rectangle<float> carril() const { return getLocalBounds().toFloat().reduced (14.0f, 0.0f).withY (12.0f).withHeight (14.0f); }
         double valor() const
         {
             const auto& p = col.estat.projecte;
@@ -491,27 +485,84 @@ private:
         void posa (double v)
         {
             auto& p = col.estat.projecte;
-            if (i < 0) p.masterDb = v;
+            if (i < 0) { p.masterDb = v; col.estat.info = "Volum del màster: "_ca + EstatEstudi::textDb (v); }
             else if (i < (int) p.pistes.size())
             {
                 auto& t = p.pistes[(size_t) i];
                 if (esPan) t.pan = std::abs (v) < 0.01 ? 0.0 : v;
                 else t.faderDb = v;
                 col.estat.info = (esPan ? "Panorama de «"_ca : "Volum de «"_ca) + dibuix::utf8 (t.nom) + "»: "_ca
-                               + (esPan ? EstatEstudi::textPan (t.pan) : EstatEstudi::textDb (t.faderDb));
+                               + (esPan ? EstatEstudi::textPan (t.pan) : EstatEstudi::textDb (t.faderDb)) + "  (Maj: més fi; doble clic: "_ca
+                               + (esPan ? "al mig)"_ca : "0 dB)"_ca);
             }
             col.canviFet = true;
             col.estat.avisa();
             repaint();
         }
+        float llargCarril() const { return esPan ? carril().getWidth() : juce::jmax (60.0f, carrilFader.getHeight()); }
+
+        ColumnesPista& col;
+        int i;
+        bool esPan;
+        juce::Rectangle<float> carrilFader { 0.0f, 0.0f, 10.0f, 180.0f };
+        juce::Rectangle<float> carril() const { return getLocalBounds().toFloat().reduced (14.0f, 0.0f).withY (12.0f).withHeight (14.0f); }
     };
     friend class Popup;
+    std::unique_ptr<Popup> popup;
+    juce::Point<float> inicPopup;
+    double valorInicPopup = 0.0;
 
-    void obrePopup (int fila, bool pan, juce::Rectangle<int> r)
+    void comencaPopup (int fila, bool pan, juce::Rectangle<int> r, juce::Point<float> on)
     {
-        auto pop = std::make_unique<Popup> (*this, fila, pan);
-        juce::CallOutBox::launchAsynchronously (std::move (pop), localAreaToGlobal (r), nullptr);
-        estat.info = pan ? "Panorama: arrossega · doble clic: al mig"_ca : "Volum: arrossega (Maj: més fi) · doble clic: 0 dB"_ca;
+        tancaPopup();
+        auto* pare = getParentComponent();
+        if (pare == nullptr) return;
+        comencaCanvi();
+        popup = std::make_unique<Popup> (*this, fila, pan);
+        const auto zona = pare->getLocalArea (this, r);
+        auto lloc = pan ? popup->getBounds().withCentre ({ zona.getCentreX(), zona.getY() - 30 })
+                        : popup->getBounds().withPosition (zona.getRight() + 6, zona.getCentreY() - popup->getHeight() / 2);
+        lloc = lloc.constrainedWithin (pare->getLocalBounds());
+        popup->setBounds (lloc);
+        pare->addAndMakeVisible (*popup);
+        popup->toFront (false);
+        inicPopup = on;
+        valorInicPopup = pan ? popup->valor() : (double) EstatEstudi::posFader (popup->valor());
+        estat.info = pan ? "Panorama: arrossega a esquerra i dreta (Maj: més fi)"_ca : "Volum: arrossega amunt i avall (Maj: més fi)"_ca;
         estat.avisa();
+    }
+
+    void mouPopup (const juce::MouseEvent& e)
+    {
+        if (popup == nullptr) return;
+        const float fi = e.mods.isShiftDown() ? 0.1f : 1.0f;
+        const float llarg = popup->llargCarril();
+        if (popup->esPan)
+        {
+            const double v = valorInicPopup + (double) ((e.position.x - inicPopup.x) / llarg * 2.0f * fi);
+            popup->posa (juce::jlimit (-1.0, 1.0, v));
+        }
+        else
+        {
+            const float v = juce::jlimit (0.0f, 1.0f, (float) valorInicPopup - (e.position.y - inicPopup.y) / llarg * fi);
+            popup->posa (EstatEstudi::dbFader (v));
+        }
+        // Maj a mig gest: continua des d'on és, sense saltar
+        if (e.mods.isShiftDown() != ambMaj)
+        {
+            ambMaj = e.mods.isShiftDown();
+            inicPopup = e.position;
+            valorInicPopup = popup->esPan ? popup->valor() : (double) EstatEstudi::posFader (popup->valor());
+        }
+    }
+    bool ambMaj = false;
+
+    void tancaPopup()
+    {
+        if (popup == nullptr) return;
+        if (auto* pare = popup->getParentComponent()) pare->removeChildComponent (popup.get());
+        popup.reset();
+        ambMaj = false;
+        acabaCanvi();
     }
 };

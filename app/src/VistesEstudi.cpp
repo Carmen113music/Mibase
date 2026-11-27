@@ -2756,9 +2756,18 @@ void VistaPistes::filesDropped (const juce::StringArray& files, int x, int y)
 //==============================================================================
 juce::Rectangle<int> Capcaleres::rectTecla (int pista, int quina) const
 {
+    // 1.20: tecles en una graella de 3 columnes: a baix M / S / gravar; a sobre instrument / Ac / E/S.
+    // L'alçada s'ajusta perquè hi càpiguen el nom i les dues files.
     const int y = estat.yPista (pista);
-    const int baix = y + estat.altPista - 9;
-    return { 14 + quina * 31, baix - 24, 28, 24 };
+    const int h = juce::jlimit (14, 20, (estat.altPista - 33) / 2);
+    const int baix = y + estat.altPista - 6;
+    return { 14 + quina * 31, baix - h, 28, h };
+}
+
+juce::Rectangle<int> Capcaleres::rectCellaDalt (int pista, int quina) const
+{
+    const auto r = rectTecla (pista, quina);
+    return r.translated (0, -(r.getHeight() + 3));
 }
 
 Capcaleres::Tecla Capcaleres::teclaA (int pista, juce::Point<int> p) const
@@ -2895,11 +2904,10 @@ void Capcaleres::paint (juce::Graphics& g)
             g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
             dibuixEstudi::teclaPetita (g, rectTecla (i, 0), "M", mutAra (p, t), vintage::ledBlau);
             dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
-            const int d = ed::pistaPerId (p, t.sortida);
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (11.0f));
             g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + EstatEstudi::textDesti (p, t),
-                              juce::Rectangle<int> (rectTecla (i, 1).getRight() + 10, rectTecla (i, 1).getY(), getWidth() - rectTecla (i, 1).getRight() - 32, 24),
+                              juce::Rectangle<int> (rectTecla (i, 1).getRight() + 10, rectTecla (i, 1).getY(), getWidth() - rectTecla (i, 1).getRight() - 32, rectTecla (i, 1).getHeight()),
                               juce::Justification::centredLeft, 1, 0.8f);
             dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
                                     estat.nivell (i, 0), estat.nivell (i, 1));
@@ -2951,59 +2959,26 @@ void Capcaleres::paint (juce::Graphics& g)
         dibuixEstudi::teclaPetita (g, rectTecla (i, 1), "S", t.solo, vintage::ledGroc);
         dibuixEstudi::teclaPetita (g, rectTecla (i, 2), {}, t.grava, vintage::ledVermell, true);
 
-        auto zonaCanals = juce::Rectangle<int> (rectTecla (i, 2).getRight() + 8, rectTecla (i, 2).getY(), getWidth() - rectTecla (i, 2).getRight() - 30, 24);
-        if (mibase::esMidi (t) && zonaCanals.getWidth() > 50)
+        // 1.20: la fila de sobre: instrument (a sobre de la M), Ac (a sobre de la S) i E/S (a sobre del gravar)
+        if (mibase::esMidi (t))
         {
             // 0.20: botonet per obrir l'instrument (o els kits, a la bateria).
             const auto rb = rectObreInstrument (i).toFloat();
             vintage::tecla (g, rb, false, false, EstatEstudi::colorPista (t));
-            dibuix::pintaIcona (g, mibase::esKit (t) ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (4.0f), tema::text);
-            zonaCanals.removeFromLeft (rb.toNearestInt().getWidth() + 6);
+            dibuix::pintaIcona (g, mibase::esKit (t) ? dibuix::Icona::Bateria : dibuix::Icona::Finestra, rb.reduced (3.0f).withSizeKeepingCentre (juce::jmin (rb.getWidth(), rb.getHeight()) - 6.0f, juce::jmin (rb.getWidth(), rb.getHeight()) - 6.0f), tema::text);
         }
         if (const auto rs = rectSegueix (i); ! rs.isEmpty())
+            dibuixEstudi::teclaPetita (g, rs, "Ac", t.segueixAcords, juce::Colour (0xffb18cff));   // 0.41: lila quan està encès
+        if (const auto z = rectES (i); ! z.isEmpty())   // 0.36: sempre un sol botó E/S
         {
-            // 0.41: interruptor «segueix la pista d'Acords» (lila quan està encès)
-            dibuixEstudi::teclaPetita (g, rs, "Ac", t.segueixAcords, juce::Colour (0xffb18cff));
-            zonaCanals.removeFromLeft (rs.getWidth() + 6);
-        }
-        if (zonaCanals.getWidth() > 30)
-        {
-            // 0.35: entrada i sortida a la vista, com el E/S de Pro Tools (clic: les tries)
-            auto caixa = [&] (juce::Rectangle<int> z, const juce::String& etiqueta, bool cap, juce::Colour col)
-            {
-                if (z.isEmpty()) return;
-                g.setColour (juce::Colours::black.withAlpha (0.45f));
-                g.fillRoundedRectangle (z.toFloat(), 3.0f);
-                g.setColour (tema::linia);
-                g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 3.0f, 1.0f);
-                juce::Path f;
-                const float fx = (float) z.getX() + 4.0f, fy = (float) z.getCentreY();
-                if (cap) f.addTriangle (fx + 5.0f, fy - 3.5f, fx + 5.0f, fy + 3.5f, fx, fy);
-                else f.addTriangle (fx, fy - 3.5f, fx, fy + 3.5f, fx + 5.0f, fy);
-                g.setColour (col);
-                g.fillPath (f);
-                g.setColour (tema::text);
-                g.setFont (dibuix::lletra (10.5f));
-                g.drawFittedText (etiqueta, z.withTrimmedLeft (12).withTrimmedRight (2), juce::Justification::centredLeft, 1, 0.75f);
-            };
             const int d = ed::pistaPerId (p, t.sortida);
-            if (const auto z = rectES (i); ! z.isEmpty())   // 0.36: sempre un sol botó E/S
-            {
-                g.setColour (juce::Colours::black.withAlpha (0.45f));
-                g.fillRoundedRectangle (z.toFloat(), 3.0f);
-                g.setColour (d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::linia);
-                g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 3.0f, 1.0f);
-                g.setColour (tema::text);
-                g.setFont (dibuix::lletra (10.5f, true));
-                g.drawText ("E/S", z, juce::Justification::centred);
-            }
-            else
-            {
-                if (t.tipus == "audio")
-                    caixa (rectEntradaCap (i), EstatEstudi::textEntrada (t), true, t.grava ? vintage::ledVermell : tema::textMig);
-                caixa (rectSortidaCap (i), EstatEstudi::textDesti (p, t), false,
-                       d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::textMig);
-            }
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (z.toFloat(), 3.0f);
+            g.setColour (d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : t.sortidaTargeta >= 0 ? tema::accent : tema::linia);
+            g.drawRoundedRectangle (z.toFloat().reduced (0.5f), 3.0f, 1.0f);
+            g.setColour (tema::text);
+            g.setFont (dibuix::lletra (10.0f, true));
+            g.drawText ("E/S", z, juce::Justification::centred);
         }
 
         // Vúmetre de la pista (si té el botó de gravar encès, també el que entra).
@@ -3203,22 +3178,14 @@ juce::Rectangle<int> Capcaleres::rectPreses (int fila) const
 
 juce::Rectangle<int> Capcaleres::zonaES (int fila) const
 {
-    const auto r = rectTecla (fila, 2);
-    juce::Rectangle<int> z (r.getRight() + 8, r.getY() + 2, getWidth() - r.getRight() - 30, r.getHeight() - 4);
-    // igual que quan es pinta: el botó de l'instrument només hi és si hi cap
-    if (fila < estat.numPistes() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && z.getWidth() > 50)
-        z.removeFromLeft (rectObreInstrument (fila).getWidth() + 6);
-    if (const auto s = rectSegueix (fila); ! s.isEmpty()) z.removeFromLeft (s.getWidth() + 6);   // 0.41
-    return z;
+    return rectCellaDalt (fila, 2);   // 1.20: a sobre del botó de gravar
 }
 
 juce::Rectangle<int> Capcaleres::rectES (int fila) const
 {
     // 0.37: el botó E/S, el mateix rectangle per pintar-lo i per clicar-lo (si no hi cap, no hi és)
     // 0.65: sempre a la dreta i de la mateixa mida a totes les pistes
-    auto z = zonaES (fila);
-    if (z.getWidth() < 46) return {};
-    return z.removeFromRight (46);
+    return zonaES (fila);   // 1.20: sempre, a la graella
 }
 
 juce::Rectangle<int> Capcaleres::rectAltraTonalitat (int fila) const
@@ -3257,15 +3224,12 @@ juce::Rectangle<int> Capcaleres::rectSegueix (int fila) const
     if (fila < 0 || fila >= estat.numPistes()) return {};
     const auto& t = estat.projecte.pistes[(size_t) fila];
     if (! mibase::esMidi (t) || mibase::esAcords (t) || mibase::esKit (t)) return {};
-    const auto r = rectObreInstrument (fila);
-    const juce::Rectangle<int> z (r.getRight() + 6, r.getY(), 26, r.getHeight());
-    return z.getRight() <= getWidth() - 24 ? z : juce::Rectangle<int>();
+    return rectCellaDalt (fila, 1);   // 1.20: a sobre de la S
 }
 
 juce::Rectangle<int> Capcaleres::rectObreInstrument (int fila) const
 {
-    const auto r = rectTecla (fila, 2);
-    return { r.getRight() + 8, r.getY(), 26, r.getHeight() };
+    return rectCellaDalt (fila, 0);   // 1.20: a sobre de la M
 }
 
 void Capcaleres::mouseDown (const juce::MouseEvent& e)
@@ -3344,8 +3308,7 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
     if (estat.pistaTriada != fila) estat.capTriat();
     estat.pistaTriada = fila;
 
-    if (! e.mods.isPopupMenu() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && rectObreInstrument (fila).contains (e.getPosition())
-        && getWidth() - rectTecla (fila, 2).getRight() - 30 > 50)
+    if (! e.mods.isPopupMenu() && mibase::esMidi (estat.projecte.pistes[(size_t) fila]) && rectObreInstrument (fila).contains (e.getPosition()))
     {
         estat.avisa();
         if (onObreInstrument) onObreInstrument (fila);

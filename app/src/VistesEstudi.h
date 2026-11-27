@@ -282,6 +282,7 @@ private:
     enum class Tecla { Cap, Mut, Solo, Grava };
     Tecla teclaA (int pista, juce::Point<int> p) const;
     juce::Rectangle<int> rectTecla (int pista, int quina) const;
+    juce::Rectangle<int> rectCellaDalt (int pista, int quina) const;   // 1.20: la fila de sobre de M / S / gravar
     void menu (int pista);
 
     int arrossegant = -1, desti = -1;
