@@ -527,6 +527,21 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         colocaSeccions();
     };
     addAndMakeVisible (btCarpetes);
+    // 1.19: columnes de Pro Tools
+    ambColumnes = ajustos.getBoolValue ("estudi.columnes", false);
+    columnes.altTitol = alcadaRegla;
+    columnes.onRoda = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { roda (e, w); };
+    columnes.onAmpladaCanviada = [this] { colocaSeccions(); };
+    addChildComponent (columnes);
+    btColumnes.setLlum (vintage::ledTaronja);
+    btColumnes.setTooltip ("Columnes: inserts, enviaments, entrada i sortida, volum i panorama de totes les pistes alhora (com a Pro Tools)"_ca);
+    btColumnes.onClick = [this]
+    {
+        ambColumnes = ! ambColumnes;
+        ajustos.setValue ("estudi.columnes", ambColumnes);
+        colocaSeccions();
+    };
+    addAndMakeVisible (btColumnes);
     carpetes.onCarpetaNova = [this] (std::vector<int> v) { demanaNomCarpeta (std::move (v), {}); };
     carpetes.onCanviaNom = [this] (std::string id) { demanaNomCarpeta ({}, id); };
     divCarpetes.setTooltip ("Arrossega per fer més ample o més estret. Doble clic: mida inicial."_ca);
@@ -603,6 +618,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     capcaleres.teclats = [this] { return servei.getTeclatsMidi(); };
     esquerra.opcions.setPlugins (&plugins);
     mescles.plugins = &plugins;
+    columnes.plugins = &plugins;   // 1.19
     esquerra.opcions.sortides = [this]
     {
         juce::StringArray noms;
@@ -984,8 +1000,10 @@ void PantallaEstudi::colocaSeccions()
     biblioteca.setVisible (! estat.vistaEstructura && dreta == 1);
     pool.setVisible (! estat.vistaEstructura && dreta == 2);
     pestDreta.setVisible (! estat.vistaEstructura);
-    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
+    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes, &btColumnes })
         c->setVisible (! m);
+    columnes.setVisible (! m && ambColumnes);   // 1.19
+    btColumnes.setToggleState (ambColumnes, juce::dontSendNotification);
     carpetes.setVisible (ambCarpetes);
     divCarpetes.setVisible (ambCarpetes);
     btCarpetes.setToggleState (estat.panellCarpetes, juce::dontSendNotification);
@@ -1006,9 +1024,12 @@ void PantallaEstudi::colocaSeccions()
             divCarpetes.setBounds (carpetes.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
         }
         auto colNoms = r.removeFromLeft (noms);
+        if (ambColumnes)   // 1.19: les columnes, entre els noms i la línia de temps
+            columnes.setBounds (r.removeFromLeft (juce::jmin (columnes.ampladaIdeal(), juce::jmax (0, r.getWidth() - 200))).withTrimmedBottom (gruixBarres));
         auto temps = r;
         zonaTitolNoms = colNoms.removeFromTop (alcadaRegla);
         btCarpetes.setBounds (zonaTitolNoms.getRight() - 34, zonaTitolNoms.getY() + 1, 30, zonaTitolNoms.getHeight() - 2);
+        btColumnes.setBounds (zonaTitolNoms.getRight() - 68, zonaTitolNoms.getY() + 1, 30, zonaTitolNoms.getHeight() - 2);
         colNoms.removeFromBottom (gruixBarres);
         capcaleres.setBounds (colNoms);
         regla.setBounds (temps.removeFromTop (alcadaRegla));

@@ -8,6 +8,7 @@
 #include "EditorSampler.h"
 #include "EditorAutomatitzacio.h"
 #include "Inserts.h"
+#include "ColumnesPista.h"   // 1.19
 #include "PanellBiblioteca.h"
 #include "PanellPool.h"
 #include "FinestraProgres.h"
@@ -253,6 +254,10 @@ private:
     Capcaleres capcaleres { estat };
     PanellCarpetes carpetes { estat };
     Boto btCarpetes { {}, dibuix::Icona::Carpeta, Boto::Estil::Tecla };
+    // 1.19: columnes a l'estil de Pro Tools (inserts, enviaments, E/S, vol i pan) al costat dels noms
+    ColumnesPista columnes { estat };
+    Boto btColumnes { {}, dibuix::Icona::Mescla, Boto::Estil::Tecla };
+    bool ambColumnes = false;
     Regla regla { estat };
     VistaPistes pistes { estat };
     TaulaMescles mescles { estat };
