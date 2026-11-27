@@ -242,6 +242,9 @@ public:
 
     /** El que s'ha copiat (Ctrl+C). */
     mibase::edicio::Retall portaretalls;
+    /** 1.16: on anirà el Ctrl+V (com a Pro Tools): l'inici i la pista de dalt del darrer requadre fet després de copiar.
+        Si no n'hi ha, s'enganxa al capçal com abans. */
+    struct DestiEnganxa { bool actiu = false; double t = 0.0; int pista = 0; } destiEnganxa;
 
     /** Text d'informació de dalt (el valor del que s'arrossega). */
     juce::String info;
@@ -254,6 +257,8 @@ public:
 
     /** Taula de treball (pistes) o taula de mescles. */
     bool vistaMescles = false;
+    /** 1.16: la taula de mescles és en una finestra a part (F9), que es pot deixar oberta a una altra pantalla. */
+    bool mesclesFinestra = false;
     /** 0.15: taula d'estructura (en lloc de la taula de treball). */
     bool vistaEstructura = false;
     bool foraTreball() const noexcept { return vistaMescles || vistaEstructura; }
@@ -281,6 +286,7 @@ public:
     std::array<float, 32> nivellsEntrada {};
     std::array<float, 2> nivellsSortida {};
     juce::StringArray nomsEntrades;   // de la targeta (buit: entrada apagada)
+    juce::StringArray nomsSortides;   // 1.17: totes les sortides de la targeta (buit: apagada a les Preferències)
 
     // ---- 1.5.2: el volum i el panorama que hi posa ara l'automatització (0..1; -1 = cap), per slot ----
     std::array<float, mibase::maxSlots> volumAuto = senseAuto(), panAuto = senseAuto();
@@ -353,7 +359,41 @@ public:
     static juce::String textSortida (const mibase::Projecte& p, const mibase::Pista& t)
     {
         const int d = mibase::edicio::pistaPerId (p, t.sortida);
+        if (d < 0 && t.sortidaTargeta >= 0) return "Sortida: "_ca + textTargeta (t);   // 1.17
         return "Sortida: "_ca + (d >= 0 ? juce::String::fromUTF8 (p.pistes[(size_t) d].nom.c_str()) : "Màster (L+R)"_ca);
+    }
+    /** 1.17: «Targeta 3-4» o «Targeta 5» (sortida directa); buit si no en té. */
+    static juce::String textTargeta (const mibase::Pista& t)
+    {
+        if (t.sortidaTargeta < 0) return {};
+        return "Targeta "_ca + juce::String (t.sortidaTargeta + 1) + (t.canalsTargeta == 2 ? "-" + juce::String (t.sortidaTargeta + 2) : juce::String());
+    }
+    /** 1.17: on va el so, en curt (per a les caixetes): el bus, la sortida de la targeta o «Sortida» (el màster). */
+    static juce::String textDesti (const mibase::Projecte& p, const mibase::Pista& t)
+    {
+        const int d = mibase::edicio::pistaPerId (p, t.sortida);
+        if (d >= 0) return juce::String::fromUTF8 (p.pistes[(size_t) d].nom.c_str());
+        if (t.sortidaTargeta >= 0) return textTargeta (t);
+        return "Sortida"_ca;
+    }
+    /** 1.17: aplica una tria del menú OUT (afegeixMenuSortida). Torna el text per a l'historial (buit si no n'era). */
+    static juce::String aplicaSortida (mibase::Projecte& p, int pista, int r)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return {};
+        if (r >= 20000 && r < 20200)
+        {
+            const bool parell = r >= 20100;
+            mibase::edicio::posaSortidaTargeta (p, pista, r - (parell ? 20100 : 20000), parell ? 2 : 1);
+            return "sortida directa a la "_ca + textTargeta (p.pistes[(size_t) pista]);
+        }
+        if (r == 1) { mibase::edicio::posaSortida (p, pista, {}); return "sortida al màster"_ca; }
+        if (r >= 100 && r - 100 < (int) p.pistes.size())
+        {
+            const auto desti = p.pistes[(size_t) (r - 100)];
+            if (! mibase::edicio::posaSortida (p, pista, desti.id)) return {};
+            return "sortida a «"_ca + juce::String::fromUTF8 (desti.nom.c_str()) + "»"_ca;
+        }
+        return {};
     }
     static juce::String textNivell (double db) { return db <= -59.9 ? juce::String ("-oo") : (db > 0.0 ? "+" : "") + juce::String (db, 1) + " dB"; }
     static juce::String textEnviaments (const mibase::Projecte& p, const mibase::Pista& t)
@@ -422,14 +462,16 @@ public:
     {
         if (this->pista (pista) == nullptr) return;
         juce::PopupMenu m;
-        afegeixMenuSortida (m, projecte, projecte.pistes[(size_t) pista]);
+        afegeixMenuSortida (m, projecte, projecte.pistes[(size_t) pista], nomsSortides);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&boto), [this, pista] (int r)
         {
             if (r <= 0 || this->pista (pista) == nullptr) return;
-            const auto bus = r >= 100 && r - 100 < numPistes() ? projecte.pistes[(size_t) (r - 100)].id : std::string();
+            auto copia = projecte;
+            const auto text = aplicaSortida (copia, pista, r);   // 1.17: també la targeta
+            if (text.isEmpty()) return;
             desfes.abans (projecte);
-            mibase::edicio::posaSortida (projecte, pista, bus);
-            canviat ("Pista «"_ca + juce::String::fromUTF8 (projecte.pistes[(size_t) pista].nom.c_str()) + "»: sortida canviada"_ca);
+            projecte = std::move (copia);
+            canviat ("Pista «"_ca + juce::String::fromUTF8 (projecte.pistes[(size_t) pista].nom.c_str()) + "»: "_ca + text);
         });
     }
     void menuEnviamentsPista (juce::Component& boto, int pista)
@@ -447,12 +489,13 @@ public:
         });
     }
 
-    static void afegeixMenuSortida (juce::PopupMenu& m, const mibase::Projecte& p, const mibase::Pista& t)
+    static void afegeixMenuSortida (juce::PopupMenu& m, const mibase::Projecte& p, const mibase::Pista& t,
+                                    const juce::StringArray& noms = {})
     {
         m.addSectionHeader ("OUT");
         juce::PopupMenu::Item master ("MASTER L+R");
         master.itemID = 1;
-        master.isTicked = t.sortida.empty();
+        master.isTicked = t.sortida.empty() && t.sortidaTargeta < 0;
         master.colour = tema::accent;
         m.addItem (master);
         for (const char* tipus : { "fx", "bus" })
@@ -470,6 +513,24 @@ public:
             if (sub.getNumItems() == 0) sub.addItem (-1, *tipus == 'f' ? "No n'hi ha cap"_ca : "No n'hi ha cap"_ca, false);
             m.addSubMenu (nom, sub, true, juce::Image(), hiEs);
         }
+        // 1.17: directa a les sortides de la targeta (sense passar pel màster). Ids: 20100 + c (parell), 20000 + c (mono).
+        juce::PopupMenu targ;
+        const int n = juce::jmin (noms.size(), 64);
+        auto nom = [&] (int c) { return noms[c].isNotEmpty() ? noms[c] : "apagada a les Preferències"_ca; };
+        if (n == 0) targ.addItem (-1, "La targeta no té sortides (o està aturada)"_ca, false);
+        else
+        {
+            targ.addSectionHeader ("Estèreo"_ca);
+            for (int c = 0; c + 1 < n; c += 2)
+                targ.addItem (20100 + c, juce::String (c + 1) + "+" + juce::String (c + 2) + "   " + nom (c) + " / " + nom (c + 1),
+                              noms[c].isNotEmpty() && noms[c + 1].isNotEmpty(), t.sortidaTargeta == c && t.canalsTargeta == 2);
+            targ.addSectionHeader ("Mono"_ca);
+            for (int c = 0; c < n; ++c)
+                targ.addItem (20000 + c, juce::String (c + 1) + "   " + nom (c), noms[c].isNotEmpty(), t.sortidaTargeta == c && t.canalsTargeta == 1);
+            targ.addSeparator();
+            targ.addItem (-1, "Directa: no passa pel màster ni surt a «Exporta la mescla»"_ca, false);
+        }
+        m.addSubMenu ("Targeta"_ca, targ, true, juce::Image(), t.sortidaTargeta >= 0);
     }
 
     /** Aplica el que s'ha triat a menuEntrades. Retorna false si «r» no n'és. */
@@ -599,7 +660,7 @@ public:
 
     /** Tria un sol clip (i la seva pista). */
     void triaClip (int p, int c) { triats = { { p, c } }; pistaTriada = p; rang.actiu = false; }
-    void capTriat() { triats.clear(); rang.actiu = false; }
+    void capTriat() { triats.clear(); rang.actiu = false; destiEnganxa.actiu = false; }
 
     /** Color d'un clip: el seu, si en té; si no, el de la pista. */
     juce::Colour colorClip (int p, const mibase::Clip& c) const

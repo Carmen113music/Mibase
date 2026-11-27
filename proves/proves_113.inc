@@ -193,14 +193,14 @@ namespace
                 passa113 (e, s);
                 return s;
             };
-            const auto a = fes ({ MScreamer, MFiltre, MPumper, MShimmer, MReverser, MPitch, MScatter }), b = fes ({ MFiltre, MScreamer, MPumper, MShimmer, MReverser, MPitch, MScatter });
+            const auto a = fes ({ MScreamer, MFiltre, MPumper, MShimmer, MReverser, MPitch, MScatter, MGranular }), b = fes ({ MFiltre, MScreamer, MPumper, MShimmer, MReverser, MPitch, MScatter, MGranular });
             comprova (dif113 (a, b) > 0.1, "distorsió → filtre no sona com filtre → distorsió");
-            Evolve e; e.posaOrdre ({ MShimmer, MPumper, MFiltre, MScreamer, MScatter, MPitch, MReverser });
+            Evolve e; e.posaOrdre ({ MShimmer, MPumper, MFiltre, MScreamer, MScatter, MPitch, MReverser, MGranular });
             comprova (e.ordre()[0] == MShimmer && e.ordre()[3] == MScreamer && e.ordre()[6] == MReverser, "l'ordre es desa");
             Evolve g; g.posaEstat (e.estat());
             comprova (g.ordre() == e.ordre(), "i es recupera de l'estat");
-            e.posaOrdre ({ 0, 0, 1, 2, 3, 4, 5 });
-            comprova (e.ordre()[0] == MPitch && e.ordre()[6] == MShimmer, "un ordre impossible torna al de sempre");
+            e.posaOrdre ({ 0, 0, 1, 2, 3, 4, 5, 6 });
+            comprova (e.ordre()[0] == MPitch && e.ordre()[7] == MShimmer, "un ordre impossible torna al de sempre");
         });
 
         prova ("1.13 EVOLVE: cada mòdul sol fa el que ha de fer", []

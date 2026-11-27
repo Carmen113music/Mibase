@@ -302,6 +302,13 @@ private:
     int ampleEsquerraEditor = 270;   // la columna esquerra amb el panell d'harmonia (més ampla que amb el fader)
     Divisor divPianoRoll { true };
     std::unique_ptr<FinestraPianoRoll> finestraPianoRoll;
+    // 1.16: la taula de mescles en una finestra a part (F9), que l'Esc no tanca
+    std::unique_ptr<juce::DocumentWindow> finestraMescles;
+    void commutaMescles();
+    void tancaFinestraMescles();
+    // 1.16: marcadors F1–F4
+    void desaMarcador (int m);
+    void vesAMarcador (int m);
     int altPianoRoll = 430, altInici = 0;
     juce::ScrollBar barraV { true }, barraH { false };
     int ampleEsquerra = 132, ampleNoms = 190, ampleCarpetes = 190, amplePanell = 270, ampleInici = 0;

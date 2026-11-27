@@ -294,6 +294,21 @@ void Regla::paint (juce::Graphics& g)
             g.drawText (txt, r, juce::Justification::centred);
         }
 
+    // 1.16: marcadors F1–F4 (Maj+F1…F4 els desa): una banderola amb el número a la meitat de baix
+    for (int k = 0; k < (int) p.marcadors.size(); ++k)
+    {
+        if (p.marcadors[(size_t) k] < 0.0) continue;
+        const float xm = estat.x (p.marcadors[(size_t) k]);
+        if (xm < -20.0f || xm > w + 2.0f) continue;
+        auto r = juce::Rectangle<float> (xm, mig + 2.0f, 16.0f, 12.0f);
+        g.setColour (tema::accent.withAlpha (0.9f));
+        g.fillRect (xm - 0.5f, mig + 1.0f, 1.5f, h - mig - 1.0f);
+        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (juce::Colours::black);
+        g.setFont (dibuix::mono (10.0f));
+        g.drawText ("F" + juce::String (k + 1), r, juce::Justification::centred);
+    }
+
     const float xc = estat.x (estat.capcal);
     juce::Path tri;
     tri.addTriangle (xc - 6.0f, h - 10.0f, xc + 6.0f, h - 10.0f, xc, h);
@@ -1328,6 +1343,21 @@ void VistaPistes::paint (juce::Graphics& g)
         }
     }
 
+    // 1.16: on anirà el Ctrl+V (el requadre fet després de copiar): una ratlla discontínua a la pista
+    if (estat.destiEnganxa.actiu && ! estat.portaretalls.buit() && estat.altDe (estat.destiEnganxa.pista) > 0)
+    {
+        const float xd = estat.x (estat.destiEnganxa.t), yd = (float) estat.yPista (estat.destiEnganxa.pista);
+        const float ad = (float) estat.altDe (estat.destiEnganxa.pista);
+        g.setColour (tema::accent);
+        const float guions[] = { 4.0f, 3.0f };
+        g.drawDashedLine (juce::Line<float> (xd, yd + 2.0f, xd, yd + ad - 2.0f), guions, 2, 2.0f);
+        auto r = juce::Rectangle<float> (xd + 3.0f, yd + 3.0f, 44.0f, 13.0f);
+        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (juce::Colours::black);
+        g.setFont (dibuix::mono (9.5f));
+        g.drawText ("Ctrl+V", r, juce::Justification::centred);
+    }
+
     pintaCapcal (g, estat.x (estat.capcal), h, estat.transport);
 }
 
@@ -2101,7 +2131,10 @@ void VistaPistes::actualitzaRequadre (juce::Point<int> fins, bool afegeix)
 
     estat.triats = afegeix ? triatsOriginals : std::vector<ed::RefClip>();
     estat.rang.actiu = false;
+    estat.destiEnganxa.actiu = false;
     if (pb < pa || tb <= ta) return;
+    // 1.16: el requadre també diu on anirà el Ctrl+V (inici del requadre, pista de dalt), com a Pro Tools
+    estat.destiEnganxa = { true, juce::jmax (0.0, tEina (ta)), pa };
 
     if (estat.modeRang)
     {
@@ -2466,7 +2499,13 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             }
             nomesSeleccio = false;
             if (estat.triats.size() == 1) estat.pistaTriada = estat.triats[0].pista;
-            if (! estat.rang.actiu && estat.triats.empty()) estat.info.clear();
+            if (! estat.rang.actiu && estat.triats.empty())
+            {
+                if (estat.destiEnganxa.actiu && ! estat.portaretalls.buit() && estat.pista (estat.destiEnganxa.pista) != nullptr)
+                    estat.info = "Ctrl+V enganxa aquí: "_ca + posicio (estat.projecte, estat.destiEnganxa.t) + " · «"_ca
+                               + dibuix::utf8 (estat.pista (estat.destiEnganxa.pista)->nom) + "»"_ca;
+                else estat.info.clear();
+            }
             estat.avisa();
             break;
 
@@ -2795,7 +2834,7 @@ void Capcaleres::paint (juce::Graphics& g)
             const int d = ed::pistaPerId (p, t.sortida);
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (11.0f));
-            g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida")),
+            g.drawFittedText (juce::String::fromUTF8 ("\xe2\x86\x92 ") + EstatEstudi::textDesti (p, t),
                               juce::Rectangle<int> (rectTecla (i, 1).getRight() + 10, rectTecla (i, 1).getY(), getWidth() - rectTecla (i, 1).getRight() - 32, 24),
                               juce::Justification::centredLeft, 1, 0.8f);
             dibuixEstudi::vumetres (g, juce::Rectangle<float> ((float) getWidth() - 16.0f, (float) y + 8.0f, 10.0f, (float) estat.altPista - 16.0f),
@@ -2898,7 +2937,7 @@ void Capcaleres::paint (juce::Graphics& g)
             {
                 if (t.tipus == "audio")
                     caixa (rectEntradaCap (i), EstatEstudi::textEntrada (t), true, t.grava ? vintage::ledVermell : tema::textMig);
-                caixa (rectSortidaCap (i), d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida"), false,
+                caixa (rectSortidaCap (i), EstatEstudi::textDesti (p, t), false,
                        d >= 0 ? EstatEstudi::colorPista (p.pistes[(size_t) d]) : tema::textMig);
             }
         }
@@ -3327,7 +3366,7 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
                 m.addSubMenu ("Teclat: "_ca + (t.entradaMidi.empty() ? "qualsevol"_ca : dibuix::utf8 (t.entradaMidiNom)), sub);
             }
             if (clicSortida || clicES)
-                EstatEstudi::afegeixMenuSortida (m, p, t);   // OUT: MASTER L+R, FX ▸, Grups ▸
+                EstatEstudi::afegeixMenuSortida (m, p, t, estat.nomsSortides);   // OUT: MASTER L+R, FX ▸, Grups ▸, Targeta ▸
             juce::Component::SafePointer<Capcaleres> jo (this);
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [jo, fila, llistaTeclats] (int r)
             {
@@ -3349,9 +3388,8 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
                 else if (EstatEstudi::aplicaEntrada (tt, r, 1000)) text = "entrada "_ca + EstatEstudi::textEntrada (tt);
                 else
                 {
-                    const auto bus = r >= 100 && r - 100 < jo->estat.numPistes() ? jo->estat.projecte.pistes[(size_t) (r - 100)].id : std::string();
-                    ed::posaSortida (jo->estat.projecte, fila, bus);
-                    text = "sortida canviada"_ca;
+                    text = EstatEstudi::aplicaSortida (jo->estat.projecte, fila, r);   // 1.17: també la targeta
+                    if (text.isEmpty()) text = "sortida canviada"_ca;
                 }
                 jo->acabaCanvi ("Pista «"_ca + dibuix::utf8 (jo->estat.projecte.pistes[(size_t) fila].nom) + "»: "_ca + text);
             });
@@ -3451,7 +3489,7 @@ ColumnaEsquerra::ColumnaEsquerra (EstatEstudi& e) : SeccioEstudi (e)
         b->setLlum (vintage::ledTaronja);
     }
     btTreball.onClick = [this] { estat.vistaMescles = estat.vistaEstructura = false; estat.avisa(); };
-    btMescles.onClick = [this] { estat.vistaMescles = true; estat.vistaEstructura = false; estat.avisa(); };
+    btMescles.onClick = [this] { if (onMescles) onMescles(); };   // 1.16: obre o tanca la finestra de la taula de mescles (F9)
     btEstructura.onClick = [this] { estat.vistaEstructura = true; estat.vistaMescles = false; estat.avisa(); };
     changeListenerCallback (nullptr);
 }
@@ -3466,7 +3504,7 @@ void ColumnaEsquerra::changeListenerCallback (juce::ChangeBroadcaster*)
     if (opcions.isVisible()) opcions.actualitza();
     if (alt != altOpcions) { altOpcions = alt; resized(); }
     btTreball.setToggleState (! estat.foraTreball(), juce::dontSendNotification);
-    btMescles.setToggleState (estat.vistaMescles, juce::dontSendNotification);
+    btMescles.setToggleState (estat.mesclesFinestra, juce::dontSendNotification);
     btEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
     if (panellEditor != nullptr && panellEditor->isVisible() != ambEditor())
     {
@@ -3846,9 +3884,9 @@ void TaulaMescles::pintaTira (juce::Graphics& g, juce::Rectangle<int> r, int i)
             fletxa.addTriangle (fx, fy - 4.0f, fx, fy + 4.0f, fx + 6.0f, fy);
             g.setColour (c);
             g.fillPath (fletxa);
-            g.setColour (d >= 0 ? tema::text : tema::suau);
+            g.setColour (d >= 0 || t->sortidaTargeta >= 0 ? tema::text : tema::suau);
             g.setFont (dibuix::lletra (10.0f));
-            g.drawText (d >= 0 ? dibuix::utf8 (p.pistes[(size_t) d].nom) : juce::String ("Sortida"), z.withTrimmedLeft (15).withTrimmedRight (3),
+            g.drawText (EstatEstudi::textDesti (p, *t), z.withTrimmedLeft (15).withTrimmedRight (3),
                         juce::Justification::centredLeft, true);
         }
 
@@ -3966,7 +4004,7 @@ void TaulaMescles::menuSortida (int pista)
     const auto& p = estat.projecte;
     const auto& t = p.pistes[(size_t) pista];
     juce::PopupMenu m;
-    EstatEstudi::afegeixMenuSortida (m, p, t);   // 0.36: MASTER L+R, FX ▸, Grups ▸
+    EstatEstudi::afegeixMenuSortida (m, p, t, estat.nomsSortides);   // 0.36: MASTER L+R, FX ▸, Grups ▸ (1.17: i Targeta ▸)
     m.addSeparator();
     m.addItem (2, "Bus de grup nou…"_ca);
     juce::Component::SafePointer<TaulaMescles> jo (this);
@@ -3975,9 +4013,10 @@ void TaulaMescles::menuSortida (int pista)
         if (jo == nullptr || r == 0 || pista >= jo->estat.numPistes()) return;
         if (r == 2) { if (jo->onBusNou) jo->onBusNou (false, pista, true); return; }
         const auto nom = dibuix::utf8 (jo->estat.projecte.pistes[(size_t) pista].nom);
-        const auto desti = r >= 100 && r - 100 < jo->estat.numPistes() ? jo->estat.projecte.pistes[(size_t) (r - 100)] : mibase::Pista();
-        jo->canvia ("«"_ca + nom + "» ara va a "_ca + (desti.id.empty() ? juce::String ("la sortida") : "«"_ca + dibuix::utf8 (desti.nom) + "»"_ca),
-                    [&] (mibase::Projecte& q) { ed::posaSortida (q, pista, desti.id); });
+        auto prova = jo->estat.projecte;
+        const auto text = EstatEstudi::aplicaSortida (prova, pista, r);   // 1.17: també la targeta
+        if (text.isEmpty()) return;
+        jo->canvia ("«"_ca + nom + "»: "_ca + text, [&] (mibase::Projecte& q) { EstatEstudi::aplicaSortida (q, pista, r); });
     });
 }
 
@@ -4576,7 +4615,7 @@ void PanellPista::paint (juce::Graphics& g)
             const juce::String entrada = mibase::esBus (*t) ? juce::String ("busos i enviaments")
                                        : mibase::esMidi (*t) ? (t->entradaMidiNom.empty() ? juce::String ("teclat de la pista triada") : dibuix::utf8 (t->entradaMidiNom))
                                        : juce::String (t->entrada + 1) + (t->canals == 2 ? "-" + juce::String (t->entrada + 2) : juce::String());
-            fila ("E / S", entrada + "  >  "_ca + (t->sortida.empty() ? juce::String ("Màster"_ca) : nomPista (t->sortida)));
+            fila ("E / S", entrada + "  >  "_ca + (! t->sortida.empty() ? nomPista (t->sortida) : t->sortidaTargeta >= 0 ? EstatEstudi::textTargeta (*t) : juce::String ("Màster"_ca)));
             juce::StringArray efectes;
             for (auto& x : t->inserts) efectes.add (dibuix::utf8 (x.nom) + (x.actiu ? "" : " (apagat)"));
             fila ("Efectes", efectes.isEmpty() ? juce::String ("cap") : efectes.joinIntoString (", "));

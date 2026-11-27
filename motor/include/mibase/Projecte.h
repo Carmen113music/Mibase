@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -322,6 +323,10 @@ namespace mibase
         ParamsGuitarra guitarra;                   // 0.44: controls de la guitarra virtual
         // ---- 0.33 ----
         std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        /** 1.17: sortida directa a la targeta, sense passar pel màster: canal de la targeta (0 = el primer, comptant
+            també els apagats a les Preferències); -1 = no (va on diu «sortida»). canalsTargeta: 1 mono, 2 parell. */
+        int sortidaTargeta = -1;
+        int canalsTargeta = 2;
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
         std::vector<Automatitzacio> autos;         // 0.56: automatització
@@ -445,6 +450,8 @@ namespace mibase
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
         std::vector<Insert> insertsMaster;   // 0.19: cadena de màstering
         int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
+        /** 1.16: marcadors F1–F4 (segons; negatiu = no desat). Maj+F1…F4 hi desa el capçal; F1…F4 hi va. */
+        std::array<double, 4> marcadors { -1.0, -1.0, -1.0, -1.0 };
         int comptador = 0;       // per fer identificadors únics
 
         // ---- Harmonia (0.8) ----

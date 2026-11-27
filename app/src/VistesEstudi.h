@@ -378,6 +378,7 @@ public:
     PanellSeguidors seguidors { estat };
     bool acordsTriada() const { auto* t = estat.pista (estat.pistaTriada); return t != nullptr && mibase::esAcords (*t); }
     OpcionsPista opcions { estat };
+    std::function<void()> onMescles;   // 1.16: la taula de mescles va en una finestra a part
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;

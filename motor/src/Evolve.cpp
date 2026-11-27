@@ -48,7 +48,7 @@ namespace mibase::evolve
 
             { "shmon", "Shimmer", 0, 1, 1, true, false, "Encén o apaga el Shimmer." },
             { "shmtipus", "Tipus", 0, 2, 0, true, false, "Shimmer (cua que puja de to), Hall dens o Ambient." },
-            { "shmpitch", "Pitch", 0, 3, 0, true, false, "Transposició de la cua: +12, +7, +5 o -12 semitons." },
+            { "shmpitch", "Pitch", 0, 4, 0, true, false, "Transposició de la cua: +12, +7, +5, -12 o +24 semitons." },
             { "shmamt", "Shimmer", 0, 100, 40, false, false, "Quanta part de la cua es transposa." },
             { "shmdecay", "Decay", 0.3f, 20.0f, 5.0f, false, true, "Quant dura la cua." },
             { "shmsize", "Size", 0, 100, 70, false, false, "Mida de l'espai." },
@@ -107,6 +107,20 @@ namespace mibase::evolve
             { "l2depth", "Depth", 0, 100, 50, false, false, "Quant modula." },
             { "l2fase", "Phase", 0, 360, 0, false, false, "On comença el cicle." },
             { "l2offset", "Offset", -100, 100, 0, false, false, "Desplaça el centre de la modulació." },
+            // 1.15: GRANULAR
+            { "graon", "Granular", 0, 1, 1, true, false, "Encén o apaga el Granular." },
+            { "grasize", "Gra", 10, 500, 80, false, true, "Llargada de cada gra: curts = textura fina; llargs = trossos que es reconeixen." },
+            { "gradens", "Density", 1, 80, 20, false, true, "Quants grans per segon: pocs = gotes; molts = núvol continu." },
+            { "grapos", "Posició", 0, 2000, 120, false, false, "D'on es llegeixen els grans: quant de temps enrere (ms)." },
+            { "graspray", "Dispersió", 0, 1000, 60, false, false, "Quant s'escampen els grans en el temps (ms): fa el núvol més difús." },
+            { "grapitch", "Pitch", -24, 24, 0, true, false, "Transposició de tots els grans (semitons)." },
+            { "grarandpitch", "Pitch atzar", 0, 100, 0, false, false, "Quant varia el to de cada gra a l'atzar." },
+            { "graquant", "Escala", 0, 2, 0, true, false, "El to a l'atzar: lliure, només octaves o octaves i quintes (més musical)." },
+            { "grarev", "Reverse", 0, 100, 0, false, false, "Quants grans sonen al revés." },
+            { "grafb", "Feedback", 0, 90, 0, false, false, "Quant torna a entrar el núvol: el fa créixer i allargar." },
+            { "grawidth", "Amplada", 0, 100, 60, false, false, "Com s'escampen els grans entre esquerra i dreta." },
+            { "grafreeze", "Freeze", 0, 1, 0, true, false, "Congela el so: els grans continuen llegint el que hi havia, sense parar." },
+            { "gramix", "Mix", 0, 100, 0, false, false, "Quant Granular se sent (0 % = res; 100 % = només el núvol)." },
         };
         static_assert (sizeof (infos) / sizeof (infos[0]) == numParams, "un InfoParam per paràmetre");
 
@@ -139,7 +153,7 @@ namespace mibase::evolve
 
     const char* nomModul (int m)
     {
-        static const char* n[numModuls] = { "SCREAMER", "FILTER", "PUMPER", "SHIMMER", "REVERSER", "PITCH", "SCATTER" };
+        static const char* n[numModuls] = { "SCREAMER", "FILTER", "PUMPER", "SHIMMER", "REVERSER", "PITCH", "SCATTER", "GRANULAR" };
         return n[std::clamp (m, 0, numModuls - 1)];
     }
     const char* descripcioModul (int m)
@@ -147,13 +161,14 @@ namespace mibase::evolve
         static const char* n[numModuls] = { "Distorsió creativa: de saturació subtil a destrucció.", "Filtratge creatiu amb ressonància i moviment al tempo.",
                                             "Moviment rítmic: bombeig, trèmolo, gate i panoràmica.", "Espai: cues llargues que pugen de to.",
                                             "Efectes invertits: reverse delay i cues que pugen abans de la nota.", "Octaves, harmonies, detune i formants.",
-                                            "Fragments: repeticions, salts enrere i trossos al revés, amb el tempo." };
+                                            "Fragments: repeticions, salts enrere i trossos al revés, amb el tempo.",
+                                            "Textures i atmosferes: el so convertit en un núvol de grans." };
         return n[std::clamp (m, 0, numModuls - 1)];
     }
-    int paramOn (int m) { static const int p[numModuls] = { ScrOn, FilOn, PmpOn, ShmOn, RevOn, PitOn, ScaOn }; return p[std::clamp (m, 0, numModuls - 1)]; }
-    int paramMix (int m) { static const int p[numModuls] = { ScrMix, FilMix, PmpDepth, ShmMix, RevMix, PitMix, ScaMix }; return p[std::clamp (m, 0, numModuls - 1)]; }
+    int paramOn (int m) { static const int p[numModuls] = { ScrOn, FilOn, PmpOn, ShmOn, RevOn, PitOn, ScaOn, GraOn }; return p[std::clamp (m, 0, numModuls - 1)]; }
+    int paramMix (int m) { static const int p[numModuls] = { ScrMix, FilMix, PmpDepth, ShmMix, RevMix, PitMix, ScaMix, GraMix }; return p[std::clamp (m, 0, numModuls - 1)]; }
     int primerParam (int m) { return paramOn (m); }
-    int finalParam (int m) { static const int p[numModuls] = { ScrOut + 1, FilMix + 1, PmpPatro + 1, ShmMix + 1, RevMix + 1, PitMix + 1, ScaMix + 1 }; return p[std::clamp (m, 0, numModuls - 1)]; }
+    int finalParam (int m) { static const int p[numModuls] = { ScrOut + 1, FilMix + 1, PmpPatro + 1, ShmMix + 1, RevMix + 1, PitMix + 1, ScaMix + 1, GraMix + 1 }; return p[std::clamp (m, 0, numModuls - 1)]; }
     int modulDeParam (int p)
     {
         for (int m = 0; m < numModuls; ++m) if (p >= primerParam (m) && p < finalParam (m)) return m;
@@ -170,6 +185,7 @@ namespace mibase::evolve
     }
     const char* nomModeReverser (int m) { static const char* n[] = { "Reverse delay", "Reverse reverb" }; return n[std::clamp (m, 0, 1)]; }
     const char* nomModePitch (int m) { static const char* n[] = { "Universal", "Veu" }; return n[std::clamp (m, 0, 1)]; }
+    const char* nomQuantGranular (int q) { static const char* n[] = { "Lliure", "Octaves", "Quintes" }; return n[std::clamp (q, 0, 2)]; }
     const char* nomFormaLfo (int f) { static const char* n[] = { "Sinus", "Triangle", "Quadrada", "Serra", "Atzar" }; return n[std::clamp (f, 0, 4)]; }
     float formaLfo (int forma, float f, long long cicle) noexcept
     {
@@ -219,7 +235,12 @@ namespace mibase::evolve
             case PmpPatro: return nomPatro ((int) std::lround (v));
             case ShmPitch: { const int t = reverb::transposicio ((int) std::lround (v)); std::snprintf (b, sizeof b, "%+d", t); return b; }
             case Vista: return v > 0.5f ? "Advanced" : "Simple";
+            case GraSize: case GraPos: case GraSpray: std::snprintf (b, sizeof b, "%.0f ms", (double) v); return b;
+            case GraDens: std::snprintf (b, sizeof b, v < 10.0f ? "%.1f /s" : "%.0f /s", (double) v); return b;
+            case GraPitch: std::snprintf (b, sizeof b, "%+d st", (int) std::lround (v)); return b;
+            case GraQuant: return nomQuantGranular ((int) std::lround (v));
             case Hold: case ScrOn: case FilOn: case PmpOn: case ShmOn: case ShmFreeze: case RevOn: case PitOn: case ScaOn: case L1Sync: case L2Sync:
+            case GraOn: case GraFreeze:
                 return v > 0.5f ? "Sí" : "No";
             case RevMode: return nomModeReverser ((int) std::lround (v));
             case PitMode: return nomModePitch ((int) std::lround (v));
@@ -268,8 +289,7 @@ namespace mibase::evolve
         for (int i = 0; i < numParams; ++i) par[(size_t) i].store (infos[i].def);
         {
             // 1.14: l'ordre musical de sempre: to → distorsió → filtre → talls → moviment → al revés → espai
-            static const int o[numModuls] = { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer };
-            for (int m = 0; m < numModuls; ++m) ord[(size_t) m].store (o[m]);
+            for (int m = 0; m < numModuls; ++m) ord[(size_t) m].store (ordreMusical[(size_t) m]);
         }
         revSw = std::make_unique<reverb::Reverb>();
         rev = std::make_unique<reverb::Reverb>();
@@ -379,11 +399,11 @@ namespace mibase::evolve
     void Evolve::posaOrdre (const std::array<int, numModuls>& o) noexcept
     {
         // ha de ser una permutació; si no, l'ordre de sempre
-        static const int sempre[numModuls] = { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer };
+        const auto& sempre = ordreMusical;
         bool vist[numModuls] {};
         bool bo = true;
         for (int m : o) { if (m < 0 || m >= numModuls || vist[m]) { bo = false; break; } vist[m] = true; }
-        for (int i = 0; i < numModuls; ++i) ord[(size_t) i].store (bo ? o[(size_t) i] : sempre[i], std::memory_order_relaxed);
+        for (int i = 0; i < numModuls; ++i) ord[(size_t) i].store (bo ? o[(size_t) i] : sempre[(size_t) i], std::memory_order_relaxed);
     }
 
     std::string Evolve::estat() const
@@ -499,7 +519,7 @@ namespace mibase::evolve
             bool vist[numModuls] {};
             int k = 0;
             for (int m : ol) if (m >= 0 && m < numModuls && ! vist[m] && k < numModuls) { vist[m] = true; o[(size_t) k++] = m; }
-            static const int nous[numModuls] = { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer };
+            const auto& nous = ordreMusical;
             if (ol.empty()) for (int m : nous) { vist[m] = true; o[(size_t) k++] = m; }
             for (int m : nous) if (! vist[m] && k < numModuls) { vist[m] = true; o[(size_t) k++] = m; }
         }
@@ -522,7 +542,7 @@ namespace mibase::evolve
         for (const auto& a : v)
         {
             if (k >= maxAssig) break;
-            if (! esModulable (a.param) || (a.param >= L1Forma && a.param < numParams)) continue;   // un LFO no modula els LFO
+            if (! esModulable (a.param) || (a.param >= L1Forma && a.param <= L2Offset)) continue;   // un LFO no modula els LFO
             auto& d = as[(size_t) k++];
             d.lfo.store (std::clamp (a.lfo, 0, numLfos - 1));
             d.param.store (a.param);
@@ -591,6 +611,11 @@ namespace mibase::evolve
             sca.mascara = m - 1; sca.w = 0; sca.valid = 0;
         }
         {
+            const long long m = potencia2b (8.0 * fs);   // 1.15: el Granular (posició + dispersió + gra transposat)
+            for (auto& v : gra.buf) v.assign ((size_t) m, 0.0f);
+            gra.mascara = m - 1; gra.w = 0; gra.valid = 0;
+        }
+        {
             const long long m = potencia2b ((2.0 * maxTrosRev + 0.2) * fs + 2.0 * subBloc);
             retL.assign ((size_t) m, 0.0f); retR.assign ((size_t) m, 0.0f);
             retMascara = m - 1; retW = 0;
@@ -621,6 +646,8 @@ namespace mibase::evolve
         if (latenciaPit() == 0)   // en mode Veu el retard no s'atura mai (si no, quedaria un forat)
             for (auto& b : pit.buf) std::fill (b.begin(), b.end(), 0.0f);
         sca.valid = sca.w; sca.tros = LLONG_MIN; sca.mix = 0.0f; sca.tipus = 0;
+        gra.valid = gra.w; gra.mix = 0.0f; gra.falta = 0.0;
+        for (auto& g : gra.g) g.actiu = false;
         for (auto& g : nivIn) g = 1.0f;
         for (auto& g : nivOut) g = 1.0f;
     }
@@ -814,6 +841,7 @@ namespace mibase::evolve
                     case MShimmer: if (vol || shmMixVist > 0.0f) processaShimmer (l, r, m); break;
                     case MReverser: processaReverser (l, r, m, negres + negresEntrada, bpm); break;   // sempre grava (és barat)
                     case MPitch: if (vol || pit.mix > 0.0f || latP > 0) processaPitch (l, r, m, false); break;
+                    case MGranular: processaGranular (l, r, m); break;   // sempre grava (i els grans acaben de sonar)
                     default: processaScatter (l, r, m, negres + negresEntrada, bpm); break;            // sempre grava
                 }
                 const float go0 = nivOut[(size_t) mod], go1 = dB (ef[(size_t) (NivOut + mod)]);
@@ -842,6 +870,8 @@ namespace mibase::evolve
             }
             dw = dw1; gOut = gO1;
             negres += m * negresPerMostra;
+            if (o + m >= n)   // 1.15: el que sona ara (per a la finestra)
+                for (int p = 0; p < numParams; ++p) mes.efectiu[(size_t) p].store (ef[(size_t) p], std::memory_order_relaxed);
         }
         negresLliure = negres;
 
@@ -1258,6 +1288,112 @@ namespace mibase::evolve
         sca.mix = mixObj;
     }
 
+    // ---- 1.15: GRANULAR ----
+    void Evolve::processaGranular (float* L, float* R, int n) noexcept
+    {
+        if (gra.buf[0].empty()) return;
+        auto& G = gra;
+        const float mixObj = ef[GraMix] * 0.01f, m0 = G.mix;
+        const double lenBase = ef[GraSize] * 0.001 * fs;
+        // el Freeze només congela quan ja hi ha prou so gravat (si no, amb Freeze des del començament no sonaria res)
+        const double calGravat = ef[GraPos] * 0.001 * fs + ef[GraSpray] * 0.001 * fs + 4.0 * lenBase + 0.5 * fs;
+        const bool freeze = ef[GraFreeze] > 0.5f && (double) (G.w - G.valid) >= calGravat;
+        const double dens = std::max (0.5f, ef[GraDens]);
+        const double interval = fs / dens;
+        const double sobreposicio = std::max (1.0, dens * ef[GraSize] * 0.001);
+        const float norm = (float) (1.5 / std::sqrt (sobreposicio));
+        const float fb = ef[GraFeedback] * 0.01f, amplada = ef[GraWidth] * 0.01f;
+        const double posBase = ef[GraPos] * 0.001 * fs, spray = ef[GraSpray] * 0.001 * fs;
+        const float probRev = ef[GraReverse] * 0.01f, rp = ef[GraRandPitch] * 0.01f;
+        const int quant = (int) ef[GraQuant];
+        const double semBase = ef[GraPitch];
+        const double tau = 2.0 * pi;
+        const long long cap = G.mascara + 1;
+        int actius = 0;
+        if (mixObj <= 0.0f && m0 <= 0.0f)
+        {
+            // no sona: només grava (així, quan entri, ja té de què fer grans) i no gasta CPU en grans
+            if (! freeze)
+                for (int i = 0; i < n; ++i)
+                {
+                    G.buf[0][(size_t) (G.w & G.mascara)] = L[i];
+                    G.buf[1][(size_t) (G.w & G.mascara)] = R[i];
+                    ++G.w;
+                }
+            for (auto& g : G.g) g.actiu = false;
+            mes.grans.store (0, std::memory_order_relaxed);
+            return;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            // un gra nou quan toca (amb una mica d'atzar perquè no soni a màquina)
+            G.falta -= 1.0;
+            if (G.falta <= 0.0)
+            {
+                G.falta += interval * (0.7 + 0.6 * atzar01 (G.llavor));
+                int lliure = -1;
+                for (int k = 0; k < Granular::maxGrans; ++k) if (! G.g[k].actiu) { lliure = k; break; }
+                if (lliure >= 0)
+                {
+                    double sem = semBase;
+                    const float a = atzar01 (G.llavor), b = atzar01 (G.llavor);
+                    if (rp > 0.0f)
+                    {
+                        if (quant == 0) sem += (a * 2.0 - 1.0) * 12.0 * rp;
+                        else if (b < rp)
+                        {
+                            static const int oct[] = { -12, 12, 12 }, quin[] = { -12, -5, 7, 12, 12 };
+                            sem += quant == 1 ? oct[(int) (a * 2.999f)] : quin[(int) (a * 4.999f)];
+                        }
+                    }
+                    const double ratio = std::pow (2.0, sem / 12.0);
+                    const bool alReves = atzar01 (G.llavor) < probRev;
+                    const int len = (int) std::max (32.0, lenBase * (0.9 + 0.2 * atzar01 (G.llavor)));
+                    const double cap0 = (double) (G.w - 1);
+                    const double enrere = posBase + spray * atzar01 (G.llavor);
+                    double inici = alReves ? cap0 - enrere - 2.0 : cap0 - enrere - std::max (0.0, (ratio - 1.0) * len) - 2.0;
+                    const double fi = alReves ? inici - ratio * len : inici + ratio * len;
+                    const double mes_vell = std::min (inici, fi);
+                    if (mes_vell >= (double) G.valid && (double) G.w - mes_vell < (double) cap - 4.0)
+                    {
+                        auto& g = G.g[lliure];
+                        g.actiu = true; g.pos = inici; g.vel = alReves ? -ratio : ratio; g.len = len; g.edat = 0;
+                        const float p = (atzar01 (G.llavor) * 2.0f - 1.0f) * amplada;
+                        const float ang = (p + 1.0f) * (float) (pi * 0.25);
+                        g.gl = std::cos (ang) * 1.41421356f; g.gr = std::sin (ang) * 1.41421356f;
+                    }
+                }
+            }
+            float w0 = 0.0f, w1 = 0.0f;
+            for (auto& g : G.g)
+            {
+                if (! g.actiu) continue;
+                ++actius;
+                const float env = (float) (0.5 - 0.5 * std::cos (tau * (double) g.edat / (double) g.len));
+                const float s0 = llegeix (G.buf[0], G.mascara, g.pos), s1 = llegeix (G.buf[1], G.mascara, g.pos);
+                const float mono = 0.5f * (s0 + s1);
+                w0 += env * (s0 + amplada * (mono * g.gl - s0));
+                w1 += env * (s1 + amplada * (mono * g.gr - s1));
+                g.pos += g.vel;
+                if (++g.edat >= g.len) g.actiu = false;
+            }
+            w0 *= norm; w1 *= norm;
+            const float x0 = L[i], x1 = R[i];
+            if (! freeze)
+            {
+                // grava (amb el feedback suavitzat perquè mai s'enfili)
+                G.buf[0][(size_t) (G.w & G.mascara)] = x0 + fb * std::tanh (w0);
+                G.buf[1][(size_t) (G.w & G.mascara)] = x1 + fb * std::tanh (w1);
+                ++G.w;
+            }
+            const float mx = m0 + (mixObj - m0) * (float) (i + 1) / (float) n;
+            L[i] = x0 + mx * (w0 - x0);
+            R[i] = x1 + mx * (w1 - x1);
+        }
+        G.mix = mixObj;
+        mes.grans.store (actius / std::max (1, n), std::memory_order_relaxed);
+    }
+
     // ---- Atzar musical ----
     std::string Evolve::estatAtzar (unsigned llavor) const
     {
@@ -1327,6 +1463,14 @@ namespace mibase::evolve
             rs.push_back ({ PitMix, de, a, u (25.0f, 50.0f), Suau });
             if (e (0, 1) == 0) rs.push_back ({ PitNiv2, a, 100.0f, u (30.0f, 80.0f), Lineal });
         }
+        if (usa[MGranular])
+        {
+            x.posa (GraOn, 1); x.posa (GraSize, u (40.0f, 200.0f)); x.posa (GraDens, u (8.0f, 35.0f)); x.posa (GraPos, u (50.0f, 400.0f));
+            x.posa (GraSpray, u (20.0f, 300.0f)); x.posa (GraQuant, (float) e (1, 2)); x.posa (GraWidth, u (40.0f, 90.0f));
+            const auto [de, a] = tram();
+            rs.push_back ({ GraMix, de, a, u (25.0f, 60.0f), Suau });
+            rs.push_back ({ GraRandPitch, a * 0.7f, 100.0f, u (10.0f, 50.0f), Lineal });
+        }
         if (usa[MScatter])
         {
             x.posa (ScaOn, 1); x.posa (ScaDiv, (float) e (8, 12)); x.posa (ScaFeedback, u (0.0f, 60.0f));
@@ -1351,7 +1495,7 @@ namespace mibase::evolve
             }
         }
         // ordre: el de sempre (to → distorsió → filtre → talls → moviment → al revés → espai), amb algun canvi
-        std::array<int, numModuls> o { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer };
+        std::array<int, numModuls> o = ordreMusical;
         if (e (0, 3) == 0) std::swap (o[1], o[2]);
         if (e (0, 4) == 0) std::swap (o[4], o[5]);
         x.posaOrdre (o);
