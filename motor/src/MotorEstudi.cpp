@@ -1913,6 +1913,21 @@ namespace mibase
         {
             return { edicio::iniciBucle (p), edicio::fiBucle (p) };
         }
+        return limitsCanco (p);   // 1.18: amb les banderoles d'inici i final
+    }
+
+    std::pair<double, double> limitsCanco (const Projecte& p)
+    {
+        auto [a0, b0] = limitsClips (p);
+        double a = p.iniciCanco >= 0.0 ? p.iniciCanco : a0;
+        double b = p.fiCanco >= 0.0 ? p.fiCanco : b0;
+        if (p.iniciCanco < 0.0 && p.fiCanco < 0.0 && b0 <= a0) return { 0.0, 0.0 };
+        if (b <= a) b = a + 1.0;   // una banderola posada i res que soni: com a mínim un segon
+        return { std::max (0.0, a), b };
+    }
+
+    std::pair<double, double> limitsClips (const Projecte& p)
+    {
         const auto solo = edicio::estatSolo (p);
         double a = 1.0e18, b = -1.0e18;
         for (size_t it = 0; it < p.pistes.size(); ++it)
@@ -2199,7 +2214,7 @@ namespace mibase
                 if (pt.id == o.part && pt.a > pt.de) tros = { edicio::segonsDeCompas (q, pt.de), edicio::segonsDeCompas (q, pt.a) };
         }
         else
-            tros = trosPerExportar (q);
+            tros = limitsCanco (q);   // 1.18: «Tota la cançó» = de la banderola d'inici a la de final
         return q;
     }
 }

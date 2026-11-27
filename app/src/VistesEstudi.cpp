@@ -12,6 +12,7 @@
 #include "TempoPart.h"
 
 #include <mibase/Midi.h>
+#include <mibase/MotorEstudi.h>   // 1.18: limitsCanco
 #include <mibase/Elastic.h>
 
 using namespace mibase;
@@ -246,6 +247,27 @@ void Regla::paint (juce::Graphics& g)
         g.fillRect (juce::Rectangle<float> (xa, 0.0f, 3.0f, mig));
         g.fillRect (juce::Rectangle<float> (xb - 3.0f, 0.0f, 3.0f, mig));
     }
+    // 1.18: banderoles d'inici i final de la cançó (el que exporta «Tota la cançó»). Pàl·lides: automàtiques.
+    {
+        const auto [ti, tf] = mibase::limitsCanco (p);
+        if (tf > ti)
+            for (int k = 0; k < 2; ++k)
+            {
+                const bool fixa = (k == 0 ? p.iniciCanco : p.fiCanco) >= 0.0;
+                const float xm = estat.x (k == 0 ? ti : tf);
+                if (xm < -60.0f || xm > w + 60.0f) continue;
+                const auto col = (k == 0 ? vintage::ledVerd : vintage::ledVermell).withAlpha (fixa ? 1.0f : 0.45f);
+                g.setColour (col);
+                g.fillRect (xm - 1.0f, 0.0f, 2.0f, mig);
+                const juce::String txt = k == 0 ? "INICI" : "FI";
+                g.setFont (dibuix::lletra (10.0f, true));
+                const float tw = (float) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), txt) + 8.0f;
+                auto r = k == 0 ? juce::Rectangle<float> (xm, 1.0f, tw, 13.0f) : juce::Rectangle<float> (xm - tw, 1.0f, tw, 13.0f);
+                g.fillRect (r);
+                g.setColour (juce::Colours::black);
+                g.drawText (txt, r, juce::Justification::centred);
+            }
+    }
 
     // Meitat de baix: compassos, temps i el capçal (0.28: compàs a compàs, amb el mapa de tempo).
     const double pxCompas = spc * estat.pxPerSegon;
@@ -321,7 +343,7 @@ void Regla::mouseMove (const juce::MouseEvent& e)
 {
     const bool dalt = e.y < getHeight() / 2;
     const auto q = queHiHa (e.getPosition());
-    setMouseCursor (q.vora != 0 ? juce::MouseCursor::LeftRightResizeCursor
+    setMouseCursor (q.vora != 0 || q.marca != 0 ? juce::MouseCursor::LeftRightResizeCursor
                     : ! dalt && std::abs ((float) e.x - estat.x (estat.capcal)) <= 7.0f ? juce::MouseCursor::DraggingHandCursor
                                                                                        : juce::MouseCursor::NormalCursor);
 }
@@ -334,6 +356,15 @@ Regla::Lloc Regla::queHiHa (juce::Point<int> pt) const
     const auto& p = estat.projecte;
     const float x = (float) pt.x;
     auto prop = [x] (float v) { return std::abs (x - v) <= 5.0f; };
+    {
+        // 1.18: les banderoles d'inici i final de la cançó, primer (són a sobre)
+        const auto [ti, tf] = mibase::limitsCanco (p);
+        if (tf > ti)
+        {
+            if (prop (estat.x (tf))) { l.marca = 2; return l; }
+            if (prop (estat.x (ti))) { l.marca = 1; return l; }
+        }
+    }
     if (p.bucle.marcat)
     {
         if (prop (estat.x (ed::iniciBucle (p)))) { l.vora = -1; l.part = -1; return l; }
@@ -365,6 +396,12 @@ void Regla::mouseDown (const juce::MouseEvent& e)
         return;
     }
     comencaCanvi();
+    if (q.marca != 0)   // 1.18
+    {
+        accio = Accio::Marca;
+        llocVora = q;
+        return;
+    }
     if (q.vora != 0)
     {
         accio = Accio::Vora;
@@ -398,6 +435,22 @@ void Regla::mouseDrag (const juce::MouseEvent& e)
             else *a = juce::jmax (*de + minim, v);
             estat.info = llocVora.part < 0 ? "Bucle: "_ca + textRang (*de, *a)
                                            : dibuix::utf8 (p.parts[(size_t) llocVora.part].nom) + ": " + textRang (*de, *a);
+            estat.avisa();
+            return;
+        }
+
+        case Accio::Marca:   // 1.18: arrossegant la banderola d'inici o de final de la cançó
+        {
+            if (e.getDistanceFromDragStart() < 3) return;
+            restaura();
+            auto& p = estat.projecte;
+            const auto [ti, tf] = mibase::limitsCanco (p);
+            const double v = juce::jmax (0.0, ed::enganxa (p, t, p.snap));
+            if (llocVora.marca == 1) { p.iniciCanco = juce::jmin (v, tf - 0.05); if (p.fiCanco < 0.0) p.fiCanco = tf; }
+            else { p.fiCanco = juce::jmax (v, ti + 0.05); if (p.iniciCanco < 0.0) p.iniciCanco = ti; }
+            estat.info = "Cançó: de "_ca + dibuix::utf8 (ed::textPosicio (p, p.iniciCanco)) + " a " + dibuix::utf8 (ed::textPosicio (p, p.fiCanco))
+                       + " (doble clic a una banderola: torna a automàtic)"_ca;
+            canviFet = true;
             estat.avisa();
             return;
         }
@@ -463,6 +516,17 @@ void Regla::mouseDoubleClick (const juce::MouseEvent& e)
 {
     const auto& p = estat.projecte;
     const double t = estat.t ((float) e.x);
+    if (const auto q = queHiHa (e.getPosition()); q.marca != 0)
+    {
+        // 1.18: doble clic a una banderola de la cançó: les dues tornen a automàtic (del primer clip al darrer)
+        comencaCanvi();
+        restaura();
+        estat.projecte.iniciCanco = estat.projecte.fiCanco = -1.0;
+        estat.info = "Inici i final de la cançó: automàtics (del primer clip al darrer)"_ca;
+        canviFet = true;
+        acabaCanvi();
+        return;
+    }
     if (e.y < getHeight() / 2 && p.bucle.marcat && t >= ed::iniciBucle (p) && t < ed::fiBucle (p))
     {
         comencaCanvi();

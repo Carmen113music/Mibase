@@ -121,6 +121,7 @@ Canvia el temps d'un clip d'àudio **sense canviar-ne el to**: per corregir cops
 - **Panell de la dreta, «Pista triada»**: el tipus de pista, l'entrada i la sortida, els efectes i els enviaments, sense obrir la taula de mescles. A sota, un **quadre de notes** per a cada pista (què falta, quin so…): es desa sol en sortir del quadre o canviar de pista, i es guarda amb el projecte.
 
 ### Exportar (0.83)
+- **Inici i final de la cançó (1.18)**: a la part de dalt de la regla (on es marquen el bucle i les parts) hi ha la banderola verda **INICI** i la vermella **FI**. Arrossega-les (s'enganxen a la graella triada): «Tota la cançó» exporta d'una a l'altra. Si no les has mogut, surten pàl·lides i van soles del primer clip al darrer. Doble clic en una: tornen a automàtic.
 Fitxer → Exporta obre una finestra amb les opcions:
 - **Què**: tota la mescla (tal com sona, amb mutes i solos), una mescla amb les pistes triades, **un fitxer per pista** (stems) o **un per carpeta**. Amb més d'un fitxer, tria la carpeta on van; tots comencen i acaben al mateix lloc (per posar-los junts en un altre programa).
 - **Tros**: tota la cançó, **lineal** o seguint una **estructura**; el **bucle**; o una **part** de la regla.
@@ -633,6 +634,7 @@ Només el motor i les proves (qualsevol sistema, sense JUCE): `cmake -B build -D
 ## Historial de versions
 *(el més recent a dalt)*
 
+- **1.18.0** — **Inici i final de la cançó**: dues banderoles a la part de dalt de la regla (verda INICI, vermella FI) que es poden arrossegar i que diuen què s'exporta amb «Tota la cançó» (i amb «Exporta la mescla» si el bucle és apagat). Pàl·lides = automàtiques (del primer clip al darrer); doble clic a una banderola: tornen a automàtic. Es desen amb el projecte.
 - **1.17.0** — **Sortides directes a la targeta**: cada pista, grup o retorn pot sortir per qualsevol sortida de la targeta (parell estèreo o una sola, mono) des del menú **E/S → OUT → Targeta**, sense passar pel màster. Es veu a la capçalera, a la taula de mescles i al panell («Targeta 3-4»). La compensació del retard dels plugins ho té en compte.
 - **1.16.0** — Peticions dels qui l'han provat. **Taula de mescles en una finestra a part** (F9 l'obre i la tanca; l'Esc no la tanca; es pot deixar en una segona pantalla). La **Font d'inspiració** passa a **F8**. **Marcadors**: Maj+F1…F4 desa el capçal, F1…F4 hi torna; es veuen a la regla i es desen amb el projecte. **Enganxar com a Pro Tools**: després de copiar, un requadre diu on va el Ctrl+V (pista i moment), encara que el capçal sigui a un altre lloc.
 - **1.15.0** — **EVOLVE, fase 3 (l'última)**: mòdul **Granular** (grans de l'entrada amb mida, densitat, posició, dispersió, pitch i pitch a l'atzar per octaves o quintes, reverse, feedback, amplada i freeze), **Shimmer a +24** (també a la Reverb), **4 presets nous** (34), **importar i exportar presets** (`.evolve`) i **anells de modulació** als poms que l'Evolution o un LFO estan movent. **Arreglat**: els presets propis de l'EVOLVE, dels sintes (SUB & BASS, LEAD, ATMOS, NEO), del Vintage i del Guitar Rack no tornaven en obrir Mibase.

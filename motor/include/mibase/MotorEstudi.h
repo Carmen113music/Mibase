@@ -543,6 +543,11 @@ namespace mibase
 
     /** Tros que s'exporta: el bucle si és encès; si no, del començament del primer clip que sona al final del darrer. */
     std::pair<double, double> trosPerExportar (const Projecte& p);
+    /** 1.18: on comença i acaba la cançó: les banderoles d'inici i final si en Roger les ha posat; si no (o la que falti),
+        del primer clip que sona al darrer. {0, 0} si no hi ha res. */
+    std::pair<double, double> limitsCanco (const Projecte& p);
+    /** Del primer clip que sona al darrer (sense banderoles ni bucle). */
+    std::pair<double, double> limitsClips (const Projecte& p);
 
     /** Exporta la mescla de [desDe, finsA) a un WAV estèreo de 24 bits (sense la claqueta). */
     bool exportaMescla (const Pla& pla, double fs, double desDe, double finsA, const std::filesystem::path& desti, std::string& error,
