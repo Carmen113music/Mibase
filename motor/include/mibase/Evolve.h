@@ -25,8 +25,9 @@
     REVERSER (reverse delay, o reverse reverb: la cua invertida puja just abans de cada tros; mira endavant 2 trossos,
     que el PDC compensa), PITCH (universal amb dos capçals per a qualsevol so, o Veu amb el motor del Vocal Studio:
     conserva el color i mou formants; uns 36 ms de retard) i SCATTER (talls al tempo: repeticions, salts enrere,
-    trossos al revés i a doble velocitat, sempre iguals per al mateix tall). Dos LFO (forma, tempo o Hz, fase, offset)
-    es poden assignar a qualsevol paràmetre. Solo per escoltar un mòdul (no es desa ni s'exporta). Fase 3: Granular.
+    trossos al revés i a doble velocitat, sempre iguals per al mateix tall) i des de la 1.15 GRANULAR (grans de
+    l'entrada: mida, densitat, posició, dispersió, pitch i pitch a l'atzar, reverse, feedback, amplada i freeze). Dos LFO (forma, tempo o Hz, fase, offset)
+    es poden assignar a qualsevol paràmetre. Solo per escoltar un mòdul (no es desa ni s'exporta).
 
     0 % = bypass real: el so surt idèntic (amb el mateix retard que Mibase ja compensa, si n'hi ha). Per sobre, una
     protecció suau impedeix que la sortida passi de 0 dBFS.
@@ -53,6 +54,8 @@ namespace mibase::evolve
         NivIn, NivOut = NivIn + 8,                       // nivell d'entrada i de sortida de cada mòdul (8 llocs: el Granular hi cabrà)
         L1Forma = NivOut + 8, L1Sync, L1Rate, L1Div, L1Depth, L1Fase, L1Offset,
         L2Forma, L2Sync, L2Rate, L2Div, L2Depth, L2Fase, L2Offset,
+        // 1.15 (fase 3)
+        GraOn, GraSize, GraDens, GraPos, GraSpray, GraPitch, GraRandPitch, GraQuant, GraReverse, GraFeedback, GraWidth, GraFreeze, GraMix,
         numParams
     };
     constexpr int numLfos = 2;
@@ -71,7 +74,9 @@ namespace mibase::evolve
     std::string textValor (int p, float v);
     int paramDeClau (const std::string& clau);
 
-    enum Modul : int { MScreamer, MFiltre, MPumper, MShimmer, MReverser, MPitch, MScatter, numModuls };
+    enum Modul : int { MScreamer, MFiltre, MPumper, MShimmer, MReverser, MPitch, MScatter, MGranular, numModuls };
+    /** L'ordre musical de sempre: to → distorsió → filtre → talls → moviment → al revés → grans → espai. */
+    inline constexpr std::array<int, numModuls> ordreMusical { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MGranular, MShimmer };
     const char* nomModul (int m);               // «SCREAMER»…
     const char* descripcioModul (int m);
     int paramOn (int m);                        // ScrOn, FilOn…
@@ -91,6 +96,7 @@ namespace mibase::evolve
     const char* nomModeReverser (int m);        // Reverse delay, Reverse reverb
     const char* nomModePitch (int m);           // Universal, Veu
     const char* nomFormaLfo (int f);            // Sinus, Triangle, Quadrada, Serra, Atzar
+    const char* nomQuantGranular (int q);       // Lliure, Octaves, Quintes
     int numDivisions();
     const char* nomDivisio (int i);             // 1/1, 1/2., … 1/32 (de més llarg a més curt)
     double divisioEnNegres (int i);
@@ -133,6 +139,8 @@ namespace mibase::evolve
         std::atomic<float> protegeix { 0.0f };                 // la protecció de sortida actua (0..1)
         std::array<std::atomic<float>, numLfos> lfo {};        // 1.14: el valor de cada LFO ara (-1..1)
         std::array<std::atomic<float>, numLfos> faseLfo {};
+        std::array<std::atomic<float>, numParams> efectiu {};  // 1.15: el valor que sona ara (rutes + LFO), per dibuixar-ho
+        std::atomic<int> grans { 0 };                          // 1.15: grans que sonen ara
         std::atomic<std::uint32_t> blocs { 0 };
     };
 
@@ -277,6 +285,18 @@ namespace mibase::evolve
             float mix = 0.0f, guany = 1.0f;
         } sca;
         float rawL[subBloc] {}, rawR[subBloc] {};
+        struct Granular
+        {
+            static constexpr int maxGrans = 64;
+            std::vector<float> buf[2];
+            long long w = 0, mascara = 0, valid = 0;
+            struct Gra { double pos = 0.0, vel = 1.0; int len = 0, edat = 0; float gl = 1.0f, gr = 1.0f; bool actiu = false; };
+            Gra g[maxGrans];
+            double falta = 0.0;           // mostres fins al gra següent
+            unsigned long long llavor = 0x51ED270B27A3F1ull;
+            float mix = 0.0f;
+        } gra;
+        void processaGranular (float* L, float* R, int n) noexcept;
 
         int latenciaRev (double bpm) const noexcept;
         int latenciaPit() const noexcept;

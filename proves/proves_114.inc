@@ -162,7 +162,7 @@ namespace
         prova ("1.14 EVOLVE: solo d'un mòdul i nivells d'entrada/sortida", []
         {
             auto e = sol114 (MScreamer, { { ScrMix, 100 }, { ScrDrive, 40 } }, &t120);
-            auto f = sol114 (MScreamer, { { ScrMix, 100 }, { ScrDrive, 40 }, { NivOut + MScreamer, -12 } }, &t120);
+            auto f = sol114 (MScreamer, { { ScrMix, 100 }, { ScrDrive, 40 }, { (int) NivOut + (int) MScreamer, -12 } }, &t120);
             auto a = font113 (1, 48000.0, 2.0), b = a;
             passa113 (*e, a); passa113 (*f, b);
             const double r = 10.0 * std::log10 (energia114 (b.L, 0.5, 2.0) / energia114 (a.L, 0.5, 2.0));
@@ -185,7 +185,7 @@ namespace
             Evolve e; e.posaEstat (vell);
             const auto o = e.ordre();
             comprova (o[0] == MShimmer && o[1] == MPumper && o[2] == MFiltre && o[3] == MScreamer, "l'ordre d'abans es respecta");
-            comprova (o[4] == MPitch && o[5] == MScatter && o[6] == MReverser, "els mòduls nous, al final");
+            comprova (o[4] == MPitch && o[5] == MScatter && o[6] == MReverser && o[7] == MGranular, "els mòduls nous, al final");
             comprova (e.latencia() == 0 && e.rutes().size() == 1 && e.valor (Evolution) == 40.0f, "sense latència i amb les rutes");
             comprova (e.valor (RevMix) == 0.0f && e.valor (PitMix) == 0.0f && e.valor (ScaMix) == 0.0f, "els mòduls nous no sonen");
         });

@@ -18,7 +18,7 @@ namespace mibase::evolve
             float evo;
             std::vector<PV> base;
             std::vector<Ruta> rutes;
-            std::array<int, numModuls> ordre { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer };
+            std::array<int, numModuls> ordre = ordreMusical;
             std::vector<Assignacio> lfos {};
         };
 
@@ -126,13 +126,13 @@ namespace mibase::evolve
                     { FilReso, 35 }, { PmpOn, 0 }, { ShmOn, 0 }, { L1Forma, 4 }, { L1Div, 11 }, { L1Depth, 100 } },
                   { { ScaMix, 0, 10, 100, Rapida }, { ScaDensity, 0, 100, 80, Lineal }, { ScaScatter, 30, 100, 85, Lineal }, { ScrMix, 20, 70, 70, Lineal },
                     { ScrDrive, 20, 100, 70, Lineal }, { PitMix, 50, 90, 40, Suau }, { FilMix, 40, 60, 70, Lineal }, { Sortida, 40, 100, 7, Lineal } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 0, FilFreq, 35 } } },
+                  ordreMusical, { { 0, FilFreq, 35 } } },
                 { "GLITCH & EXPERIMENTAL", "Broken Signal", "Senyal que es trenca: talls a corxeres, una banda que salta a l'atzar i una mica de distorsió.", 50,
                   { { ScaDiv, 8 }, { ScaScatter, 30 }, { FilTipus, 2 }, { FilFreq, 1200 }, { FilReso, 45 }, { ScrMode, 2 }, { ScrTone, 45 }, { PmpOn, 0 },
                     { ShmOn, 0 }, { PitOn, 0 }, { L1Forma, 4 }, { L1Div, 11 }, { L1Depth, 100 } },
                   { { FilMix, 10, 60, 85, Suau }, { ScaMix, 10, 15, 100, Rapida }, { ScaDensity, 10, 100, 65, Lineal }, { ScrMix, 30, 80, 45, Lineal },
                     { ScrDrive, 30, 100, 50, Lineal }, { Sortida, 20, 100, 4, Lineal } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 0, FilFreq, 30 } } },
+                  ordreMusical, { { 0, FilFreq, 30 } } },
                 { "GLITCH & EXPERIMENTAL", "Glitch Explosion", "Repeticions i trossos al revés que exploten en una cua d'octaves.", 50,
                   { { ScaDiv, 11 }, { ScaScatter, 50 }, { RevMode, 0 }, { RevDiv, 8 }, { RevFeedback, 30 }, { ShmTipus, 0 }, { ShmPitch, 0 }, { ShmDecay, 3 },
                     { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { PitOn, 0 } },
@@ -154,7 +154,7 @@ namespace mibase::evolve
                   { { ShmTipus, 2 }, { ShmPitch, 0 }, { ShmDecay, 5 }, { ShmSize, 90 }, { RevMode, 0 }, { RevDiv, 5 }, { RevFeedback, 25 }, { PitSemi1, 12 },
                     { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { ScaOn, 0 }, { L2Forma, 0 }, { L2Sync, 0 }, { L2Rate, 0.15f }, { L2Depth, 100 } },
                   { { ShmMix, 0, 60, 45, Suau }, { ShmDecay, 30, 100, 14, Lineal }, { RevMix, 30, 80, 30, Suau }, { PitMix, 60, 100, 20, Suau } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 1, ShmMod, 30 } } },
+                  ordreMusical, { { 1, ShmMod, 30 } } },
 
                 // ---------------- VOCALS (fase 2) ----------------
                 { "VOCALS", "Reverse Vocal", "La veu deixa una cua invertida que puja abans de cada negra.", 50,
@@ -172,7 +172,7 @@ namespace mibase::evolve
                     { ScaOn, 0 }, { RevOn, 0 }, { ShmTipus, 1 }, { ShmAmt, 0 }, { ShmDecay, 1.5f }, { L1Forma, 1 }, { L1Div, 8 }, { L1Depth, 100 } },
                   { { PitMix, 0, 20, 100, Rapida }, { PitFormant, 0, 80, 6, Lineal }, { PitNiv2, 30, 80, 60, Lineal }, { ScrMix, 40, 90, 35, Lineal },
                     { ScrDrive, 40, 100, 35, Lineal }, { ShmMix, 60, 100, 20, Suau } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 0, PitFi, 20 } } },
+                  ordreMusical, { { 0, PitFi, 20 } } },
 
                 // ---------------- GUITARS (fase 2) ----------------
                 { "GUITARS", "Reverse Guitar", "Cada negra torna al revés, com una cinta girada; al final, una cua brillant.", 50,
@@ -194,7 +194,7 @@ namespace mibase::evolve
                   { { ScaDiv, 10 }, { ScaScatter, 45 }, { PmpMode, 2 }, { PmpDiv, 11 }, { PmpPatro, 3 }, { PmpForma, 10 }, { FilTipus, 0 }, { FilFreq, 4000 },
                     { FilReso, 40 }, { ScrOn, 0 }, { ShmOn, 0 }, { PitOn, 0 }, { RevOn, 0 }, { L1Forma, 2 }, { L1Div, 8 }, { L1Depth, 100 } },
                   { { ScaMix, 0, 5, 100, Rapida }, { ScaDensity, 0, 100, 60, Lineal }, { PmpDepth, 30, 70, 90, Lineal }, { FilMix, 20, 40, 100, Lineal } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 0, FilFreq, 25 } } },
+                  ordreMusical, { { 0, FilFreq, 25 } } },
 
                 // ---------------- EXTREME (fase 2) ----------------
                 { "EXTREME", "Total Chaos", "Tot alhora: talls, octaves, fuzz, trossos al revés i una tempesta d'espai.", 55,
@@ -203,13 +203,35 @@ namespace mibase::evolve
                   { { ScaMix, 0, 10, 100, Rapida }, { ScaDensity, 0, 100, 90, Lineal }, { PitMix, 20, 70, 50, Lineal }, { PitNiv2, 40, 100, 70, Lineal },
                     { ScrMix, 30, 80, 70, Lineal }, { ScrDrive, 30, 100, 80, Lineal }, { RevMix, 50, 90, 45, Suau }, { ShmMix, 60, 100, 45, Suau },
                     { Sortida, 30, 100, 3, Lineal } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 0, PitFi, 30 } } },
+                  ordreMusical, { { 0, PitFi, 30 } } },
                 { "EXTREME", "Frozen Universe", "Octaves amunt i avall dins d'un espai enorme que es congela del tot.", 60,
                   { { PitSemi1, 12 }, { PitSemi2, -12 }, { ShmTipus, 0 }, { ShmPitch, 0 }, { ShmDecay, 8 }, { ShmSize, 100 }, { RevMode, 0 }, { RevDiv, 2 },
                     { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { ScaOn, 0 }, { L2Forma, 0 }, { L2Sync, 0 }, { L2Rate, 0.1f }, { L2Depth, 100 } },
                   { { PitMix, 0, 50, 45, Suau }, { PitNiv2, 20, 70, 80, Lineal }, { ShmMix, 0, 60, 60, Suau }, { ShmDecay, 30, 90, 20, Lineal },
                     { RevMix, 40, 80, 30, Suau }, { ShmFreeze, 75, 75, 1, Lineal }, { Sortida, 40, 100, 6, Lineal } },
-                  { MPitch, MScreamer, MFiltre, MScatter, MPumper, MReverser, MShimmer }, { { 1, ShmMod, 40 } } },
+                  ordreMusical, { { 1, ShmMod, 40 } } },
+
+                // ================= 1.15 (fase 3): GRANULAR =================
+                { "VOCALS", "Vocal Texture", "La veu es desfà en una textura de grans que canten quintes i octaves al seu voltant.", 50,
+                  { { GraSize, 60 }, { GraDens, 30 }, { GraPos, 150 }, { GraSpray, 200 }, { GraQuant, 2 }, { GraWidth, 80 }, { ShmTipus, 2 }, { ShmDecay, 4 },
+                    { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { PitOn, 0 }, { RevOn, 0 }, { ScaOn, 0 } },
+                  { { GraMix, 0, 60, 70, Suau }, { GraRandPitch, 30, 100, 40, Lineal }, { GraSize, 40, 100, 150, Lineal }, { GraFeedback, 60, 100, 35, Lineal },
+                    { ShmMix, 40, 100, 30, Suau } } },
+                { "ATMOSPHERES", "Grain Cloud", "Un núvol ample de grans que va creixent i, a dalt de tot, es congela.", 55,
+                  { { GraSize, 120 }, { GraDens, 25 }, { GraPos, 300 }, { GraSpray, 400 }, { GraQuant, 1 }, { GraWidth, 90 }, { ShmTipus, 2 }, { ShmDecay, 5 },
+                    { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { PitOn, 0 }, { RevOn, 0 }, { ScaOn, 0 } },
+                  { { GraMix, 0, 60, 80, Suau }, { GraRandPitch, 30, 100, 50, Lineal }, { GraDens, 50, 100, 45, Lineal }, { GraFeedback, 60, 100, 50, Lineal },
+                    { ShmMix, 30, 100, 35, Suau }, { GraFreeze, 97, 97, 1, Lineal } } },
+                { "GUITARS", "Granular Shimmer", "Grans una octava amunt (alguns al revés) dins d'una cua que puja dues octaves.", 50,
+                  { { GraSize, 90 }, { GraDens, 20 }, { GraPos, 200 }, { GraSpray, 150 }, { GraPitch, 12 }, { GraWidth, 70 }, { ShmTipus, 0 }, { ShmPitch, 4 },
+                    { ShmDecay, 4 }, { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { PitOn, 0 }, { RevOn, 0 }, { ScaOn, 0 } },
+                  { { ShmMix, 0, 50, 45, Suau }, { ShmAmt, 20, 90, 70, Lineal }, { GraMix, 30, 90, 45, Suau }, { GraReverse, 50, 100, 50, Lineal },
+                    { ShmDecay, 40, 100, 12, Lineal } } },
+                { "GLITCH & EXPERIMENTAL", "Grain Storm", "Una tempesta de grans curtíssims, al revés i a tots els tons, amb talls.", 50,
+                  { { GraSize, 25 }, { GraDens, 50 }, { GraPos, 100 }, { GraSpray, 600 }, { GraQuant, 0 }, { GraWidth, 100 }, { ScaDiv, 11 }, { ScaScatter, 50 },
+                    { ScrOn, 0 }, { FilOn, 0 }, { PmpOn, 0 }, { PitOn, 0 }, { RevOn, 0 }, { ShmOn, 0 } },
+                  { { GraMix, 0, 40, 100, Suau }, { GraRandPitch, 0, 100, 80, Lineal }, { GraReverse, 20, 100, 50, Lineal }, { GraDens, 50, 100, 80, Lineal },
+                    { ScaMix, 60, 65, 100, Rapida }, { ScaDensity, 60, 100, 60, Lineal } } },
             };
             return v;
         }
