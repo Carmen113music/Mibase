@@ -27,7 +27,7 @@ namespace
     {
         static BibliotecaPresets b;
         static bool carregada = false;
-        if (! carregada) { carregada = true; b.carrega (dibuix::cami (fitxerBiblioteca())); }
+        if (! carregada) { carregada = true; b.prefix = "mibase-drive="; b.carrega (dibuix::cami (fitxerBiblioteca())); }
         return b;
     }
     void desaBiblioteca() { biblioteca().desa (dibuix::cami (fitxerBiblioteca())); }

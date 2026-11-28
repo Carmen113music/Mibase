@@ -533,7 +533,7 @@ namespace
         if (c == juce::KeyPress::returnKey) { if (sona != 1) { sona = 0; escoltaTriat(); } return true; }
         if (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey) { esborra(); return true; }
         if (ctrl && (c == 'Z' || c == 'z')) { desfes(); return true; }
-        if (c == juce::KeyPress::F9Key)
+        if (c == juce::KeyPress::F8Key)   // 1.16: F8 (la F9 ara és la taula de mescles)
         {
             if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->closeButtonPressed();   // es tanca fora d'aquí
             return true;

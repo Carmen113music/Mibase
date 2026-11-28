@@ -251,6 +251,23 @@ namespace mibase::edicio
         if (t.takes.size() <= 1) t.takes.clear();   // ja no hi ha alternatives: pista normal (el comp queda com està)
     }
 
+    int treuTotesLesTakes (Projecte& p, int pista)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return 0;
+        auto& t = p.pistes[(size_t) pista];
+        const int n = (int) t.takes.size();
+        t.takes.clear();
+        return n;
+    }
+
+    int treuTakesSenseComp (Projecte& p)
+    {
+        int n = 0;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (! p.pistes[(size_t) i].takes.empty() && p.pistes[(size_t) i].clips.empty()) n += treuTotesLesTakes (p, i);
+        return n;
+    }
+
     int creaPistaComp (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi)
     {
         if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
@@ -317,6 +334,8 @@ namespace mibase::edicio
         q.faderDb = o.faderDb;
         q.pan = o.pan;
         q.sortida = o.sortida;
+        q.sortidaTargeta = o.sortidaTargeta;   // 1.17
+        q.canalsTargeta = o.canalsTargeta;
         q.entrada = o.entrada;
         q.escolta = o.escolta;
         q.enviaments = o.enviaments;

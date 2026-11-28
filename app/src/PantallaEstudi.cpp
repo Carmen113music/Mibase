@@ -223,12 +223,13 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     sincronitzaVeu();   // 0.22: les preses corregides es preparen encara que no s'obri el Vocal Editor
 
     estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
     estat.onCapcalMogut = [this] (double t) { if (estat.transport == 1) { plugins.buidaCues(); servei.estudi().situa (t); } };
     rellotge.tic = [this] { tic(); };
     rellotge.startTimerHz (30);
 
     ampleEsquerra = ajustos.getIntValue ("estudi.ampleEsquerra", 132);
-    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms3", 244);   // 0.41: més ampla, perquè hi càpiguen «Ac» i E/S
+    ampleNoms = ajustos.getIntValue ("estudi.ampleNoms4", 170);   // 1.20: més estreta (les tecles van en dues files de 3)   // 0.41: més ampla, perquè hi càpiguen «Ac» i E/S
     amplePanell = ajustos.getIntValue ("estudi.amplePanell", 270);
 
     // Caixa d'eines.
@@ -300,10 +301,22 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btDesfes.onClick = [this] { desfes (false); };
     btRefes.setTooltip ("Refés (Ctrl+Y)"_ca);
     btRefes.onClick = [this] { desfes (true); };
-    btFont.setTooltip ("Font d'inspiració (F9): fes una progressió d'acords amb les fletxes i envia-la a la pista d'Acords"_ca);
+    btFont.setTooltip ("Font d'inspiració (F8): fes una progressió d'acords amb les fletxes i envia-la a la pista d'Acords"_ca);
     btFont.setLlum (juce::Colour (0xff5fd4c4));
     btFont.onClick = [this] { obreFont(); };
     addAndMakeVisible (btFont);
+    btBarraMescles.setTooltip ("Taula de mescles (F9): en una finestra a part"_ca);
+    btBarraMescles.setLlum (vintage::ledTaronja);
+    btBarraMescles.onClick = [this] { commutaMescles(); };
+    addAndMakeVisible (btBarraMescles);
+    btBarraEstructura.setTooltip ("Taula d'estructura (torna-hi a clicar per tornar a la taula de treball)"_ca);
+    btBarraEstructura.setLlum (vintage::ledTaronja);
+    btBarraEstructura.onClick = [this] { estat.vistaEstructura = ! estat.vistaEstructura; estat.vistaMescles = false; colocaSeccions(); estat.avisa(); };
+    addAndMakeVisible (btBarraEstructura);
+    btBarraMix.setTooltip ("Mix Assistant (F7): analitza les pistes i et diu què no funciona a la mescla i per què"_ca);
+    btBarraMix.setLlum (vintage::ledTaronja);
+    btBarraMix.onClick = [this] { commutaMixAssistant(); };
+    addAndMakeVisible (btBarraMix);
 
     // Seccions.
     for (auto* sec : std::initializer_list<SeccioEstudi*> { &esquerra, &capcaleres, &regla, &pistes, &mescles, &panell })
@@ -312,7 +325,14 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         sec->onRoda = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { roda (e, w); };
     }
     mescles.onRoda = nullptr;
+    esquerra.onMescles = [this] { commutaMescles(); };   // 1.16
     capcaleres.onCanviaNom = [this] (int i) { canviaNomEnLinia (i); };   // 1.3: al mateix lloc
+    capcaleres.onMenuSo = [this] (int i, juce::Rectangle<int> zona)   // 1.21
+    {
+        estat.pistaTriada = i;
+        esquerra.opcions.actualitza();
+        esquerra.opcions.menuInstrumentA (zona);
+    };
     mescles.onCanviaNom = [this] (int i)   // 1.7: també al mateix lloc
     {
         const auto zona = mescles.rectNom (i);
@@ -426,7 +446,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addAndMakeVisible (pestDreta);
     addChildComponent (biblioteca);
     addChildComponent (pool);   // 0.85
-    dreta = juce::jlimit (0, 2, ajustos.getIntValue ("estudi.dretaPestanya", ajustos.getBoolValue ("estudi.dretaBiblioteca", false) ? 1 : 0));
+    addChildComponent (panellMix);   // 1.23
+    panellMix.onObre = [this] (const std::string& id) { obreMixAssistant (id); };
+    panellMix.onAnalitza = [this] { analitzaMix(); };
+    modelMix.creacio = ajustos.getBoolValue ("mix.creacio", false);   // 1.24
+    capcaleres.onPuntMix = [this] (const std::string& id) { obreMixAssistant (id); };
+    dreta = juce::jlimit (0, 3, ajustos.getIntValue ("estudi.dretaPestanya", ajustos.getBoolValue ("estudi.dretaBiblioteca", false) ? 1 : 0));
     pestDreta.setTriat (dreta);
     pestDreta.onCanvi = [this] (int i) { dreta = i; ajustos.setValue ("estudi.dretaPestanya", dreta); colocaSeccions(); };
     pool.fitxerDe = [this] (const mibase::Presa& s) { return fitxerPresa (s); };
@@ -457,8 +482,11 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     // 0.46: amb una finestra a part al davant (guitarra virtual, sinte, plugin…), les tecles del transport també van
     teclaGlobal() = [this] (const juce::KeyPress& k)
     {
-        if (k.getModifiers().isAnyModifierKeyDown()) return false;
         const int c = k.getKeyCode();
+        // 1.16: F1–F4 (amb Maj o sense), F8 i F9 també des de les finestres a part (taula de mescles, plugins…)
+        const bool tecFun = (c >= juce::KeyPress::F1Key && c <= juce::KeyPress::F4Key) || c == juce::KeyPress::F7Key || c == juce::KeyPress::F8Key || c == juce::KeyPress::F9Key;
+        if (tecFun && ! k.getModifiers().isCommandDown() && ! k.getModifiers().isAltDown()) return keyPressed (k);
+        if (k.getModifiers().isAnyModifierKeyDown()) return false;
         const bool transport = c == juce::KeyPress::spaceKey || c == 'L' || c == 'l' || esNumpad0 (k)
                             || c == juce::KeyPress::homeKey || c == juce::KeyPress::returnKey;
         return transport && keyPressed (k);
@@ -522,6 +550,21 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         colocaSeccions();
     };
     addAndMakeVisible (btCarpetes);
+    // 1.19: columnes de Pro Tools
+    ambColumnes = ajustos.getBoolValue ("estudi.columnes", false);
+    columnes.altTitol = alcadaRegla;
+    columnes.onRoda = [this] (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) { roda (e, w); };
+    columnes.onAmpladaCanviada = [this] { colocaSeccions(); };
+    addChildComponent (columnes);
+    btColumnes.setLlum (vintage::ledTaronja);
+    btColumnes.setTooltip ("Columnes: inserts, enviaments, entrada i sortida, volum i panorama de totes les pistes alhora (com a Pro Tools)"_ca);
+    btColumnes.onClick = [this]
+    {
+        ambColumnes = ! ambColumnes;
+        ajustos.setValue ("estudi.columnes", ambColumnes);
+        colocaSeccions();
+    };
+    addAndMakeVisible (btColumnes);
     carpetes.onCarpetaNova = [this] (std::vector<int> v) { demanaNomCarpeta (std::move (v), {}); };
     carpetes.onCanviaNom = [this] (std::string id) { demanaNomCarpeta ({}, id); };
     divCarpetes.setTooltip ("Arrossega per fer més ample o més estret. Doble clic: mida inicial."_ca);
@@ -538,7 +581,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
         {
             ajustos.setValue ("estudi.ampleEsquerra", ampleEsquerra);
             ajustos.setValue ("estudi.ampleEsquerraEditor", ampleEsquerraEditor);
-            ajustos.setValue ("estudi.ampleNoms3", ampleNoms);
+            ajustos.setValue ("estudi.ampleNoms4", ampleNoms);
             ajustos.setValue ("estudi.amplePanell", amplePanell);
             ajustos.saveIfNeeded();
         };
@@ -552,8 +595,22 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     };
     divEsquerra.onDobleClic = [this] { if (esquerra.ambEditor()) ampleEsquerraEditor = 270; else ampleEsquerra = 132; colocaSeccions(); divEsquerra.onAcaba(); };
     divNoms.onComenca = [this] { ampleInici = capcaleres.getWidth(); };
-    divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (120, ampleInici + dx); colocaSeccions(); };
-    divNoms.onDobleClic = [this] { ampleNoms = 244; colocaSeccions(); divNoms.onAcaba(); };
+    divNoms.onArrossega = [this] (int dx) { ampleNoms = juce::jmax (150, ampleInici + dx); colocaSeccions(); };
+    divNoms.onDobleClic = [this] { ampleNoms = 170; colocaSeccions(); divNoms.onAcaba(); };
+    // 1.20: les columnes de Pro Tools també s'estiren i s'arronsen per la vora dreta
+    addChildComponent (divColumnes);
+    divColumnes.setTooltip ("Arrossega per fer les columnes més amples o més estretes. Doble clic: mida inicial."_ca);
+    columnes.ampleBase = juce::jlimit (ColumnesPista::ampleBaseMinim, ColumnesPista::ampleBaseMaxim,
+                                       ajustos.getIntValue ("estudi.ampleColumnes", ColumnesPista::ampleBaseInicial));
+    divColumnes.onComenca = [this] { ampleInici = columnes.getWidth(); };
+    divColumnes.onArrossega = [this] (int dx)
+    {
+        const double base = (ampleInici + dx - ColumnesPista::separacio * 5) / columnes.factorAmple();
+        columnes.ampleBase = juce::jlimit (ColumnesPista::ampleBaseMinim, ColumnesPista::ampleBaseMaxim, juce::roundToInt (base));
+        colocaSeccions();
+    };
+    divColumnes.onDobleClic = [this] { columnes.ampleBase = ColumnesPista::ampleBaseInicial; colocaSeccions(); divColumnes.onAcaba(); };
+    divColumnes.onAcaba = [this] { ajustos.setValue ("estudi.ampleColumnes", columnes.ampleBase); ajustos.saveIfNeeded(); };
     divPanell.onComenca = [this] { ampleInici = panell.getWidth(); };
     divPanell.onArrossega = [this] (int dx) { amplePanell = juce::jmax (200, ampleInici - dx); colocaSeccions(); };
     divPanell.onDobleClic = [this] { amplePanell = 270; colocaSeccions(); divPanell.onAcaba(); };
@@ -598,6 +655,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     capcaleres.teclats = [this] { return servei.getTeclatsMidi(); };
     esquerra.opcions.setPlugins (&plugins);
     mescles.plugins = &plugins;
+    columnes.plugins = &plugins;   // 1.19
     esquerra.opcions.sortides = [this]
     {
         juce::StringArray noms;
@@ -670,6 +728,14 @@ PantallaEstudi::~PantallaEstudi()
     inserts::obreAutomatitzacio() = nullptr;
     escGlobal() = nullptr;
     teclaGlobal() = nullptr;
+    if (finestraMescles != nullptr)   // 1.16: la taula de mescles torna a casa abans de tancar
+    {
+        finestraMescles->clearContentComponent();
+        finestraMescles.reset();
+    }
+    vistaMix = nullptr;   // 1.23: la finestra del Mix Assistant mira el model, que és d'aquesta pantalla
+    finestraMix.reset();
+    cuaMix.clear();
     informePlugins() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);
@@ -844,7 +910,7 @@ void PantallaEstudi::changeListenerCallback (juce::ChangeBroadcaster*)
         if (btGraella.getButtonText() != nom) btGraella.setButtonText (nom);
     }
 
-    if (mescles.isVisible() != estat.vistaMescles || taulaEstructura.isVisible() != estat.vistaEstructura)
+    if ((finestraMescles == nullptr && mescles.isVisible() != estat.vistaMescles) || taulaEstructura.isVisible() != estat.vistaEstructura)
         colocaSeccions();
     actualitzaBarres();
     repaint (zonaBarra);
@@ -905,23 +971,31 @@ void PantallaEstudi::colocaSeccions()
     const bool m = estat.foraTreball();
 
     const bool ambEditor = estat.pianoRoll && ! m && ! esquerra.acordsTriada();   // amb un editor obert, la columna esquerra té el panell d'harmonia (0.37: no amb la pista d'Acords triada)
-    int esq = ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
+    // 1.21: amb les columnes de Pro Tools, la columna esquerra només surt si hi ha un editor obert (el panell d'harmonia)
+    const bool ambEsquerra = ! ambColumnes || ambEditor;
+    int esq = ! ambEsquerra ? 0 : ambEditor ? ampleEsquerraEditor : ampleEsquerra, noms = ampleNoms, pan = amplePanell;
     const bool ambCarpetes = estat.panellCarpetes && ! m;
     int carp = ambCarpetes ? ampleCarpetes : 0;
     int sobra = esq + (m ? 0 : noms + carp) + pan + 320 - r.getWidth();
     auto encongeix = [&sobra] (int& v, int minim) { if (sobra > 0) { const int t = juce::jmin (sobra, v - minim); if (t > 0) { v -= t; sobra -= t; } } };
     encongeix (pan, 200);
     if (! m) encongeix (noms, 140);
-    encongeix (esq, ambEditor ? 230 : 110);
+    if (ambEsquerra) encongeix (esq, ambEditor ? 230 : 110);
     if (ambCarpetes) encongeix (carp, 120);
 
     esquerra.setBounds (r.removeFromLeft (esq));
+    esquerra.setVisible (ambEsquerra);   // 1.21
+    divEsquerra.setVisible (ambEsquerra);
+    btBarraMescles.setToggleState (estat.mesclesFinestra, juce::dontSendNotification);
+    btBarraEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
+    btBarraMix.setToggleState (finestraMix != nullptr, juce::dontSendNotification);
     {
         auto zDreta = r.removeFromRight (pan);
         pestDreta.setBounds (zDreta.removeFromTop (34).reduced (8, 4));
         panell.setBounds (zDreta);
         biblioteca.setBounds (zDreta);
         pool.setBounds (zDreta);
+        panellMix.setBounds (zDreta);
     }
     // 0.26: el samplejador, a baix (sense tocar el panell de la dreta, on anirà la biblioteca)
     const bool samplerBaix = estat.sampler.obert && ! m && ! estat.veu.obert;
@@ -968,21 +1042,25 @@ void PantallaEstudi::colocaSeccions()
     }
     const int baixSeccions = r.getBottom();
 
-    mescles.setVisible (estat.vistaMescles);
+    if (finestraMescles == nullptr) mescles.setVisible (estat.vistaMescles);   // 1.16: a la finestra a part no es toca
     taulaEstructura.setVisible (estat.vistaEstructura);
     panell.setVisible (! estat.vistaEstructura && dreta == 0);
     biblioteca.setVisible (! estat.vistaEstructura && dreta == 1);
     pool.setVisible (! estat.vistaEstructura && dreta == 2);
+    panellMix.setVisible (! estat.vistaEstructura && dreta == 3);
     pestDreta.setVisible (! estat.vistaEstructura);
-    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes })
+    for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes, &btColumnes })
         c->setVisible (! m);
+    columnes.setVisible (! m && ambColumnes);   // 1.19
+    divColumnes.setVisible (! m && ambColumnes);   // 1.20
+    btColumnes.setToggleState (ambColumnes, juce::dontSendNotification);
     carpetes.setVisible (ambCarpetes);
     divCarpetes.setVisible (ambCarpetes);
     btCarpetes.setToggleState (estat.panellCarpetes, juce::dontSendNotification);
 
     if (m)
     {
-        mescles.setBounds (r);
+        if (finestraMescles == nullptr) mescles.setBounds (r);
         // La taula d'estructura també ocupa el lloc del panell d'info (hi van les parts per arrossegar).
         taulaEstructura.ampleDreta = panell.getWidth();
         taulaEstructura.setBounds (r.withRight (panell.getRight()));
@@ -996,9 +1074,12 @@ void PantallaEstudi::colocaSeccions()
             divCarpetes.setBounds (carpetes.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
         }
         auto colNoms = r.removeFromLeft (noms);
+        if (ambColumnes)   // 1.19: les columnes, entre els noms i la línia de temps
+            columnes.setBounds (r.removeFromLeft (juce::jmin (columnes.ampladaIdeal(), juce::jmax (0, r.getWidth() - 200))).withTrimmedBottom (gruixBarres));
         auto temps = r;
         zonaTitolNoms = colNoms.removeFromTop (alcadaRegla);
         btCarpetes.setBounds (zonaTitolNoms.getRight() - 34, zonaTitolNoms.getY() + 1, 30, zonaTitolNoms.getHeight() - 2);
+        btColumnes.setBounds (zonaTitolNoms.getRight() - 68, zonaTitolNoms.getY() + 1, 30, zonaTitolNoms.getHeight() - 2);
         colNoms.removeFromBottom (gruixBarres);
         capcaleres.setBounds (colNoms);
         regla.setBounds (temps.removeFromTop (alcadaRegla));
@@ -1006,11 +1087,12 @@ void PantallaEstudi::colocaSeccions()
         barraV.setBounds (temps.removeFromRight (gruixBarres));
         pistes.setBounds (temps);
         divNoms.setBounds (capcaleres.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
+        if (ambColumnes) divColumnes.setBounds (columnes.getRight() - 4, alcadaBarra, 8, baixSeccions - alcadaBarra);
     }
 
     divEsquerra.setBounds (esquerra.getRight() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
     divPanell.setBounds (panell.getX() - 4, alcadaBarra, 8, getHeight() - alcadaBarra);
-    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll, &divCarpetes }) d->toFront (false);
+    for (auto* d : { &divEsquerra, &divNoms, &divPanell, &divPianoRoll, &divCarpetes, &divColumnes }) d->toFront (false);
 
     actualitzaBarres();
     repaint();
@@ -1053,6 +1135,12 @@ void PantallaEstudi::resized()
     b.removeFromLeft (16);
     btFont.setBounds (b.removeFromLeft (40));   // 0.97
     b.removeFromLeft (16);
+    btBarraEstructura.setBounds (b.removeFromRight (40));   // 1.21
+    b.removeFromRight (3);
+    btBarraMescles.setBounds (b.removeFromRight (40));
+    b.removeFromRight (3);
+    btBarraMix.setBounds (b.removeFromRight (40));   // 1.23
+    b.removeFromRight (16);
     zonaInfo = b;
 
     colocaSeccions();
@@ -1305,6 +1393,7 @@ void PantallaEstudi::grava (double cursor)
     }
 
     estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
     const auto& noms = estat.nomsEntrades;
     const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
     if (darrera >= noms.size() || noms[t.entrada].isEmpty() || noms[darrera].isEmpty())
@@ -1450,6 +1539,7 @@ void PantallaEstudi::punchIn (int pista)
     else
     {
         estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
         const auto& noms = estat.nomsEntrades;
         const int darrera = t.entrada + (t.canals == 2 ? 1 : 0);
         if (darrera >= noms.size() || noms[t.entrada].isEmpty() || noms[darrera].isEmpty())
@@ -1801,7 +1891,7 @@ void PantallaEstudi::tic()
         estat.volumAuto[(size_t) sl] = v;
         estat.panAuto[(size_t) sl] = pn;
     }
-    if (canviAuto) { esquerra.repaint(); if (mescles.isVisible()) mescles.repaint(); }
+    if (canviAuto) { esquerra.repaint(); if (mescles.isVisible()) mescles.repaint(); if (columnes.isVisible()) columnes.repaint(); }   // 1.22: també les columnes
     if (canvi)
     {
         if (capcaleres.isVisible()) capcaleres.repaint (capcaleres.getWidth() - 20, 0, 20, capcaleres.getHeight());
@@ -1815,6 +1905,7 @@ void PantallaEstudi::tic()
     {
         auto noms = servei.getNomsEntrades();
         if (noms != estat.nomsEntrades) { estat.nomsEntrades = noms; capcaleres.repaint(); }
+        estat.nomsSortides = servei.getNomsSortides();   // 1.17
     }
 }
 
@@ -1986,6 +2077,31 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
                                             "Exporta", text);
 }
 
+double PantallaEstudi::renderitzaPerAnalitzar (const std::vector<int>& pistes, bool ambMaster, std::vector<float>& L, std::vector<float>& R, double fs)
+{
+    // 1.23: el que feia l'Analitza del màster (1.00), compartit amb el Mix Assistant
+    mibase::OpcionsExport o;
+    o.master = ambMaster;
+    std::pair<double, double> tros;
+    auto q = mibase::projectePerExportar (estat.projecte, o, pistes, tros);
+    L.clear(); R.clear();
+    if (tros.second <= tros.first) return 0.0;
+    const auto solo = ed::estatSolo (q);
+    std::vector<std::string> sonen;
+    for (size_t i = 0; i < q.pistes.size(); ++i) if (solo[i] != 0) sonen.push_back (q.pistes[i].id);
+    auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
+    auto pla = construeixPla (q, audioPreses,
+        [this, fs, interns, sonen] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
+        {
+            if (std::find (sonen.begin(), sonen.end(), t.id) == sonen.end()) return nullptr;
+            return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
+        },
+        [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
+        &mapaSo);
+    mibase::renderitzaPla (*pla, fs, tros.first, tros.second, L, R);
+    return tros.first;
+}
+
 std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool ambPistes, const mibase::diagnosi::Context& ctx)
 {
     // 1.00: es renderitza com en exportar (còpies dels plugins, sense reproduir) i s'analitza a memòria
@@ -1994,25 +2110,7 @@ std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool 
     sincronitzaElastic (true);
     auto renderitza = [this, fs] (const std::vector<int>& pistes, bool ambMaster, std::vector<float>& L, std::vector<float>& R)
     {
-        mibase::OpcionsExport o;
-        o.master = ambMaster;
-        std::pair<double, double> tros;
-        auto q = mibase::projectePerExportar (estat.projecte, o, pistes, tros);
-        L.clear(); R.clear();
-        if (tros.second <= tros.first) return;
-        const auto solo = ed::estatSolo (q);
-        std::vector<std::string> sonen;
-        for (size_t i = 0; i < q.pistes.size(); ++i) if (solo[i] != 0) sonen.push_back (q.pistes[i].id);
-        auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
-        auto pla = construeixPla (q, audioPreses,
-            [this, fs, interns, sonen] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
-            {
-                if (std::find (sonen.begin(), sonen.end(), t.id) == sonen.end()) return nullptr;
-                return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
-            },
-            [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
-            &mapaSo);
-        mibase::renderitzaPla (*pla, fs, tros.first, tros.second, L, R);
+        renderitzaPerAnalitzar (pistes, ambMaster, L, R, fs);
     };
     std::vector<float> L, R;
     tancaments::pas ("analitzant: el mix");
@@ -2799,7 +2897,8 @@ void PantallaEstudi::treu()
         estat.desfes.abans (estat.projecte);
         for (int i = estat.rang.pistaDe; i <= estat.rang.pistaFins; ++i)
             ed::buidaRang (estat.projecte, i, estat.rang.t0, estat.rang.t1);
-        estat.info = "Tros buidat";
+        const int nt = ed::treuTakesSenseComp (estat.projecte);   // 1.24
+        estat.info = nt > 0 ? "Tros buidat (i les "_ca + juce::String (nt) + " preses de la pista que ha quedat buida)"_ca : juce::String ("Tros buidat");
         estat.capTriat();
         estat.canviat();
         return;
@@ -2807,6 +2906,8 @@ void PantallaEstudi::treu()
     if (estat.triats.empty()) return;
     estat.desfes.abans (estat.projecte);
     ed::treuTriats (estat.projecte, estat.triats);
+    if (const int nt = ed::treuTakesSenseComp (estat.projecte); nt > 0)   // 1.24: sense clips, fora les preses (es pot desfer)
+        estat.info = "Esborrat, i també les "_ca + juce::String (nt) + " preses de la pista que ha quedat buida (Ctrl+Z ho desfà)"_ca;
     estat.capTriat();
     estat.canviat();
 }
@@ -2824,8 +2925,9 @@ void PantallaEstudi::copia (bool retalla)
         return;
     }
     const auto n = (int) estat.portaretalls.clips.size();
+    estat.destiEnganxa.actiu = false;   // 1.16: el requadre de copiar no és on s'enganxa
     estat.info = (retalla ? "Retallat: "_ca : "Copiat: "_ca) + juce::String (n) + (n == 1 ? " clip" : " clips")
-               + " · Ctrl+V l'enganxa al capçal"_ca;
+               + " · Ctrl+V l'enganxa al capçal, o fes un requadre on el vulguis i Ctrl+V"_ca;
     if (retalla) treu();
     else estat.avisa();
 }
@@ -2838,11 +2940,20 @@ void PantallaEstudi::enganxa()
         estat.avisa();
         return;
     }
+    // 1.16: si després de copiar has fet un requadre, s'enganxa allà (inici del requadre, a partir de la seva pista de dalt),
+    // com a Pro Tools; si no, al capçal com sempre.
+    const auto desti = estat.destiEnganxa;
+    const bool alRequadre = desti.actiu && estat.pista (desti.pista) != nullptr;
+    const auto retall = alRequadre ? ed::retallAPista (estat.portaretalls, desti.pista) : estat.portaretalls;
     estat.desfes.abans (estat.projecte);
-    estat.triats = ed::enganxaRetall (estat.projecte, estat.portaretalls, estat.capcal, estat.insereix);
+    estat.triats = ed::enganxaRetall (estat.projecte, retall, alRequadre ? desti.t : estat.capcal, estat.insereix);
     estat.rang.actiu = false;
+    estat.destiEnganxa.actiu = false;
     if (! estat.triats.empty()) estat.pistaTriada = estat.triats.back().pista;
-    estat.info = estat.insereix ? "Enganxat inserint: el que hi havia s'ha apartat"_ca : "Enganxat trepitjant el que hi havia"_ca;
+    const int perduts = (int) retall.clips.size() - (int) estat.triats.size();
+    estat.info = (alRequadre ? "Enganxat al requadre"_ca : "Enganxat al capçal"_ca)
+               + (estat.insereix ? juce::String (", inserint") : juce::String (", trepitjant el que hi havia"))
+               + (perduts > 0 ? " · "_ca + juce::String (perduts) + " no hi cabien (pista d'un altre tipus o no n'hi ha prou)"_ca : juce::String());
     estat.canviat();
 }
 
@@ -3037,7 +3148,16 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     const bool cap = ! mods.isAnyModifierKeyDown();
     auto lletra = [codi] (char c) { return codi == c || codi == c + 32; };
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { treu(); return true; }
-    if (codi == juce::KeyPress::F9Key) { obreFont(); return true; }   // 0.97
+    if (codi == juce::KeyPress::F8Key) { obreFont(); return true; }   // 0.97 (1.16: F8; abans F9)
+    if (codi == juce::KeyPress::F9Key) { commutaMescles(); return true; }
+    if (codi == juce::KeyPress::F7Key) { commutaMixAssistant(); return true; }   // 1.23: Mix Assistant   // 1.16: taula de mescles en una finestra a part
+    // 1.16: marcadors. Maj+F1…F4 desa on és el capçal; F1…F4 hi porta el capçal.
+    for (int m = 0; m < 4; ++m)
+        if (codi == juce::KeyPress::F1Key + m && ! mods.isCommandDown() && ! mods.isAltDown())
+        {
+            if (mods.isShiftDown()) desaMarcador (m); else vesAMarcador (m);
+            return true;
+        }
     if (mods.isCommandDown() && lletra ('C')) { copia (false); return true; }
     if (mods.isCommandDown() && lletra ('X')) { copia (true); return true; }
     if (cap && lletra ('X') && estat.rang.actiu) { fesCrossfade(); return true; }
@@ -3761,6 +3881,7 @@ void PantallaEstudi::tancaTot()
     if (estat.sampler.obert) tancaSampler();
     if (estat.veu.obert) tancaVeu();
     if (estat.pianoRoll) mostraPianoRoll (false);
+    if (estat.automat.obert) estat.automat.obert = false;   // 1.24: l'editor d'automatització també es tanca amb l'Esc
     estat.vistaMescles = estat.vistaEstructura = false;
     estat.info = "Esc: tot tancat (taula de treball)"_ca;
     estat.avisa();
@@ -3887,6 +4008,7 @@ void PantallaEstudi::gravaSampler()
     const auto& t = estat.projecte.pistes[(size_t) pista];
     const int entrada = t.sampler.entradaGrava, canals = t.sampler.canalsGrava;
     estat.nomsEntrades = servei.getNomsEntrades();
+    estat.nomsSortides = servei.getNomsSortides();   // 1.17
     const auto& noms = estat.nomsEntrades;
     const int darrera = entrada + (canals == 2 ? 1 : 0);
     if (darrera >= noms.size() || noms[entrada].isEmpty() || noms[darrera].isEmpty())
@@ -4413,7 +4535,7 @@ void PantallaEstudi::treuAcords (const mibase::Clip& c0, const juce::String& nom
 }
 
 //==============================================================================
-// 0.97: Font d'inspiració (una finestra a part, com els sintes). F9 o el botó l'obren i la tanquen.
+// 0.97: Font d'inspiració (una finestra a part, com els sintes). F8 (abans F9) o el botó l'obren i la tanquen.
 void PantallaEstudi::obreFont()
 {
     if (finestraFont != nullptr)
@@ -4590,4 +4712,520 @@ void PantallaEstudi::desfesGrup (std::vector<int> v)
         }
     for (const auto& c : carpetes) ed::esborraCarpeta (estat.projecte, c);
     estat.canviat ("Grup desfet: "_ca + juce::String ((int) carpetes.size()) + " carpetes, "_ca + juce::String (fetes) + " pistes tornen al màster"_ca);
+}
+
+//==============================================================================
+// 1.16: la taula de mescles en una finestra a part. F9 (o la pestanya «Taula de mescles») l'obre i la tanca; l'Esc no la
+// tanca, perquè es pugui deixar oberta a una segona pantalla. Recorda on era i la mida.
+namespace
+{
+    class FinestraMescles : public juce::DocumentWindow
+    {
+    public:
+        FinestraMescles (juce::Component& taula, std::function<void()> enTancar)
+            : juce::DocumentWindow ("Taula de mescles · Mibase"_ca, tema::fons, juce::DocumentWindow::allButtons), tanca (std::move (enTancar))
+        {
+            setUsingNativeTitleBar (true);
+            setResizable (true, true);
+            setResizeLimits (420, 300, 10000, 10000);
+            setContentNonOwned (&taula, false);
+            centreWithSize (1200, 640);
+        }
+        void closeButtonPressed() override { if (tanca) tanca(); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }   // Espai, F9, F1–F4… (l'Esc tanca la resta, no aquesta)
+    private:
+        std::function<void()> tanca;
+    };
+}
+
+void PantallaEstudi::commutaMescles()
+{
+    if (finestraMescles != nullptr) { tancaFinestraMescles(); return; }
+    estat.vistaMescles = false;
+    removeChildComponent (&mescles);
+    mescles.setVisible (true);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    finestraMescles = std::make_unique<FinestraMescles> (mescles, [jo]
+    {
+        // es tanca més tard: no es pot esborrar la finestra des de dins seu
+        juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->tancaFinestraMescles(); });
+    });
+    const auto lloc = ajustos.getValue ("mescles.finestra");
+    if (lloc.isNotEmpty()) finestraMescles->restoreWindowStateFromString (lloc);
+    finestraMescles->setVisible (true);
+    quedaSobreMibase (*finestraMescles);
+    estat.mesclesFinestra = true;
+    estat.info = "Taula de mescles oberta (F9 la tanca; l'Esc no)"_ca;
+    colocaSeccions();
+    estat.avisa();
+}
+
+void PantallaEstudi::tancaFinestraMescles()
+{
+    if (finestraMescles == nullptr) return;
+    ajustos.setValue ("mescles.finestra", finestraMescles->getWindowStateAsString());
+    ajustos.saveIfNeeded();
+    finestraMescles->clearContentComponent();
+    finestraMescles.reset();
+    addChildComponent (mescles);
+    mescles.setVisible (false);
+    estat.mesclesFinestra = false;
+    estat.vistaMescles = false;
+    colocaSeccions();
+    estat.avisa();
+    if (potAgafarFocus()) grabKeyboardFocus();
+}
+
+//==============================================================================
+// 1.16: marcadors. Maj+F1…F4 desa el capçal; F1…F4 hi va (també mentre sona: la música salta).
+void PantallaEstudi::desaMarcador (int m)
+{
+    if (m < 0 || m >= (int) estat.projecte.marcadors.size()) return;
+    estat.desfes.abans (estat.projecte);
+    estat.projecte.marcadors[(size_t) m] = estat.capcal;
+    estat.canviat();
+    estat.info = "Marcador F"_ca + juce::String (m + 1) + " desat a " + dibuix::utf8 (ed::textPosicio (estat.projecte, estat.capcal)) + " · F" + juce::String (m + 1) + " hi torna";
+    estat.avisa();
+}
+
+void PantallaEstudi::vesAMarcador (int m)
+{
+    if (m < 0 || m >= (int) estat.projecte.marcadors.size()) return;
+    const double t = estat.projecte.marcadors[(size_t) m];
+    if (t < 0.0)
+    {
+        estat.info = "F"_ca + juce::String (m + 1) + ": encara no hi ha marcador. Maj+F" + juce::String (m + 1) + " el desa on és el capçal";
+        estat.avisa();
+        return;
+    }
+    if (estat.transport >= 2) return;   // gravant, el capçal no es toca
+    estat.mouCapcal (t, true);
+    const double visibles = pistes.getWidth() / estat.pxPerSegon;
+    if (estat.capcal < estat.iniciVista || estat.capcal > estat.iniciVista + visibles * 0.9)
+        estat.iniciVista = juce::jmax (0.0, estat.capcal - visibles * 0.25);
+    seguiment.reinicia();
+    zonaEditors.reiniciaSeguiment();
+    actualitzaBarres();
+    estat.info = "Marcador F"_ca + juce::String (m + 1);
+    estat.avisa();
+}
+
+// ---------------- 1.23: Mix Assistant ----------------
+namespace
+{
+    /** 1.24: la pista té una línia d'automatització d'això («volum», «pan»)? */
+    bool teAutoMix (const mibase::Pista& t, const char* objectiu)
+    {
+        return std::any_of (t.autos.begin(), t.autos.end(), [objectiu] (const mibase::Automatitzacio& a) { return a.objectiu == objectiu && a.activa; });
+    }
+}
+// Finestra pròpia (F7) que es pot deixar a una segona pantalla; l'Esc no la tanca. L'anàlisi es fa pista a pista,
+// tornant al bucle de la interfície entre una i altra perquè es pugui anar pintant el progrés. Mai mentre es grava.
+namespace
+{
+    class FinestraMix : public juce::DocumentWindow
+    {
+    public:
+        FinestraMix (juce::Component* contingut, std::function<void()> enTancar)
+            : juce::DocumentWindow ("Mix Assistant · Mibase"_ca, tema::fons, juce::DocumentWindow::allButtons), tanca (std::move (enTancar))
+        {
+            setUsingNativeTitleBar (true);
+            setResizable (true, true);
+            setResizeLimits (640, 420, 10000, 10000);
+            setContentOwned (contingut, false);
+            centreWithSize (1120, 740);
+        }
+        void closeButtonPressed() override { if (tanca) tanca(); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }   // Espai, F7, F9, F1–F4…
+    private:
+        std::function<void()> tanca;
+    };
+}
+
+void PantallaEstudi::commutaMixAssistant()
+{
+    if (finestraMix != nullptr) { tancaFinestraMix(); return; }
+    obreMixAssistant ({});
+}
+
+void PantallaEstudi::obreMixAssistant (const std::string& idPista)
+{
+    if (finestraMix == nullptr)
+    {
+        auto* v = new VistaMixAssistant (modelMix);
+        vistaMix = v;
+        v->onAnalitza = [this] { analitzaMix(); };
+        v->onMode = [this] (bool creacio)   // 1.24
+        {
+            modelMix.creacio = creacio;
+            ajustos.setValue ("mix.creacio", creacio);
+            modelMix.avisa();
+            actualitzaPuntsMix();
+        };
+        auto& l = v->llistaDetall();
+        l.onEscoltaBalanc = [this] { escoltaBalanc(); };
+        l.onAcceptaBalanc = [this] { acceptaBalanc(); };
+        l.onDescartaBalanc = [this] { descartaBalanc(); };
+        l.onTriaInstrument = [this] (const std::string& id) { menuInstrumentMix (id); };
+        l.onConfirma = [this] (const std::string& id, mibase::mix::Instrument i) { posaInstrumentMix (id, i); };
+        l.onVesAPista = [this] (const std::string& id)
+        {
+            for (int i = 0; i < estat.numPistes(); ++i)
+                if (estat.projecte.pistes[(size_t) i].id == id)
+                {
+                    estat.pistaTriada = i;
+                    estat.pistesTriades = { id };
+                    estat.info = "Pista triada: "_ca + juce::String::fromUTF8 (estat.projecte.pistes[(size_t) i].nom.c_str());
+                    estat.avisa();
+                    if (auto* tl = getTopLevelComponent()) tl->toFront (true);
+                    return;
+                }
+        };
+        juce::Component::SafePointer<PantallaEstudi> jo (this);
+        finestraMix = std::make_unique<FinestraMix> (v, [jo]
+        {
+            juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->tancaFinestraMix(); });
+        });
+        const auto lloc = ajustos.getValue ("mix.finestra");
+        if (lloc.isNotEmpty()) finestraMix->restoreWindowStateFromString (lloc);
+        finestraMix->setVisible (true);
+        quedaSobreMibase (*finestraMix);
+        estat.info = "Mix Assistant obert (F7 el tanca; l'Esc no)"_ca;
+        colocaSeccions();
+        actualitzaPuntsMix();
+        estat.avisa();
+    }
+    vistaMix->triaPista (idPista);
+    finestraMix->toFront (true);
+}
+
+void PantallaEstudi::tancaFinestraMix()
+{
+    if (finestraMix == nullptr) return;
+    ajustos.setValue ("mix.finestra", finestraMix->getWindowStateAsString());
+    ajustos.saveIfNeeded();
+    tornaBalancOriginal();   // 1.24: si sonava el Balanç proposat, torna el teu
+    vistaMix = nullptr;
+    finestraMix.reset();
+    estat.puntsMix.clear();
+    colocaSeccions();
+    estat.avisa();
+}
+
+std::vector<mibase::mix::Tram> PantallaEstudi::tramsMix (double) const
+{
+    std::vector<mibase::mix::Tram> v;
+    for (const auto& pt : estat.projecte.parts)
+    {
+        if (pt.a <= pt.de) continue;
+        v.push_back ({ pt.nom.empty() ? std::string ("Part") : pt.nom, ed::segonsDeCompas (estat.projecte, pt.de), ed::segonsDeCompas (estat.projecte, pt.a) });
+    }
+    return v;
+}
+
+void PantallaEstudi::analitzaMix()
+{
+    if (modelMix.analitzant) return;
+    if (estat.transport >= 2)
+    {
+        estat.info = "Mentre graves, el Mix Assistant no analitza"_ca;
+        estat.avisa();
+        return;
+    }
+    tornaBalancOriginal();   // 1.24
+    modelMix.files.clear();
+    modelMix.globals.clear();
+    modelMix.balanc.clear();
+    analisiMescla.reset();
+    cuaMix.clear();
+    for (int i = 0; i < estat.numPistes(); ++i)
+    {
+        const auto& t = estat.projecte.pistes[(size_t) i];
+        if (mibase::esBus (t) || ! (t.tipus == "audio" || mibase::esMidi (t))) continue;
+        ModelMix::Fila f;
+        f.id = t.id;
+        f.nom = juce::String::fromUTF8 (t.nom.c_str());
+        f.color = EstatEstudi::colorPista (t);
+        f.ident = mibase::mix::identifica (t);
+        if (t.clips.empty()) f.motiu = "Buida: no hi ha res per analitzar"_ca;
+        else if (t.mut) f.motiu = "Silenciada: no s'analitza"_ca;
+        else cuaMix.push_back (i);
+        modelMix.files.push_back (std::move (f));
+    }
+    totalMix = cuaMix.size();
+    if (cuaMix.empty())
+    {
+        modelMix.fet = true;
+        modelMix.quan = "no hi ha cap pista amb so"_ca;
+        modelMix.avisa();
+        return;
+    }
+    modelMix.analitzant = true;
+    modelMix.fet = false;
+    mixSencera = true;   // 1.24: al final, la mescla sencera
+    modelMix.fraccio = 0.0;
+    modelMix.progres = "Preparant…"_ca;
+    modelMix.avisa();
+    sincronitzaElastic (true);   // els sons estirats, tots fets abans de renderitzar
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    juce::Timer::callAfterDelay (30, [jo] { if (jo != nullptr) jo->pasMix(); });
+}
+
+void PantallaEstudi::pasMix()
+{
+    if (! modelMix.analitzant) return;
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    if (estat.transport >= 2)   // ha començat a gravar: s'atura (el que ja s'ha fet es queda)
+    {
+        cuaMix.clear();
+        mixSencera = false;
+        modelMix.analitzant = false;
+        modelMix.fet = modelMix.analitzades() > 0;
+        modelMix.quan = "aturat perquè has començat a gravar"_ca;
+        modelMix.avisa();
+        return;
+    }
+    if (cuaMix.empty() && mixSencera)   // 1.24: la mescla sencera (sense el màster)
+    {
+        mixSencera = false;
+        modelMix.progres = "Analitzant la mescla sencera…"_ca;
+        modelMix.fraccio = 0.97;
+        modelMix.avisa();
+        juce::Timer::callAfterDelay (20, [jo]
+        {
+            if (jo == nullptr || ! jo->modelMix.analitzant) return;
+            auto& self = *jo;
+            const double fs = self.servei.estudi().getFs() > 0.0 ? self.servei.estudi().getFs() : 48000.0;
+            tancaments::pas ("Mix Assistant: la mescla sencera");
+            std::vector<float> L, R;
+            juce::MouseCursor::showWaitCursor();
+            const double inici = self.renderitzaPerAnalitzar ({}, false, L, R, fs);
+            self.analisiMescla = std::make_shared<mibase::mix::AnalisiPista> (mibase::mix::analitzaPista (L.data(), R.data(), L.size(), fs, inici));
+            L.clear(); L.shrink_to_fit(); R.clear(); R.shrink_to_fit();
+            juce::MouseCursor::hideWaitCursor();
+            self.calculaMescla();
+            juce::Timer::callAfterDelay (1, [jo] { if (jo != nullptr) jo->pasMix(); });
+        });
+        return;
+    }
+    if (cuaMix.empty())
+    {
+        modelMix.analitzant = false;
+        modelMix.fet = true;
+        modelMix.fraccio = 1.0;
+        modelMix.quan = "analitzat a les "_ca + juce::Time::getCurrentTime().formatted ("%H:%M");
+        historial.afegeix ("Mix Assistant: analitzades "_ca + juce::String (modelMix.analitzades()) + " pistes"_ca);
+        tancaments::pas ("Mix Assistant: anàlisi acabada");
+        modelMix.avisa();
+        actualitzaPuntsMix();
+        return;
+    }
+    const int i = cuaMix.front();
+    cuaMix.erase (cuaMix.begin());
+    const size_t fet = totalMix - cuaMix.size();
+    if (i < 0 || i >= estat.numPistes()) { juce::Timer::callAfterDelay (1, [jo] { if (jo != nullptr) jo->pasMix(); }); return; }
+    const auto t = estat.projecte.pistes[(size_t) i];
+    modelMix.progres = "Analitzant «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "» ("_ca + juce::String ((int) fet) + " de "_ca + juce::String ((int) totalMix) + ")";
+    modelMix.fraccio = (double) (fet - 1) / (double) juce::jmax ((size_t) 1, totalMix);
+    modelMix.avisa();
+    // la feina, una mica més tard: així primer es pinta el text del progrés
+    juce::Timer::callAfterDelay (20, [jo, t, i]
+    {
+        if (jo == nullptr) return;
+        auto& self = *jo;
+        if (! self.modelMix.analitzant) return;
+        const double fs = self.servei.estudi().getFs() > 0.0 ? self.servei.estudi().getFs() : 48000.0;
+        tancaments::pas ("Mix Assistant: la pista " + t.nom);
+        std::vector<float> L, R;
+        juce::MouseCursor::showWaitCursor();
+        const double inici = self.renderitzaPerAnalitzar ({ i }, false, L, R, fs);
+        auto a = std::make_shared<mibase::mix::AnalisiPista> (mibase::mix::analitzaPista (L.data(), R.data(), L.size(), fs, inici));
+        L.clear(); L.shrink_to_fit(); R.clear(); R.shrink_to_fit();
+        juce::MouseCursor::hideWaitCursor();
+        for (auto& f : self.modelMix.files)
+        {
+            if (f.id != t.id) continue;
+            f.analisi = a;
+            f.ident = mibase::mix::identifica (t, a.get());
+            f.analitzada = a->valid;
+            if (a->valid) f.diag = mibase::mix::diagnosticaPista (t.id, t.nom, *a, f.ident, self.tramsMix (inici), t.tipus == "audio",
+                                                                  teAutoMix (t, "volum") ? NAN : (float) t.faderDb);
+            else f.motiu = "No s'hi sent res: no s'ha pogut analitzar"_ca;
+        }
+        self.modelMix.avisa();
+        juce::Timer::callAfterDelay (1, [jo] { if (jo != nullptr) jo->pasMix(); });
+    });
+}
+
+void PantallaEstudi::menuInstrumentMix (const std::string& idPista)
+{
+    const mibase::Pista* t = nullptr;
+    for (const auto& p : estat.projecte.pistes) if (p.id == idPista) t = &p;
+    if (t == nullptr) return;
+    const auto ara = mibase::mix::instrumentDeClau (t->mixInstrument);
+    juce::PopupMenu m;
+    m.addSectionHeader ("Quin instrument és «"_ca + juce::String::fromUTF8 (t->nom.c_str()) + "»?");
+    m.addItem (1, "Que ho endevini Mibase"_ca, true, t->mixInstrument.empty());
+    m.addSeparator();
+    for (int k = 1; k < mibase::mix::numInstruments; ++k)
+        m.addItem (100 + k, juce::String::fromUTF8 (mibase::mix::nomInstrument ((mibase::mix::Instrument) k)), true, (int) ara == k);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(), [jo, idPista] (int r)
+    {
+        if (jo == nullptr || r <= 0) return;
+        if (r == 1) jo->posaInstrumentMix (idPista, mibase::mix::Instrument::Desconegut, true);
+        else jo->posaInstrumentMix (idPista, (mibase::mix::Instrument) (r - 100));
+    });
+}
+
+void PantallaEstudi::posaInstrumentMix (const std::string& idPista, mibase::mix::Instrument i, bool perDefecte)
+{
+    for (auto& t : estat.projecte.pistes)
+    {
+        if (t.id != idPista) continue;
+        const std::string nova = perDefecte ? std::string() : std::string (mibase::mix::clauInstrument (i));
+        if (t.mixInstrument != nova)
+        {
+            estat.desfes.abans (estat.projecte);
+            t.mixInstrument = nova;
+            estat.canviat (perDefecte ? "Mix Assistant: «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "», instrument automàtic"_ca
+                                      : "Mix Assistant: «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "» és "_ca
+                                        + juce::String::fromUTF8 (mibase::mix::nomInstrument (i)).toLowerCase());
+        }
+        break;
+    }
+    rediagnosticaMix (idPista);
+}
+
+void PantallaEstudi::rediagnosticaMix (const std::string& idPista)
+{
+    // l'àudio no ha canviat: es torna a fer el diagnòstic amb el mateix so (sense tornar a renderitzar)
+    const mibase::Pista* t = nullptr;
+    for (const auto& p : estat.projecte.pistes) if (p.id == idPista) t = &p;
+    if (t == nullptr) return;
+    for (auto& f : modelMix.files)
+    {
+        if (f.id != idPista) continue;
+        f.ident = mibase::mix::identifica (*t, f.analisi.get());
+        if (f.analisi != nullptr && f.analisi->valid)
+            f.diag = mibase::mix::diagnosticaPista (t->id, t->nom, *f.analisi, f.ident, tramsMix (f.analisi->inici), t->tipus == "audio",
+                                                    teAutoMix (*t, "volum") ? NAN : (float) t->faderDb);
+    }
+    calculaMescla();   // 1.24: l'instrument canvia els conflictes i l'equilibri
+    modelMix.avisa();
+    actualitzaPuntsMix();
+}
+
+// ---------------- 1.24: Mix Assistant, fase 2 ----------------
+std::vector<mibase::mix::PistaMescla> PantallaEstudi::pistesMescla()
+{
+    std::vector<mibase::mix::PistaMescla> v;
+    for (const auto& f : modelMix.files)
+    {
+        if (! f.analitzada || f.analisi == nullptr) continue;
+        const mibase::Pista* t = nullptr;
+        for (const auto& p : estat.projecte.pistes) if (p.id == f.id) t = &p;
+        if (t == nullptr) continue;
+        mibase::mix::PistaMescla p;
+        p.id = t->id;
+        p.nom = t->nom;
+        p.ident = f.ident;
+        p.analisi = f.analisi.get();
+        p.faderDb = t->faderDb;
+        p.pan = t->pan;
+        p.autoVolum = teAutoMix (*t, "volum");
+        p.autoPan = teAutoMix (*t, "pan");
+        v.push_back (p);
+    }
+    return v;
+}
+
+void PantallaEstudi::calculaMescla()
+{
+    // els conflictes, l'equilibri i la mescla sencera, amb el que ja s'ha analitzat (sense tornar a renderitzar)
+    if (modelMix.files.empty()) return;
+    const auto ps = pistesMescla();
+    const auto trams = tramsMix (0.0);
+    modelMix.globals.clear();
+    for (auto& i : mibase::mix::conflictes (ps, trams)) modelMix.globals.push_back (std::move (i));
+    if (! modelMix.escoltantBalanc)   // mentre sona el proposat no es refà (els faders del projecte són els de la proposta)
+    {
+        std::vector<mibase::mix::CanviBalanc> prop;
+        for (auto& i : mibase::mix::balanc (ps, prop)) modelMix.globals.push_back (std::move (i));
+        modelMix.balanc = prop;
+    }
+    if (analisiMescla != nullptr && analisiMescla->valid)
+        for (auto& i : mibase::mix::diagnosticaMescla (*analisiMescla, ps, trams)) modelMix.globals.push_back (std::move (i));
+}
+
+void PantallaEstudi::posaBalanc (bool proposat)
+{
+    for (const auto& c : modelMix.balanc)
+        for (auto& t : estat.projecte.pistes)
+            if (t.id == c.pista)
+            {
+                t.faderDb = proposat ? c.fader : c.faderAbans;
+                t.pan = proposat ? c.pan : c.panAbans;
+            }
+}
+
+void PantallaEstudi::escoltaBalanc()
+{
+    // A/B: canvia els faders i els panorames mentre sona, sense anar al Desfés ni desar (fins que s'accepti)
+    if (modelMix.balanc.empty()) return;
+    modelMix.escoltantBalanc = ! modelMix.escoltantBalanc;
+    posaBalanc (modelMix.escoltantBalanc);
+    estat.info = modelMix.escoltantBalanc ? "Mix Assistant: sona el Balanç proposat (B)"_ca : "Mix Assistant: sona el teu balanç (A)"_ca;
+    estat.avisa();
+    modelMix.avisa();
+}
+
+void PantallaEstudi::tornaBalancOriginal()
+{
+    if (! modelMix.escoltantBalanc) return;
+    posaBalanc (false);
+    modelMix.escoltantBalanc = false;
+    estat.avisa();
+}
+
+void PantallaEstudi::acceptaBalanc()
+{
+    if (modelMix.balanc.empty()) return;
+    tornaBalancOriginal();
+    estat.desfes.abans (estat.projecte);
+    posaBalanc (true);
+    const int n = (int) modelMix.balanc.size();
+    // les propostes de fader i panorama ja estan fetes
+    modelMix.globals.erase (std::remove_if (modelMix.globals.begin(), modelMix.globals.end(), [] (const mibase::mix::Incidencia& i)
+        { return i.proposta.tipus == mibase::mix::Proposta::Fader || i.proposta.tipus == mibase::mix::Proposta::Panorama; }), modelMix.globals.end());
+    modelMix.balanc.clear();
+    estat.canviat ("Mix Assistant: acceptat el Balanç proposat ("_ca + juce::String (n) + (n == 1 ? " pista)"_ca : " pistes)"_ca));
+    estat.info = "Balanç proposat acceptat (Ctrl+Z ho desfà). Torna a analitzar per comprovar com ha quedat."_ca;
+    estat.avisa();
+    modelMix.avisa();
+    actualitzaPuntsMix();
+}
+
+void PantallaEstudi::descartaBalanc()
+{
+    tornaBalancOriginal();
+    modelMix.balanc.clear();
+    estat.info = "Balanç proposat descartat: els teus volums i panorames no s'han tocat"_ca;
+    estat.avisa();
+    modelMix.avisa();
+}
+
+void PantallaEstudi::actualitzaPuntsMix()
+{
+    // els puntets de les capçaleres: només amb el Mix Assistant obert i amb resultats
+    estat.puntsMix.clear();
+    if (finestraMix != nullptr && modelMix.fet)
+        for (const auto& f : modelMix.files)
+        {
+            int millor = 3;
+            for (const auto* i : modelMix.dePista (f.id))
+                millor = std::min (millor, i->prioritat == mibase::mix::Prioritat::Alta ? 0 : i->prioritat == mibase::mix::Prioritat::Mitjana ? 1 : 2);
+            if (millor < 3) estat.puntsMix[f.id] = millor;
+        }
+    capcaleres.repaint();
 }

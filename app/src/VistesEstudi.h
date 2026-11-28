@@ -79,8 +79,8 @@ public:
 
 private:
     // 0.13: meitat de baix = capçal; meitat de dalt = bucle (selecció) i parts de la cançó.
-    struct Lloc { int vora = 0; int part = -1; };   // vora: -1 inici, 1 final (del bucle si part = -1)
-    enum class Accio { Res, Capcal, Vora, Seleccio, Seleccionant };
+    struct Lloc { int vora = 0; int part = -1; int marca = 0; };   // vora: -1 inici, 1 final (del bucle si part = -1); marca (1.18): 1 inici de la cançó, 2 final
+    enum class Accio { Res, Capcal, Vora, Seleccio, Seleccionant, Marca };
     Lloc queHiHa (juce::Point<int> p) const;
     double compas (double t) const;
     std::pair<double, double> seleccio (double ta, double tb) const;
@@ -259,6 +259,7 @@ public:
     /** 0.20: el botonet de la pista d'instrument (obre el sinte o el VST) o de bateria (obre els kits). */
     std::function<void (int pista)> onObreInstrument;
     std::function<void (int pista)> onAutomatitzacio;   // 0.56
+    std::function<void (const std::string& id)> onPuntMix;   // 1.24: clic al puntet del Mix Assistant
     juce::Rectangle<int> rectEntradaCap (int fila) const;   // 0.34
     juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
     juce::Rectangle<int> zonaES (int fila) const;
@@ -268,7 +269,10 @@ public:
     bool esEstreta (int fila) const;
     juce::Rectangle<int> rectES (int fila) const;   // 0.37
     juce::Rectangle<int> rectObreInstrument (int fila) const;
+    juce::Rectangle<int> rectSo (int fila) const;   // 1.21: tria l'instrument i el so (al costat del botó de l'instrument)
+    std::function<void (int pista, juce::Rectangle<int> zonaPantalla)> onMenuSo;   // 1.21
     juce::Rectangle<int> rectPreses (int fila) const;   // 0.81: plega / desplega les preses
+    juce::Rectangle<int> rectPuntMix (int fila) const;   // 1.24: el puntet del Mix Assistant
     std::function<void (int pista)> onConsolidaComp;      // 0.81
     std::function<void (int pista)> onPrint;              // 0.82
 
@@ -282,6 +286,7 @@ private:
     enum class Tecla { Cap, Mut, Solo, Grava };
     Tecla teclaA (int pista, juce::Point<int> p) const;
     juce::Rectangle<int> rectTecla (int pista, int quina) const;
+    juce::Rectangle<int> rectCellaDalt (int pista, int quina) const;   // 1.20: la fila de sobre de M / S / gravar
     void menu (int pista);
 
     int arrossegant = -1, desti = -1;
@@ -378,6 +383,7 @@ public:
     PanellSeguidors seguidors { estat };
     bool acordsTriada() const { auto* t = estat.pista (estat.pistaTriada); return t != nullptr && mibase::esAcords (*t); }
     OpcionsPista opcions { estat };
+    std::function<void()> onMescles;   // 1.16: la taula de mescles va en una finestra a part
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
