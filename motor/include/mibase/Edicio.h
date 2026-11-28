@@ -255,6 +255,11 @@ namespace mibase::edicio
     std::vector<std::vector<std::pair<double, double>>> zonesTakes (const Projecte& p, int pista);
     /** Treu una presa (i el que en sona al comp). Si en queda una o cap, la pista torna a ser normal. */
     void treuTake (Projecte& p, int pista, int take);
+    /** 1.25: Mix Assistant: la mescla d'ara (volum, panorama, mute, efectes amb ajustos, enviaments; màster), amb nom. */
+    VersioMescla fotoMescla (const Projecte& p, const std::string& nom, const std::string& quan);
+    /** 1.25: torna la mescla a com era a la versió (les pistes que ja no hi són no es toquen; les noves, tampoc).
+        Torna quantes pistes s'han recuperat. Els clips i l'àudio no es toquen mai. */
+    int recuperaMescla (Projecte& p, const VersioMescla& v);
     /** 1.24: treu totes les preses de la pista (el comp que sona es queda; els fitxers no s'esborren). Torna quantes. */
     int treuTotesLesTakes (Projecte& p, int pista);
     /** 1.24: les pistes que s'han quedat sense cap clip perden també les preses (abans en quedava l'ona a les subpistes i

@@ -119,6 +119,13 @@ public:
     // 1.10: calcular les pistes amb diversos nuclis (es desa a les preferències; apagat per defecte)
     bool getDiversosNuclis() const;
     void setDiversosNuclis (bool b);
+    // 1.25: quan Mibase no és al davant (i no sona ni grava), deixa la targeta a les altres aplicacions; la torna a agafar
+    // en tornar-hi. Es desa a les preferències; encès per defecte.
+    bool getAlliberaEnFons() const;
+    void setAlliberaEnFons (bool b);
+    bool alliberada() const noexcept { return targetaAlliberada; }
+    /** La posa la pantalla de l'estudi: true si ara es pot deixar la targeta (res sona, res grava). Sense: sempre. */
+    std::function<bool()> potAlliberar;
     // 1.8: quant triga cada bloc d'àudio, comparat amb el temps que hi ha (el buffer).
     std::atomic<float> pitjorBlocMs { 0.0f };        // des de l'última lectura de la línia d'estat
     std::atomic<float> pitjorBlocTotalMs { 0.0f };   // des que s'ha engegat la targeta
@@ -126,6 +133,15 @@ public:
     std::atomic<unsigned int> blocsAlLimit { 0 };    // blocs que han fet servir més del 80 % del temps
     std::atomic<unsigned int> blocsTard { 0 };       // blocs que han trigat més del temps que hi ha (= clic segur)
 private:
+    // 1.25: vigila si Mibase és al davant
+    struct VigilaFons : juce::Timer
+    {
+        std::function<void()> f;
+        void timerCallback() override { if (f) f(); }
+    } vigilaFons;
+    bool targetaAlliberada = false;
+    juce::uint32 enFonsDes = 0;
+    void revisaFons();
     juce::AudioDeviceManager gestor;
     mibase::MotorDiagnostic motorDiag;
     mibase::MotorEstudi motorEstudi;

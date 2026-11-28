@@ -218,6 +218,7 @@ namespace
 #include "proves_118.inc"
 #include "proves_123.inc"
 #include "proves_124.inc"
+#include "proves_125.inc"
 
 int main()
 {
@@ -2452,6 +2453,7 @@ int main()
     proves118();
     proves123();
     proves124();
+    proves125();
 
     std::printf ("\n%d comprovacions, %d fallades\n", comprovacions, fallades);
     return fallades == 0 ? 0 : 1;

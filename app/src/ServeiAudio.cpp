@@ -46,6 +46,47 @@ ServeiAudio::ServeiAudio (Historial& h) : historial (h)
     tancaments::pas ("en marxa");
     actualitzaMidi();
     changeListenerCallback (nullptr);
+    vigilaFons.f = [this] { revisaFons(); };   // 1.25
+    vigilaFons.startTimer (400);
+}
+
+bool ServeiAudio::getAlliberaEnFons() const
+{
+    return ajustos == nullptr || ajustos->getBoolValue ("audio.alliberaEnFons", true);
+}
+
+void ServeiAudio::setAlliberaEnFons (bool b)
+{
+    if (ajustos != nullptr) { ajustos->setValue ("audio.alliberaEnFons", b); ajustos->saveIfNeeded(); }
+    if (! b) revisaFons();   // si estava alliberada, la torna a agafar
+}
+
+void ServeiAudio::revisaFons()
+{
+    // 1.25: Mibase al darrere uns segons, sense sonar ni gravar → tanca la targeta (ASIO no deixa que altres programes
+    // la facin servir mentre és oberta). Al davant de nou → la torna a obrir amb els mateixos ajustos.
+    const bool davant = juce::Process::isForegroundProcess();
+    if (targetaAlliberada)
+    {
+        if (davant || ! getAlliberaEnFons())
+        {
+            targetaAlliberada = false;
+            gestor.restartLastAudioDevice();
+            historial.afegeix (gestor.getCurrentAudioDevice() != nullptr ? "Mibase torna a ser al davant: targeta recuperada."_ca
+                                                                         : "Mibase torna a ser al davant, però no s'ha pogut tornar a obrir la targeta (és oberta per un altre programa?). Tria-la a Preferències."_ca);
+            changeListenerCallback (nullptr);
+        }
+        return;
+    }
+    if (davant || ! getAlliberaEnFons() || gestor.getCurrentAudioDevice() == nullptr || (potAlliberar && ! potAlliberar())) { enFonsDes = 0; return; }
+    const auto ara = juce::Time::getMillisecondCounter();
+    if (enFonsDes == 0) { enFonsDes = ara; return; }
+    if (ara - enFonsDes < 2500) return;   // un Alt+Tab ràpid no la deixa anar
+    enFonsDes = 0;
+    desaAjustos();                        // els ajustos bons, abans de tancar
+    targetaAlliberada = true;
+    gestor.closeAudioDevice();
+    historial.afegeix ("Mibase és al darrere: targeta alliberada per a les altres aplicacions (es recupera en tornar-hi)."_ca);
 }
 
 ServeiAudio::~ServeiAudio()
@@ -425,6 +466,8 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
 void ServeiAudio::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     auto* d = gestor.getCurrentAudioDevice();
+
+    if (targetaAlliberada) return;   // 1.25: tancada a propòsit (Mibase al darrere): no es desa com a «cap dispositiu»
 
     juce::String descripcio;
     if (d == nullptr)

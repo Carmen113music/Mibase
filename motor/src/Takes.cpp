@@ -375,4 +375,47 @@ namespace mibase::edicio
         if (b <= a) return { 0.0, 0.0 };
         return { a, b };
     }
+
+    VersioMescla fotoMescla (const Projecte& p, const std::string& nom, const std::string& quan)
+    {
+        VersioMescla v;
+        v.nom = nom;
+        v.quan = quan;
+        v.masterDb = p.masterDb;
+        v.insertsMaster = p.insertsMaster;
+        for (const auto& t : p.pistes)
+        {
+            VersioMescla::DePista d;
+            d.pista = t.id;
+            d.faderDb = t.faderDb;
+            d.pan = t.pan;
+            d.mut = t.mut;
+            d.inserts = t.inserts;
+            d.enviaments = t.enviaments;
+            v.pistes.push_back (std::move (d));
+        }
+        return v;
+    }
+
+    int recuperaMescla (Projecte& p, const VersioMescla& v)
+    {
+        int n = 0;
+        for (const auto& d : v.pistes)
+            for (auto& t : p.pistes)
+            {
+                if (t.id != d.pista) continue;
+                t.faderDb = d.faderDb;
+                t.pan = d.pan;
+                t.mut = d.mut;
+                t.inserts = d.inserts;
+                // els enviaments a busos que ja no hi són es deixen córrer
+                t.enviaments.clear();
+                for (const auto& e : d.enviaments)
+                    if (std::any_of (p.pistes.begin(), p.pistes.end(), [&] (const Pista& b) { return b.id == e.desti; })) t.enviaments.push_back (e);
+                ++n;
+            }
+        p.masterDb = v.masterDb;
+        p.insertsMaster = v.insertsMaster;
+        return n;
+    }
 }

@@ -485,6 +485,7 @@ namespace mibase::mix
                 if (act * 2 > g) nivells.push_back (db (e / g));
             }
             if (nivells.size() >= 5) a.rangDinamicDb = (float) (percentil (nivells, 0.9) - percentil (nivells, 0.1));
+            if (! nivells.empty()) a.nivellFortDb = (float) percentil (nivells, 0.9);   // 1.25
         }
 
         // 2) FFT de cada finestra: bandes, espectre fi dels moments actius, sibilància

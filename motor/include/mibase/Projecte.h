@@ -426,6 +426,24 @@ namespace mibase
         int compasNum = 0, compasDen = 0;   // 0.28: compàs propi (0: el de la cançó)
     };
 
+    /** 1.25: una «versió de mescla» (Mix Assistant): el volum, el panorama, el mute, els efectes (amb els seus ajustos) i
+        els enviaments de cada pista, i el volum i els efectes del màster, amb un nom. No guarda àudio ni clips. */
+    struct VersioMescla
+    {
+        struct DePista
+        {
+            std::string pista;
+            double faderDb = 0.0, pan = 0.0;
+            bool mut = false;
+            std::vector<Insert> inserts;
+            std::vector<Enviament> enviaments;
+        };
+        std::string nom, quan;
+        std::vector<DePista> pistes;
+        double masterDb = 0.0;
+        std::vector<Insert> insertsMaster;
+    };
+
     struct Projecte
     {
         std::string nom;
@@ -457,6 +475,7 @@ namespace mibase
             Diuen què s'exporta amb «Tota la cançó». */
         double iniciCanco = -1.0, fiCanco = -1.0;
         int comptador = 0;       // per fer identificadors únics
+        std::vector<VersioMescla> versionsMescla;   // 1.25: Mix Assistant
 
         // ---- Harmonia (0.8) ----
         /** true: la tonalitat es dedueix de les notes MIDI (si n'hi ha prou); false: l'ha triada en Roger. */

@@ -80,6 +80,7 @@ namespace mibase::mix
         float picDb = -100.0f, truePeakDb = -100.0f;
         float crestaDb = 0.0f;                    // pic − nivell actiu
         float rangDinamicDb = 0.0f;               // P90 − P10 del nivell en finestres de 0,4 s (moments actius)
+        float nivellFortDb = -100.0f;             // 1.25: P90 d'aquests nivells (les parts fortes), per als llindars
         float atacsPerSegon = 0.0f;               // transitoris
         float centroideHz = 0.0f;
         float greusPart = 0.0f, agutsPart = 0.0f; // part de l'energia per sota de 150 Hz i per sobre de 5 kHz
@@ -193,4 +194,33 @@ namespace mibase::mix
     std::string textTemps (double segons);
     /** El nom del tram on cau un moment («Tornada»), o buit. */
     std::string tramDe (const std::vector<Tram>& trams, double segons);
+
+    // ---------------- 1.25: fase 3 — correccions i seguiment ----------------
+    /** La correcció que es pot preparar per a una incidència: un efecte intern nou (EQ Pro, Dinàmica o Estèreo) amb els
+        ajustos de la proposta, per posar al final de la cadena de la pista. Plugin buit si no se'n pot preparar res
+        (cal escoltar, tornar a gravar, tocar el fader…). */
+    struct Correccio
+    {
+        std::string pista;
+        std::string plugin, nom, estat;
+        std::string resum;      // què fa, en paraules («EQ Pro: −3 dB a 315 Hz»)
+        bool valida() const noexcept { return ! plugin.empty(); }
+    };
+    /** Es pot preparar? (EQ, de-esser, compressor, mono als greus; ni fader, ni panorama, ni «revisa»). */
+    bool espotPreparar (const Incidencia& i);
+    /** a: l'anàlisi de la pista (per als llindars del compressor i del de-esser; pot ser nul). guanyDb: el fader
+        (el so analitzat el porta i l'efecte va abans del fader); NAN si té automatització de volum. */
+    Correccio preparaCorreccio (const Incidencia& i, const AnalisiPista* a = nullptr, float guanyDb = 0.0f);
+    /** El sufix del nom de l'efecte mentre és una prova (encara no aplicat). */
+    inline constexpr const char* sufixProva = " (prova)";
+
+    /** Seguiment: què ha passat amb cada incidència entre dues anàlisis. Que les mesures millorin no vol dir que soni millor. */
+    struct Evolucio
+    {
+        enum Estat { Solucionat, Millorat, Continua, Empitjorat, Nou };
+        Estat estat = Continua;
+        std::string id, pista, titol;
+    };
+    std::vector<Evolucio> compara (const std::vector<Incidencia>& abans, const std::vector<Incidencia>& ara);
+    const char* nomEvolucio (Evolucio::Estat e);
 }

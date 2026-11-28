@@ -346,6 +346,16 @@ private:
     void tornaBalancOriginal();
     void posaBalanc (bool proposat);
     void actualitzaPuntsMix();
+    // 1.25: fase 3 (correccions preparades amb A/B, versions de mescla, seguiment)
+    std::vector<mibase::mix::Incidencia> abansMix;
+    bool fotoMixFeta = false;
+    const mibase::mix::Incidencia* incidenciaMix (const std::string& id) const;
+    int estatCorreccioMix (const std::string& idInc) const;
+    void correccioMix (const std::string& accio, const std::string& idInc);
+    void menuVersionsMix (juce::Component* on);
+    void desaVersioMix (const juce::String& nom);
+    void recuperaVersioMix (int k);
+    void fotoMixAutomatica();
     // 1.16: marcadors F1–F4
     void desaMarcador (int m);
     void vesAMarcador (int m);

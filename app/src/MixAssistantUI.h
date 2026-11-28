@@ -26,6 +26,17 @@ struct ModelMix : public juce::ChangeBroadcaster
     std::vector<mibase::mix::CanviBalanc> balanc;
     bool escoltantBalanc = false;   // el Balanç proposat sona ara (B)
     bool creacio = false;           // mode Creació: només el que val la pena arreglar a la gravació
+    // 1.25: correccions (incidència → pista i efecte que s'hi ha posat) i seguiment entre anàlisis
+    std::map<std::string, std::pair<std::string, std::string>> correccions;
+    std::vector<mibase::mix::Evolucio> seguiment;
+    /** Totes les incidències d'ara (per comparar-les amb les de la propera anàlisi). */
+    std::vector<mibase::mix::Incidencia> totesCopia() const
+    {
+        std::vector<mibase::mix::Incidencia> v;
+        for (const auto& f : files) for (const auto& i : f.diag.incidencies) v.push_back (i);
+        for (const auto& i : globals) v.push_back (i);
+        return v;
+    }
     inline static const std::string idMescla { "__mescla__" };
     bool analitzant = false, fet = false;
     juce::String progres, quan;
@@ -169,6 +180,10 @@ public:
     std::function<void (const std::string&, mibase::mix::Instrument)> onConfirma;      // «Sí, és això»
     std::function<void (const std::string&)> onVesAPista, onMostraPista;
     std::function<void()> onEscoltaBalanc, onAcceptaBalanc, onDescartaBalanc;          // 1.24
+    /** 1.25: «prepara», «escolta», «obre», «aplica», «rebutja» d'una incidència. */
+    std::function<void (const std::string& accio, const std::string& incidencia)> onCorreccio;
+    /** 1.25: com està la correcció d'una incidència: 0 cap, 1 preparada (apagada, A), 2 preparada i sonant (B), 3 aplicada. */
+    std::function<int (const std::string& incidencia)> estatCorreccio;
 
     void mostra (const std::string& idPista) { pista = idPista; refes(); }
     const std::string& pistaMostrada() const noexcept { return pista; }
@@ -207,16 +222,18 @@ public:
             case Zona::EscoltaBalanc: if (onEscoltaBalanc) onEscoltaBalanc(); break;
             case Zona::AcceptaBalanc: if (onAcceptaBalanc) onAcceptaBalanc(); break;
             case Zona::DescartaBalanc: if (onDescartaBalanc) onDescartaBalanc(); break;
+            case Zona::Correccio: if (onCorreccio) onCorreccio (zona.accio2, zona.clau); break;
         }
     }
 
 private:
     struct Zona
     {
-        enum Accio { Detalls, Instrument, Confirma, VesAPista, MostraPista, EscoltaBalanc, AcceptaBalanc, DescartaBalanc } accio;
+        enum Accio { Detalls, Instrument, Confirma, VesAPista, MostraPista, EscoltaBalanc, AcceptaBalanc, DescartaBalanc, Correccio } accio;
         juce::Rectangle<int> r;
         std::string clau;
         mibase::mix::Instrument inst = mibase::mix::Instrument::Desconegut;
+        std::string accio2;   // 1.25: quina acció de la correcció
     };
     ModelMix& model;
     std::string pista;                // buit: totes; ModelMix::idMescla: la mescla sencera
@@ -269,6 +286,7 @@ private:
                 y = caixaPregunta (g, m, y, W, (n == 1 ? "Hi ha una pista que no sé quin instrument és: "_ca : juce::String (n) + " pistes no sé quin instrument són: "_ca)
                                    + noms + ". Si m'ho dius, el diagnòstic serà més precís."_ca, {});
             }
+            if (! model.seguiment.empty()) y = caixaSeguiment (g, m, y, W);   // 1.25
             if (! model.creacio && ! model.balanc.empty()) y = caixaBalanc (g, m, y, W);   // 1.24.1: també aquí
             const auto v = model.totes();
             if (v.empty()) y = mixui::escriu (g, "No hi veig res important."_ca, dibuix::lletra (14.0f), tema::textMig, m, y, W);
@@ -359,6 +377,46 @@ private:
         return y + 16;
     }
 
+    /** 1.25: què ha passat des de l'anàlisi anterior. */
+    int caixaSeguiment (juce::Graphics* g, int x, int y, int w)
+    {
+        namespace mx = mibase::mix;
+        using mixui::u;
+        const int pad = 14;
+        int n[5] {};
+        for (const auto& e : model.seguiment) ++n[(int) e.estat];
+        juce::String resum = "Des de l'anàlisi anterior: "_ca;
+        juce::StringArray parts;
+        const char* noms[] = { "solucionades", "han millorat", "continuen", "han empitjorat", "noves" };
+        for (int k = 0; k < 5; ++k) if (n[k] > 0) parts.add (juce::String (n[k]) + " " + juce::String::fromUTF8 (noms[k]));
+        resum << parts.joinIntoString (", ") << ".";
+        juce::String llista;
+        int k = 0;
+        for (const auto& e : model.seguiment)
+        {
+            if (e.estat == mx::Evolucio::Continua) continue;
+            if (++k > 8) break;
+            const auto* f = model.fila (e.pista);
+            llista << "· "_ca << u (mx::nomEvolucio (e.estat)) << ": " << u (e.titol) << (f != nullptr ? " (" + f->nom + ")" : juce::String()) << "\n";
+        }
+        const juce::String nota = "Les mesures no ho són tot: escolta-ho i decideix tu."_ca;
+        const int h = pad + mixui::escriu (nullptr, resum, dibuix::lletra (14.0f, true), tema::text, 0, 0, w - 2 * pad, 6)
+                    + mixui::escriu (nullptr, llista.trimEnd(), dibuix::lletra (12.5f), tema::textMig, 0, 0, w - 2 * pad, 6)
+                    + mixui::escriu (nullptr, nota, dibuix::lletra (12.0f), tema::suau, 0, 0, w - 2 * pad, 0) + pad;
+        if (g != nullptr)
+        {
+            auto r = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h);
+            g->setColour (tema::sinte.withAlpha (0.08f));
+            g->fillRoundedRectangle (r, 8.0f);
+            g->setColour (tema::sinte.withAlpha (0.5f));
+            g->drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+        }
+        int yy = mixui::escriu (g, resum, dibuix::lletra (14.0f, true), tema::text, x + pad, y + pad, w - 2 * pad, 6);
+        yy = mixui::escriu (g, llista.trimEnd(), dibuix::lletra (12.5f), tema::textMig, x + pad, yy, w - 2 * pad, 6);
+        mixui::escriu (g, nota, dibuix::lletra (12.0f), tema::suau, x + pad, yy, w - 2 * pad, 0);
+        return y + h + 14;
+    }
+
     /** 1.24: el Balanç proposat, amb l'A/B. */
     int caixaBalanc (juce::Graphics* g, int x, int y, int w)
     {
@@ -367,7 +425,7 @@ private:
         juce::String text;
         for (const auto& c : model.balanc)
         {
-            text << "· " << u (c.nom) << ": ";
+            text << "· "_ca << u (c.nom) << ": ";
             juce::StringArray parts;
             if (c.tocaFader()) parts.add ("fader " + juce::String (c.faderAbans, 1).replaceCharacter ('.', ',') + " → "
                                           + juce::String (c.fader, 1).replaceCharacter ('.', ',') + " dB");
@@ -509,6 +567,43 @@ private:
                 for (const auto& a : i.altres) yy = mixui::escriu (gg, "· "_ca + u (a), dibuix::lletra (12.5f), tema::suau, tx + 8, yy, iw - 8, 3);
                 yy += 5;
             }
+            // 1.25: preparar, escoltar, ajustar, aplicar o rebutjar la correcció
+            if (! model.creacio && mibase::mix::espotPreparar (i))
+            {
+                const int ec = estatCorreccio ? estatCorreccio (i.id) : 0;
+                auto bt = [&] (int bx, const juce::String& t, bool primari, const char* accio)
+                {
+                    Zona z { Zona::Correccio, {}, i.id };
+                    z.accio2 = accio;
+                    return boto (gg, bx, yy, t, primari, z).getRight() + 8;
+                };
+                int bx = tx;
+                if (ec == 0) bx = bt (bx, "Prepara-la"_ca, true, "prepara");
+                else if (ec == 3)
+                {
+                    if (gg != nullptr)
+                    {
+                        gg->setColour (tema::sinte);
+                        gg->setFont (dibuix::lletra (12.5f, true));
+                        gg->drawText ("Aplicada"_ca, bx, yy, 80, 28, juce::Justification::centredLeft);
+                    }
+                    bx += 80;
+                    bx = bt (bx, "Ajusta-la"_ca, false, "obre");
+                    bx = bt (bx, "Treu-la"_ca, false, "rebutja");
+                }
+                else
+                {
+                    bx = bt (bx, ec == 2 ? "Torna a l'original (A)"_ca : "Escolta-la (B)"_ca, ec != 2, "escolta");
+                    bx = bt (bx, "Ajusta-la"_ca, false, "obre");
+                    bx = bt (bx, "Aplica-la"_ca, ec == 2, "aplica");
+                    bx = bt (bx, "Rebutja-la"_ca, false, "rebutja");
+                }
+                yy += 32;
+                if (ec == 1 || ec == 2)
+                    yy = mixui::escriu (gg, ec == 2 ? "Sona la correcció (B). Compara-la amb l'original (A) i decideix."_ca
+                                                    : "Preparada: és a la pista, al final dels efectes, encara apagada. No canvia res fins que l'apliquis."_ca,
+                                        dibuix::lletra (12.0f), ec == 2 ? tema::accent : tema::suau, tx, yy, iw, 4);
+            }
             const bool deBalanc = (i.proposta.tipus == mibase::mix::Proposta::Fader || i.proposta.tipus == mibase::mix::Proposta::Panorama)
                                   && ! model.balanc.empty() && ! model.creacio;
             if (gg != nullptr)
@@ -571,6 +666,9 @@ public:
         addAndMakeVisible (btAnalitza);
         btAnalitza.setTooltip ("Escolta totes les pistes (renderitzades, sense reproduir-les) i en fa el diagnòstic. No canvia res de la mescla."_ca);
         btAnalitza.onClick = [this] { if (onAnalitza) onAnalitza(); };
+        addAndMakeVisible (btVersions);   // 1.25
+        btVersions.setTooltip ("Versions de mescla: desa com està ara la mescla (volums, panorames, efectes, enviaments) i torna-hi quan vulguis"_ca);
+        btVersions.onClick = [this] { if (onVersions) onVersions (&btVersions); };
         addAndMakeVisible (segMode);   // 1.24
         segMode.setTooltip ("Creació: només el que val la pena arreglar mentre graves. Mescla: tot (conflictes, equilibri, to…)"_ca);
         segMode.onCanvi = [this] (int i) { if (onMode) onMode (i == 0); };
@@ -591,6 +689,7 @@ public:
 
     std::function<void()> onAnalitza;
     std::function<void (bool creacio)> onMode;   // 1.24
+    std::function<void (juce::Component*)> onVersions;   // 1.25
     LlistaMix& llistaDetall() noexcept { return detall; }
 
     /** Mostra una pista (buit: totes). */
@@ -612,7 +711,7 @@ public:
         g.fillRect (cap);
         g.setColour (tema::linia);
         g.fillRect (cap.removeFromBottom (1));
-        auto t = cap.reduced (18, 0).withTrimmedRight (btAnalitza.getWidth() + segMode.getWidth() + 36);
+        auto t = cap.reduced (18, 0).withTrimmedRight (btAnalitza.getWidth() + segMode.getWidth() + btVersions.getWidth() + 54);
         g.setColour (tema::text);
         g.setFont (dibuix::lletra (20.0f, true));
         g.drawText ("Mix Assistant", t.getX(), 12, t.getWidth(), 26, juce::Justification::centredLeft);
@@ -644,6 +743,7 @@ public:
         auto cap = r.removeFromTop (alcadaCap);
         btAnalitza.setBounds (cap.removeFromRight (btAnalitza.ampladaIdeal() + 18).withTrimmedRight (18).withSizeKeepingCentre (btAnalitza.ampladaIdeal(), 34));
         segMode.setBounds (cap.removeFromRight (segMode.ampladaIdeal() + 18).withTrimmedRight (18).withSizeKeepingCentre (segMode.ampladaIdeal(), 30));
+        btVersions.setBounds (cap.removeFromRight (btVersions.ampladaIdeal() + 18).withTrimmedRight (18).withSizeKeepingCentre (btVersions.ampladaIdeal(), 32));
         llista.setBounds (r.removeFromLeft (juce::jlimit (200, 290, getWidth() / 4)));
         r.removeFromLeft (1);
         vista.setBounds (r);
@@ -668,6 +768,7 @@ private:
     ModelMix& model;
     Boto btAnalitza { "Analitza la mescla"_ca, std::nullopt, Boto::Estil::Primari };
     Segmentat segMode { { "Creació"_ca, "Mescla" } };
+    Boto btVersions { "Versions de mescla"_ca };
     juce::ListBox llista;
     juce::Viewport vista;
     LlistaMix detall;
