@@ -306,6 +306,11 @@ namespace mibase::disc
         p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
         p.masterDb = std::clamp (j.value ("masterDb", 0.0), -60.0, 6.0);
         p.sortidaMaster = std::clamp (j.value ("sortidaMaster", 0), 0, 31);
+        p.iniciCanco = j.value ("iniciCanco", -1.0);   // 1.18
+        p.fiCanco = j.value ("fiCanco", -1.0);
+        if (j.contains ("marcadors") && j["marcadors"].is_array())   // 1.16
+            for (size_t k = 0; k < p.marcadors.size() && k < j["marcadors"].size(); ++k)
+                if (j["marcadors"][k].is_number()) p.marcadors[k] = j["marcadors"][k].get<double>();
         p.insertsMaster = insertsDeJson (j, "insertsMaster");
         {
             const auto snap = j.value ("snap", std::string ("compas"));
@@ -382,8 +387,11 @@ namespace mibase::disc
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
                 t.notes = e.value ("notes", std::string());   // 0.87
+                t.mixInstrument = e.value ("mixInstrument", std::string());   // 1.23
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
+                t.sortidaTargeta = std::clamp (e.value ("sortidaTargeta", -1), -1, 63);   // 1.17
+                t.canalsTargeta = e.value ("canalsTargeta", 2) == 1 ? 1 : 2;
                 t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
                 if (e.contains ("enviaments") && e["enviaments"].is_array())
                     for (auto& v : e["enviaments"])
@@ -751,6 +759,9 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
         j["sortidaMaster"] = p.sortidaMaster;
+        j["marcadors"] = p.marcadors;   // 1.16
+        if (p.iniciCanco >= 0.0) j["iniciCanco"] = p.iniciCanco;   // 1.18
+        if (p.fiCanco >= 0.0) j["fiCanco"] = p.fiCanco;
         if (! p.insertsMaster.empty()) j["insertsMaster"] = insertsAJson (p.insertsMaster);
         j["comptador"] = p.comptador;
         {
@@ -898,7 +909,9 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.notes.empty()) pista["notes"] = t.notes;   // 0.87
+            if (! t.mixInstrument.empty()) pista["mixInstrument"] = t.mixInstrument;   // 1.23
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
+            if (t.sortidaTargeta >= 0) { pista["sortidaTargeta"] = t.sortidaTargeta; pista["canalsTargeta"] = t.canalsTargeta; }   // 1.17
             if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
             if (! t.enviaments.empty())
             {

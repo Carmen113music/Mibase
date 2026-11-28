@@ -40,7 +40,7 @@ namespace mibase::reverb
                                { "1/8T", 1.0 / 3.0 }, { "1/8", 0.5 }, { "1/8·", 0.75 }, { "1/4T", 2.0 / 3.0 }, { "1/4", 1.0 },
                                { "1/4·", 1.5 }, { "1/2", 2.0 }, { "1/1", 4.0 }, { "2/1", 8.0 }, { "4/1", 16.0 } };
         constexpr int nNotes = (int) (sizeof (notes) / sizeof (notes[0]));
-        const int transp[] = { 12, 7, 5, -12 };
+        const int transp[] = { 12, 7, 5, -12, 24 };   // 1.15: +24 al final (els presets d'abans no canvien)
 
         // clau, nom, min, max, defecte, enter, log, ajuda
         const InfoParam infos[numParams] = {
@@ -87,7 +87,7 @@ namespace mibase::reverb
             { "modsync", "Sincronitza la modulació", 0, 1, 0, true, false, "La velocitat de la modulació segueix el tempo." },
             { "modnota", "Nota de la modulació", 0, nNotes - 1, 12, true, false, "Durada d'un cicle de modulació en notes." },
             { "shimon", "Shimmer", 0, 1, 0, true, false, "La cua puja (o baixa) de to a cada volta." },
-            { "shimpitch", "Transposició", 0, 3, 0, true, false, "Quant es transposa: +12 (octava), +7 (quinta), +5 (quarta) o -12." },
+            { "shimpitch", "Transposició", 0, 4, 0, true, false, "Quant es transposa: +12 (octava), +7 (quinta), +5 (quarta), -12 o +24 (dues octaves)." },
             { "shimamt", "Quantitat", 0, 100, 35, false, false, "Quanta part de la cua es transposa." },
             { "freezeon", "Freeze", 0, 1, 0, true, false, "Congela la cua: queda sonant sense parar i no hi entra so nou." },
             { "freezerel", "Alliberament", 0.05f, 10.0f, 2.0f, false, true, "En treure el Freeze, quant triga la cua a tornar a apagar-se." },
@@ -292,8 +292,8 @@ namespace mibase::reverb
     int numNotes() { return nNotes; }
     const char* nomNota (int i) { return notes[std::clamp (i, 0, nNotes - 1)].nom; }
     double notaEnTemps (int i) { return notes[std::clamp (i, 0, nNotes - 1)].negres; }
-    int numTransposicions() { return 4; }
-    int transposicio (int i) { return transp[std::clamp (i, 0, 3)]; }
+    int numTransposicions() { return 5; }
+    int transposicio (int i) { return transp[std::clamp (i, 0, 4)]; }
 
     std::string textValor (int p, float v)
     {
