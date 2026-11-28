@@ -46,6 +46,47 @@ ServeiAudio::ServeiAudio (Historial& h) : historial (h)
     tancaments::pas ("en marxa");
     actualitzaMidi();
     changeListenerCallback (nullptr);
+    vigilaFons.f = [this] { revisaFons(); };   // 1.25
+    vigilaFons.startTimer (400);
+}
+
+bool ServeiAudio::getAlliberaEnFons() const
+{
+    return ajustos == nullptr || ajustos->getBoolValue ("audio.alliberaEnFons", true);
+}
+
+void ServeiAudio::setAlliberaEnFons (bool b)
+{
+    if (ajustos != nullptr) { ajustos->setValue ("audio.alliberaEnFons", b); ajustos->saveIfNeeded(); }
+    if (! b) revisaFons();   // si estava alliberada, la torna a agafar
+}
+
+void ServeiAudio::revisaFons()
+{
+    // 1.25: Mibase al darrere uns segons, sense sonar ni gravar → tanca la targeta (ASIO no deixa que altres programes
+    // la facin servir mentre és oberta). Al davant de nou → la torna a obrir amb els mateixos ajustos.
+    const bool davant = juce::Process::isForegroundProcess();
+    if (targetaAlliberada)
+    {
+        if (davant || ! getAlliberaEnFons())
+        {
+            targetaAlliberada = false;
+            gestor.restartLastAudioDevice();
+            historial.afegeix (gestor.getCurrentAudioDevice() != nullptr ? "Mibase torna a ser al davant: targeta recuperada."_ca
+                                                                         : "Mibase torna a ser al davant, però no s'ha pogut tornar a obrir la targeta (és oberta per un altre programa?). Tria-la a Preferències."_ca);
+            changeListenerCallback (nullptr);
+        }
+        return;
+    }
+    if (davant || ! getAlliberaEnFons() || gestor.getCurrentAudioDevice() == nullptr || (potAlliberar && ! potAlliberar())) { enFonsDes = 0; return; }
+    const auto ara = juce::Time::getMillisecondCounter();
+    if (enFonsDes == 0) { enFonsDes = ara; return; }
+    if (ara - enFonsDes < 2500) return;   // un Alt+Tab ràpid no la deixa anar
+    enFonsDes = 0;
+    desaAjustos();                        // els ajustos bons, abans de tancar
+    targetaAlliberada = true;
+    gestor.closeAudioDevice();
+    historial.afegeix ("Mibase és al darrere: targeta alliberada per a les altres aplicacions (es recupera en tornar-hi)."_ca);
 }
 
 ServeiAudio::~ServeiAudio()
@@ -277,6 +318,14 @@ void ServeiAudio::audioDeviceAboutToStart (juce::AudioIODevice* d)
     for (int e = 0; e < juce::jmax (actives.getHighestBit() + 1, 0) && e < mibase::MotorEstudi::maxEntrades; ++e)
         mapa.push_back (actives[e] ? k++ : -1);
     motorEstudi.setMapaEntrades (mapa);
+
+    // 1.17: el mateix per a les sortides (per a les sortides directes de les pistes)
+    std::vector<int> mapaS;
+    const auto activesS = d->getActiveOutputChannels();
+    int ks = 0;
+    for (int c = 0; c < juce::jmax (activesS.getHighestBit() + 1, 0) && c < mibase::maxSortidesDirectes; ++c)
+        mapaS.push_back (activesS[c] ? ks++ : -1);
+    motorEstudi.setMapaSortides (mapaS);
 }
 
 juce::StringArray ServeiAudio::getNomsEntrades()
@@ -288,6 +337,19 @@ juce::StringArray ServeiAudio::getNomsEntrades()
         const auto tots = d->getInputChannelNames();
         for (int e = 0; e < tots.size() && e < mibase::MotorEstudi::maxEntrades; ++e)
             noms.add (actives[e] ? tots[e] : juce::String());   // buit: entrada apagada
+    }
+    return noms;
+}
+
+juce::StringArray ServeiAudio::getNomsSortides()
+{
+    juce::StringArray noms;
+    if (auto* d = gestor.getCurrentAudioDevice())
+    {
+        const auto actives = d->getActiveOutputChannels();
+        const auto tots = d->getOutputChannelNames();
+        for (int c = 0; c < tots.size() && c < mibase::maxSortidesDirectes; ++c)
+            noms.add (actives[c] ? tots[c] : juce::String());   // buit: sortida apagada
     }
     return noms;
 }
@@ -404,6 +466,8 @@ void ServeiAudio::handleIncomingMidiMessage (juce::MidiInput* origen, const juce
 void ServeiAudio::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     auto* d = gestor.getCurrentAudioDevice();
+
+    if (targetaAlliberada) return;   // 1.25: tancada a propòsit (Mibase al darrere): no es desa com a «cap dispositiu»
 
     juce::String descripcio;
     if (d == nullptr)
