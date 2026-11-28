@@ -744,7 +744,7 @@ namespace mibase::mix
         {
             switch (p.tipus)
             {
-                case Proposta::PassaAlts: return p.eina + " · Passa-alts · " + hz (p.freq) + " · 12 dB/oct";
+                case Proposta::PassaAlts: { static const int dbo[] = { 6, 12, 18, 24, 36, 48, 72, 96 }; return p.eina + " · Passa-alts · " + hz (p.freq) + " · " + std::to_string (dbo[std::clamp (p.pendent, 0, 7)]) + " dB/oct"; }
                 case Proposta::Campana: return p.eina + " · Campana · " + hz (p.freq) + " · " + dbs (p.guany) + " · Q " + num (p.q);
                 case Proposta::PrestatgeAguts: return p.eina + " · Prestatge d'aguts · " + hz (p.freq) + " · " + dbs (p.guany);
                 case Proposta::PrestatgeGreus: return p.eina + " · Prestatge de greus · " + hz (p.freq) + " · " + dbs (p.guany);
@@ -888,9 +888,12 @@ namespace mibase::mix
                 i.gravetat = std::clamp (0.35f + exc / 20.0f, 0.35f, 0.65f);
                 i.confianca = confEq;
                 i.titol = "Greus que sobren per sota de " + hz (P.tallHz);
-                i.queVeig = "Hi ha força so per sota de " + hz (P.tallHz) + ", on " + elQue + " gairebé no hi té res a dir.";
-                i.perque = "Sovint són cops al micro, vibracions o soroll de la sala: no se senten clars, però omplen els greus de la mescla i treuen marge.";
-                i.solucio = "Un filtre passa-alts suau a " + hz (P.tallHz) + ".";
+                i.queVeig = "Hi ha força so per sota de " + hz (P.tallHz) + ", on " + elQue + " gairebé no hi té res a dir (" + num (exc) + " dB de més).";
+                i.perque = esGravacio ? "Sovint són cops al micro, vibracions o soroll de la sala: no se senten clars, però omplen els greus de la mescla i treuen marge."
+                                      : "Al so de l'instrument hi ha greus profunds que gairebé no se senten, però omplen la part de baix de la mescla i hi trepitgen el baix i el bombo.";
+                // 1.28: prou dret perquè de debò baixin (abans, un 12 dB/oct no n'hi havia prou i el problema no marxava)
+                i.proposta.pendent = exc > 20.0f ? 5 : exc > 6.0f ? 3 : 1;   // 48, 24 o 12 dB/oct
+                i.solucio = "Un filtre passa-alts a " + hz (P.tallHz) + (exc > 20.0f ? " (48 dB/oct)." : exc > 6.0f ? " (24 dB/oct)." : " (12 dB/oct).");
                 i.proposta.tipus = Proposta::PassaAlts;
                 i.proposta.freq = P.tallHz;
                 i.proposta.eina = "EQ Pro";
@@ -925,7 +928,7 @@ namespace mibase::mix
                 i.solucio = "Una retallada suau dels greus.";
                 i.proposta.tipus = Proposta::PrestatgeGreus;
                 i.proposta.freq = diagnosi::freqBanda (b) * 1.4f;
-                i.proposta.guany = -std::clamp (std::round (exc * 0.6f * 2.0f) / 2.0f, 1.5f, 6.0f);
+                i.proposta.guany = -std::clamp (std::round (exc * 0.8f * 2.0f) / 2.0f, 1.5f, 8.0f);
                 i.proposta.eina = "EQ Pro";
                 afegeix (i);
             }
@@ -942,10 +945,10 @@ namespace mibase::mix
                 i.queVeig = "Hi ha massa energia a la zona de " + hz (diagnosi::freqBanda (b)) + ": " + num (exc) + " dB més del que és habitual.";
                 i.perque = cops ? "Fa que el cop soni tancat i de cartró, sense pegada."
                                 : "És la zona que fa que una mescla soni embolicada i tapada: quan molts instruments en tenen massa, tot es confon.";
-                i.solucio = "Una retallada de " + dbs (-std::clamp (std::round (exc * 0.6f * 2.0f) / 2.0f, 1.5f, 6.0f)) + " a " + hz (diagnosi::freqBanda (b)) + ", no gaire estreta.";
+                i.solucio = "Una retallada de " + dbs (-std::clamp (std::round (exc * 0.8f * 2.0f) / 2.0f, 1.5f, 8.0f)) + " a " + hz (diagnosi::freqBanda (b)) + ", no gaire estreta.";
                 i.proposta.tipus = Proposta::Campana;
                 i.proposta.freq = diagnosi::freqBanda (b);
-                i.proposta.guany = -std::clamp (std::round (exc * 0.6f * 2.0f) / 2.0f, 1.5f, 6.0f);
+                i.proposta.guany = -std::clamp (std::round (exc * 0.8f * 2.0f) / 2.0f, 1.5f, 8.0f);
                 i.proposta.q = 1.2f;
                 i.proposta.eina = "EQ Pro";
                 afegeix (i);
@@ -979,10 +982,10 @@ namespace mibase::mix
                 i.titol = "So dur o estrident";
                 i.queVeig = "La zona de " + hz (diagnosi::freqBanda (b)) + " és " + num (exc) + " dB més forta del que és habitual.";
                 i.perque = "És la zona on l'orella és més sensible: massa energia aquí cansa i fa que la pista soni agressiva.";
-                i.solucio = "Una retallada de " + dbs (-std::clamp (std::round (exc * 0.6f * 2.0f) / 2.0f, 1.5f, 5.0f)) + " a " + hz (diagnosi::freqBanda (b)) + ".";
+                i.solucio = "Una retallada de " + dbs (-std::clamp (std::round (exc * 0.8f * 2.0f) / 2.0f, 1.5f, 6.0f)) + " a " + hz (diagnosi::freqBanda (b)) + ".";
                 i.proposta.tipus = Proposta::Campana;
                 i.proposta.freq = diagnosi::freqBanda (b);
-                i.proposta.guany = -std::clamp (std::round (exc * 0.6f * 2.0f) / 2.0f, 1.5f, 5.0f);
+                i.proposta.guany = -std::clamp (std::round (exc * 0.8f * 2.0f) / 2.0f, 1.5f, 6.0f);
                 i.proposta.q = 1.5f;
                 i.proposta.eina = "EQ Pro";
                 afegeix (i);
@@ -1020,7 +1023,7 @@ namespace mibase::mix
                 i.solucio = "Un prestatge d'aguts suau a 8 kHz.";
                 i.proposta.tipus = Proposta::PrestatgeAguts;
                 i.proposta.freq = 8000.0f;
-                i.proposta.guany = -std::clamp (std::round (exc * 0.5f * 2.0f) / 2.0f, 1.5f, 5.0f);
+                i.proposta.guany = -std::clamp (std::round (exc * 0.7f * 2.0f) / 2.0f, 1.5f, 6.0f);
                 i.proposta.eina = "EQ Pro";
                 afegeix (i);
             }
@@ -1033,6 +1036,11 @@ namespace mibase::mix
             const bool tonal = esTonal (inst) && P.ressonanciesMusicals;
             // al baix, al bombo i als toms els pics són la nota o el cos: no es toquen
             if (inst == Instrument::Baix || inst == Instrument::Bombo || inst == Instrument::Toms) continue;
+            // 1.28: un instrument virtual no té sala ni micro; i els instruments que mantenen les notes (pads, teclats, cordes,
+            // vents, sintes) fan pics fixos que són les notes de l'acord, no ressonàncies
+            if (! esGravacio) continue;
+            if (inst == Instrument::Pad || inst == Instrument::Teclats || inst == Instrument::Piano || inst == Instrument::Sinte
+                || inst == Instrument::Corda || inst == Instrument::Vents) continue;
             Incidencia i;
             i.id = nouId ("ressonancia", std::to_string ((int) std::lround (6.0 * std::log2 (r.freq / 100.0))));
             i.confianca = (tonal && r.persistencia < 0.8f) || inst == Instrument::Desconegut ? Confianca::Baixa : r.excesDb >= 12.0f ? Confianca::Alta : Confianca::Mitjana;
@@ -1043,7 +1051,7 @@ namespace mibase::mix
             i.solucio = "Una retallada estreta a " + hz (r.freq) + ". Escolta-ho abans: si és una nota que es repeteix molt, deixa-la.";
             i.proposta.tipus = Proposta::Campana;
             i.proposta.freq = r.freq;
-            i.proposta.guany = -std::clamp (std::round (r.excesDb * 0.5f * 2.0f) / 2.0f, 2.0f, 8.0f);
+            i.proposta.guany = -std::clamp (std::round ((r.excesDb - 4.0f) * 2.0f) / 2.0f, 3.0f, 15.0f);   // 1.28: que el pic baixi de debò
             i.proposta.q = r.q;
             i.proposta.eina = "EQ Pro";
             i.detalls = detallsEq (i.proposta) + " · hi és el " + std::to_string ((int) std::lround (r.persistencia * 100.0f)) + " % del temps";

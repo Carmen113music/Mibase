@@ -61,7 +61,7 @@ namespace mibase::mix
                 eq::Banda b;
                 b.usada = true;
                 b.freq = std::clamp (p.freq, eq::freqMin, eq::freqMax);
-                if (p.tipus == Proposta::PassaAlts) { b.tipus = eq::HighPass; b.pendent = 1; b.q = eq::qDefecte; }   // 12 dB/oct
+                if (p.tipus == Proposta::PassaAlts) { b.tipus = eq::HighPass; b.pendent = std::clamp (p.pendent, 0, eq::numPendents - 1); b.q = eq::qDefecte; }
                 else
                 {
                     b.tipus = p.tipus == Proposta::Campana ? eq::Bell : p.tipus == Proposta::PrestatgeGreus ? eq::LowShelf : eq::HighShelf;
@@ -72,7 +72,7 @@ namespace mibase::mix
                 c.plugin = eq::idPlugin;
                 c.nom = nomEqMix;
                 c.estat = e.estat();
-                c.resum = p.tipus == Proposta::PassaAlts ? "EQ Pro: passa-alts a " + hz (b.freq)
+                c.resum = p.tipus == Proposta::PassaAlts ? "EQ Pro: passa-alts a " + hz (b.freq) + " (" + std::to_string (eq::dbPerOctava (b.pendent)) + " dB/oct)"
                         : "EQ Pro: " + dbs (b.guany) + " a " + hz (b.freq) + (p.tipus == Proposta::Campana ? " (Q " + num1 (b.q) + ")" : "");
                 break;
             }
@@ -345,5 +345,53 @@ namespace mibase::mix
             n += (int) eqs.size();
         }
         return n;
+    }
+
+    bool reforcaCorreccio (Projecte& p, const LlocCorreccio& l, const Correccio& nova, int* bandaNova)
+    {
+        if (bandaNova != nullptr) *bandaNova = -1;
+        auto* t = pistaDe (p, l.pista);
+        auto* x = t != nullptr ? insertDe (*t, l.insert) : nullptr;
+        if (x == nullptr || ! nova.valida()) return false;
+        if (l.banda < 0)
+        {
+            x->estat = nova.estat;
+            x->actiu = true;
+            return true;
+        }
+        eq::Equalitzador e, n;
+        e.posaEstat (x->estat);
+        n.posaEstat (nova.estat);
+        auto b = e.banda (l.banda);
+        const auto bn = n.banda (0);
+        if (! b.usada || ! bn.usada) return false;
+        if (b.tipus == eq::HighPass)
+        {
+            b.freq = std::max (b.freq, bn.freq);
+            b.pendent = std::min (eq::numPendents - 1, std::max (b.pendent, bn.pendent) + (bn.freq <= b.freq ? 1 : 0));
+        }
+        else if (std::abs (std::log2 (bn.freq / std::max (1.0f, b.freq))) > 1.0 / 3.0)
+        {
+            // el que falta és a un altre lloc: una banda nova (encesa) al mateix EQ
+            auto nb = bn;
+            nb.activa = true;
+            const int k = e.bandaLliure();
+            if (k < 0) return false;
+            e.posaBanda (k, nb);
+            x->estat = e.estat();
+            x->actiu = true;
+            if (bandaNova != nullptr) *bandaNova = k;
+            return true;
+        }
+        else
+        {
+            b.guany = std::clamp (b.guany + bn.guany, -24.0f, 24.0f);
+            if (b.tipus == eq::Bell && bn.tipus == eq::Bell) b.q = std::max (b.q, bn.q);
+        }
+        b.activa = true;
+        e.posaBanda (l.banda, b);
+        x->estat = e.estat();
+        x->actiu = true;
+        return true;
     }
 }

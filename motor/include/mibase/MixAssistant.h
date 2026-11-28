@@ -114,6 +114,7 @@ namespace mibase::mix
         float ratio = 0.0f, reduccioDb = 0.0f;            // compressor i de-esser
         float atacMs = 0.0f, alliberamentMs = 0.0f;
         float abans = 0.0f, despres = 0.0f;               // 1.24: fader (dB) o panorama (−1…+1)
+        int pendent = 1;                                   // 1.28: passa-alts (índex de l'EQ Pro: 1 = 12 dB/oct, 3 = 24 dB/oct)
         std::string eina;                                  // «EQ Pro», «Dinàmica (de-esser)»…
     };
 
@@ -256,4 +257,10 @@ namespace mibase::mix
     int ajuntaEqsMix (Projecte& p);
     /** És un efecte del Mix Assistant? */
     bool esEfecteMix (const Insert& x);
+
+    /** 1.28: la correcció ja aplicada no ha estat prou: la reforça amb la proposta nova (calculada amb el so que ja porta
+        la correcció). EQ: suma el guany a la seva banda (com a molt −24 dB), o un passa-alts més amunt i més dret;
+        compressor, de-esser i Estèreo: els ajustos nous. Si la proposta nova és a una altra freqüència (més d'1/3 d'octava),
+        s'hi afegeix una banda nova encesa al mateix EQ i se'n torna l'índex a «bandaNova» (si no, −1). */
+    bool reforcaCorreccio (Projecte& p, const LlocCorreccio& l, const Correccio& nova, int* bandaNova = nullptr);
 }

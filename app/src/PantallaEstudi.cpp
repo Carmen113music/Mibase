@@ -5047,6 +5047,7 @@ void PantallaEstudi::pasMix()
         modelMix.quan = "analitzat a les "_ca + juce::Time::getCurrentTime().formatted ("%H:%M");
         historial.afegeix ("Mix Assistant: analitzades "_ca + juce::String (modelMix.analitzades()) + " pistes"_ca);
         tancaments::pas ("Mix Assistant: anàlisi acabada");
+        ++modelMix.numAnalisi;   // 1.28
         if (! abansMix.empty()) modelMix.seguiment = mibase::mix::compara (abansMix, modelMix.totesCopia());   // 1.25
         abansMix.clear();
         modelMix.avisa();
@@ -5279,6 +5280,7 @@ int PantallaEstudi::estatCorreccioMix (const std::string& idInc) const
     const int e = mibase::mix::estatCorreccio (estat.projecte, c->second.lloc);
     if (e < 0) return 0;
     if (e == 0) return 1;
+    if (c->second.aplicada && modelMix.numAnalisi > c->second.analisi && incidenciaMix (idInc) != nullptr) return 4;   // 1.28: encara hi és
     return c->second.aplicada ? 3 : 2;
 }
 
@@ -5364,11 +5366,31 @@ void PantallaEstudi::correccioMix (const std::string& accio, const std::string& 
         pas();
         mibase::mix::encenCorreccio (estat.projecte, c->second.lloc, true);
         c->second.aplicada = true;
+        c->second.analisi = modelMix.numAnalisi;
         plugins.restauraInterns (estat.projecte, true);
         apuntaMix (c->second.lloc.pista, "Aplicada: "_ca + (inc != nullptr ? resumDe (mibase::mix::preparaCorreccio (*inc)) : juce::String())
                                           + (c->second.lloc.banda >= 0 ? " (banda "_ca + juce::String (c->second.lloc.banda + 1) + ")" : juce::String()) + " · "_ca + titol);
         estat.canviat ("Mix Assistant: aplicada «"_ca + titol + "» a «"_ca + nomPista + "»"_ca);
         estat.info = "Aplicada a «"_ca + nomPista + "» (Ctrl+Z ho desfà). Torna a analitzar per veure com ha quedat."_ca;
+    }
+    else if (accio == "reforca")   // 1.28: la correcció aplicada no ha estat prou
+    {
+        if (inc == nullptr) return;
+        const auto& t = estat.projecte.pistes[(size_t) ti];
+        const ModelMix::Fila* f = modelMix.fila (t.id);
+        const auto cor = mibase::mix::preparaCorreccio (*inc, f != nullptr ? f->analisi.get() : nullptr, teAutoMix (t, "volum") ? NAN : (float) t.faderDb);
+        if (! cor.valida()) return;
+        plugins.desaEstats (estat.projecte);
+        estat.desfes.abans (estat.projecte);
+        pas();
+        int nova = -1;
+        mibase::mix::reforcaCorreccio (estat.projecte, c->second.lloc, cor, &nova);
+        if (nova >= 0) c->second.bandesExtra.push_back (nova);
+        c->second.analisi = modelMix.numAnalisi;
+        plugins.restauraInterns (estat.projecte, true);
+        apuntaMix (c->second.lloc.pista, "Reforçada: "_ca + resumDe (cor) + " més · "_ca + titol);
+        estat.canviat ("Mix Assistant: reforçada «"_ca + titol + "» a «"_ca + nomPista + "»"_ca);
+        estat.info = "Reforçada a «"_ca + nomPista + "» (Ctrl+Z ho desfà). Torna a analitzar per comprovar-ho."_ca;
     }
     else if (accio == "rebutja")
     {
@@ -5376,6 +5398,12 @@ void PantallaEstudi::correccioMix (const std::string& accio, const std::string& 
         estat.desfes.abans (estat.projecte);
         pas();
         const bool eraAplicada = c->second.aplicada;
+        for (int b : c->second.bandesExtra)   // 1.28: les bandes que s'hi van afegir en reforçar-la
+        {
+            auto l = c->second.lloc;
+            l.banda = b;
+            mibase::mix::treuCorreccio (estat.projecte, l);
+        }
         mibase::mix::treuCorreccio (estat.projecte, c->second.lloc);
         plugins.restauraInterns (estat.projecte, true);
         apuntaMix (c->second.lloc.pista, (eraAplicada ? "Treta (estava aplicada)"_ca : "Rebutjada"_ca) + " · "_ca + titol);

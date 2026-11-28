@@ -28,7 +28,8 @@ struct ModelMix : public juce::ChangeBroadcaster
     bool escoltantBalanc = false;   // el Balanç proposat sona ara (B)
     bool creacio = false;           // mode Creació: només el que val la pena arreglar a la gravació
     // 1.25: correccions (incidència → pista i efecte que s'hi ha posat) i seguiment entre anàlisis
-    struct Correccio { mibase::mix::LlocCorreccio lloc; bool aplicada = false; };   // 1.26: banda de l'EQ únic (o efecte)
+    struct Correccio { mibase::mix::LlocCorreccio lloc; bool aplicada = false; int analisi = -1; std::vector<int> bandesExtra; };   // 1.28: bandes afegides en reforçar-la   // 1.26: banda de l'EQ únic (o efecte); 1.28: anàlisi en què s'ha aplicat
+    int numAnalisi = 0;   // 1.28: quantes anàlisis s'han acabat (per saber si un problema continua després d'aplicar-ne la correcció)
     std::map<std::string, Correccio> correccions;
     inline static const std::string idHistorial { "__historial__" };   // 1.26 (amb «:<pista>», el d'una pista)
     // 1.27: el Mix Coach (la conversa de la sessió)
@@ -189,7 +190,8 @@ public:
     std::function<void()> onEscoltaBalanc, onAcceptaBalanc, onDescartaBalanc;          // 1.24
     /** 1.25: «prepara», «escolta», «obre», «aplica», «rebutja» d'una incidència. */
     std::function<void (const std::string& accio, const std::string& incidencia)> onCorreccio;
-    /** 1.25: com està la correcció d'una incidència: 0 cap, 1 preparada (apagada, A), 2 preparada i sonant (B), 3 aplicada. */
+    /** 1.25: com està la correcció d'una incidència: 0 cap, 1 preparada (apagada, A), 2 preparada i sonant (B), 3 aplicada;
+        1.28: 4 aplicada però, en tornar a analitzar, encara hi és. */
     std::function<int (const std::string& incidencia)> estatCorreccio;
     /** 1.26: l'historial del Mix Assistant (del projecte), el més nou a dalt. */
     std::function<std::vector<mibase::Projecte::EntradaMix>()> historial;
@@ -632,6 +634,12 @@ private:
                     bx = bt (bx, "Ajusta-la"_ca, false, "obre");
                     bx = bt (bx, "Treu-la"_ca, false, "rebutja");
                 }
+                else if (ec == 4)   // 1.28: aplicada, però en tornar a analitzar encara hi és
+                {
+                    bx = bt (bx, "Reforça-la"_ca, true, "reforca");
+                    bx = bt (bx, "Ajusta-la"_ca, false, "obre");
+                    bx = bt (bx, "Treu-la"_ca, false, "rebutja");
+                }
                 else
                 {
                     bx = bt (bx, ec == 2 ? "Torna a l'original (A)"_ca : "Escolta-la (B)"_ca, ec != 2, "escolta");
@@ -640,6 +648,9 @@ private:
                     bx = bt (bx, "Rebutja-la"_ca, false, "rebutja");
                 }
                 yy += 32;
+                if (ec == 4)
+                    yy = mixui::escriu (gg, "Ja hi ha una correcció aplicada, però encara ho detecto (la mesura d'ara ja la compta). «Reforça-la» hi afegeix el que encara falta."_ca,
+                                        dibuix::lletra (12.0f), tema::accent, tx, yy, iw, 4);
                 if (ec == 1 || ec == 2)
                     yy = mixui::escriu (gg, ec == 2 ? "Sona la correcció (B). Compara-la amb l'original (A) i decideix."_ca
                                                     : "Preparada: és a l'efecte del Mix Assistant de la pista (al final dels efectes), encara apagada. No canvia res fins que l'apliquis."_ca,
