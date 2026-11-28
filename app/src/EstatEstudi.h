@@ -74,6 +74,8 @@ public:
 
     // Triat.
     int pistaTriada = -1;                              // la pista de la columna esquerra
+    /** 1.24: Mix Assistant obert i amb resultats: la pista té coses (0 important, 1 a revisar, 2 detall). Buit: no es pinta res. */
+    std::map<std::string, int> puntsMix;
     std::vector<mibase::edicio::RefClip> triats;       // clips triats (poden ser de pistes diferents)
 
     /** Tros triat amb el requadre en mode «només el que queda dins». */

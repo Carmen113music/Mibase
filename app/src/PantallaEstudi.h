@@ -335,6 +335,17 @@ private:
     void posaInstrumentMix (const std::string& idPista, mibase::mix::Instrument i, bool perDefecte = false);
     void rediagnosticaMix (const std::string& idPista);
     std::vector<mibase::mix::Tram> tramsMix (double inici) const;
+    // 1.24: fase 2 (la mescla sencera, Balanç proposat amb A/B, mode Creació/Mescla, puntets a les capçaleres)
+    bool mixSencera = false;                                   // falta el pas de la mescla sencera
+    std::shared_ptr<mibase::mix::AnalisiPista> analisiMescla;
+    std::vector<mibase::mix::PistaMescla> pistesMescla();
+    void calculaMescla();
+    void escoltaBalanc();
+    void acceptaBalanc();
+    void descartaBalanc();
+    void tornaBalancOriginal();
+    void posaBalanc (bool proposat);
+    void actualitzaPuntsMix();
     // 1.16: marcadors F1–F4
     void desaMarcador (int m);
     void vesAMarcador (int m);

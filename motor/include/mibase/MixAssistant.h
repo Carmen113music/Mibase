@@ -2,6 +2,7 @@
 
 #include "mibase/Diagnosi.h"
 #include <array>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -91,6 +92,7 @@ namespace mibase::mix
         float sideGreusDb = -100.0f;              // Side respecte del Mid per sota de 150 Hz
         bool esMono = true;                       // L i R gairebé iguals
         int saturacions = 0;                      // trossos plans al pic (gravació saturada)
+        float sorollDb = -200.0f;                 // 1.24: soroll de fons constant entre frases (dBFS; -200 = no n'hi ha)
         std::vector<double> momentsSaturacio;     // segons (fins a 4)
         std::vector<std::pair<double, double>> trams;   // on sona (segons), units si el forat és de menys d'1 s
     };
@@ -104,11 +106,13 @@ namespace mibase::mix
 
     struct Proposta
     {
-        enum Tipus { Cap, PassaAlts, Campana, PrestatgeGreus, PrestatgeAguts, DeEsser, Compressor, MonoGreus, Revisa };
+        enum Tipus { Cap, PassaAlts, Campana, PrestatgeGreus, PrestatgeAguts, DeEsser, Compressor, MonoGreus, Revisa,
+                     Fader, Panorama };   // 1.24: equilibri
         Tipus tipus = Cap;
         float freq = 0.0f, guany = 0.0f, q = 0.7f;        // EQ (el guany en dB; el passa-alts, 12 dB/oct)
         float ratio = 0.0f, reduccioDb = 0.0f;            // compressor i de-esser
         float atacMs = 0.0f, alliberamentMs = 0.0f;
+        float abans = 0.0f, despres = 0.0f;               // 1.24: fader (dB) o panorama (−1…+1)
         std::string eina;                                  // «EQ Pro», «Dinàmica (de-esser)»…
     };
 
@@ -129,6 +133,11 @@ namespace mibase::mix
         std::string on;              // «a tota la cançó», «sobretot a Tornada (1:12)»…
         Proposta proposta;
         float gravetat = 0.0f;       // per ordenar (0–1)
+        // 1.24
+        std::vector<std::string> altres;   // altres solucions, cadascuna amb el seu pro i contra
+        std::vector<std::string> pistes;   // les pistes implicades (conflictes i equilibri); buit = només «pista»
+        bool origen = false;               // cosa de la gravació (surt també en mode Creació)
+        bool deMescla = false;             // parla de la mescla sencera (no d'una pista)
     };
 
     struct DiagnosiPista
@@ -140,9 +149,45 @@ namespace mibase::mix
         std::string mesures;                    // les xifres (desplegable)
     };
 
-    /** esGravacio: pista d'àudio (un sinte pot fer ones quadrades, que no són saturació). */
+    /** esGravacio: pista d'àudio (un sinte pot fer ones quadrades, que no són saturació).
+        guanyDb (1.24): el que hi posa el fader (el so analitzat ja el porta); NAN si té automatització de volum. */
     DiagnosiPista diagnosticaPista (const std::string& idPista, const std::string& nom, const AnalisiPista& a,
-                                    const Identificacio& id, const std::vector<Tram>& trams = {}, bool esGravacio = true);
+                                    const Identificacio& id, const std::vector<Tram>& trams = {}, bool esGravacio = true,
+                                    float guanyDb = 0.0f);
+
+    // ---------------- 1.24: fase 2 — la mescla sencera ----------------
+    /** Una pista per a l'anàlisi global (el so analitzat porta el fader i el panorama). */
+    struct PistaMescla
+    {
+        std::string id, nom;
+        Identificacio ident;
+        const AnalisiPista* analisi = nullptr;
+        double faderDb = 0.0, pan = 0.0;
+        bool autoVolum = false, autoPan = false;
+    };
+
+    /** Un canvi del «Balanç proposat». */
+    struct CanviBalanc
+    {
+        std::string pista, nom;
+        double faderAbans = 0.0, fader = 0.0, panAbans = 0.0, pan = 0.0;
+        bool tocaFader() const noexcept { return std::abs (fader - faderAbans) > 0.05; }
+        bool tocaPan() const noexcept { return std::abs (pan - panAbans) > 0.01; }
+    };
+
+    /** Conflictes entre instruments: dues pistes que es tapen al mateix lloc i AL MATEIX MOMENT. No n'hi ha prou que
+        comparteixin freqüències: cal que la que tapa hi tingui tanta energia com la tapada durant una bona part del
+        temps que sonen juntes. */
+    std::vector<Incidencia> conflictes (const std::vector<PistaMescla>& pistes, const std::vector<Tram>& trams = {});
+
+    /** Balance Assistant: nivells relatius (veu i resta, bombo i baix, caixa, guitarres…) i panorames. Les xifres són
+        orientatives (pop/rock). «proposta» rep el Balanç proposat (mai es posa sol). */
+    std::vector<Incidencia> balanc (const std::vector<PistaMescla>& pistes, std::vector<CanviBalanc>& proposta);
+
+    /** La mescla sencera (renderitzada sense el màster): to comparat amb la corba orientativa (amb les pistes que hi
+        tenen més part), què passa quan sona tota la banda, i fase. */
+    std::vector<Incidencia> diagnosticaMescla (const AnalisiPista& mix, const std::vector<PistaMescla>& pistes,
+                                               const std::vector<Tram>& trams = {});
 
     /** «1:12» */
     std::string textTemps (double segons);

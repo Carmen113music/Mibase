@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
+#include <map>
 #include <numeric>
 
 namespace mibase::mix
@@ -578,6 +580,16 @@ namespace mibase::mix
             for (size_t f = 0; f < F; ++f) if (a.actiu[f]) c.push_back (a.correlacio[f]);
             a.correlacioMin = (float) percentil (c, 0.05);
         }
+        // 1.24: soroll de fons: els moments sense música però que no són silenci digital, si són prou constants
+        {
+            std::vector<float> v;
+            for (size_t f = 0; f < F; ++f) if (! a.actiu[f] && a.nivellDb[f] > -110.0f) v.push_back (a.nivellDb[f]);
+            if ((double) v.size() * a.salt >= 1.5)
+            {
+                const double p50 = percentil (v, 0.5), p20 = percentil (v, 0.2), p80 = percentil (v, 0.8);
+                if (p80 - p20 < 6.0) a.sorollDb = (float) p50;
+            }
+        }
 
         // 3) ressonàncies: pics estrets de l'espectre mitjà que hi són gairebé sempre (una nota no hi és sempre)
         // el nivell del voltant: la mediana de cada costat (±1/3 d'octava) i la més alta de les dues, perquè un graó
@@ -721,6 +733,12 @@ namespace mibase::mix
 
         Prioritat prioritatDe (float g) { return g >= 0.7f ? Prioritat::Alta : g >= 0.4f ? Prioritat::Mitjana : Prioritat::Baixa; }
 
+        std::string textPan (double p)
+        {
+            if (std::abs (p) < 0.01) return "al mig";
+            return std::to_string ((int) std::lround (std::abs (p) * 100.0)) + " % " + (p < 0 ? "esquerra" : "dreta");
+        }
+
         std::string detallsEq (const Proposta& p)
         {
             switch (p.tipus)
@@ -733,13 +751,15 @@ namespace mibase::mix
                 case Proposta::Compressor: return p.eina + " · Ratio " + num (p.ratio, 0) + ":1 · atac " + num (p.atacMs, 0) + " ms · alliberament "
                                                 + num (p.alliberamentMs, 0) + " ms · llindar perquè redueixi uns " + num (p.reduccioDb, 0) + " dB a les parts fortes";
                 case Proposta::MonoGreus: return p.eina + " · Mono als greus: " + hz (p.freq);
+                case Proposta::Fader: return p.eina + " · " + num (p.abans) + " dB → " + num (p.despres) + " dB";
+                case Proposta::Panorama: return p.eina + " · " + textPan (p.abans) + " → " + textPan (p.despres);
                 default: return p.eina;
             }
         }
     }
 
     DiagnosiPista diagnosticaPista (const std::string& idPista, const std::string& nom, const AnalisiPista& a,
-                                    const Identificacio& id, const std::vector<Tram>& trams, bool esGravacio)
+                                    const Identificacio& id, const std::vector<Tram>& trams, bool esGravacio, float guanyDb)
     {
         DiagnosiPista d;
         d.pista = idPista;
@@ -771,6 +791,7 @@ namespace mibase::mix
         {
             Incidencia i;
             i.id = nouId ("saturacio", "");
+            i.origen = true;
             i.gravetat = a.saturacions >= 20 ? 0.9f : 0.7f;
             i.confianca = Confianca::Mitjana;
             i.titol = "Sembla que la gravació satura";
@@ -789,6 +810,7 @@ namespace mibase::mix
         {
             Incidencia i;
             i.id = nouId ("fase", "");
+            i.origen = true;
             i.gravetat = a.perduaMonoDb > 9.0f || a.global.correlacio < 0.0f ? 0.85f : 0.55f;
             i.confianca = Confianca::Alta;
             i.titol = "Problema de fase entre l'esquerra i la dreta";
@@ -798,6 +820,41 @@ namespace mibase::mix
             i.proposta.tipus = Proposta::Revisa;
             i.proposta.eina = "Estèreo (Escolta en mono)";
             i.detalls = "Correlació " + num (a.global.correlacio, 2) + " (la més baixa, " + num (a.correlacioMin, 2) + ") · pèrdua en mono " + num (a.perduaMonoDb) + " dB";
+            afegeix (i);
+        }
+
+        // ---- 1.24: gravació fluixa (abans del fader) i soroll de fons ----
+        if (esGravacio && ! std::isnan (guanyDb) && a.picDb - guanyDb < -24.0f)
+        {
+            Incidencia i;
+            i.id = nouId ("fluixa", "");
+            i.origen = true;
+            i.gravetat = a.picDb - guanyDb < -36.0f ? 0.45f : 0.3f;
+            i.confianca = Confianca::Alta;
+            i.titol = "Gravació molt fluixa";
+            i.queVeig = "El pic més fort de la gravació (abans del fader) és a " + num (a.picDb - guanyDb) + " dBFS.";
+            i.perque = "Amb 24 bits no és greu, però com més fluixa, més se sent el soroll de la targeta i del micro quan l'apuges.";
+            i.solucio = "A la propera presa, puja una mica el guany de l'entrada (que els pics quedin entre −18 i −8 dBFS).";
+            i.proposta.tipus = Proposta::Revisa;
+            i.proposta.eina = "Guany de la targeta";
+            i.detalls = "Pic abans del fader: " + num (a.picDb - guanyDb) + " dBFS";
+            afegeix (i);
+        }
+        if (esGravacio && a.sorollDb > -60.0f && a.nivellActiuDb - a.sorollDb < 40.0f)
+        {
+            Incidencia i;
+            i.id = nouId ("soroll", "");
+            i.origen = true;
+            const float marge = a.nivellActiuDb - a.sorollDb;
+            i.gravetat = marge < 25.0f ? 0.6f : 0.4f;
+            i.confianca = Confianca::Mitjana;
+            i.titol = "Soroll de fons entre frases";
+            i.queVeig = "Quan no toca, hi queda un soroll constant a " + num (a.sorollDb) + " dBFS (només " + num (marge) + " dB per sota de la música).";
+            i.perque = "Brunzit, ventilador o amplificador: amb compressió i sumat a altres pistes, embruta la mescla.";
+            i.solucio = "Si pots, torna-la a gravar més lluny del soroll. Si no, retalla els clips als silencis o posa-hi un gate suau.";
+            i.proposta.tipus = Proposta::Revisa;
+            i.proposta.eina = "Dinàmica (gate) o retallar els clips";
+            i.detalls = "Soroll " + num (a.sorollDb) + " dBFS · música " + num (a.nivellActiuDb) + " dBFS";
             afegeix (i);
         }
 
@@ -989,6 +1046,7 @@ namespace mibase::mix
             i.proposta.q = r.q;
             i.proposta.eina = "EQ Pro";
             i.detalls = detallsEq (i.proposta) + " · hi és el " + std::to_string ((int) std::lround (r.persistencia * 100.0f)) + " % del temps";
+            i.origen = r.excesDb >= 12.0f && r.persistencia >= 0.8f;   // molt marcada: millor mirar el micro o la sala
             afegeix (i);
             if (d.incidencies.size() > 12) break;
         }
@@ -1101,5 +1159,632 @@ namespace mibase::mix
                   + (a.esMono ? std::string ("Mono") : "Correlació: " + num (a.global.correlacio, 2) + " · Pèrdua en mono: " + num (a.perduaMonoDb) + " dB")
                   + " · Sona el " + std::to_string ((int) std::lround (a.parteActiva * 100.0f)) + " % del temps";
         return d;
+    }
+}
+
+// =====================================================================================================================
+// 1.24: fase 2 — conflictes entre pistes, equilibri i la mescla sencera
+namespace mibase::mix
+{
+    namespace
+    {
+        double ener (float dbv) { return std::pow (10.0, (double) dbv / 10.0); }
+        double eZona (const AnalisiPista& a, size_t f, int b0, int b1)
+        {
+            double e = 0.0;
+            for (int b = b0; b <= b1; ++b) e += ener (a.bandesDb[f][(size_t) b]);
+            return e;
+        }
+        /** La finestra de «a» al moment t (segons de la cançó), o -1. */
+        long frameA (const AnalisiPista& a, double t)
+        {
+            if (a.salt <= 0.0) return -1;
+            const long f = std::lround ((t - a.inici) / a.salt);
+            return f >= 0 && f < (long) a.nivellDb.size() ? f : -1;
+        }
+        /** Pes aproximat de l'oïda per banda (com una ponderació K senzilla): els subgreus compten poc, la presència una mica més. */
+        double pes (int b)
+        {
+            const float f = diagnosi::freqBanda (b);
+            return std::pow (10.0, (f < 60.0f ? -10.0 : f < 100.0f ? -4.0 : f < 1500.0f ? 0.0 : 3.0) / 10.0);
+        }
+        double eSonora (const AnalisiPista& a, size_t f)
+        {
+            double e = 0.0;
+            for (int b = 0; b < NB; ++b) e += pes (b) * ener (a.bandesDb[f][(size_t) b]);
+            return e;
+        }
+        bool es (Instrument i, std::initializer_list<Instrument> l) { return std::find (l.begin(), l.end(), i) != l.end(); }
+        bool segura (const PistaMescla& p)
+        {
+            return p.analisi != nullptr && p.analisi->valid && p.ident.instrument != Instrument::Desconegut && p.ident.confianca != Confianca::Baixa;
+        }
+        std::string cm (const std::string& n) { return "«" + n + "»"; }
+        bool esGuitarra (Instrument i) { return i == Instrument::GuitarraElectrica || i == Instrument::GuitarraAcustica; }
+
+        /** On passa: les parts que hi surten més (si n'hi ha) o uns quants moments. */
+        std::string onPassa (const std::vector<double>& moments, const std::vector<Tram>& trams)
+        {
+            if (moments.empty()) return {};
+            if (! trams.empty())
+            {
+                std::vector<std::pair<int, std::string>> c;
+                for (const auto& t : trams)
+                {
+                    int n = 0;
+                    for (double m : moments) n += m >= t.desDe && m < t.finsA;
+                    if (n == 0) continue;
+                    auto it = std::find_if (c.begin(), c.end(), [&] (auto& x) { return x.second == t.nom; });
+                    if (it != c.end()) it->first += n; else c.push_back ({ n, t.nom });
+                }
+                std::sort (c.begin(), c.end(), [] (auto& x, auto& y) { return x.first > y.first; });
+                std::string r;
+                int k = 0;
+                for (const auto& [n, nom] : c)
+                {
+                    if (k >= 3 || n < (int) (0.2 * (double) moments.size())) break;
+                    r += (k ? ", " : "") + cm (nom);
+                    ++k;
+                }
+                if (! r.empty()) return "sobretot a " + r;
+            }
+            std::vector<double> m;
+            for (double t : moments) if (m.empty() || t - m.back() > 8.0) m.push_back (t);
+            if (m.size() > 3) m.resize (3);
+            return textMoments (m, trams);
+        }
+
+        struct ReglaConflicte
+        {
+            Instrument tapada;
+            std::vector<Instrument> tapen;
+            int b0, b1;   // bandes de terç d'octava
+        };
+        const std::vector<ReglaConflicte>& reglesConflicte()
+        {
+            using I = Instrument;
+            static const std::vector<ReglaConflicte> r {
+                // la veu: presència i definició (1–5 kHz)
+                { I::Veu, { I::GuitarraElectrica, I::GuitarraAcustica, I::Piano, I::Teclats, I::Pad, I::Sinte, I::Corda, I::Vents, I::Caixa, I::Cors }, 15, 22 },
+                // el bombo i el baix (40–125 Hz)
+                { I::Bombo, { I::Baix }, 1, 6 },
+                // les guitarres i els teclats (250 Hz–2 kHz)
+                { I::GuitarraElectrica, { I::Piano, I::Teclats, I::Pad, I::Sinte }, 9, 18 },
+                { I::GuitarraAcustica, { I::Piano, I::Teclats, I::Pad, I::Sinte }, 9, 18 },
+            };
+            return r;
+        }
+    }
+
+    std::vector<Incidencia> conflictes (const std::vector<PistaMescla>& pistes, const std::vector<Tram>& trams)
+    {
+        std::vector<Incidencia> v;
+        for (const auto& A : pistes)
+        {
+            if (! segura (A)) continue;
+            for (const auto& regla : reglesConflicte())
+            {
+                if (regla.tapada != A.ident.instrument) continue;
+                for (const auto& B : pistes)
+                {
+                    if (&B == &A || ! segura (B)) continue;
+                    if (std::find (regla.tapen.begin(), regla.tapen.end(), B.ident.instrument) == regla.tapen.end()) continue;
+                    const auto& a = *A.analisi;
+                    const auto& b = *B.analisi;
+                    if (a.bandesDb.empty() || b.bandesDb.empty()) continue;
+                    // la tapada ha de tenir alguna cosa a dir en aquesta zona
+                    double zA = 0.0, totA = 0.0;
+                    for (int k = 0; k < NB; ++k)
+                    {
+                        const double e = a.global.mid[(size_t) k] + a.global.side[(size_t) k];
+                        totA += e;
+                        if (k >= regla.b0 && k <= regla.b1) zA += e;
+                    }
+                    if (totA <= 0.0 || db (zA) - db (totA) < -15.0f) continue;
+                    int comu = 0, tapat = 0;
+                    double sumaDif = 0.0;
+                    std::vector<double> sA ((size_t) NB, 0.0), sB ((size_t) NB, 0.0), moments;
+                    for (size_t f = 0; f < a.nivellDb.size(); ++f)
+                    {
+                        if (! a.actiu[f]) continue;
+                        const double t = a.inici + (double) f * a.salt;
+                        const long g = frameA (b, t);
+                        if (g < 0 || ! b.actiu[(size_t) g]) continue;
+                        ++comu;
+                        const double ea = eZona (a, f, regla.b0, regla.b1), eb = eZona (b, (size_t) g, regla.b0, regla.b1);
+                        const double d = db (eb) - db (ea);
+                        if (d <= -3.0) continue;
+                        ++tapat;
+                        sumaDif += d;
+                        moments.push_back (t);
+                        for (int k = regla.b0; k <= regla.b1; ++k)
+                        {
+                            sA[(size_t) k] += ener (a.bandesDb[f][(size_t) k]);
+                            sB[(size_t) k] += ener (b.bandesDb[(size_t) g][(size_t) k]);
+                        }
+                    }
+                    const double tComu = comu * a.salt;
+                    if (tComu < 6.0 || comu == 0) continue;
+                    const double part = (double) tapat / (double) comu;
+                    if (part < 0.4) continue;   // comparteixen la zona, però no es tapen prou: és normal
+                    const double mitjana = sumaDif / std::max (1, tapat);
+                    int bm = regla.b0;
+                    for (int k = regla.b0; k <= regla.b1; ++k) if (sA[(size_t) k] * sB[(size_t) k] > sA[(size_t) bm] * sB[(size_t) bm]) bm = k;
+                    const bool bomboBaix = A.ident.instrument == Instrument::Bombo;
+                    const int percent = (int) std::lround (part * 100.0);
+
+                    Incidencia i;
+                    i.id = "conflicte:" + A.id + ":" + B.id + ":" + std::to_string (regla.b0);
+                    i.pista = B.id;
+                    i.pistes = { A.id, B.id };
+                    i.gravetat = (float) std::clamp (0.4 + (part - 0.4) * 0.8 + std::max (0.0, mitjana) / 20.0, 0.4, 0.85);
+                    i.confianca = A.ident.confianca == Confianca::Alta && B.ident.confianca == Confianca::Alta ? Confianca::Mitjana : Confianca::Baixa;
+                    i.on = onPassa (moments, trams);
+                    i.proposta.tipus = Proposta::Campana;
+                    i.proposta.freq = diagnosi::freqBanda (bm);
+                    i.proposta.guany = -std::clamp (std::round ((float) (mitjana + 3.0) * 0.6f * 2.0f) / 2.0f, 2.0f, 5.0f);
+                    i.proposta.q = bomboBaix ? 1.4f : 1.0f;
+                    i.proposta.eina = "EQ Pro (a " + cm (B.nom) + ")";
+                    const std::string zona = hz (diagnosi::freqBanda (regla.b0)) + "–" + hz (diagnosi::freqBanda (regla.b1));
+                    if (bomboBaix)
+                    {
+                        i.titol = "El baix i el bombo es confonen";
+                        i.queVeig = "Als greus (" + zona + "), quan sonen junts, " + cm (B.nom) + " té tanta energia com " + cm (A.nom)
+                                  + " el " + std::to_string (percent) + " % del temps.";
+                        i.perque = "Els greus s'amunteguen: o el bombo perd el cop o el baix perd la nota, i la mescla sona gruixuda i poc clara.";
+                        i.solucio = "Fes un petit forat a " + cm (B.nom) + " a " + hz (i.proposta.freq) + " (on el bombo té el cop), d'uns "
+                                  + dbs (i.proposta.guany) + ".";
+                        i.altres = {
+                            "Sidechain: que el bombo comprimeixi el baix 2–4 dB a cada cop (Dinàmica amb sidechain). Molt eficaç; si n'hi ha massa, se sent el bombeig.",
+                            "Repartiu-vos els greus: el bombo amb més pes a sota (50–60 Hz) i el baix una mica més amunt (80–120 Hz), o al revés.",
+                            "Que només un dels dos faci el sub: un passa-alts suau a l'altre (30–40 Hz).",
+                        };
+                    }
+                    else
+                    {
+                        const bool veu = A.ident.instrument == Instrument::Veu;
+                        i.titol = cm (B.nom) + (veu ? " tapa la veu" : " ocupa l'espai de " + cm (A.nom));
+                        i.queVeig = "A la zona de " + zona + ", quan sonen junts, " + cm (B.nom) + " hi té tanta energia com " + cm (A.nom)
+                                  + " el " + std::to_string (percent) + " % del temps.";
+                        i.perque = veu ? "Quan sonen alhora, la veu perd definició: costa entendre-la i acabes apujant-la massa."
+                                       : "Dos instruments d'acompanyament al mateix registre es fonen en una massa i cap dels dos es defineix.";
+                        i.solucio = "Fes-li lloc: retalla " + cm (B.nom) + " " + dbs (i.proposta.guany) + " a " + hz (i.proposta.freq) + " (no gaire estret).";
+                        i.altres = {
+                            "EQ dinàmica a " + cm (B.nom) + " a " + hz (i.proposta.freq) + " que només actuï quan sona " + cm (A.nom)
+                                + " (EQ Pro amb sidechain): no li treu res quan " + cm (A.nom) + " calla.",
+                            "Sidechain: que " + cm (A.nom) + " comprimeixi una mica " + cm (B.nom) + " (Dinàmica amb sidechain). Eficaç; si és massa, es nota el bombeig.",
+                            "Panoramitza " + cm (B.nom) + " cap a un costat (30–50 %) i deixa el mig per a " + cm (A.nom) + ". En mono no ajuda.",
+                            "Baixa " + cm (B.nom) + " 1–2 dB: el més senzill, però perd presència a tota la cançó.",
+                        };
+                    }
+                    i.detalls = "Sonen junts " + num (tComu, 0) + " s · es tapen el " + std::to_string (percent) + " % · de mitjana "
+                              + num (mitjana) + " dB · " + detallsEq (i.proposta);
+                    i.prioritat = prioritatDe (i.gravetat);
+                    if (i.confianca == Confianca::Baixa && i.prioritat == Prioritat::Alta) i.prioritat = Prioritat::Mitjana;
+                    v.push_back (std::move (i));
+                }
+            }
+        }
+        std::sort (v.begin(), v.end(), [] (const Incidencia& x, const Incidencia& y) { return x.gravetat > y.gravetat; });
+        return v;
+    }
+
+    std::vector<Incidencia> balanc (const std::vector<PistaMescla>& pistes, std::vector<CanviBalanc>& proposta)
+    {
+        std::vector<Incidencia> v;
+        proposta.clear();
+        // una graella comuna (totes les pistes tenen el mateix salt: mateixa freqüència i mateixa FFT)
+        std::vector<int> ok;
+        double t0 = 1e30, t1 = -1e30, salt = 0.0;
+        for (int i = 0; i < (int) pistes.size(); ++i)
+        {
+            const auto* a = pistes[(size_t) i].analisi;
+            if (a == nullptr || ! a->valid || a->nivellDb.empty()) continue;
+            ok.push_back (i);
+            t0 = std::min (t0, a->inici);
+            t1 = std::max (t1, a->inici + (double) a->nivellDb.size() * a->salt);
+            salt = a->salt;
+        }
+        if (ok.size() < 2 || salt <= 0.0) return v;
+        const size_t K = (size_t) std::ceil ((t1 - t0) / salt) + 1;
+        std::vector<std::vector<double>> E (pistes.size());
+        for (int i : ok)
+        {
+            const auto& a = *pistes[(size_t) i].analisi;
+            E[(size_t) i].assign (K, 0.0);
+            for (size_t f = 0; f < a.nivellDb.size(); ++f)
+            {
+                if (! a.actiu[f]) continue;
+                const long k = std::lround ((a.inici + (double) f * a.salt - t0) / salt);
+                if (k >= 0 && (size_t) k < K) E[(size_t) i][(size_t) k] = eSonora (a, f);
+            }
+        }
+        auto quins = [&] (std::function<bool (const PistaMescla&)> f)
+        {
+            std::vector<int> r;
+            for (int i : ok) if (f (pistes[(size_t) i])) r.push_back (i);
+            return r;
+        };
+        /** Mediana de (qui − contra) en dB als moments que sonen tots dos. {dB, segons}. */
+        auto relacio = [&] (const std::vector<int>& qui, const std::vector<int>& contra)
+        {
+            std::vector<float> d;
+            for (size_t k = 0; k < K; ++k)
+            {
+                double a = 0.0, b = 0.0;
+                for (int i : qui) a += E[(size_t) i][k];
+                for (int i : contra) b += E[(size_t) i][k];
+                if (a > 0.0 && b > 0.0) d.push_back (db (a) - db (b));
+            }
+            return std::make_pair (d.empty() ? 0.0 : percentil (d, 0.5), (double) d.size() * salt);
+        };
+        auto inst = [&] (Instrument x) { return quins ([x] (const PistaMescla& p) { return segura (p) && p.ident.instrument == x; }); };
+        auto resta = [&] (const std::vector<int>& treu) { return quins ([&] (const PistaMescla& p)
+            { const int i = (int) (&p - pistes.data()); return std::find (treu.begin(), treu.end(), i) == treu.end(); }); };
+
+        std::map<std::string, CanviBalanc> canvis;
+        auto canvi = [&] (const PistaMescla& p) -> CanviBalanc&
+        {
+            auto it = canvis.find (p.id);
+            if (it == canvis.end())
+            {
+                CanviBalanc c;
+                c.pista = p.id; c.nom = p.nom;
+                c.faderAbans = c.fader = p.faderDb;
+                c.panAbans = c.pan = p.pan;
+                it = canvis.emplace (p.id, c).first;
+            }
+            return it->second;
+        };
+        auto nova = [&] (const PistaMescla& p, const std::string& clau, float gravetat, const std::string& titol, const std::string& queVeig,
+                         const std::string& perque, double deltaDb, double mesura)
+        {
+            Incidencia i;
+            i.id = "balanc:" + p.id + ":" + clau;
+            i.pista = p.id;
+            i.gravetat = gravetat;
+            i.confianca = Confianca::Baixa;
+            i.titol = titol;
+            i.queVeig = queVeig;
+            i.perque = perque;
+            i.on = "quan sonen junts";
+            if (p.autoVolum)
+            {
+                i.solucio = cm (p.nom) + " té automatització de volum: no en toco el fader. Puja o baixa la línia d'automatització uns "
+                          + num (std::abs (deltaDb)) + " dB.";
+                i.proposta.tipus = Proposta::Revisa;
+                i.proposta.eina = "Automatització de volum";
+            }
+            else
+            {
+                auto& c = canvi (p);
+                c.fader = std::clamp (c.fader + deltaDb, -60.0, 6.0);
+                i.solucio = (deltaDb > 0 ? "Puja " : "Baixa ") + cm (p.nom) + " uns " + num (std::abs (deltaDb)) + " dB (és al Balanç proposat: escolta'l abans).";
+                i.proposta.tipus = Proposta::Fader;
+                i.proposta.abans = (float) c.faderAbans;
+                i.proposta.despres = (float) c.fader;
+                i.proposta.eina = "Fader de " + cm (p.nom);
+            }
+            i.detalls = detallsEq (i.proposta) + " · mesura: " + num (mesura) + " dB";
+            i.prioritat = prioritatDe (gravetat);
+            if (i.prioritat == Prioritat::Alta) i.prioritat = Prioritat::Mitjana;   // l'equilibri sempre és una proposta
+            v.push_back (std::move (i));
+        };
+        auto arrodoneix = [] (double x) { return std::round (x * 2.0) / 2.0; };
+
+        // ---- la veu respecte de la resta ----
+        for (int iv : inst (Instrument::Veu))
+        {
+            const auto [d, seg] = relacio ({ iv }, resta ({ iv }));
+            if (seg < 5.0) continue;
+            const auto& p = pistes[(size_t) iv];
+            if (d < -4.0)
+                nova (p, "veu-enrere", (float) std::clamp (0.45 + (-4.0 - d) / 15.0, 0.45, 0.7), "La veu queda enrere",
+                      "Quan canta, " + cm (p.nom) + " sona " + num (-d) + " dB per sota de la resta de la banda.",
+                      "La veu és el que la gent escolta primer: si queda enrere, la cançó perd força i no s'entén la lletra.",
+                      std::min (6.0, arrodoneix (-1.0 - d)), d);
+            else if (d > 5.0)
+                nova (p, "veu-davant", (float) std::clamp (0.4 + (d - 5.0) / 15.0, 0.4, 0.6), "La veu va massa davant",
+                      "Quan canta, " + cm (p.nom) + " sona " + num (d) + " dB per sobre de la resta de la banda.",
+                      "Sembla que la veu no estigui dins la cançó (com un karaoke) i la banda perd pes.",
+                      -std::min (6.0, arrodoneix (d - 2.0)), d);
+        }
+        // ---- el bombo i el baix ----
+        const auto bombos = inst (Instrument::Bombo), baixos = inst (Instrument::Baix);
+        if (! bombos.empty() && ! baixos.empty())
+        {
+            const auto [d, seg] = relacio (bombos, baixos);
+            if (seg >= 5.0 && std::abs (d) > 10.0)
+            {
+                const auto& p = pistes[(size_t) (d > 0 ? bombos.front() : baixos.front())];
+                nova (p, d > 0 ? "bombo-tapa-baix" : "baix-tapa-bombo", 0.45f, d > 0 ? "El bombo tapa el baix" : "El baix es menja el bombo",
+                      "Quan sonen junts, " + std::string (d > 0 ? "el bombo" : "el baix") + " sona " + num (std::abs (d)) + " dB per sobre de l'altre.",
+                      "El bombo i el baix són la base: si un dels dos desapareix, la cançó perd groove.",
+                      -arrodoneix ((std::abs (d) - 6.0) / 2.0), d);
+            }
+        }
+        // ---- baix, bombo i caixa respecte de la resta ----
+        struct Llindar { Instrument i; double min, max; const char* fluix; const char* fort; const char* perqueFluix; const char* perqueFort; };
+        const Llindar llindars[] = {
+            { Instrument::Baix, -16.0, 3.0, "El baix massa fluix", "El baix massa fort",
+              "Sense baix la cançó queda prima i sense base.", "Els greus ho omplen tot: la mescla sona pesada i els altres perden espai." },
+            { Instrument::Bombo, -16.0, 2.0, "El bombo massa baix", "El bombo massa dominant",
+              "Sense bombo la cançó no empeny.", "Cada cop tapa tota la resta, i al màster farà que tot baixi." },
+            { Instrument::Caixa, -16.0, 2.0, "La caixa sense presència", "La caixa massa forta",
+              "La caixa marca el ritme: si no se sent, la cançó perd energia.", "Cada cop de caixa salta per sobre de la veu i de tot." },
+        };
+        for (const auto& L : llindars)
+            for (int ix : inst (L.i))
+            {
+                const auto [d, seg] = relacio ({ ix }, resta ({ ix }));
+                if (seg < 5.0) continue;
+                const auto& p = pistes[(size_t) ix];
+                if (d < L.min) nova (p, "fluix", 0.4f, L.fluix, cm (p.nom) + " sona " + num (-d) + " dB per sota de la resta quan toca.",
+                                     L.perqueFluix, std::min (6.0, arrodoneix ((L.min + 4.0 - d))), d);
+                else if (d > L.max) nova (p, "fort", 0.45f, L.fort, cm (p.nom) + " sona " + num (d) + " dB per sobre de la resta quan toca.",
+                                          L.perqueFort, -std::min (6.0, arrodoneix (d - L.max + 2.0)), d);
+            }
+        // ---- les guitarres respecte de la veu ----
+        {
+            const auto gtrs = quins ([] (const PistaMescla& p) { return segura (p) && esGuitarra (p.ident.instrument); });
+            const auto veus = inst (Instrument::Veu);
+            if (! gtrs.empty() && ! veus.empty())
+            {
+                const auto [d, seg] = relacio (gtrs, veus);
+                if (seg >= 5.0 && d > 5.0)
+                    for (int ig : gtrs)
+                        nova (pistes[(size_t) ig], "gtr-protagonistes", 0.45f, gtrs.size() > 1 ? "Les guitarres massa protagonistes" : "La guitarra massa protagonista",
+                              "Quan canta la veu, " + std::string (gtrs.size() > 1 ? "les guitarres sonen" : "la guitarra sona") + " " + num (d) + " dB per sobre.",
+                              "Acompanyen la veu, no hi competeixen: si manen elles, la veu s'apaga.", -arrodoneix (std::min (4.0, (d - 3.0) / 2.0)), d);
+            }
+        }
+        // ---- qualsevol altra que domini ----
+        for (int i : ok)
+        {
+            const auto& p = pistes[(size_t) i];
+            if (! segura (p) || es (p.ident.instrument, { Instrument::Veu, Instrument::Baix, Instrument::Bombo, Instrument::Caixa })) continue;
+            if (esGuitarra (p.ident.instrument) && ! inst (Instrument::Veu).empty()) continue;   // ja s'ha mirat amb la veu
+            const auto [d, seg] = relacio ({ i }, resta ({ i }));
+            if (seg >= 5.0 && d > 4.0 && ok.size() >= 3)
+                nova (p, "domina", 0.4f, cm (p.nom) + " domina la mescla", cm (p.nom) + " sona " + num (d) + " dB per sobre de tota la resta junta.",
+                      "Quan un instrument d'acompanyament mana tant, tapa la resta i la mescla perd equilibri.", -arrodoneix (std::min (6.0, d - 2.0)), d);
+        }
+
+        // ---- panorames ----
+        auto pan = [&] (const PistaMescla& p, double nou, const std::string& clau, const std::string& titol, const std::string& perque)
+        {
+            Incidencia i;
+            i.id = "balanc:" + p.id + ":" + clau;
+            i.pista = p.id;
+            i.gravetat = 0.35f;
+            i.confianca = Confianca::Mitjana;
+            i.titol = titol;
+            i.perque = perque;
+            if (p.autoPan)
+            {
+                i.queVeig = cm (p.nom) + " té automatització de panorama.";
+                i.solucio = "No el toco: revisa la línia d'automatització.";
+                i.proposta.tipus = Proposta::Revisa;
+                i.proposta.eina = "Automatització de panorama";
+            }
+            else
+            {
+                auto& c = canvi (p);
+                c.pan = nou;
+                i.queVeig = cm (p.nom) + " és " + textPan (p.pan) + ".";
+                i.solucio = "Posa-la " + textPan (nou) + " (és al Balanç proposat).";
+                i.proposta.tipus = Proposta::Panorama;
+                i.proposta.abans = (float) p.pan;
+                i.proposta.despres = (float) nou;
+                i.proposta.eina = "Panorama de " + cm (p.nom);
+            }
+            i.detalls = detallsEq (i.proposta);
+            i.prioritat = Prioritat::Baixa;
+            v.push_back (std::move (i));
+        };
+        for (int i : ok)
+        {
+            const auto& p = pistes[(size_t) i];
+            if (segura (p) && es (p.ident.instrument, { Instrument::Veu, Instrument::Bombo, Instrument::Caixa, Instrument::Baix }) && std::abs (p.pan) > 0.25)
+                pan (p, 0.0, "pan-mig", cm (p.nom) + " no és al mig",
+                     "La veu, el bombo, la caixa i el baix són el centre de la cançó: al mig sonen més ferms i funcionen igual en mono.");
+        }
+        for (Instrument fam : { Instrument::GuitarraElectrica, Instrument::GuitarraAcustica })
+        {
+            std::vector<int> mig;
+            for (int i : inst (fam)) if (std::abs (pistes[(size_t) i].pan) < 0.15) mig.push_back (i);
+            if (mig.size() < 2) continue;
+            for (size_t k = 0; k < 2; ++k)
+                pan (pistes[(size_t) mig[k]], k == 0 ? -0.7 : 0.7, "pan-obre", "Les guitarres estan totes al mig",
+                     "Dues guitarres al mateix lloc es tapen entre elles i tapen la veu. Una a cada costat obren la mescla i deixen el mig lliure.");
+        }
+
+        for (auto& [id, c] : canvis) if (c.tocaFader() || c.tocaPan()) proposta.push_back (c);
+        std::sort (v.begin(), v.end(), [] (const Incidencia& x, const Incidencia& y) { return x.gravetat > y.gravetat; });
+        return v;
+    }
+
+    std::vector<Incidencia> diagnosticaMescla (const AnalisiPista& mix, const std::vector<PistaMescla>& pistes, const std::vector<Tram>& trams)
+    {
+        std::vector<Incidencia> v;
+        if (! mix.valid) return v;
+        const auto corba = mix.global.corba();
+        auto difZona = [&] (int z)
+        {
+            double d = 0.0;
+            for (int b = zonaIni[z]; b <= zonaFi[z]; ++b) d += corba[(size_t) b] - diagnosi::referencia (b);
+            return d / (zonaFi[z] - zonaIni[z] + 1);
+        };
+        /** Part de cada pista en una zona (%), de més a menys. */
+        auto culpables = [&] (int z)
+        {
+            std::vector<std::pair<double, const PistaMescla*>> c;
+            double tot = 0.0;
+            for (const auto& p : pistes)
+            {
+                if (p.analisi == nullptr || ! p.analisi->valid) continue;
+                double e = 0.0;
+                for (int b = zonaIni[z]; b <= zonaFi[z]; ++b) e += p.analisi->global.mid[(size_t) b] + p.analisi->global.side[(size_t) b];
+                c.push_back ({ e, &p });
+                tot += e;
+            }
+            for (auto& x : c) x.first = tot > 0.0 ? 100.0 * x.first / tot : 0.0;
+            std::sort (c.begin(), c.end(), [] (auto& x, auto& y) { return x.first > y.first; });
+            return c;
+        };
+        auto llistaCulpables = [&] (const std::vector<std::pair<double, const PistaMescla*>>& c, std::vector<std::string>& ids)
+        {
+            std::string r;
+            int k = 0;
+            for (const auto& [pc, p] : c)
+            {
+                if (k >= 3 || pc < 10.0) break;
+                r += (k ? ", " : "") + cm (p->nom) + " (" + std::to_string ((int) std::lround (pc)) + " %)";
+                ids.push_back (p->id);
+                ++k;
+            }
+            return r;
+        };
+
+        struct ZonaMix { int z; const char* sobra; const char* falta; const char* perqueSobra; const char* perqueFalta; };
+        const ZonaMix zones[] = {
+            { Greus, "A la mescla li sobren greus", "A la mescla li falten greus",
+              "Sona pesada i bombollejant; als altaveus grans retruny i al màster tot haurà de baixar.", "Sona prima: li falta cos i empenta." },
+            { Fang, "A la mescla li sobren mitjos baixos", "",
+              "És el que fa que una mescla soni embolicada i tapada: tot es confon.", "" },
+            { Presencia, "La mescla és dura", "A la mescla li falta presència",
+              "Massa energia on l'oïda és més sensible: cansa i sona agressiva.", "Sona llunyana i tancada: les veus i els instruments no s'acaben d'entendre." },
+            { Brillantor, "La mescla té massa aguts", "La mescla sona tancada",
+              "Sona prima i punxeguda; als auriculars cansa.", "Li falta aire i obertura: sona apagada, com amb una manta al davant." },
+        };
+        for (const auto& zm : zones)
+        {
+            const double d = difZona (zm.z);
+            const bool sobra = d > 3.5, falta = d < -4.5 && zm.falta[0] != 0;
+            if (! sobra && ! falta) continue;
+            Incidencia i;
+            i.id = std::string ("mescla:") + (sobra ? "sobra:" : "falta:") + nomZona (zm.z);
+            i.deMescla = true;
+            i.gravetat = (float) std::clamp (0.4 + (std::abs (d) - 3.5) / 10.0, 0.4, 0.75);
+            i.confianca = Confianca::Mitjana;
+            const auto c = culpables (zm.z);
+            std::vector<std::string> ids;
+            const auto qui = llistaCulpables (c, ids);
+            i.pistes = ids;
+            // les guitarres que s'acumulen
+            int nGtr = 0;
+            double pcGtr = 0.0;
+            for (const auto& [pc, p] : c) if (segura (*p) && esGuitarra (p->ident.instrument)) { ++nGtr; pcGtr += pc; }
+            if (sobra && zm.z == Fang && nGtr >= 2 && pcGtr >= 50.0)
+            {
+                i.titol = "Les guitarres acumulen massa mitjos baixos";
+                i.queVeig = "La mescla té " + num (d) + " dB de més a " + nomZona (zm.z) + " i les guitarres en fan el " + std::to_string ((int) std::lround (pcGtr)) + " %.";
+                i.solucio = "Retalla una mica cada guitarra (−2 dB a uns 300 Hz, no gaire estret): sumades, fan molt, i retallar-ne una sola molt no sona igual.";
+                i.pistes.clear();
+                for (const auto& [pc, p] : c) if (segura (*p) && esGuitarra (p->ident.instrument)) i.pistes.push_back (p->id);
+            }
+            else
+            {
+                i.titol = sobra ? zm.sobra : zm.falta;
+                i.queVeig = "Comparada amb una mescla de pop/rock d'avui (orientativa), té " + num (std::abs (d)) + " dB " + (sobra ? "de més" : "de menys")
+                          + " a " + nomZona (zm.z) + "." + (qui.empty() ? std::string() : " Hi tenen més part: " + qui + ".");
+                i.solucio = sobra ? (qui.empty() ? std::string ("Revisa les pistes que hi tenen més energia.") : "Comença per " + cm (c.front().second->nom) + ": arreglar-ho a la pista sona millor que no pas al màster.")
+                                  : "Busca quina pista hauria de donar-ho i dona-li una mica més (o treu el que la tapa), abans que tocar-ho al màster.";
+            }
+            i.perque = sobra ? zm.perqueSobra : zm.perqueFalta;
+            i.on = "a tota la cançó";
+            i.proposta.tipus = Proposta::Revisa;
+            i.proposta.eina = "EQ Pro a les pistes";
+            i.detalls = "Diferència amb la corba orientativa: " + dbs (d) + " a " + nomZona (zm.z);
+            i.prioritat = prioritatDe (i.gravetat);
+            v.push_back (std::move (i));
+        }
+
+        // ---- quan sona tota la banda ----
+        if (! mix.bandesDb.empty())
+        {
+            std::vector<int> n (mix.nivellDb.size(), 0);
+            int maxN = 0;
+            for (size_t f = 0; f < mix.nivellDb.size(); ++f)
+            {
+                const double t = mix.inici + (double) f * mix.salt;
+                for (const auto& p : pistes)
+                {
+                    if (p.analisi == nullptr || ! p.analisi->valid) continue;
+                    const long g = frameA (*p.analisi, t);
+                    if (g >= 0 && p.analisi->actiu[(size_t) g]) ++n[f];
+                }
+                maxN = std::max (maxN, n[f]);
+            }
+            const int dens = std::max (3, (int) std::ceil (0.75 * maxN)), poc = std::max (1, maxN / 2);
+            std::vector<float> fangDens, fangPoc, presDens, presPoc;
+            std::vector<double> momentsDens;
+            for (size_t f = 0; f < mix.nivellDb.size(); ++f)
+            {
+                if (! mix.actiu[f] || n[f] == 0) continue;
+                double tot = 0.0;
+                for (int b = 0; b < NB; ++b) tot += ener (mix.bandesDb[f][(size_t) b]);
+                const float fang = db (eZona (mix, f, zonaIni[Fang], zonaFi[Fang])) - db (tot);
+                const float pres = db (eZona (mix, f, zonaIni[Presencia], zonaFi[Presencia])) - db (tot);
+                if (n[f] >= dens) { fangDens.push_back (fang); presDens.push_back (pres); momentsDens.push_back (mix.inici + (double) f * mix.salt); }
+                else if (n[f] <= poc) { fangPoc.push_back (fang); presPoc.push_back (pres); }
+            }
+            if (maxN >= 3 && fangDens.size() * mix.salt >= 4.0 && fangPoc.size() * mix.salt >= 4.0)
+            {
+                const double dFang = percentil (fangDens, 0.5) - percentil (fangPoc, 0.5);
+                const double dPres = percentil (presDens, 0.5) - percentil (presPoc, 0.5);
+                if (dFang > 3.0 || dPres < -3.0)
+                {
+                    Incidencia i;
+                    i.id = "mescla:densitat";
+                    i.deMescla = true;
+                    i.gravetat = (float) std::clamp (0.45 + (std::max (dFang, -dPres) - 3.0) / 10.0, 0.45, 0.75);
+                    i.confianca = Confianca::Mitjana;
+                    i.titol = "Quan entra tota la banda, es perd claredat";
+                    i.queVeig = std::string ("Quan sonen ") + std::to_string (dens) + " pistes o més, "
+                              + (dFang > 3.0 ? "els mitjos baixos pugen " + num (dFang) + " dB" : std::string())
+                              + (dFang > 3.0 && dPres < -3.0 ? " i " : "")
+                              + (dPres < -3.0 ? "la presència baixa " + num (-dPres) + " dB" : std::string()) + " respecte dels trossos més buits.";
+                    i.perque = "Cada instrument sol sona bé, però junts s'amunteguen a la mateixa zona i la mescla s'embolica.";
+                    const auto c = culpables (Fang);
+                    std::vector<std::string> ids;
+                    const auto qui = llistaCulpables (c, ids);
+                    i.pistes = ids;
+                    i.solucio = "Fes lloc a les pistes d'acompanyament a la zona de 200–500 Hz (" + (qui.empty() ? std::string ("les que en tenen més") : qui)
+                              + "), sobretot a les que no són protagonistes en aquests trossos.";
+                    i.altres = { "Automatitza el volum: abaixa 1–2 dB alguns instruments d'acompanyament quan entra tothom.",
+                                 "Arranjament: si dos instruments fan el mateix al mateix registre, que un toqui una octava amunt o calli en aquest tros." };
+                    i.on = onPassa (momentsDens, trams);
+                    i.proposta.tipus = Proposta::Revisa;
+                    i.proposta.eina = "EQ Pro a les pistes d'acompanyament";
+                    i.detalls = "Mitjos baixos: " + dbs (dFang) + " · presència: " + dbs (dPres) + " (molts instruments respecte de pocs)";
+                    i.prioritat = prioritatDe (i.gravetat);
+                    v.push_back (std::move (i));
+                }
+            }
+        }
+
+        // ---- la mescla en mono ----
+        if (! mix.esMono && mix.perduaMonoDb > 3.0f)
+        {
+            Incidencia i;
+            i.id = "mescla:mono";
+            i.deMescla = true;
+            i.gravetat = mix.perduaMonoDb > 6.0f ? 0.7f : 0.45f;
+            i.confianca = Confianca::Alta;
+            i.titol = "La mescla perd molt en mono";
+            i.queVeig = "Sumada a mono (mòbil, altaveu petit), la mescla baixa " + num (mix.perduaMonoDb) + " dB.";
+            i.perque = "Alguna cosa té la fase girada o està massa oberta: en mono, hi ha instruments que gairebé desapareixen.";
+            for (const auto& p : pistes)
+                if (p.analisi != nullptr && p.analisi->valid && ! p.analisi->esMono && p.analisi->perduaMonoDb > 3.0f) i.pistes.push_back (p.id);
+            i.solucio = i.pistes.empty() ? "Comprova-ho amb «Escolta en mono» del mòdul Estèreo." : "Mira primer les pistes que perden més en mono (són a la llista).";
+            i.proposta.tipus = Proposta::Revisa;
+            i.proposta.eina = "Estèreo (Escolta en mono)";
+            i.detalls = "Pèrdua en mono: " + num (mix.perduaMonoDb) + " dB · correlació " + num (mix.global.correlacio, 2);
+            i.prioritat = prioritatDe (i.gravetat);
+            v.push_back (std::move (i));
+        }
+        std::sort (v.begin(), v.end(), [] (const Incidencia& x, const Incidencia& y) { return x.gravetat > y.gravetat; });
+        return v;
     }
 }

@@ -449,6 +449,8 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addChildComponent (panellMix);   // 1.23
     panellMix.onObre = [this] (const std::string& id) { obreMixAssistant (id); };
     panellMix.onAnalitza = [this] { analitzaMix(); };
+    modelMix.creacio = ajustos.getBoolValue ("mix.creacio", false);   // 1.24
+    capcaleres.onPuntMix = [this] (const std::string& id) { obreMixAssistant (id); };
     dreta = juce::jlimit (0, 3, ajustos.getIntValue ("estudi.dretaPestanya", ajustos.getBoolValue ("estudi.dretaBiblioteca", false) ? 1 : 0));
     pestDreta.setTriat (dreta);
     pestDreta.onCanvi = [this] (int i) { dreta = i; ajustos.setValue ("estudi.dretaPestanya", dreta); colocaSeccions(); };
@@ -2895,7 +2897,8 @@ void PantallaEstudi::treu()
         estat.desfes.abans (estat.projecte);
         for (int i = estat.rang.pistaDe; i <= estat.rang.pistaFins; ++i)
             ed::buidaRang (estat.projecte, i, estat.rang.t0, estat.rang.t1);
-        estat.info = "Tros buidat";
+        const int nt = ed::treuTakesSenseComp (estat.projecte);   // 1.24
+        estat.info = nt > 0 ? "Tros buidat (i les "_ca + juce::String (nt) + " preses de la pista que ha quedat buida)"_ca : juce::String ("Tros buidat");
         estat.capTriat();
         estat.canviat();
         return;
@@ -2903,6 +2906,8 @@ void PantallaEstudi::treu()
     if (estat.triats.empty()) return;
     estat.desfes.abans (estat.projecte);
     ed::treuTriats (estat.projecte, estat.triats);
+    if (const int nt = ed::treuTakesSenseComp (estat.projecte); nt > 0)   // 1.24: sense clips, fora les preses (es pot desfer)
+        estat.info = "Esborrat, i també les "_ca + juce::String (nt) + " preses de la pista que ha quedat buida (Ctrl+Z ho desfà)"_ca;
     estat.capTriat();
     estat.canviat();
 }
@@ -3876,6 +3881,7 @@ void PantallaEstudi::tancaTot()
     if (estat.sampler.obert) tancaSampler();
     if (estat.veu.obert) tancaVeu();
     if (estat.pianoRoll) mostraPianoRoll (false);
+    if (estat.automat.obert) estat.automat.obert = false;   // 1.24: l'editor d'automatització també es tanca amb l'Esc
     estat.vistaMescles = estat.vistaEstructura = false;
     estat.info = "Esc: tot tancat (taula de treball)"_ca;
     estat.avisa();
@@ -4805,6 +4811,14 @@ void PantallaEstudi::vesAMarcador (int m)
 }
 
 // ---------------- 1.23: Mix Assistant ----------------
+namespace
+{
+    /** 1.24: la pista té una línia d'automatització d'això («volum», «pan»)? */
+    bool teAutoMix (const mibase::Pista& t, const char* objectiu)
+    {
+        return std::any_of (t.autos.begin(), t.autos.end(), [objectiu] (const mibase::Automatitzacio& a) { return a.objectiu == objectiu && a.activa; });
+    }
+}
 // Finestra pròpia (F7) que es pot deixar a una segona pantalla; l'Esc no la tanca. L'anàlisi es fa pista a pista,
 // tornant al bucle de la interfície entre una i altra perquè es pugui anar pintant el progrés. Mai mentre es grava.
 namespace
@@ -4841,7 +4855,17 @@ void PantallaEstudi::obreMixAssistant (const std::string& idPista)
         auto* v = new VistaMixAssistant (modelMix);
         vistaMix = v;
         v->onAnalitza = [this] { analitzaMix(); };
+        v->onMode = [this] (bool creacio)   // 1.24
+        {
+            modelMix.creacio = creacio;
+            ajustos.setValue ("mix.creacio", creacio);
+            modelMix.avisa();
+            actualitzaPuntsMix();
+        };
         auto& l = v->llistaDetall();
+        l.onEscoltaBalanc = [this] { escoltaBalanc(); };
+        l.onAcceptaBalanc = [this] { acceptaBalanc(); };
+        l.onDescartaBalanc = [this] { descartaBalanc(); };
         l.onTriaInstrument = [this] (const std::string& id) { menuInstrumentMix (id); };
         l.onConfirma = [this] (const std::string& id, mibase::mix::Instrument i) { posaInstrumentMix (id, i); };
         l.onVesAPista = [this] (const std::string& id)
@@ -4868,6 +4892,7 @@ void PantallaEstudi::obreMixAssistant (const std::string& idPista)
         quedaSobreMibase (*finestraMix);
         estat.info = "Mix Assistant obert (F7 el tanca; l'Esc no)"_ca;
         colocaSeccions();
+        actualitzaPuntsMix();
         estat.avisa();
     }
     vistaMix->triaPista (idPista);
@@ -4879,8 +4904,10 @@ void PantallaEstudi::tancaFinestraMix()
     if (finestraMix == nullptr) return;
     ajustos.setValue ("mix.finestra", finestraMix->getWindowStateAsString());
     ajustos.saveIfNeeded();
+    tornaBalancOriginal();   // 1.24: si sonava el Balanç proposat, torna el teu
     vistaMix = nullptr;
     finestraMix.reset();
+    estat.puntsMix.clear();
     colocaSeccions();
     estat.avisa();
 }
@@ -4905,7 +4932,11 @@ void PantallaEstudi::analitzaMix()
         estat.avisa();
         return;
     }
+    tornaBalancOriginal();   // 1.24
     modelMix.files.clear();
+    modelMix.globals.clear();
+    modelMix.balanc.clear();
+    analisiMescla.reset();
     cuaMix.clear();
     for (int i = 0; i < estat.numPistes(); ++i)
     {
@@ -4931,6 +4962,7 @@ void PantallaEstudi::analitzaMix()
     }
     modelMix.analitzant = true;
     modelMix.fet = false;
+    mixSencera = true;   // 1.24: al final, la mescla sencera
     modelMix.fraccio = 0.0;
     modelMix.progres = "Preparant…"_ca;
     modelMix.avisa();
@@ -4946,10 +4978,34 @@ void PantallaEstudi::pasMix()
     if (estat.transport >= 2)   // ha començat a gravar: s'atura (el que ja s'ha fet es queda)
     {
         cuaMix.clear();
+        mixSencera = false;
         modelMix.analitzant = false;
         modelMix.fet = modelMix.analitzades() > 0;
         modelMix.quan = "aturat perquè has començat a gravar"_ca;
         modelMix.avisa();
+        return;
+    }
+    if (cuaMix.empty() && mixSencera)   // 1.24: la mescla sencera (sense el màster)
+    {
+        mixSencera = false;
+        modelMix.progres = "Analitzant la mescla sencera…"_ca;
+        modelMix.fraccio = 0.97;
+        modelMix.avisa();
+        juce::Timer::callAfterDelay (20, [jo]
+        {
+            if (jo == nullptr || ! jo->modelMix.analitzant) return;
+            auto& self = *jo;
+            const double fs = self.servei.estudi().getFs() > 0.0 ? self.servei.estudi().getFs() : 48000.0;
+            tancaments::pas ("Mix Assistant: la mescla sencera");
+            std::vector<float> L, R;
+            juce::MouseCursor::showWaitCursor();
+            const double inici = self.renderitzaPerAnalitzar ({}, false, L, R, fs);
+            self.analisiMescla = std::make_shared<mibase::mix::AnalisiPista> (mibase::mix::analitzaPista (L.data(), R.data(), L.size(), fs, inici));
+            L.clear(); L.shrink_to_fit(); R.clear(); R.shrink_to_fit();
+            juce::MouseCursor::hideWaitCursor();
+            self.calculaMescla();
+            juce::Timer::callAfterDelay (1, [jo] { if (jo != nullptr) jo->pasMix(); });
+        });
         return;
     }
     if (cuaMix.empty())
@@ -4961,6 +5017,7 @@ void PantallaEstudi::pasMix()
         historial.afegeix ("Mix Assistant: analitzades "_ca + juce::String (modelMix.analitzades()) + " pistes"_ca);
         tancaments::pas ("Mix Assistant: anàlisi acabada");
         modelMix.avisa();
+        actualitzaPuntsMix();
         return;
     }
     const int i = cuaMix.front();
@@ -4991,7 +5048,8 @@ void PantallaEstudi::pasMix()
             f.analisi = a;
             f.ident = mibase::mix::identifica (t, a.get());
             f.analitzada = a->valid;
-            if (a->valid) f.diag = mibase::mix::diagnosticaPista (t.id, t.nom, *a, f.ident, self.tramsMix (inici), t.tipus == "audio");
+            if (a->valid) f.diag = mibase::mix::diagnosticaPista (t.id, t.nom, *a, f.ident, self.tramsMix (inici), t.tipus == "audio",
+                                                                  teAutoMix (t, "volum") ? NAN : (float) t.faderDb);
             else f.motiu = "No s'hi sent res: no s'ha pogut analitzar"_ca;
         }
         self.modelMix.avisa();
@@ -5050,7 +5108,124 @@ void PantallaEstudi::rediagnosticaMix (const std::string& idPista)
         if (f.id != idPista) continue;
         f.ident = mibase::mix::identifica (*t, f.analisi.get());
         if (f.analisi != nullptr && f.analisi->valid)
-            f.diag = mibase::mix::diagnosticaPista (t->id, t->nom, *f.analisi, f.ident, tramsMix (f.analisi->inici), t->tipus == "audio");
+            f.diag = mibase::mix::diagnosticaPista (t->id, t->nom, *f.analisi, f.ident, tramsMix (f.analisi->inici), t->tipus == "audio",
+                                                    teAutoMix (*t, "volum") ? NAN : (float) t->faderDb);
     }
+    calculaMescla();   // 1.24: l'instrument canvia els conflictes i l'equilibri
     modelMix.avisa();
+    actualitzaPuntsMix();
+}
+
+// ---------------- 1.24: Mix Assistant, fase 2 ----------------
+std::vector<mibase::mix::PistaMescla> PantallaEstudi::pistesMescla()
+{
+    std::vector<mibase::mix::PistaMescla> v;
+    for (const auto& f : modelMix.files)
+    {
+        if (! f.analitzada || f.analisi == nullptr) continue;
+        const mibase::Pista* t = nullptr;
+        for (const auto& p : estat.projecte.pistes) if (p.id == f.id) t = &p;
+        if (t == nullptr) continue;
+        mibase::mix::PistaMescla p;
+        p.id = t->id;
+        p.nom = t->nom;
+        p.ident = f.ident;
+        p.analisi = f.analisi.get();
+        p.faderDb = t->faderDb;
+        p.pan = t->pan;
+        p.autoVolum = teAutoMix (*t, "volum");
+        p.autoPan = teAutoMix (*t, "pan");
+        v.push_back (p);
+    }
+    return v;
+}
+
+void PantallaEstudi::calculaMescla()
+{
+    // els conflictes, l'equilibri i la mescla sencera, amb el que ja s'ha analitzat (sense tornar a renderitzar)
+    if (modelMix.files.empty()) return;
+    const auto ps = pistesMescla();
+    const auto trams = tramsMix (0.0);
+    modelMix.globals.clear();
+    for (auto& i : mibase::mix::conflictes (ps, trams)) modelMix.globals.push_back (std::move (i));
+    if (! modelMix.escoltantBalanc)   // mentre sona el proposat no es refà (els faders del projecte són els de la proposta)
+    {
+        std::vector<mibase::mix::CanviBalanc> prop;
+        for (auto& i : mibase::mix::balanc (ps, prop)) modelMix.globals.push_back (std::move (i));
+        modelMix.balanc = prop;
+    }
+    if (analisiMescla != nullptr && analisiMescla->valid)
+        for (auto& i : mibase::mix::diagnosticaMescla (*analisiMescla, ps, trams)) modelMix.globals.push_back (std::move (i));
+}
+
+void PantallaEstudi::posaBalanc (bool proposat)
+{
+    for (const auto& c : modelMix.balanc)
+        for (auto& t : estat.projecte.pistes)
+            if (t.id == c.pista)
+            {
+                t.faderDb = proposat ? c.fader : c.faderAbans;
+                t.pan = proposat ? c.pan : c.panAbans;
+            }
+}
+
+void PantallaEstudi::escoltaBalanc()
+{
+    // A/B: canvia els faders i els panorames mentre sona, sense anar al Desfés ni desar (fins que s'accepti)
+    if (modelMix.balanc.empty()) return;
+    modelMix.escoltantBalanc = ! modelMix.escoltantBalanc;
+    posaBalanc (modelMix.escoltantBalanc);
+    estat.info = modelMix.escoltantBalanc ? "Mix Assistant: sona el Balanç proposat (B)"_ca : "Mix Assistant: sona el teu balanç (A)"_ca;
+    estat.avisa();
+    modelMix.avisa();
+}
+
+void PantallaEstudi::tornaBalancOriginal()
+{
+    if (! modelMix.escoltantBalanc) return;
+    posaBalanc (false);
+    modelMix.escoltantBalanc = false;
+    estat.avisa();
+}
+
+void PantallaEstudi::acceptaBalanc()
+{
+    if (modelMix.balanc.empty()) return;
+    tornaBalancOriginal();
+    estat.desfes.abans (estat.projecte);
+    posaBalanc (true);
+    const int n = (int) modelMix.balanc.size();
+    // les propostes de fader i panorama ja estan fetes
+    modelMix.globals.erase (std::remove_if (modelMix.globals.begin(), modelMix.globals.end(), [] (const mibase::mix::Incidencia& i)
+        { return i.proposta.tipus == mibase::mix::Proposta::Fader || i.proposta.tipus == mibase::mix::Proposta::Panorama; }), modelMix.globals.end());
+    modelMix.balanc.clear();
+    estat.canviat ("Mix Assistant: acceptat el Balanç proposat ("_ca + juce::String (n) + (n == 1 ? " pista)"_ca : " pistes)"_ca));
+    estat.info = "Balanç proposat acceptat (Ctrl+Z ho desfà). Torna a analitzar per comprovar com ha quedat."_ca;
+    estat.avisa();
+    modelMix.avisa();
+    actualitzaPuntsMix();
+}
+
+void PantallaEstudi::descartaBalanc()
+{
+    tornaBalancOriginal();
+    modelMix.balanc.clear();
+    estat.info = "Balanç proposat descartat: els teus volums i panorames no s'han tocat"_ca;
+    estat.avisa();
+    modelMix.avisa();
+}
+
+void PantallaEstudi::actualitzaPuntsMix()
+{
+    // els puntets de les capçaleres: només amb el Mix Assistant obert i amb resultats
+    estat.puntsMix.clear();
+    if (finestraMix != nullptr && modelMix.fet)
+        for (const auto& f : modelMix.files)
+        {
+            int millor = 3;
+            for (const auto* i : modelMix.dePista (f.id))
+                millor = std::min (millor, i->prioritat == mibase::mix::Prioritat::Alta ? 0 : i->prioritat == mibase::mix::Prioritat::Mitjana ? 1 : 2);
+            if (millor < 3) estat.puntsMix[f.id] = millor;
+        }
+    capcaleres.repaint();
 }

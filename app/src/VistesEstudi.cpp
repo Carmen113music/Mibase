@@ -48,6 +48,20 @@ namespace
         return i >= 0 && (size_t) i < e.size() && e[(size_t) i] == 0;
     }
 
+    /** 1.24: la tecla M. Si la pista només calla pel solo d'una altra (la M encesa sense mute propi), clicar-la la fa
+        sonar afegint-la al solo (abans canviava el mute de sota i no passava res). Torna el text per al panell d'info. */
+    juce::String commutaMut (Projecte& p, int i)
+    {
+        auto& t = p.pistes[(size_t) i];
+        if (! t.mut && mutAra (p, t))
+        {
+            t.solo = true;
+            return "Hi ha un solo encès: «"_ca + dibuix::utf8 (t.nom) + "» s'hi afegeix perquè soni"_ca;
+        }
+        t.mut = ! t.mut;
+        return {};
+    }
+
     void pintaCapcal (juce::Graphics& g, float x, float alt, int transport = 0)
     {
         g.setColour (transport >= 2 ? vintage::ledVermell : (transport == 1 ? vintage::ledVerd : tema::text));
@@ -1414,12 +1428,7 @@ void VistaPistes::paint (juce::Graphics& g)
         const float ad = (float) estat.altDe (estat.destiEnganxa.pista);
         g.setColour (tema::accent);
         const float guions[] = { 4.0f, 3.0f };
-        g.drawDashedLine (juce::Line<float> (xd, yd + 2.0f, xd, yd + ad - 2.0f), guions, 2, 2.0f);
-        auto r = juce::Rectangle<float> (xd + 3.0f, yd + 3.0f, 44.0f, 13.0f);
-        g.fillRoundedRectangle (r, 2.0f);
-        g.setColour (juce::Colours::black);
-        g.setFont (dibuix::mono (9.5f));
-        g.drawText ("Ctrl+V", r, juce::Justification::centred);
+        g.drawDashedLine (juce::Line<float> (xd, yd + 2.0f, xd, yd + ad - 2.0f), guions, 2, 2.0f);   // 1.24: sense l'etiqueta «Ctrl+V»
     }
 
     pintaCapcal (g, estat.x (estat.capcal), h, estat.transport);
@@ -2565,10 +2574,7 @@ void VistaPistes::mouseUp (const juce::MouseEvent& e)
             if (estat.triats.size() == 1) estat.pistaTriada = estat.triats[0].pista;
             if (! estat.rang.actiu && estat.triats.empty())
             {
-                if (estat.destiEnganxa.actiu && ! estat.portaretalls.buit() && estat.pista (estat.destiEnganxa.pista) != nullptr)
-                    estat.info = "Ctrl+V enganxa aquí: "_ca + posicio (estat.projecte, estat.destiEnganxa.t) + " · «"_ca
-                               + dibuix::utf8 (estat.pista (estat.destiEnganxa.pista)->nom) + "»"_ca;
-                else estat.info.clear();
+                estat.info.clear();   // 1.24: ja no es diu on anirà el Ctrl+V cada cop que es fa un requadre
             }
             estat.avisa();
             break;
@@ -2951,6 +2957,16 @@ void Capcaleres::paint (juce::Graphics& g)
             g.setFont (dibuix::lletra (10.5f, true));
             g.drawFittedText (juce::String ((int) t.takes.size()) + " preses"_ca, rp.withTrimmedLeft (16).withTrimmedRight (3), juce::Justification::centredLeft, 1, 0.8f);
         }
+        if (const auto rm = rectPuntMix (i); ! rm.isEmpty())   // 1.24: el Mix Assistant hi veu coses
+        {
+            const int pr = estat.puntsMix.at (t.id);
+            const auto c = pr == 0 ? tema::error : pr == 1 ? tema::accent : tema::suau;
+            fila.setRight (juce::jmin (fila.getRight(), rm.getX() - 2));
+            g.setColour (c.withAlpha (0.25f));
+            g.fillEllipse (rm.toFloat());
+            g.setColour (c);
+            g.fillEllipse (rm.toFloat().reduced (3.5f));
+        }
         g.setColour (tema::text);
         g.setFont (dibuix::lletra (14.0f, true));
         g.drawText (dibuix::utf8 (t.nom), fila, juce::Justification::centredLeft, true);
@@ -3077,6 +3093,7 @@ void Capcaleres::menu (int pista)
             m.addSeparator();
             m.addItem (12, t.takesObertes ? "Plega les preses"_ca : "Desplega les preses ("_ca + juce::String ((int) t.takes.size()) + ")");
             m.addItem (13, "Consolida el comp: un àudio nou amb els trossos triats"_ca);
+            m.addItem (15, "Esborra totes les preses (el que sona es queda)"_ca);   // 1.24
         }
     }
     if (! mibase::esBus (t) && ! mibase::esAcords (t))   // 0.82: també les pistes MIDI
@@ -3096,6 +3113,14 @@ void Capcaleres::menu (int pista)
         if (r == 11) { if (onAutomatitzacio) onAutomatitzacio (pista); return; }   // 0.56
         if (r == 12) { auto& tt = estat.projecte.pistes[(size_t) pista]; tt.takesObertes = ! tt.takesObertes; estat.canviat(); return; }   // 0.81
         if (r == 13) { if (onConsolidaComp) onConsolidaComp (pista); return; }
+        if (r == 15)   // 1.24
+        {
+            estat.desfes.abans (estat.projecte);
+            const int n = ed::treuTotesLesTakes (estat.projecte, pista);
+            estat.info = "Esborrades "_ca + juce::String (n) + " preses (els fitxers es conserven; Ctrl+Z ho desfà)"_ca;
+            estat.canviat();
+            return;
+        }
         if (r == 14) { if (onPrint) onPrint (pista); return; }   // 0.82
         if (r == 9)
         {
@@ -3169,6 +3194,17 @@ void Capcaleres::menu (int pista)
         else if (r >= 20 && r < 40) { tt.color = r - 20; tt.rgb = 0; }
         acabaCanvi (evolucio);
     });
+}
+
+juce::Rectangle<int> Capcaleres::rectPuntMix (int fila) const
+{
+    // 1.24: just abans del botó de les preses (o del vúmetre), a la fila del nom
+    if (fila < 0 || fila >= estat.numPistes() || estat.puntsMix.empty()) return {};
+    const auto& t = estat.projecte.pistes[(size_t) fila];
+    if (estat.puntsMix.find (t.id) == estat.puntsMix.end()) return {};
+    const auto rp = rectPreses (fila);
+    const int dreta = rp.isEmpty() ? getWidth() - 24 : rp.getX() - 4;
+    return { dreta - 14, estat.yPista (fila) + 9, 14, 14 };
 }
 
 juce::Rectangle<int> Capcaleres::rectPreses (int fila) const
@@ -3268,6 +3304,11 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
         return;
     }
     if (fila < 0 || fila >= estat.numPistes()) return;
+    if (rectPuntMix (fila).expanded (3).contains (e.getPosition()) && onPuntMix)   // 1.24: obre el Mix Assistant a la pista
+    {
+        onPuntMix (estat.projecte.pistes[(size_t) fila].id);
+        return;
+    }
     if (rectPreses (fila).contains (e.getPosition()))   // 0.81: plega / desplega les preses
     {
         auto& tt = estat.projecte.pistes[(size_t) fila];
@@ -3455,7 +3496,7 @@ void Capcaleres::mouseDown (const juce::MouseEvent& e)
         comencaCanvi();
         restaura();
         auto& t = estat.projecte.pistes[(size_t) fila];
-        if (b == Tecla::Mut) t.mut = ! t.mut;
+        if (b == Tecla::Mut) { const auto m = commutaMut (estat.projecte, fila); if (m.isNotEmpty()) estat.info = m; }
         else if (b == Tecla::Solo) t.solo = ! t.solo;
         else ed::triaGravacio (estat.projecte, fila);
         acabaCanvi();
@@ -3686,7 +3727,7 @@ void ColumnaEsquerra::mouseDown (const juce::MouseEvent& e)
             comencaCanvi();
             restaura();
             auto& tt = estat.projecte.pistes[(size_t) estat.pistaTriada];
-            if (i == 0) tt.mut = ! tt.mut;
+            if (i == 0) { const auto m = commutaMut (estat.projecte, estat.pistaTriada); if (m.isNotEmpty()) estat.info = m; }
             else if (i == 1) tt.solo = ! tt.solo;
             else ed::triaGravacio (estat.projecte, estat.pistaTriada);
             acabaCanvi();
@@ -4263,7 +4304,7 @@ void TaulaMescles::mouseDown (const juce::MouseEvent& e)
         comencaCanvi();
         restaura();
         auto& t = estat.projecte.pistes[(size_t) i];
-        if (k == 0) t.mut = ! t.mut;
+        if (k == 0) { const auto m = commutaMut (estat.projecte, i); if (m.isNotEmpty()) estat.info = m; }
         else if (k == 1) t.solo = ! t.solo;
         else ed::triaGravacio (estat.projecte, i);
         acabaCanvi();

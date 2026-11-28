@@ -255,6 +255,11 @@ namespace mibase::edicio
     std::vector<std::vector<std::pair<double, double>>> zonesTakes (const Projecte& p, int pista);
     /** Treu una presa (i el que en sona al comp). Si en queda una o cap, la pista torna a ser normal. */
     void treuTake (Projecte& p, int pista, int take);
+    /** 1.24: treu totes les preses de la pista (el comp que sona es queda; els fitxers no s'esborren). Torna quantes. */
+    int treuTotesLesTakes (Projecte& p, int pista);
+    /** 1.24: les pistes que s'han quedat sense cap clip perden també les preses (abans en quedava l'ona a les subpistes i
+        no hi havia manera de treure-la). Torna quantes preses s'han tret. */
+    int treuTakesSenseComp (Projecte& p);
     /** Consolida el comp: pista nova just a sota de «pista», «Comp - <nom>», amb un sol clip (la presa «idPresa», que
         comença a «pos», sonant de «inici» a «fi» dins el fitxer) i els mateixos efectes, enviaments, sortida, volum,
         panorama i automatització (sense preses). L'original queda silenciada, però no s'esborra ni es desarma.

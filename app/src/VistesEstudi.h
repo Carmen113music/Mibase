@@ -259,6 +259,7 @@ public:
     /** 0.20: el botonet de la pista d'instrument (obre el sinte o el VST) o de bateria (obre els kits). */
     std::function<void (int pista)> onObreInstrument;
     std::function<void (int pista)> onAutomatitzacio;   // 0.56
+    std::function<void (const std::string& id)> onPuntMix;   // 1.24: clic al puntet del Mix Assistant
     juce::Rectangle<int> rectEntradaCap (int fila) const;   // 0.34
     juce::Rectangle<int> rectSortidaCap (int fila) const;   // 0.35
     juce::Rectangle<int> zonaES (int fila) const;
@@ -271,6 +272,7 @@ public:
     juce::Rectangle<int> rectSo (int fila) const;   // 1.21: tria l'instrument i el so (al costat del botó de l'instrument)
     std::function<void (int pista, juce::Rectangle<int> zonaPantalla)> onMenuSo;   // 1.21
     juce::Rectangle<int> rectPreses (int fila) const;   // 0.81: plega / desplega les preses
+    juce::Rectangle<int> rectPuntMix (int fila) const;   // 1.24: el puntet del Mix Assistant
     std::function<void (int pista)> onConsolidaComp;      // 0.81
     std::function<void (int pista)> onPrint;              // 0.82
 
