@@ -11,6 +11,7 @@
 #include "ColumnesPista.h"   // 1.19
 #include "PanellBiblioteca.h"
 #include "PanellPool.h"
+#include "MixAssistantUI.h"   // 1.23
 #include "FinestraProgres.h"
 #include "CarregaPreses.h"
 #include "EstatEstudi.h"
@@ -61,6 +62,8 @@ public:
     void exportaMescla();
     /** 1.00: l'ANALYZE del Mastering Studio: renderitza el mix (sense màster), el màster i, si cal, cada pista sola. */
     std::shared_ptr<mibase::diagnosi::Informe> analitzaMaster (bool ambPistes, const mibase::diagnosi::Context& ctx);
+    /** 1.23: renderitza (com en exportar, sense reproduir) només aquestes pistes (buit: tot) i torna on comença (segons). */
+    double renderitzaPerAnalitzar (const std::vector<int>& pistes, bool ambMaster, std::vector<float>& L, std::vector<float>& R, double fs);
     void transport (int accio);   // 0 principi, 1 enrere un compàs, 2 endavant un compàs, 3 atura, 4 play, 5 grava
     /** 0 aturat, 1 sonant, 2 comptant, 3 gravant. */
     int estatTransport() const noexcept { return estat.transport; }
@@ -248,6 +251,7 @@ private:
     // 1.21: taula de mescles (F9) i taula d'estructura, a la dreta de la barra d'eines (la columna esquerra s'amaga)
     Boto btBarraMescles { {}, dibuix::Icona::Mescla, Boto::Estil::Tecla };
     Boto btBarraEstructura { {}, dibuix::Icona::Notes, Boto::Estil::Tecla };
+    Boto btBarraMix { {}, dibuix::Icona::Assistent, Boto::Estil::Tecla };   // 1.23: Mix Assistant (F7)
     std::unique_ptr<juce::DocumentWindow> finestraFont;
     void obreFont();
     juce::Rectangle<int> zonaBarra, zonaEines, zonaInfo;
@@ -277,8 +281,8 @@ private:
     Focus focusEditor, focusPistes;
     PanellPista panell { estat };
     PanellBiblioteca biblioteca { ajustos };                          // 0.27
-    Segmentat pestDreta { { "Info", "Biblioteca", "Pool" } };   // 0.92: «Clip» → «Info» (clip i pista)
-    int dreta = 0;                                                    // 0.85: 0 clip, 1 biblioteca, 2 Pool
+    Segmentat pestDreta { { "Info", "Biblioteca", "Pool", "Mix" } };   // 0.92: «Clip» → «Info» (clip i pista); 1.23: «Mix»
+    int dreta = 0;                                                    // 0.85: 0 clip, 1 biblioteca, 2 Pool; 1.23: 3 Mix Assistant
     PanellPool pool { estat };                                        // 0.85
     std::string presaEscoltada;                                       // 0.85
     juce::uint32 presaEscoltadaFins = 0;
@@ -315,6 +319,22 @@ private:
     std::unique_ptr<juce::DocumentWindow> finestraMescles;
     void commutaMescles();
     void tancaFinestraMescles();
+    // 1.23: el Mix Assistant (finestra pròpia amb F7, que l'Esc no tanca, i la pestanya «Mix» del panell de la dreta)
+    ModelMix modelMix;
+    PanellMix panellMix { modelMix };
+    std::unique_ptr<juce::DocumentWindow> finestraMix;
+    VistaMixAssistant* vistaMix = nullptr;
+    std::vector<int> cuaMix;
+    size_t totalMix = 0;
+    void commutaMixAssistant();
+    void obreMixAssistant (const std::string& idPista);
+    void tancaFinestraMix();
+    void analitzaMix();
+    void pasMix();
+    void menuInstrumentMix (const std::string& idPista);
+    void posaInstrumentMix (const std::string& idPista, mibase::mix::Instrument i, bool perDefecte = false);
+    void rediagnosticaMix (const std::string& idPista);
+    std::vector<mibase::mix::Tram> tramsMix (double inici) const;
     // 1.16: marcadors F1–F4
     void desaMarcador (int m);
     void vesAMarcador (int m);

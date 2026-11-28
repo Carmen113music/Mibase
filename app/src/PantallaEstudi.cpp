@@ -313,6 +313,10 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     btBarraEstructura.setLlum (vintage::ledTaronja);
     btBarraEstructura.onClick = [this] { estat.vistaEstructura = ! estat.vistaEstructura; estat.vistaMescles = false; colocaSeccions(); estat.avisa(); };
     addAndMakeVisible (btBarraEstructura);
+    btBarraMix.setTooltip ("Mix Assistant (F7): analitza les pistes i et diu què no funciona a la mescla i per què"_ca);
+    btBarraMix.setLlum (vintage::ledTaronja);
+    btBarraMix.onClick = [this] { commutaMixAssistant(); };
+    addAndMakeVisible (btBarraMix);
 
     // Seccions.
     for (auto* sec : std::initializer_list<SeccioEstudi*> { &esquerra, &capcaleres, &regla, &pistes, &mescles, &panell })
@@ -442,7 +446,10 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     addAndMakeVisible (pestDreta);
     addChildComponent (biblioteca);
     addChildComponent (pool);   // 0.85
-    dreta = juce::jlimit (0, 2, ajustos.getIntValue ("estudi.dretaPestanya", ajustos.getBoolValue ("estudi.dretaBiblioteca", false) ? 1 : 0));
+    addChildComponent (panellMix);   // 1.23
+    panellMix.onObre = [this] (const std::string& id) { obreMixAssistant (id); };
+    panellMix.onAnalitza = [this] { analitzaMix(); };
+    dreta = juce::jlimit (0, 3, ajustos.getIntValue ("estudi.dretaPestanya", ajustos.getBoolValue ("estudi.dretaBiblioteca", false) ? 1 : 0));
     pestDreta.setTriat (dreta);
     pestDreta.onCanvi = [this] (int i) { dreta = i; ajustos.setValue ("estudi.dretaPestanya", dreta); colocaSeccions(); };
     pool.fitxerDe = [this] (const mibase::Presa& s) { return fitxerPresa (s); };
@@ -475,7 +482,7 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
     {
         const int c = k.getKeyCode();
         // 1.16: F1–F4 (amb Maj o sense), F8 i F9 també des de les finestres a part (taula de mescles, plugins…)
-        const bool tecFun = (c >= juce::KeyPress::F1Key && c <= juce::KeyPress::F4Key) || c == juce::KeyPress::F8Key || c == juce::KeyPress::F9Key;
+        const bool tecFun = (c >= juce::KeyPress::F1Key && c <= juce::KeyPress::F4Key) || c == juce::KeyPress::F7Key || c == juce::KeyPress::F8Key || c == juce::KeyPress::F9Key;
         if (tecFun && ! k.getModifiers().isCommandDown() && ! k.getModifiers().isAltDown()) return keyPressed (k);
         if (k.getModifiers().isAnyModifierKeyDown()) return false;
         const bool transport = c == juce::KeyPress::spaceKey || c == 'L' || c == 'l' || esNumpad0 (k)
@@ -724,6 +731,9 @@ PantallaEstudi::~PantallaEstudi()
         finestraMescles->clearContentComponent();
         finestraMescles.reset();
     }
+    vistaMix = nullptr;   // 1.23: la finestra del Mix Assistant mira el model, que és d'aquesta pantalla
+    finestraMix.reset();
+    cuaMix.clear();
     informePlugins() = nullptr;
     rellotge.stopTimer();
     zonaEditors.removeMouseListener (&focusEditor);
@@ -976,12 +986,14 @@ void PantallaEstudi::colocaSeccions()
     divEsquerra.setVisible (ambEsquerra);
     btBarraMescles.setToggleState (estat.mesclesFinestra, juce::dontSendNotification);
     btBarraEstructura.setToggleState (estat.vistaEstructura, juce::dontSendNotification);
+    btBarraMix.setToggleState (finestraMix != nullptr, juce::dontSendNotification);
     {
         auto zDreta = r.removeFromRight (pan);
         pestDreta.setBounds (zDreta.removeFromTop (34).reduced (8, 4));
         panell.setBounds (zDreta);
         biblioteca.setBounds (zDreta);
         pool.setBounds (zDreta);
+        panellMix.setBounds (zDreta);
     }
     // 0.26: el samplejador, a baix (sense tocar el panell de la dreta, on anirà la biblioteca)
     const bool samplerBaix = estat.sampler.obert && ! m && ! estat.veu.obert;
@@ -1033,6 +1045,7 @@ void PantallaEstudi::colocaSeccions()
     panell.setVisible (! estat.vistaEstructura && dreta == 0);
     biblioteca.setVisible (! estat.vistaEstructura && dreta == 1);
     pool.setVisible (! estat.vistaEstructura && dreta == 2);
+    panellMix.setVisible (! estat.vistaEstructura && dreta == 3);
     pestDreta.setVisible (! estat.vistaEstructura);
     for (auto* c : std::initializer_list<juce::Component*> { &capcaleres, &regla, &pistes, &barraH, &barraV, &divNoms, &btCarpetes, &btColumnes })
         c->setVisible (! m);
@@ -1123,6 +1136,8 @@ void PantallaEstudi::resized()
     btBarraEstructura.setBounds (b.removeFromRight (40));   // 1.21
     b.removeFromRight (3);
     btBarraMescles.setBounds (b.removeFromRight (40));
+    b.removeFromRight (3);
+    btBarraMix.setBounds (b.removeFromRight (40));   // 1.23
     b.removeFromRight (16);
     zonaInfo = b;
 
@@ -2060,6 +2075,31 @@ void PantallaEstudi::fesExportacio (const DialegExporta::Resultat& r, const juce
                                             "Exporta", text);
 }
 
+double PantallaEstudi::renderitzaPerAnalitzar (const std::vector<int>& pistes, bool ambMaster, std::vector<float>& L, std::vector<float>& R, double fs)
+{
+    // 1.23: el que feia l'Analitza del màster (1.00), compartit amb el Mix Assistant
+    mibase::OpcionsExport o;
+    o.master = ambMaster;
+    std::pair<double, double> tros;
+    auto q = mibase::projectePerExportar (estat.projecte, o, pistes, tros);
+    L.clear(); R.clear();
+    if (tros.second <= tros.first) return 0.0;
+    const auto solo = ed::estatSolo (q);
+    std::vector<std::string> sonen;
+    for (size_t i = 0; i < q.pistes.size(); ++i) if (solo[i] != 0) sonen.push_back (q.pistes[i].id);
+    auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
+    auto pla = construeixPla (q, audioPreses,
+        [this, fs, interns, sonen] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
+        {
+            if (std::find (sonen.begin(), sonen.end(), t.id) == sonen.end()) return nullptr;
+            return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
+        },
+        [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
+        &mapaSo);
+    mibase::renderitzaPla (*pla, fs, tros.first, tros.second, L, R);
+    return tros.first;
+}
+
 std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool ambPistes, const mibase::diagnosi::Context& ctx)
 {
     // 1.00: es renderitza com en exportar (còpies dels plugins, sense reproduir) i s'analitza a memòria
@@ -2068,25 +2108,7 @@ std::shared_ptr<mibase::diagnosi::Informe> PantallaEstudi::analitzaMaster (bool 
     sincronitzaElastic (true);
     auto renderitza = [this, fs] (const std::vector<int>& pistes, bool ambMaster, std::vector<float>& L, std::vector<float>& R)
     {
-        mibase::OpcionsExport o;
-        o.master = ambMaster;
-        std::pair<double, double> tros;
-        auto q = mibase::projectePerExportar (estat.projecte, o, pistes, tros);
-        L.clear(); R.clear();
-        if (tros.second <= tros.first) return;
-        const auto solo = ed::estatSolo (q);
-        std::vector<std::string> sonen;
-        for (size_t i = 0; i < q.pistes.size(); ++i) if (solo[i] != 0) sonen.push_back (q.pistes[i].id);
-        auto interns = Instruments::perExportar (fs, 4096, estat.carpeta);
-        auto pla = construeixPla (q, audioPreses,
-            [this, fs, interns, sonen] (const mibase::Pista& t) -> std::shared_ptr<mibase::Instrument>
-            {
-                if (std::find (sonen.begin(), sonen.end(), t.id) == sonen.end()) return nullptr;
-                return GestorPlugins::esVst3 (t.instrument) ? plugins.instrumentNou (t, fs, 4096, GestorPlugins::escalfamentVst3) : interns (t);
-            },
-            [this, fs] (const mibase::Insert& x) { return x.actiu ? plugins.efecteNou (x, fs, 4096) : nullptr; },
-            &mapaSo);
-        mibase::renderitzaPla (*pla, fs, tros.first, tros.second, L, R);
+        renderitzaPerAnalitzar (pistes, ambMaster, L, R, fs);
     };
     std::vector<float> L, R;
     tancaments::pas ("analitzant: el mix");
@@ -3122,7 +3144,8 @@ bool PantallaEstudi::keyPressed (const juce::KeyPress& k)
     auto lletra = [codi] (char c) { return codi == c || codi == c + 32; };
     if (codi == juce::KeyPress::deleteKey || codi == juce::KeyPress::backspaceKey) { treu(); return true; }
     if (codi == juce::KeyPress::F8Key) { obreFont(); return true; }   // 0.97 (1.16: F8; abans F9)
-    if (codi == juce::KeyPress::F9Key) { commutaMescles(); return true; }   // 1.16: taula de mescles en una finestra a part
+    if (codi == juce::KeyPress::F9Key) { commutaMescles(); return true; }
+    if (codi == juce::KeyPress::F7Key) { commutaMixAssistant(); return true; }   // 1.23: Mix Assistant   // 1.16: taula de mescles en una finestra a part
     // 1.16: marcadors. Maj+F1…F4 desa on és el capçal; F1…F4 hi porta el capçal.
     for (int m = 0; m < 4; ++m)
         if (codi == juce::KeyPress::F1Key + m && ! mods.isCommandDown() && ! mods.isAltDown())
@@ -4779,4 +4802,255 @@ void PantallaEstudi::vesAMarcador (int m)
     actualitzaBarres();
     estat.info = "Marcador F"_ca + juce::String (m + 1);
     estat.avisa();
+}
+
+// ---------------- 1.23: Mix Assistant ----------------
+// Finestra pròpia (F7) que es pot deixar a una segona pantalla; l'Esc no la tanca. L'anàlisi es fa pista a pista,
+// tornant al bucle de la interfície entre una i altra perquè es pugui anar pintant el progrés. Mai mentre es grava.
+namespace
+{
+    class FinestraMix : public juce::DocumentWindow
+    {
+    public:
+        FinestraMix (juce::Component* contingut, std::function<void()> enTancar)
+            : juce::DocumentWindow ("Mix Assistant · Mibase"_ca, tema::fons, juce::DocumentWindow::allButtons), tanca (std::move (enTancar))
+        {
+            setUsingNativeTitleBar (true);
+            setResizable (true, true);
+            setResizeLimits (640, 420, 10000, 10000);
+            setContentOwned (contingut, false);
+            centreWithSize (1120, 740);
+        }
+        void closeButtonPressed() override { if (tanca) tanca(); }
+        bool keyPressed (const juce::KeyPress& k) override { return cridaTeclaGlobal (k); }   // Espai, F7, F9, F1–F4…
+    private:
+        std::function<void()> tanca;
+    };
+}
+
+void PantallaEstudi::commutaMixAssistant()
+{
+    if (finestraMix != nullptr) { tancaFinestraMix(); return; }
+    obreMixAssistant ({});
+}
+
+void PantallaEstudi::obreMixAssistant (const std::string& idPista)
+{
+    if (finestraMix == nullptr)
+    {
+        auto* v = new VistaMixAssistant (modelMix);
+        vistaMix = v;
+        v->onAnalitza = [this] { analitzaMix(); };
+        auto& l = v->llistaDetall();
+        l.onTriaInstrument = [this] (const std::string& id) { menuInstrumentMix (id); };
+        l.onConfirma = [this] (const std::string& id, mibase::mix::Instrument i) { posaInstrumentMix (id, i); };
+        l.onVesAPista = [this] (const std::string& id)
+        {
+            for (int i = 0; i < estat.numPistes(); ++i)
+                if (estat.projecte.pistes[(size_t) i].id == id)
+                {
+                    estat.pistaTriada = i;
+                    estat.pistesTriades = { id };
+                    estat.info = "Pista triada: "_ca + juce::String::fromUTF8 (estat.projecte.pistes[(size_t) i].nom.c_str());
+                    estat.avisa();
+                    if (auto* tl = getTopLevelComponent()) tl->toFront (true);
+                    return;
+                }
+        };
+        juce::Component::SafePointer<PantallaEstudi> jo (this);
+        finestraMix = std::make_unique<FinestraMix> (v, [jo]
+        {
+            juce::MessageManager::callAsync ([jo] { if (jo != nullptr) jo->tancaFinestraMix(); });
+        });
+        const auto lloc = ajustos.getValue ("mix.finestra");
+        if (lloc.isNotEmpty()) finestraMix->restoreWindowStateFromString (lloc);
+        finestraMix->setVisible (true);
+        quedaSobreMibase (*finestraMix);
+        estat.info = "Mix Assistant obert (F7 el tanca; l'Esc no)"_ca;
+        colocaSeccions();
+        estat.avisa();
+    }
+    vistaMix->triaPista (idPista);
+    finestraMix->toFront (true);
+}
+
+void PantallaEstudi::tancaFinestraMix()
+{
+    if (finestraMix == nullptr) return;
+    ajustos.setValue ("mix.finestra", finestraMix->getWindowStateAsString());
+    ajustos.saveIfNeeded();
+    vistaMix = nullptr;
+    finestraMix.reset();
+    colocaSeccions();
+    estat.avisa();
+}
+
+std::vector<mibase::mix::Tram> PantallaEstudi::tramsMix (double) const
+{
+    std::vector<mibase::mix::Tram> v;
+    for (const auto& pt : estat.projecte.parts)
+    {
+        if (pt.a <= pt.de) continue;
+        v.push_back ({ pt.nom.empty() ? std::string ("Part") : pt.nom, ed::segonsDeCompas (estat.projecte, pt.de), ed::segonsDeCompas (estat.projecte, pt.a) });
+    }
+    return v;
+}
+
+void PantallaEstudi::analitzaMix()
+{
+    if (modelMix.analitzant) return;
+    if (estat.transport >= 2)
+    {
+        estat.info = "Mentre graves, el Mix Assistant no analitza"_ca;
+        estat.avisa();
+        return;
+    }
+    modelMix.files.clear();
+    cuaMix.clear();
+    for (int i = 0; i < estat.numPistes(); ++i)
+    {
+        const auto& t = estat.projecte.pistes[(size_t) i];
+        if (mibase::esBus (t) || ! (t.tipus == "audio" || mibase::esMidi (t))) continue;
+        ModelMix::Fila f;
+        f.id = t.id;
+        f.nom = juce::String::fromUTF8 (t.nom.c_str());
+        f.color = EstatEstudi::colorPista (t);
+        f.ident = mibase::mix::identifica (t);
+        if (t.clips.empty()) f.motiu = "Buida: no hi ha res per analitzar"_ca;
+        else if (t.mut) f.motiu = "Silenciada: no s'analitza"_ca;
+        else cuaMix.push_back (i);
+        modelMix.files.push_back (std::move (f));
+    }
+    totalMix = cuaMix.size();
+    if (cuaMix.empty())
+    {
+        modelMix.fet = true;
+        modelMix.quan = "no hi ha cap pista amb so"_ca;
+        modelMix.avisa();
+        return;
+    }
+    modelMix.analitzant = true;
+    modelMix.fet = false;
+    modelMix.fraccio = 0.0;
+    modelMix.progres = "Preparant…"_ca;
+    modelMix.avisa();
+    sincronitzaElastic (true);   // els sons estirats, tots fets abans de renderitzar
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    juce::Timer::callAfterDelay (30, [jo] { if (jo != nullptr) jo->pasMix(); });
+}
+
+void PantallaEstudi::pasMix()
+{
+    if (! modelMix.analitzant) return;
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    if (estat.transport >= 2)   // ha començat a gravar: s'atura (el que ja s'ha fet es queda)
+    {
+        cuaMix.clear();
+        modelMix.analitzant = false;
+        modelMix.fet = modelMix.analitzades() > 0;
+        modelMix.quan = "aturat perquè has començat a gravar"_ca;
+        modelMix.avisa();
+        return;
+    }
+    if (cuaMix.empty())
+    {
+        modelMix.analitzant = false;
+        modelMix.fet = true;
+        modelMix.fraccio = 1.0;
+        modelMix.quan = "analitzat a les "_ca + juce::Time::getCurrentTime().formatted ("%H:%M");
+        historial.afegeix ("Mix Assistant: analitzades "_ca + juce::String (modelMix.analitzades()) + " pistes"_ca);
+        tancaments::pas ("Mix Assistant: anàlisi acabada");
+        modelMix.avisa();
+        return;
+    }
+    const int i = cuaMix.front();
+    cuaMix.erase (cuaMix.begin());
+    const size_t fet = totalMix - cuaMix.size();
+    if (i < 0 || i >= estat.numPistes()) { juce::Timer::callAfterDelay (1, [jo] { if (jo != nullptr) jo->pasMix(); }); return; }
+    const auto t = estat.projecte.pistes[(size_t) i];
+    modelMix.progres = "Analitzant «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "» ("_ca + juce::String ((int) fet) + " de "_ca + juce::String ((int) totalMix) + ")";
+    modelMix.fraccio = (double) (fet - 1) / (double) juce::jmax ((size_t) 1, totalMix);
+    modelMix.avisa();
+    // la feina, una mica més tard: així primer es pinta el text del progrés
+    juce::Timer::callAfterDelay (20, [jo, t, i]
+    {
+        if (jo == nullptr) return;
+        auto& self = *jo;
+        if (! self.modelMix.analitzant) return;
+        const double fs = self.servei.estudi().getFs() > 0.0 ? self.servei.estudi().getFs() : 48000.0;
+        tancaments::pas ("Mix Assistant: la pista " + t.nom);
+        std::vector<float> L, R;
+        juce::MouseCursor::showWaitCursor();
+        const double inici = self.renderitzaPerAnalitzar ({ i }, false, L, R, fs);
+        auto a = std::make_shared<mibase::mix::AnalisiPista> (mibase::mix::analitzaPista (L.data(), R.data(), L.size(), fs, inici));
+        L.clear(); L.shrink_to_fit(); R.clear(); R.shrink_to_fit();
+        juce::MouseCursor::hideWaitCursor();
+        for (auto& f : self.modelMix.files)
+        {
+            if (f.id != t.id) continue;
+            f.analisi = a;
+            f.ident = mibase::mix::identifica (t, a.get());
+            f.analitzada = a->valid;
+            if (a->valid) f.diag = mibase::mix::diagnosticaPista (t.id, t.nom, *a, f.ident, self.tramsMix (inici), t.tipus == "audio");
+            else f.motiu = "No s'hi sent res: no s'ha pogut analitzar"_ca;
+        }
+        self.modelMix.avisa();
+        juce::Timer::callAfterDelay (1, [jo] { if (jo != nullptr) jo->pasMix(); });
+    });
+}
+
+void PantallaEstudi::menuInstrumentMix (const std::string& idPista)
+{
+    const mibase::Pista* t = nullptr;
+    for (const auto& p : estat.projecte.pistes) if (p.id == idPista) t = &p;
+    if (t == nullptr) return;
+    const auto ara = mibase::mix::instrumentDeClau (t->mixInstrument);
+    juce::PopupMenu m;
+    m.addSectionHeader ("Quin instrument és «"_ca + juce::String::fromUTF8 (t->nom.c_str()) + "»?");
+    m.addItem (1, "Que ho endevini Mibase"_ca, true, t->mixInstrument.empty());
+    m.addSeparator();
+    for (int k = 1; k < mibase::mix::numInstruments; ++k)
+        m.addItem (100 + k, juce::String::fromUTF8 (mibase::mix::nomInstrument ((mibase::mix::Instrument) k)), true, (int) ara == k);
+    juce::Component::SafePointer<PantallaEstudi> jo (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(), [jo, idPista] (int r)
+    {
+        if (jo == nullptr || r <= 0) return;
+        if (r == 1) jo->posaInstrumentMix (idPista, mibase::mix::Instrument::Desconegut, true);
+        else jo->posaInstrumentMix (idPista, (mibase::mix::Instrument) (r - 100));
+    });
+}
+
+void PantallaEstudi::posaInstrumentMix (const std::string& idPista, mibase::mix::Instrument i, bool perDefecte)
+{
+    for (auto& t : estat.projecte.pistes)
+    {
+        if (t.id != idPista) continue;
+        const std::string nova = perDefecte ? std::string() : std::string (mibase::mix::clauInstrument (i));
+        if (t.mixInstrument != nova)
+        {
+            estat.desfes.abans (estat.projecte);
+            t.mixInstrument = nova;
+            estat.canviat (perDefecte ? "Mix Assistant: «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "», instrument automàtic"_ca
+                                      : "Mix Assistant: «"_ca + juce::String::fromUTF8 (t.nom.c_str()) + "» és "_ca
+                                        + juce::String::fromUTF8 (mibase::mix::nomInstrument (i)).toLowerCase());
+        }
+        break;
+    }
+    rediagnosticaMix (idPista);
+}
+
+void PantallaEstudi::rediagnosticaMix (const std::string& idPista)
+{
+    // l'àudio no ha canviat: es torna a fer el diagnòstic amb el mateix so (sense tornar a renderitzar)
+    const mibase::Pista* t = nullptr;
+    for (const auto& p : estat.projecte.pistes) if (p.id == idPista) t = &p;
+    if (t == nullptr) return;
+    for (auto& f : modelMix.files)
+    {
+        if (f.id != idPista) continue;
+        f.ident = mibase::mix::identifica (*t, f.analisi.get());
+        if (f.analisi != nullptr && f.analisi->valid)
+            f.diag = mibase::mix::diagnosticaPista (t->id, t->nom, *f.analisi, f.ident, tramsMix (f.analisi->inici), t->tipus == "audio");
+    }
+    modelMix.avisa();
 }

@@ -304,6 +304,7 @@ namespace mibase
         int color = 0;                  // índex de la paleta de colors de pista
         std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta
         std::string notes;   // 0.87: anotacions d'en Roger sobre la pista (panell de la dreta)
+        std::string mixInstrument;   // 1.23: quin instrument és, segons en Roger (Mix Assistant; buit = que ho endevini)
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6

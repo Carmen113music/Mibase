@@ -387,6 +387,7 @@ namespace mibase::disc
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
                 t.notes = e.value ("notes", std::string());   // 0.87
+                t.mixInstrument = e.value ("mixInstrument", std::string());   // 1.23
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
                 t.sortidaTargeta = std::clamp (e.value ("sortidaTargeta", -1), -1, 63);   // 1.17
@@ -908,6 +909,7 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.notes.empty()) pista["notes"] = t.notes;   // 0.87
+            if (! t.mixInstrument.empty()) pista["mixInstrument"] = t.mixInstrument;   // 1.23
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
             if (t.sortidaTargeta >= 0) { pista["sortidaTargeta"] = t.sortidaTargeta; pista["canalsTargeta"] = t.canalsTargeta; }   // 1.17
             if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
