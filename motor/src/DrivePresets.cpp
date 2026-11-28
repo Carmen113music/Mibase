@@ -76,7 +76,7 @@ namespace mibase::drive
             {
                 Preset p { x.value ("nom", std::string()), x.value ("carpeta", std::string()), x.value ("descripcio", std::string()),
                            x.value ("estat", std::string()) };
-                if (! p.nom.empty() && p.estat.rfind ("mibase-drive=", 0) == 0 && busca (p.nom) == nullptr) usuari.push_back (std::move (p));
+                if (! p.nom.empty() && ! p.estat.empty() && (prefix.empty() || p.estat.rfind (prefix, 0) == 0) && busca (p.nom) == nullptr) usuari.push_back (std::move (p));
             }
             for (const auto& x : j.value ("favorits", nlohmann::json::array()))
                 if (x.is_string()) favorits.push_back (x.get<std::string>());

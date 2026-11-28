@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -303,6 +304,7 @@ namespace mibase
         int color = 0;                  // índex de la paleta de colors de pista
         std::uint32_t rgb = 0;          // color triat a mà (0xAARRGGBB); 0 = el de la paleta
         std::string notes;   // 0.87: anotacions d'en Roger sobre la pista (panell de la dreta)
+        std::string mixInstrument;   // 1.23: quin instrument és, segons en Roger (Mix Assistant; buit = que ho endevini)
         std::vector<Clip> clips;
         bool mut = false, solo = false, grava = false;
         double faderDb = 0.0;    // de -60 (silenci) a +6
@@ -322,6 +324,10 @@ namespace mibase
         ParamsGuitarra guitarra;                   // 0.44: controls de la guitarra virtual
         // ---- 0.33 ----
         std::string sortida;                       // id del bus on va el so (buit: a la sortida)
+        /** 1.17: sortida directa a la targeta, sense passar pel màster: canal de la targeta (0 = el primer, comptant
+            també els apagats a les Preferències); -1 = no (va on diu «sortida»). canalsTargeta: 1 mono, 2 parell. */
+        int sortidaTargeta = -1;
+        int canalsTargeta = 2;
         bool segueixAcords = false;                // 0.37: els clips de patró d'aquesta pista llegeixen la pista d'Acords
         std::vector<Enviament> enviaments;
         std::vector<Automatitzacio> autos;         // 0.56: automatització
@@ -420,6 +426,24 @@ namespace mibase
         int compasNum = 0, compasDen = 0;   // 0.28: compàs propi (0: el de la cançó)
     };
 
+    /** 1.25: una «versió de mescla» (Mix Assistant): el volum, el panorama, el mute, els efectes (amb els seus ajustos) i
+        els enviaments de cada pista, i el volum i els efectes del màster, amb un nom. No guarda àudio ni clips. */
+    struct VersioMescla
+    {
+        struct DePista
+        {
+            std::string pista;
+            double faderDb = 0.0, pan = 0.0;
+            bool mut = false;
+            std::vector<Insert> inserts;
+            std::vector<Enviament> enviaments;
+        };
+        std::string nom, quan;
+        std::vector<DePista> pistes;
+        double masterDb = 0.0;
+        std::vector<Insert> insertsMaster;
+    };
+
     struct Projecte
     {
         std::string nom;
@@ -445,7 +469,16 @@ namespace mibase
         double masterDb = 0.0;   // volum de la sortida (de -60 a +6)
         std::vector<Insert> insertsMaster;   // 0.19: cadena de màstering
         int sortidaMaster = 0;   // 0.17: parell de sortides del màster (0 = 1/2, 1 = 3/4…)
+        /** 1.16: marcadors F1–F4 (segons; negatiu = no desat). Maj+F1…F4 hi desa el capçal; F1…F4 hi va. */
+        std::array<double, 4> marcadors { -1.0, -1.0, -1.0, -1.0 };
+        /** 1.18: banderoles d'inici i final de la cançó (segons; negatiu = automàtic: del primer clip al darrer).
+            Diuen què s'exporta amb «Tota la cançó». */
+        double iniciCanco = -1.0, fiCanco = -1.0;
         int comptador = 0;       // per fer identificadors únics
+        std::vector<VersioMescla> versionsMescla;   // 1.25: Mix Assistant
+        /** 1.26: historial del Mix Assistant (què s'ha preparat, aplicat o tret; versions). Només per consultar: el Desfés no el toca. */
+        struct EntradaMix { std::string quan, pista, text; };
+        std::vector<EntradaMix> historialMix;
 
         // ---- Harmonia (0.8) ----
         /** true: la tonalitat es dedueix de les notes MIDI (si n'hi ha prou); false: l'ha triada en Roger. */

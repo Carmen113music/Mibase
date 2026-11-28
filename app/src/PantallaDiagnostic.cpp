@@ -283,6 +283,18 @@ PantallaDiagnostic::PantallaDiagnostic (ServeiAudio& s, Historial& h)
         actualitzaEstat();
     };
 
+    // 1.25: deixar la targeta a les altres aplicacions quan Mibase és al darrere. Encès per defecte.
+    addAndMakeVisible (btFons);
+    btFons.setClickingTogglesState (true);
+    btFons.setToggleState (servei.getAlliberaEnFons(), juce::dontSendNotification);
+    btFons.setTooltip ("Quan Mibase és al darrere i no sona ni grava, deixa la targeta a les altres aplicacions (navegador, YouTube…). "_ca
+                       "En tornar a Mibase, la torna a agafar sola."_ca);
+    btFons.onClick = [this]
+    {
+        servei.setAlliberaEnFons (btFons.getToggleState());
+        historial.afegeix (btFons.getToggleState() ? "Allibera la targeta al darrere: encès."_ca : "Allibera la targeta al darrere: apagat."_ca);
+    };
+
     // Proves de so.
     addAndMakeVisible (btClic);
     btClic.setClickingTogglesState (true);
@@ -544,7 +556,12 @@ void PantallaDiagnostic::resized()
         llistaMidi.setBounds (z);
     }
     etEstat.setBounds (zonaEstat.reduced (14, 0).withTrimmedTop (alcadaTitol).withTrimmedBottom (8));
-    btNuclis.setBounds (zonaEstat.reduced (14, 0).removeFromTop (alcadaTitol).removeFromRight (170).reduced (0, 3));   // 1.10
+    {
+        auto fila = zonaEstat.reduced (14, 0).removeFromTop (alcadaTitol);
+        btNuclis.setBounds (fila.removeFromRight (170).reduced (0, 3));   // 1.10
+        fila.removeFromRight (8);
+        btFons.setBounds (fila.removeFromRight (190).reduced (0, 3));     // 1.25
+    }
 
     {
         auto z = zonaHistorial.reduced (14, 0).withTrimmedBottom (12);

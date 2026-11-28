@@ -12,7 +12,7 @@ namespace dibuix
                        Principi, Grava, Desfes, Refes, Metronom, Importa, Rebobina, Endavant, Atura,
                        Fletxa2, Llapis, Goma, Tisores, Cola, Silenci, Mescla, Pistes, Requadre, Insereix,
                        Piano, Desenganxa, Enganxa, Fantasma, Quantitza, Amaga, Notes, Cadenat, Bucle,
-                       Encen, Canvia, Bateria, Finestra, Elastic, Font };
+                       Encen, Canvia, Bateria, Finestra, Elastic, Font, Assistent };
 
     inline juce::Path icona (Icona i, juce::Rectangle<float> r)
     {
@@ -224,6 +224,11 @@ namespace dibuix
             case Icona::Notes:   // notes MIDI petites
                 p.addRoundedRectangle (3.0f, 6.0f, 8.0f, 3.5f, 1.0f); p.addRoundedRectangle (9.0f, 11.0f, 10.0f, 3.5f, 1.0f);
                 p.addRoundedRectangle (14.0f, 16.0f, 7.0f, 3.5f, 1.0f);
+                break;
+            case Icona::Assistent:   // 1.23: uns auriculars (el tècnic que escolta) amb una ona al mig
+                p.startNewSubPath (4.5f, 15); p.lineTo (4.5f, 12); p.cubicTo (4.5f, 2.5f, 19.5f, 2.5f, 19.5f, 12); p.lineTo (19.5f, 15);
+                p.addRoundedRectangle (3.0f, 13.0f, 4.0f, 7.0f, 1.5f); p.addRoundedRectangle (17.0f, 13.0f, 4.0f, 7.0f, 1.5f);
+                p.startNewSubPath (9, 16); p.lineTo (10.5f, 12.5f); p.lineTo (12, 18); p.lineTo (13.5f, 14); p.lineTo (15, 16);
                 break;
             case Icona::Casa:
                 p.startNewSubPath (4, 11); p.lineTo (12, 4); p.lineTo (20, 11);

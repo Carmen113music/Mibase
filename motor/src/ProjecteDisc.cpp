@@ -65,6 +65,36 @@ namespace
         }
         return v;
     }
+
+    // 1.24→1.25: els enviaments (abans eren dins de la lectura de la pista; ara també a les versions de mescla)
+    std::vector<mibase::Enviament> enviamentsDeJson (const nlohmann::json& e)
+    {
+        std::vector<mibase::Enviament> r;
+        if (! e.contains ("enviaments") || ! e["enviaments"].is_array()) return r;
+        for (auto& v : e["enviaments"])
+        {
+            if (! v.is_object()) continue;
+            mibase::Enviament x;
+            x.id = v.value ("id", std::string());
+            x.desti = v.value ("desti", std::string());
+            x.nivellDb = std::clamp (v.value ("nivellDb", 0.0), -60.0, 6.0);
+            x.pan = std::clamp (v.value ("pan", 0.0), -1.0, 1.0);
+            x.actiu = v.value ("actiu", true);
+            x.mut = v.value ("mut", false);
+            const std::string m = v.value ("mode", std::string ("post"));
+            x.mode = m == "pre" ? 0 : (m == "postpan" ? 2 : 1);
+            if (! x.desti.empty()) r.push_back (x);
+        }
+        return r;
+    }
+    nlohmann::json enviamentsAJson (const std::vector<mibase::Enviament>& v)
+    {
+        auto ev = nlohmann::json::array();
+        for (auto& x : v)
+            ev.push_back ({ { "id", x.id }, { "desti", x.desti }, { "nivellDb", x.nivellDb }, { "pan", x.pan }, { "actiu", x.actiu },
+                            { "mut", x.mut }, { "mode", x.mode == 0 ? "pre" : (x.mode == 2 ? "postpan" : "post") } });
+        return ev;
+    }
 }
 
 namespace mibase::disc
@@ -306,7 +336,39 @@ namespace mibase::disc
         p.clicSo = std::clamp (j.value ("clicSo", 0), 0, 3);
         p.masterDb = std::clamp (j.value ("masterDb", 0.0), -60.0, 6.0);
         p.sortidaMaster = std::clamp (j.value ("sortidaMaster", 0), 0, 31);
+        p.iniciCanco = j.value ("iniciCanco", -1.0);   // 1.18
+        p.fiCanco = j.value ("fiCanco", -1.0);
+        if (j.contains ("marcadors") && j["marcadors"].is_array())   // 1.16
+            for (size_t k = 0; k < p.marcadors.size() && k < j["marcadors"].size(); ++k)
+                if (j["marcadors"][k].is_number()) p.marcadors[k] = j["marcadors"][k].get<double>();
         p.insertsMaster = insertsDeJson (j, "insertsMaster");
+        if (j.contains ("historialMix") && j["historialMix"].is_array())   // 1.26
+            for (const auto& e : j["historialMix"])
+                if (e.is_object()) p.historialMix.push_back ({ e.value ("quan", std::string()), e.value ("pista", std::string()), e.value ("text", std::string()) });
+        if (j.contains ("versionsMescla") && j["versionsMescla"].is_array())   // 1.25
+            for (const auto& e : j["versionsMescla"])
+            {
+                if (! e.is_object()) continue;
+                VersioMescla v;
+                v.nom = e.value ("nom", std::string());
+                v.quan = e.value ("quan", std::string());
+                v.masterDb = std::clamp (e.value ("masterDb", 0.0), -60.0, 6.0);
+                v.insertsMaster = insertsDeJson (e, "insertsMaster");
+                if (e.contains ("pistes") && e["pistes"].is_array())
+                    for (const auto& f : e["pistes"])
+                    {
+                        if (! f.is_object()) continue;
+                        VersioMescla::DePista d;
+                        d.pista = f.value ("pista", std::string());
+                        d.faderDb = std::clamp (f.value ("faderDb", 0.0), -60.0, 6.0);
+                        d.pan = std::clamp (f.value ("pan", 0.0), -1.0, 1.0);
+                        d.mut = f.value ("mut", false);
+                        d.inserts = insertsDeJson (f, "inserts");
+                        d.enviaments = enviamentsDeJson (f);
+                        if (! d.pista.empty()) v.pistes.push_back (std::move (d));
+                    }
+                p.versionsMescla.push_back (std::move (v));
+            }
         {
             const auto snap = j.value ("snap", std::string ("compas"));
             p.snap = snap == "temps" ? Snap::Temps : snap == "lliure" ? Snap::Lliure : Snap::Compas;
@@ -382,24 +444,13 @@ namespace mibase::disc
                 if (t.pads.empty() && t.presetPads == "Acords de la tonalitat") t.presetPads.clear();
                 t.carpeta = e.value ("carpeta", std::string());
                 t.notes = e.value ("notes", std::string());   // 0.87
+                t.mixInstrument = e.value ("mixInstrument", std::string());   // 1.23
                 // 0.33: sortida i enviaments (els projectes d'abans no en tenen: tot va a la sortida).
                 t.sortida = e.value ("sortida", std::string());
+                t.sortidaTargeta = std::clamp (e.value ("sortidaTargeta", -1), -1, 63);   // 1.17
+                t.canalsTargeta = e.value ("canalsTargeta", 2) == 1 ? 1 : 2;
                 t.segueixAcords = e.value ("segueixAcords", false);   // 0.37
-                if (e.contains ("enviaments") && e["enviaments"].is_array())
-                    for (auto& v : e["enviaments"])
-                    {
-                        if (! v.is_object()) continue;
-                        Enviament x;
-                        x.id = v.value ("id", std::string());
-                        x.desti = v.value ("desti", std::string());
-                        x.nivellDb = std::clamp (v.value ("nivellDb", 0.0), -60.0, 6.0);
-                        x.pan = std::clamp (v.value ("pan", 0.0), -1.0, 1.0);
-                        x.actiu = v.value ("actiu", true);
-                        x.mut = v.value ("mut", false);
-                        const std::string m = v.value ("mode", std::string ("post"));
-                        x.mode = m == "pre" ? 0 : (m == "postpan" ? 2 : 1);
-                        if (! x.desti.empty()) t.enviaments.push_back (x);
-                    }
+                t.enviaments = enviamentsDeJson (e);
                 if (e.contains ("automatitzacions") && e["automatitzacions"].is_array())   // 0.56
                     for (auto& v : e["automatitzacions"])
                     {
@@ -751,7 +802,35 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         j["clicSo"] = p.clicSo;
         j["masterDb"] = p.masterDb;
         j["sortidaMaster"] = p.sortidaMaster;
+        j["marcadors"] = p.marcadors;   // 1.16
+        if (p.iniciCanco >= 0.0) j["iniciCanco"] = p.iniciCanco;   // 1.18
+        if (p.fiCanco >= 0.0) j["fiCanco"] = p.fiCanco;
         if (! p.insertsMaster.empty()) j["insertsMaster"] = insertsAJson (p.insertsMaster);
+        if (! p.historialMix.empty())   // 1.26
+        {
+            json h = json::array();
+            for (const auto& e : p.historialMix) h.push_back ({ { "quan", e.quan }, { "pista", e.pista }, { "text", e.text } });
+            j["historialMix"] = h;
+        }
+        if (! p.versionsMescla.empty())   // 1.25
+        {
+            json vv = json::array();
+            for (const auto& v : p.versionsMescla)
+            {
+                json ps = json::array();
+                for (const auto& d : v.pistes)
+                {
+                    json e { { "pista", d.pista }, { "faderDb", d.faderDb }, { "pan", d.pan }, { "mut", d.mut } };
+                    if (! d.inserts.empty()) e["inserts"] = insertsAJson (d.inserts);
+                    if (! d.enviaments.empty()) e["enviaments"] = enviamentsAJson (d.enviaments);
+                    ps.push_back (e);
+                }
+                json e { { "nom", v.nom }, { "quan", v.quan }, { "masterDb", v.masterDb }, { "pistes", ps } };
+                if (! v.insertsMaster.empty()) e["insertsMaster"] = insertsAJson (v.insertsMaster);
+                vv.push_back (e);
+            }
+            j["versionsMescla"] = vv;
+        }
         j["comptador"] = p.comptador;
         {
             json canvis = json::array();
@@ -898,16 +977,11 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
             if (! t.entradaMidi.empty()) { pista["entradaMidi"] = t.entradaMidi; pista["entradaMidiNom"] = t.entradaMidiNom; }
             if (! t.carpeta.empty()) pista["carpeta"] = t.carpeta;
             if (! t.notes.empty()) pista["notes"] = t.notes;   // 0.87
+            if (! t.mixInstrument.empty()) pista["mixInstrument"] = t.mixInstrument;   // 1.23
             if (! t.sortida.empty()) pista["sortida"] = t.sortida;
+            if (t.sortidaTargeta >= 0) { pista["sortidaTargeta"] = t.sortidaTargeta; pista["canalsTargeta"] = t.canalsTargeta; }   // 1.17
             if (t.segueixAcords) pista["segueixAcords"] = true;   // 0.37
-            if (! t.enviaments.empty())
-            {
-                json ev = json::array();
-                for (auto& x : t.enviaments)
-                    ev.push_back ({ { "id", x.id }, { "desti", x.desti }, { "nivellDb", x.nivellDb }, { "pan", x.pan }, { "actiu", x.actiu },
-                                    { "mut", x.mut }, { "mode", x.mode == 0 ? "pre" : (x.mode == 2 ? "postpan" : "post") } });
-                pista["enviaments"] = ev;
-            }
+            if (! t.enviaments.empty()) pista["enviaments"] = enviamentsAJson (t.enviaments);
             if (! t.autos.empty())   // 0.56
             {
                 json av = json::array();

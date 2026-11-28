@@ -533,6 +533,16 @@ namespace mibase::edicio
         return nous;
     }
 
+    Retall retallAPista (const Retall& r, int primera)
+    {
+        if (r.buit() || primera < 0) return r;
+        int dalt = r.clips.front().first;
+        for (auto& c : r.clips) dalt = std::min (dalt, c.first);
+        auto nou = r;
+        for (auto& c : nou.clips) c.first += primera - dalt;
+        return nou;
+    }
+
     std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats)
     {
         std::vector<RefClip> nous;
@@ -748,6 +758,17 @@ namespace mibase::edicio
         auto& t = p.pistes[(size_t) pista];
         if (! bus.empty() && ! potConnectar (p, t.id, bus)) return false;
         t.sortida = bus;
+        t.sortidaTargeta = -1;   // 1.17: al màster o a un bus, ja no surt directa per la targeta
+        return true;
+    }
+
+    bool posaSortidaTargeta (Projecte& p, int pista, int canal, int canals)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size() || canal < 0 || canal >= 64) return false;
+        auto& t = p.pistes[(size_t) pista];
+        t.sortida.clear();
+        t.sortidaTargeta = canal;
+        t.canalsTargeta = canals == 1 ? 1 : 2;
         return true;
     }
 
