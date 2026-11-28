@@ -536,10 +536,11 @@ void GestorPlugins::restauraRacks (const mibase::Projecte& p)
     for (const auto& t : p.pistes) for (const auto& x : t.inserts) fes (x);
 }
 
-void GestorPlugins::restauraInterns (const mibase::Projecte& p)
+void GestorPlugins::restauraInterns (const mibase::Projecte& p, bool nomesMixAssistant)
 {
-    auto fes = [this] (const mibase::Insert& x)
+    auto fes = [this, nomesMixAssistant] (const mibase::Insert& x)
     {
+        if (nomesMixAssistant && x.nom.find ("Mix Assistant") == std::string::npos) return;
         if (x.plugin != mibase::eq::idPlugin && x.plugin != mibase::dinamica::idPlugin && x.plugin != mibase::estereo::idPlugin) return;
         auto it = reverbs.find (x.id);
         if (it == reverbs.end() || it->second == nullptr || x.estat.empty()) return;

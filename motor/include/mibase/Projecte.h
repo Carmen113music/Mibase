@@ -476,6 +476,9 @@ namespace mibase
         double iniciCanco = -1.0, fiCanco = -1.0;
         int comptador = 0;       // per fer identificadors únics
         std::vector<VersioMescla> versionsMescla;   // 1.25: Mix Assistant
+        /** 1.26: historial del Mix Assistant (què s'ha preparat, aplicat o tret; versions). Només per consultar: el Desfés no el toca. */
+        struct EntradaMix { std::string quan, pista, text; };
+        std::vector<EntradaMix> historialMix;
 
         // ---- Harmonia (0.8) ----
         /** true: la tonalitat es dedueix de les notes MIDI (si n'hi ha prou); false: l'ha triada en Roger. */

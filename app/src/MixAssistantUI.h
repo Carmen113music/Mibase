@@ -27,7 +27,9 @@ struct ModelMix : public juce::ChangeBroadcaster
     bool escoltantBalanc = false;   // el Balanç proposat sona ara (B)
     bool creacio = false;           // mode Creació: només el que val la pena arreglar a la gravació
     // 1.25: correccions (incidència → pista i efecte que s'hi ha posat) i seguiment entre anàlisis
-    std::map<std::string, std::pair<std::string, std::string>> correccions;
+    struct Correccio { mibase::mix::LlocCorreccio lloc; bool aplicada = false; };   // 1.26: banda de l'EQ únic (o efecte)
+    std::map<std::string, Correccio> correccions;
+    inline static const std::string idHistorial { "__historial__" };   // 1.26 (amb «:<pista>», el d'una pista)
     std::vector<mibase::mix::Evolucio> seguiment;
     /** Totes les incidències d'ara (per comparar-les amb les de la propera anàlisi). */
     std::vector<mibase::mix::Incidencia> totesCopia() const
@@ -184,6 +186,8 @@ public:
     std::function<void (const std::string& accio, const std::string& incidencia)> onCorreccio;
     /** 1.25: com està la correcció d'una incidència: 0 cap, 1 preparada (apagada, A), 2 preparada i sonant (B), 3 aplicada. */
     std::function<int (const std::string& incidencia)> estatCorreccio;
+    /** 1.26: l'historial del Mix Assistant (del projecte), el més nou a dalt. */
+    std::function<std::vector<mibase::Projecte::EntradaMix>()> historial;
 
     void mostra (const std::string& idPista) { pista = idPista; refes(); }
     const std::string& pistaMostrada() const noexcept { return pista; }
@@ -293,6 +297,35 @@ private:
             for (const auto& [f, i] : v) y = targeta (g, f, *i, m, y, W, true);
             return y + 16;
         }
+        if (pista.rfind (ModelMix::idHistorial, 0) == 0)   // 1.26
+        {
+            const std::string filtre = pista.size() > ModelMix::idHistorial.size() + 1 ? pista.substr (ModelMix::idHistorial.size() + 1) : std::string();
+            const auto* fp = filtre.empty() ? nullptr : model.fila (filtre);
+            y = mixui::escriu (g, fp != nullptr ? "Historial de «"_ca + fp->nom + "»" : "Historial del Mix Assistant"_ca, dibuix::lletra (18.0f, true), tema::text, m, y, W, 4);
+            y = mixui::escriu (g, "Què s'ha preparat, aplicat o tret, i les versions de mescla. És per consultar: si ho canvies a mà a l'efecte, aquí continua el que es va fer."_ca,
+                               dibuix::lletra (12.5f), tema::suau, m, y, W, 12);
+            if (fp != nullptr)
+            {
+                Zona z { Zona::MostraPista, {}, ModelMix::idHistorial };
+                boto (g, m, y, "Tot l'historial"_ca, false, z);
+                y += 40;
+            }
+            const auto h = historial ? historial() : std::vector<mibase::Projecte::EntradaMix>();
+            int n = 0;
+            for (auto it = h.rbegin(); it != h.rend(); ++it)
+            {
+                if (! filtre.empty() && it->pista != filtre) continue;
+                ++n;
+                const auto* fr = model.fila (it->pista);
+                juce::String linia = u (it->quan);
+                if (fr != nullptr) linia << "  ·  " << fr->nom;
+                if (g != nullptr && fr != nullptr) { g->setColour (fr->color); g->fillRoundedRectangle ((float) m, (float) y + 3.0f, 4.0f, 14.0f, 2.0f); }
+                y = mixui::escriu (g, linia, dibuix::lletra (12.0f, true), tema::textMig, m + 10, y, W - 10, 2);
+                y = mixui::escriu (g, u (it->text), dibuix::lletra (13.0f), tema::text, m + 10, y, W - 10, 10);
+            }
+            if (n == 0) y = mixui::escriu (g, "Encara no hi ha res."_ca, dibuix::lletra (13.5f), tema::textMig, m, y, W);
+            return y + 16;
+        }
         if (pista == ModelMix::idMescla)
         {
             y = mixui::escriu (g, "La mescla i l'equilibri"_ca, dibuix::lletra (18.0f, true), tema::text, m, y, W, 4);
@@ -339,7 +372,10 @@ private:
             Zona z { Zona::Instrument, {}, f->id };
             boto (g, m, y, "Canvia l'instrument"_ca, false, z);
             Zona v { Zona::VesAPista, {}, f->id };
-            boto (g, m + mixui::ampleBoto ("Canvia l'instrument"_ca) + 8, y, "Vés a la pista"_ca, false, v);
+            const int xv = m + mixui::ampleBoto ("Canvia l'instrument"_ca) + 8;
+            boto (g, xv, y, "Vés a la pista"_ca, false, v);
+            Zona hh { Zona::MostraPista, {}, ModelMix::idHistorial + ":" + f->id };   // 1.26
+            boto (g, xv + mixui::ampleBoto ("Vés a la pista"_ca) + 8, y, "Historial de la pista"_ca, false, hh);
             y += 40;
         }
         if (id.calPreguntar())
@@ -601,7 +637,7 @@ private:
                 yy += 32;
                 if (ec == 1 || ec == 2)
                     yy = mixui::escriu (gg, ec == 2 ? "Sona la correcció (B). Compara-la amb l'original (A) i decideix."_ca
-                                                    : "Preparada: és a la pista, al final dels efectes, encara apagada. No canvia res fins que l'apliquis."_ca,
+                                                    : "Preparada: és a l'efecte del Mix Assistant de la pista (al final dels efectes), encara apagada. No canvia res fins que l'apliquis."_ca,
                                         dibuix::lletra (12.0f), ec == 2 ? tema::accent : tema::suau, tx, yy, iw, 4);
             }
             const bool deBalanc = (i.proposta.tipus == mibase::mix::Proposta::Fader || i.proposta.tipus == mibase::mix::Proposta::Panorama)
@@ -695,7 +731,7 @@ public:
     /** Mostra una pista (buit: totes). */
     void triaPista (const std::string& id)
     {
-        int fila = id == ModelMix::idMescla ? 1 : 0;
+        int fila = id == ModelMix::idMescla ? 1 : id.rfind (ModelMix::idHistorial, 0) == 0 ? 2 : 0;
         for (size_t i = 0; i < model.files.size(); ++i) if (model.files[i].id == id) fila = (int) i + primeraPista;
         llista.selectRow (fila, false, true);
         detall.mostra (fila == 0 ? std::string() : fila == 1 ? ModelMix::idMescla : id);
@@ -764,7 +800,7 @@ public:
     }
 
 private:
-    static constexpr int alcadaCap = 92, primeraPista = 2;   // 0 totes, 1 la mescla
+    static constexpr int alcadaCap = 92, primeraPista = 3;   // 0 totes, 1 la mescla, 2 l'historial (1.26)
     ModelMix& model;
     Boto btAnalitza { "Analitza la mescla"_ca, std::nullopt, Boto::Estil::Primari };
     Segmentat segMode { { "Creació"_ca, "Mescla" } };
@@ -786,13 +822,13 @@ private:
         {
             g.setColour (tema::text);
             g.setFont (dibuix::lletra (14.0f, true));
-            g.drawText (fila == 0 ? "Totes les pistes"_ca : "La mescla i l'equilibri"_ca, 16, 6, w - 30, 20, juce::Justification::centredLeft);
+            g.drawText (fila == 0 ? "Totes les pistes"_ca : fila == 1 ? "La mescla i l'equilibri"_ca : "Historial"_ca, 16, 6, w - 30, 20, juce::Justification::centredLeft);
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (11.5f));
-            juce::String sota = ! model.fet ? "Encara sense analitzar"_ca : fila == 0 ? "Per ordre d'importància"_ca : "Conflictes, volums, panorames, to"_ca;
+            juce::String sota = fila == 2 ? "El que ha fet el Mix Assistant"_ca : ! model.fet ? "Encara sense analitzar"_ca : fila == 0 ? "Per ordre d'importància"_ca : "Conflictes, volums, panorames, to"_ca;
             if (fila == 1 && model.fet && ! model.balanc.empty() && ! model.creacio) { g.setColour (tema::accent); sota = "Hi ha un Balanç proposat"_ca; }
             g.drawText (sota, 16, 26, w - 30, 16, juce::Justification::centredLeft);
-            if (fila == 1) { g.setColour (tema::linia); g.fillRect (12, h - 2, w - 24, 2); }
+            if (fila == 2) { g.setColour (tema::linia); g.fillRect (12, h - 2, w - 24, 2); }
             return;
         }
         if (fila - primeraPista >= (int) model.files.size()) return;
@@ -832,8 +868,8 @@ private:
     void selectedRowsChanged (int fila) override
     {
         if (fila < 0) return;
-        detall.mostra (fila == 0 || fila - primeraPista >= (int) model.files.size() ? std::string()
-                       : fila == 1 ? ModelMix::idMescla : model.files[(size_t) (fila - primeraPista)].id);
+        detall.mostra (fila == 1 ? ModelMix::idMescla : fila == 2 ? ModelMix::idHistorial
+                       : fila == 0 || fila - primeraPista >= (int) model.files.size() ? std::string() : model.files[(size_t) (fila - primeraPista)].id);
         vista.setViewPosition (0, 0);
     }
 };

@@ -342,6 +342,9 @@ namespace mibase::disc
             for (size_t k = 0; k < p.marcadors.size() && k < j["marcadors"].size(); ++k)
                 if (j["marcadors"][k].is_number()) p.marcadors[k] = j["marcadors"][k].get<double>();
         p.insertsMaster = insertsDeJson (j, "insertsMaster");
+        if (j.contains ("historialMix") && j["historialMix"].is_array())   // 1.26
+            for (const auto& e : j["historialMix"])
+                if (e.is_object()) p.historialMix.push_back ({ e.value ("quan", std::string()), e.value ("pista", std::string()), e.value ("text", std::string()) });
         if (j.contains ("versionsMescla") && j["versionsMescla"].is_array())   // 1.25
             for (const auto& e : j["versionsMescla"])
             {
@@ -803,6 +806,12 @@ if (k.contains ("blocs") && k["blocs"].is_array())   // 0.40
         if (p.iniciCanco >= 0.0) j["iniciCanco"] = p.iniciCanco;   // 1.18
         if (p.fiCanco >= 0.0) j["fiCanco"] = p.fiCanco;
         if (! p.insertsMaster.empty()) j["insertsMaster"] = insertsAJson (p.insertsMaster);
+        if (! p.historialMix.empty())   // 1.26
+        {
+            json h = json::array();
+            for (const auto& e : p.historialMix) h.push_back ({ { "quan", e.quan }, { "pista", e.pista }, { "text", e.text } });
+            j["historialMix"] = h;
+        }
         if (! p.versionsMescla.empty())   // 1.25
         {
             json vv = json::array();

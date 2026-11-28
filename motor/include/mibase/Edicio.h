@@ -315,6 +315,8 @@ namespace mibase::edicio
         bool desfes (Projecte& p);
         bool refes (Projecte& p);
         void buida() { enrere.clear(); endavant.clear(); }
+        /** 1.26: quants passos hi ha per desfer (per saber si el que es desfà és un pas concret). */
+        std::size_t nivell() const noexcept { return enrere.size(); }
         /** 0.85: aplica un canvi a totes les còpies guardades (quan un fitxer canvia de nom o de lloc al disc: així
             desfer no torna a un camí que ja no existeix). */
         void perTots (const std::function<void (Projecte&)>& f) { for (auto& q : enrere) f (q); for (auto& q : endavant) f (q); }

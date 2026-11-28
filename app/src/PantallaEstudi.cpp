@@ -131,6 +131,12 @@ PantallaEstudi::PantallaEstudi (const juce::File& f, const Projecte& p, juce::Pr
 
     estat.projecte = p;
     estat.fitxer = f;
+    if (const int n = mibase::mix::ajuntaEqsMix (estat.projecte); n > 0)   // 1.26: els EQ de la 1.25, en un sol EQ per pista
+    {
+        estat.projecte.historialMix.push_back ({ juce::Time::getCurrentTime().formatted ("%d/%m %H:%M").toStdString(), {},
+                                                 "Ajuntats " + std::to_string (n) + " EQ del Mix Assistant en un sol EQ per pista (versió 1.26)" });
+        h.afegeix ("Mix Assistant: ajuntats "_ca + juce::String (n) + " EQ en un sol EQ per pista"_ca);
+    }
     servei.nomSlotMidi = [this] (int slot)   // 1.13: per al diagnòstic MIDI
     {
         for (const auto& t : estat.projecte.pistes) if (mibase::slotDePista (t) == slot) return juce::String::fromUTF8 (t.nom.c_str());
@@ -3133,9 +3139,19 @@ void PantallaEstudi::triaColor()
 
 void PantallaEstudi::desfes (bool refer)
 {
+    const auto nivellAbans = estat.desfes.nivell();
+    const auto historialMix = estat.projecte.historialMix;   // 1.26: l'historial del Mix Assistant no es desfà mai
     const bool fet = refer ? estat.desfes.refes (estat.projecte) : estat.desfes.desfes (estat.projecte);
     if (! fet) return;
+    estat.projecte.historialMix = historialMix;
     plugins.restauraRacks (estat.projecte);   // 0.78: el Vocal Studio viu, com el del projecte
+    // 1.26: si el que es desfà (o es refà) és un pas del Mix Assistant, els seus efectes vius també hi tornen
+    if (passosMix.count (refer ? estat.desfes.nivell() : nivellAbans) > 0)
+    {
+        plugins.restauraInterns (estat.projecte, true);
+        apuntaMix ({}, refer ? "Refet amb Ctrl+Y l'últim canvi del Mix Assistant"_ca : "Desfet amb Ctrl+Z l'últim canvi del Mix Assistant"_ca);
+        modelMix.avisa();
+    }
     for (auto& s : estat.projecte.preses)
         if (estat.ones.find (s.id) == estat.ones.end())
             carregaOna (s);
@@ -4871,6 +4887,7 @@ void PantallaEstudi::obreMixAssistant (const std::string& idPista)
         l.onDescartaBalanc = [this] { descartaBalanc(); };
         l.onCorreccio = [this] (const std::string& accio, const std::string& id) { correccioMix (accio, id); };   // 1.25
         l.estatCorreccio = [this] (const std::string& id) { return estatCorreccioMix (id); };
+        l.historial = [this] { return estat.projecte.historialMix; };   // 1.26
         v->onVersions = [this] (juce::Component* on) { menuVersionsMix (on); };
         l.onTriaInstrument = [this] (const std::string& id) { menuInstrumentMix (id); };
         l.onConfirma = [this] (const std::string& id, mibase::mix::Instrument i) { posaInstrumentMix (id, i); };
@@ -5250,21 +5267,18 @@ const mibase::mix::Incidencia* PantallaEstudi::incidenciaMix (const std::string&
 
 int PantallaEstudi::estatCorreccioMix (const std::string& idInc) const
 {
-    // es mira el projecte (no es guarda a part): així el desfer i treure l'efecte a mà queden bé sols
+    // es mira el projecte (no es guarda a part): així el desfer i treure-la a mà queden bé sols
     const auto c = modelMix.correccions.find (idInc);
     if (c == modelMix.correccions.end()) return 0;
-    for (const auto& t : estat.projecte.pistes)
-    {
-        if (t.id != c->second.first) continue;
-        for (const auto& x : t.inserts)
-        {
-            if (x.id != c->second.second) continue;
-            const std::string sufix = mibase::mix::sufixProva;
-            const bool prova = x.nom.size() >= sufix.size() && x.nom.compare (x.nom.size() - sufix.size(), sufix.size(), sufix) == 0;
-            return prova ? (x.actiu ? 2 : 1) : 3;
-        }
-    }
-    return 0;
+    const int e = mibase::mix::estatCorreccio (estat.projecte, c->second.lloc);
+    if (e < 0) return 0;
+    if (e == 0) return 1;
+    return c->second.aplicada ? 3 : 2;
+}
+
+void PantallaEstudi::apuntaMix (const std::string& pista, const juce::String& text)
+{
+    estat.projecte.historialMix.push_back ({ juce::Time::getCurrentTime().formatted ("%d/%m %H:%M").toStdString(), pista, text.toStdString() });
 }
 
 void PantallaEstudi::fotoMixAutomatica()
@@ -5279,65 +5293,74 @@ void PantallaEstudi::fotoMixAutomatica()
 
 void PantallaEstudi::correccioMix (const std::string& accio, const std::string& idInc)
 {
+    // 1.26: un sol EQ del Mix Assistant per pista (cada correcció és una banda) i un sol compressor, de-esser i Estèreo
     const auto* inc = incidenciaMix (idInc);
-    // la pista i l'efecte (si ja n'hi ha)
-    int ti = -1, k = -1;
-    const auto c = modelMix.correccions.find (idInc);
-    const std::string idPista = c != modelMix.correccions.end() ? c->second.first : (inc != nullptr ? inc->pista : std::string());
+    auto c = modelMix.correccions.find (idInc);
+    const std::string idPista = c != modelMix.correccions.end() ? c->second.lloc.pista : (inc != nullptr ? inc->pista : std::string());
+    int ti = -1;
     for (int i = 0; i < estat.numPistes(); ++i) if (estat.projecte.pistes[(size_t) i].id == idPista) ti = i;
     if (ti < 0) return;
-    auto& t = estat.projecte.pistes[(size_t) ti];
-    if (c != modelMix.correccions.end())
-        for (int j = 0; j < (int) t.inserts.size(); ++j) if (t.inserts[(size_t) j].id == c->second.second) k = j;
-    const auto nomPista = juce::String::fromUTF8 (t.nom.c_str());
+    const auto nomPista = juce::String::fromUTF8 (estat.projecte.pistes[(size_t) ti].nom.c_str());
     const auto titol = inc != nullptr ? juce::String::fromUTF8 (inc->titol.c_str()) : juce::String();
+    const auto resumDe = [] (const mibase::mix::Correccio& cor) { return juce::String::fromUTF8 (cor.resum.c_str()); };
+    auto pas = [this] { passosMix.insert (estat.desfes.nivell()); };   // just després de desfes.abans()
 
     if (accio == "prepara")
     {
         if (inc == nullptr || ! mibase::mix::espotPreparar (*inc) || estatCorreccioMix (idInc) != 0) return;
+        const auto& t = estat.projecte.pistes[(size_t) ti];
         const ModelMix::Fila* f = modelMix.fila (t.id);
-        const auto cor = mibase::mix::preparaCorreccio (*inc, f != nullptr ? f->analisi.get() : nullptr,
-                                                         teAutoMix (t, "volum") ? NAN : (float) t.faderDb);
+        const auto cor = mibase::mix::preparaCorreccio (*inc, f != nullptr ? f->analisi.get() : nullptr, teAutoMix (t, "volum") ? NAN : (float) t.faderDb);
         if (! cor.valida()) return;
         fotoMixAutomatica();
-        plugins.desaEstats (estat.projecte);
+        plugins.desaEstats (estat.projecte);   // el que hagis tocat a mà a l'efecte, abans d'afegir-hi res
         estat.desfes.abans (estat.projecte);
-        mibase::Insert x;
-        x.id = "i" + std::to_string (++estat.projecte.comptador);
-        x.plugin = cor.plugin;
-        x.nom = cor.nom + mibase::mix::sufixProva;
-        x.actiu = false;   // preparada: a la pista, però apagada fins que l'escoltis o l'apliquis
-        x.estat = cor.estat;
-        estat.projecte.pistes[(size_t) ti].inserts.push_back (x);
-        modelMix.correccions[idInc] = { t.id, x.id };
-        estat.canviat ("Mix Assistant: preparada «"_ca + titol + "» a «"_ca + nomPista + "» ("_ca + juce::String::fromUTF8 (cor.resum.c_str()) + ")");
-        estat.info = "Preparada a «"_ca + nomPista + "»: "_ca + juce::String::fromUTF8 (cor.resum.c_str()) + ". Escolta-la per comparar."_ca;
+        pas();
+        const auto lloc = mibase::mix::posaCorreccio (estat.projecte, ti, cor, false);
+        if (! lloc.valid())
+        {
+            estat.desfes.desfes (estat.projecte);
+            estat.info = "L'EQ del Mix Assistant de «"_ca + nomPista + "» és ple (24 bandes)"_ca;
+            estat.avisa();
+            return;
+        }
+        modelMix.correccions[idInc] = { lloc, false };
+        plugins.restauraInterns (estat.projecte, true);
+        apuntaMix (lloc.pista, "Preparada (apagada): "_ca + resumDe (cor) + " · "_ca + titol);
+        estat.canviat ("Mix Assistant: preparada «"_ca + titol + "» a «"_ca + nomPista + "» ("_ca + resumDe (cor) + ")");
+        estat.info = "Preparada a «"_ca + nomPista + "»: "_ca + resumDe (cor) + ". Escolta-la per comparar."_ca;
     }
-    else if (k < 0)
+    else if (c == modelMix.correccions.end() || mibase::mix::estatCorreccio (estat.projecte, c->second.lloc) < 0)
     {
-        modelMix.correccions.erase (idInc);   // l'efecte ja no hi és (l'has tret a mà o has desfet)
+        if (c != modelMix.correccions.end()) modelMix.correccions.erase (c);   // ja no hi és (l'has tret a mà o has desfet)
     }
     else if (accio == "escolta")
     {
-        // A/B: només s'encén o s'apaga (sense anar al Desfés)
-        auto& x = t.inserts[(size_t) k];
-        x.actiu = ! x.actiu;
-        estat.info = x.actiu ? "Sona la correcció (B) a «"_ca + nomPista + "»"_ca : "Sona l'original (A) de «"_ca + nomPista + "»"_ca;
-        estat.avisa();
+        // A/B: només s'encén o s'apaga la seva banda (o l'efecte), sense anar al Desfés
+        plugins.desaEstats (estat.projecte);
+        const bool ara = mibase::mix::estatCorreccio (estat.projecte, c->second.lloc) == 1;
+        mibase::mix::encenCorreccio (estat.projecte, c->second.lloc, ! ara);
+        plugins.restauraInterns (estat.projecte, true);
+        estat.info = ! ara ? "Sona la correcció (B) a «"_ca + nomPista + "»"_ca : "Sona l'original (A) de «"_ca + nomPista + "»"_ca;
     }
     else if (accio == "obre")
     {
-        inserts::obre (estat, &plugins, ti, k);
+        auto& t = estat.projecte.pistes[(size_t) ti];
+        for (int k = 0; k < (int) t.inserts.size(); ++k)
+            if (t.inserts[(size_t) k].id == c->second.lloc.insert) { inserts::obre (estat, &plugins, ti, k); break; }
         return;
     }
     else if (accio == "aplica")
     {
         plugins.desaEstats (estat.projecte);
+        if (! c->second.aplicada) mibase::mix::encenCorreccio (estat.projecte, c->second.lloc, false);   // el Ctrl+Z torna a «preparada» (apagada), encara que sonés la B
         estat.desfes.abans (estat.projecte);
-        auto& x = t.inserts[(size_t) k];
-        x.actiu = true;
-        const std::string sufix = mibase::mix::sufixProva;
-        if (x.nom.size() >= sufix.size() && x.nom.compare (x.nom.size() - sufix.size(), sufix.size(), sufix) == 0) x.nom.resize (x.nom.size() - sufix.size());
+        pas();
+        mibase::mix::encenCorreccio (estat.projecte, c->second.lloc, true);
+        c->second.aplicada = true;
+        plugins.restauraInterns (estat.projecte, true);
+        apuntaMix (c->second.lloc.pista, "Aplicada: "_ca + (inc != nullptr ? resumDe (mibase::mix::preparaCorreccio (*inc)) : juce::String())
+                                          + (c->second.lloc.banda >= 0 ? " (banda "_ca + juce::String (c->second.lloc.banda + 1) + ")" : juce::String()) + " · "_ca + titol);
         estat.canviat ("Mix Assistant: aplicada «"_ca + titol + "» a «"_ca + nomPista + "»"_ca);
         estat.info = "Aplicada a «"_ca + nomPista + "» (Ctrl+Z ho desfà). Torna a analitzar per veure com ha quedat."_ca;
     }
@@ -5345,8 +5368,12 @@ void PantallaEstudi::correccioMix (const std::string& accio, const std::string& 
     {
         plugins.desaEstats (estat.projecte);
         estat.desfes.abans (estat.projecte);
-        t.inserts.erase (t.inserts.begin() + k);
-        modelMix.correccions.erase (idInc);
+        pas();
+        const bool eraAplicada = c->second.aplicada;
+        mibase::mix::treuCorreccio (estat.projecte, c->second.lloc);
+        plugins.restauraInterns (estat.projecte, true);
+        apuntaMix (c->second.lloc.pista, (eraAplicada ? "Treta (estava aplicada)"_ca : "Rebutjada"_ca) + " · "_ca + titol);
+        modelMix.correccions.erase (c);
         estat.canviat ("Mix Assistant: treta la correcció «"_ca + titol + "» de «"_ca + nomPista + "»"_ca);
         estat.info = "Treta: «"_ca + nomPista + "» torna a sonar com abans"_ca;
     }
@@ -5410,6 +5437,7 @@ void PantallaEstudi::desaVersioMix (const juce::String& nom)
     estat.desfes.abans (estat.projecte);
     estat.projecte.versionsMescla.push_back (ed::fotoMescla (estat.projecte, nom.toStdString(),
                                                              juce::Time::getCurrentTime().formatted ("%d/%m %H:%M").toStdString()));
+    apuntaMix ({}, "Versió de mescla desada: «"_ca + nom + "»");   // 1.26
     estat.canviat ("Versió de mescla desada: "_ca + nom);
     estat.info = "Versió de mescla «"_ca + nom + "» desada: volums, panorames, efectes i enviaments (l'àudio no es copia)"_ca;
     estat.avisa();
@@ -5429,6 +5457,7 @@ void PantallaEstudi::recuperaVersioMix (int k)
     const int n = ed::recuperaMescla (estat.projecte, v);
     plugins.restauraInterns (estat.projecte);
     plugins.restauraRacks (estat.projecte);
+    apuntaMix ({}, "Versió de mescla recuperada: «"_ca + nom + "»");   // 1.26
     estat.canviat ("Versió de mescla recuperada: "_ca + nom);
     estat.info = "Recuperada «"_ca + nom + "» ("_ca + juce::String (n) + " pistes). La d'abans s'ha desat com a «Abans de recuperar…»"_ca;
     estat.avisa();

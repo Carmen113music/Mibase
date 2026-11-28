@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace mibase { struct Pista; }
+namespace mibase { struct Pista; struct Projecte; struct Insert; }
 
 /** 1.23: el MIX ASSISTANT (fase 1). Analitza cada pista tal com sona a la mescla (renderitzada, sense reproduir-la i sense
     tocar el so original), endevina quin instrument és i en fa un diagnòstic: què hi veu, per què pot ser un problema i
@@ -223,4 +223,33 @@ namespace mibase::mix
     };
     std::vector<Evolucio> compara (const std::vector<Incidencia>& abans, const std::vector<Incidencia>& ara);
     const char* nomEvolucio (Evolucio::Estat e);
+
+    // ---------------- 1.26: un sol efecte de cada mena per pista ----------------
+    /** Els efectes del Mix Assistant, sempre al final de la cadena i en aquest ordre. */
+    inline constexpr const char* nomEqMix = "EQ Pro · Mix Assistant";
+    inline constexpr const char* nomCompressorMix = "Compressor · Mix Assistant";
+    inline constexpr const char* nomDeEsserMix = "De-esser · Mix Assistant";
+    inline constexpr const char* nomEstereoMix = "Estèreo · Mix Assistant";
+    /** On és una correcció: la pista, l'efecte i (a l'EQ) la banda. */
+    struct LlocCorreccio
+    {
+        std::string pista, insert;
+        int banda = -1;   // EQ: la banda; els altres, -1 (tot l'efecte)
+        bool valid() const noexcept { return ! insert.empty(); }
+    };
+    /** Posa la correcció a la pista: l'EQ hi afegeix una banda (a l'únic «EQ Pro · Mix Assistant», que es crea si no hi és,
+        respectant el que hi hagi tocat en Roger); el compressor, el de-esser i l'Estèreo creen o actualitzen el seu efecte.
+        «encesa» false: la banda (o l'efecte) queda apagada, per escoltar-la abans. Lloc buit si no cap (EQ ple). */
+    LlocCorreccio posaCorreccio (Projecte& p, int pista, const Correccio& c, bool encesa);
+    /** −1: ja no hi és; 0: apagada; 1: encesa. */
+    int estatCorreccio (const Projecte& p, const LlocCorreccio& l);
+    bool encenCorreccio (Projecte& p, const LlocCorreccio& l, bool encesa);
+    /** Treu la banda (o l'efecte). Si l'EQ es queda sense bandes, també es treu. */
+    bool treuCorreccio (Projecte& p, const LlocCorreccio& l);
+    /** Els efectes del Mix Assistant, al final i en ordre (EQ, compressor, de-esser, Estèreo); la resta no es mou. */
+    void ordenaEfectesMix (Pista& t);
+    /** Els projectes de la 1.25 (un EQ per correcció, «… (prova)»): els ajunta en un sol EQ per pista. Torna quants n'ha ajuntat. */
+    int ajuntaEqsMix (Projecte& p);
+    /** És un efecte del Mix Assistant? */
+    bool esEfecteMix (const Insert& x);
 }

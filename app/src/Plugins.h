@@ -172,7 +172,7 @@ public:
     /** 0.78: després de desfer/refer, els Vocal Studio vius agafen els ajustos del projecte (si han canviat). */
     void restauraRacks (const mibase::Projecte& p);
     /** 1.25: l'EQ Pro, la Dinàmica i l'Estèreo vius prenen els ajustos del projecte (en recuperar una versió de mescla). */
-    void restauraInterns (const mibase::Projecte& p);
+    void restauraInterns (const mibase::Projecte& p, bool nomesMixAssistant = false);   // 1.26: o només els del Mix Assistant
     static bool esIntern (const std::string& plugin) { return plugin == mibase::reverb::idPlugin || plugin == mibase::dinamica::idPlugin || plugin == mibase::eq::idPlugin
                                                                   || plugin == mibase::delay::idPlugin || plugin == mibase::saturacio::idPlugin
                                                                   || plugin == mibase::drive::idPlugin || plugin == mibase::tune::idPlugin

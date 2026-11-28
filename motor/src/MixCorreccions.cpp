@@ -70,7 +70,7 @@ namespace mibase::mix
                 }
                 e.posaBanda (0, b);
                 c.plugin = eq::idPlugin;
-                c.nom = "EQ Pro · Mix Assistant";
+                c.nom = nomEqMix;
                 c.estat = e.estat();
                 c.resum = p.tipus == Proposta::PassaAlts ? "EQ Pro: passa-alts a " + hz (b.freq)
                         : "EQ Pro: " + dbs (b.guany) + " a " + hz (b.freq) + (p.tipus == Proposta::Campana ? " (Q " + num1 (b.q) + ")" : "");
@@ -89,7 +89,7 @@ namespace mibase::mix
                     d.posa (dinamica::Llindar, llindarPer (a, guanyDb, red + 6.0f, 4.0f, -30.0f));
                     d.posa (dinamica::Atac, 1.0f);
                     d.posa (dinamica::Alliberament, 60.0f);
-                    c.nom = "De-esser · Mix Assistant";
+                    c.nom = nomDeEsserMix;
                     c.resum = "De-esser a partir de " + hz (std::clamp (p.freq * 0.85f, 2000.0f, 12000.0f)) + " (que abaixi uns " + num1 (red) + " dB les esses)";
                 }
                 else
@@ -103,7 +103,7 @@ namespace mibase::mix
                     d.posa (dinamica::Genoll, 6.0f);
                     d.posa (dinamica::Detector, 1.0f);   // RMS: segueix el volum, no cada pic
                     d.posa (dinamica::Guany, std::round (red * 0.5f * 2.0f) / 2.0f);   // recupera una part del volum
-                    c.nom = "Compressor · Mix Assistant";
+                    c.nom = nomCompressorMix;
                     c.resum = "Compressor " + num1 (ratio) + ":1 (que redueixi uns " + num1 (red) + " dB a les parts fortes)";
                 }
                 c.plugin = dinamica::idPlugin;
@@ -115,7 +115,7 @@ namespace mibase::mix
                 estereo::Estereo e;
                 e.posa (estereo::MonoGreus, std::clamp (p.freq, 40.0f, 300.0f));
                 c.plugin = estereo::idPlugin;
-                c.nom = "Estèreo · Mix Assistant";
+                c.nom = nomEstereoMix;
                 c.estat = e.estat();
                 c.resum = "Estèreo: greus al mig per sota de " + hz (p.freq);
                 break;
@@ -165,5 +165,185 @@ namespace mibase::mix
             }
         std::stable_sort (v.begin(), v.end(), [] (const Evolucio& a, const Evolucio& b) { return (int) a.estat < (int) b.estat; });
         return v;
+    }
+}
+
+// =====================================================================================================================
+// 1.26: un sol efecte de cada mena per pista
+#include "mibase/Projecte.h"
+
+namespace mibase::mix
+{
+    namespace
+    {
+        const char* const ordreMix[] = { nomEqMix, nomCompressorMix, nomDeEsserMix, nomEstereoMix };
+        int posMix (const std::string& nom)
+        {
+            for (int k = 0; k < 4; ++k) if (nom == ordreMix[k]) return k;
+            return -1;
+        }
+        Pista* pistaDe (Projecte& p, const std::string& id)
+        {
+            for (auto& t : p.pistes) if (t.id == id) return &t;
+            return nullptr;
+        }
+        Insert* insertDe (Pista& t, const std::string& id)
+        {
+            for (auto& x : t.inserts) if (x.id == id) return &x;
+            return nullptr;
+        }
+        bool acabaEn (const std::string& s, const std::string& f) { return s.size() >= f.size() && s.compare (s.size() - f.size(), f.size(), f) == 0; }
+    }
+
+    bool esEfecteMix (const Insert& x)
+    {
+        return posMix (x.nom) >= 0 || x.nom.find ("Mix Assistant") != std::string::npos;
+    }
+
+    void ordenaEfectesMix (Pista& t)
+    {
+        std::stable_sort (t.inserts.begin(), t.inserts.end(), [] (const Insert& a, const Insert& b)
+        {
+            const int pa = posMix (a.nom), pb = posMix (b.nom);
+            return (pa < 0 ? -1 : pa) < (pb < 0 ? -1 : pb);   // els d'en Roger (-1) primer, sense moure'ls entre ells
+        });
+    }
+
+    LlocCorreccio posaCorreccio (Projecte& p, int pista, const Correccio& c, bool encesa)
+    {
+        LlocCorreccio l;
+        if (pista < 0 || pista >= (int) p.pistes.size() || ! c.valida()) return l;
+        auto& t = p.pistes[(size_t) pista];
+        l.pista = t.id;
+        const std::string nom = c.nom;
+        Insert* x = nullptr;
+        for (auto& y : t.inserts) if (y.nom == nom) x = &y;
+        if (x == nullptr)
+        {
+            Insert n;
+            n.id = "i" + std::to_string (++p.comptador);
+            n.plugin = c.plugin;
+            n.nom = nom;
+            n.actiu = true;
+            t.inserts.push_back (n);
+            x = &t.inserts.back();
+        }
+        if (c.plugin == eq::idPlugin)
+        {
+            eq::Equalitzador e, nova;
+            if (! x->estat.empty()) e.posaEstat (x->estat);
+            nova.posaEstat (c.estat);
+            auto b = nova.banda (0);
+            b.activa = encesa;
+            const int k = e.bandaLliure();
+            if (k < 0) return {};   // l'EQ és ple (24 bandes)
+            e.posaBanda (k, b);
+            x->estat = e.estat();
+            x->actiu = true;
+            l.banda = k;
+        }
+        else
+        {
+            x->estat = c.estat;   // el compressor (o el de-esser, o l'Estèreo) d'abans es reajusta amb la proposta nova
+            x->actiu = encesa;
+        }
+        l.insert = x->id;
+        ordenaEfectesMix (t);
+        return l;
+    }
+
+    int estatCorreccio (const Projecte& p, const LlocCorreccio& l)
+    {
+        for (const auto& t : p.pistes)
+        {
+            if (t.id != l.pista) continue;
+            for (const auto& x : t.inserts)
+            {
+                if (x.id != l.insert) continue;
+                if (l.banda < 0) return x.actiu ? 1 : 0;
+                eq::Equalitzador e;
+                e.posaEstat (x.estat);
+                const auto b = e.banda (l.banda);
+                if (! b.usada) return -1;
+                return b.activa && x.actiu ? 1 : 0;
+            }
+        }
+        return -1;
+    }
+
+    bool encenCorreccio (Projecte& p, const LlocCorreccio& l, bool encesa)
+    {
+        auto* t = pistaDe (p, l.pista);
+        auto* x = t != nullptr ? insertDe (*t, l.insert) : nullptr;
+        if (x == nullptr) return false;
+        if (l.banda < 0) { x->actiu = encesa; return true; }
+        eq::Equalitzador e;
+        e.posaEstat (x->estat);
+        auto b = e.banda (l.banda);
+        if (! b.usada) return false;
+        b.activa = encesa;
+        e.posaBanda (l.banda, b);
+        x->estat = e.estat();
+        if (encesa) x->actiu = true;
+        return true;
+    }
+
+    bool treuCorreccio (Projecte& p, const LlocCorreccio& l)
+    {
+        auto* t = pistaDe (p, l.pista);
+        if (t == nullptr) return false;
+        auto it = std::find_if (t->inserts.begin(), t->inserts.end(), [&] (const Insert& x) { return x.id == l.insert; });
+        if (it == t->inserts.end()) return false;
+        if (l.banda >= 0)
+        {
+            eq::Equalitzador e;
+            e.posaEstat (it->estat);
+            e.esborra (l.banda);
+            bool queda = false;
+            for (int k = 0; k < eq::maxBandes; ++k) queda = queda || e.banda (k).usada;
+            if (queda) { it->estat = e.estat(); return true; }
+        }
+        t->inserts.erase (it);
+        return true;
+    }
+
+    int ajuntaEqsMix (Projecte& p)
+    {
+        int n = 0;
+        for (auto& t : p.pistes)
+        {
+            std::vector<size_t> eqs;
+            for (size_t k = 0; k < t.inserts.size(); ++k)
+            {
+                const auto& x = t.inserts[k];
+                if (x.plugin == eq::idPlugin && (x.nom == nomEqMix || x.nom == std::string (nomEqMix) + sufixProva)) eqs.push_back (k);
+            }
+            if (eqs.empty()) continue;
+            if (eqs.size() == 1 && t.inserts[eqs[0]].nom == nomEqMix && t.inserts[eqs[0]].actiu) continue;   // ja està bé
+            eq::Equalitzador tot;
+            for (size_t k : eqs)
+            {
+                const auto& x = t.inserts[k];
+                eq::Equalitzador e;
+                e.posaEstat (x.estat);
+                for (int b = 0; b < eq::maxBandes; ++b)
+                {
+                    auto bb = e.banda (b);
+                    if (! bb.usada) continue;
+                    bb.activa = bb.activa && x.actiu;   // una prova apagada queda com una banda apagada
+                    const int lliure = tot.bandaLliure();
+                    if (lliure >= 0) tot.posaBanda (lliure, bb);
+                }
+            }
+            Insert nou = t.inserts[eqs[0]];
+            nou.nom = nomEqMix;
+            nou.actiu = true;
+            nou.estat = tot.estat();
+            for (auto k = eqs.rbegin(); k != eqs.rend(); ++k) t.inserts.erase (t.inserts.begin() + (long) *k);
+            t.inserts.push_back (nou);
+            ordenaEfectesMix (t);
+            n += (int) eqs.size();
+        }
+        return n;
     }
 }
