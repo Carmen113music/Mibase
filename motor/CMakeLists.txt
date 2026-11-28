@@ -64,6 +64,7 @@ add_library(mibase_motor STATIC
     src/Diagnosi.cpp
     src/MixAssistant.cpp
     src/MixCorreccions.cpp
+    src/MixCoach.cpp
     src/FontInspiracio.cpp
     src/Convolucio.cpp
     src/Equalitzador.cpp

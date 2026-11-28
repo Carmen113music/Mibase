@@ -1370,6 +1370,39 @@ namespace mibase::mix
         return v;
     }
 
+    double nivellRelatiu (const std::vector<PistaMescla>& pistes, const std::vector<std::string>& qui, double* segons)
+    {
+        if (segons != nullptr) *segons = 0.0;
+        double t0 = 1e30, t1 = -1e30, salt = 0.0;
+        for (const auto& p : pistes)
+        {
+            const auto* a = p.analisi;
+            if (a == nullptr || ! a->valid || a->nivellDb.empty()) continue;
+            t0 = std::min (t0, a->inici);
+            t1 = std::max (t1, a->inici + (double) a->nivellDb.size() * a->salt);
+            salt = a->salt;
+        }
+        if (salt <= 0.0) return 0.0;
+        const size_t K = (size_t) std::ceil ((t1 - t0) / salt) + 1;
+        std::vector<double> A (K, 0.0), B (K, 0.0);
+        for (const auto& p : pistes)
+        {
+            const auto* a = p.analisi;
+            if (a == nullptr || ! a->valid) continue;
+            const bool meva = std::find (qui.begin(), qui.end(), p.id) != qui.end();
+            for (size_t f = 0; f < a->nivellDb.size(); ++f)
+            {
+                if (! a->actiu[f]) continue;
+                const long k = std::lround ((a->inici + (double) f * a->salt - t0) / salt);
+                if (k >= 0 && (size_t) k < K) (meva ? A : B)[(size_t) k] += eSonora (*a, f);
+            }
+        }
+        std::vector<float> d;
+        for (size_t k = 0; k < K; ++k) if (A[k] > 0.0 && B[k] > 0.0) d.push_back (db (A[k]) - db (B[k]));
+        if (segons != nullptr) *segons = (double) d.size() * salt;
+        return d.empty() ? 0.0 : percentil (d, 0.5);
+    }
+
     std::vector<Incidencia> balanc (const std::vector<PistaMescla>& pistes, std::vector<CanviBalanc>& proposta)
     {
         std::vector<Incidencia> v;

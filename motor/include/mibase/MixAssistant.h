@@ -181,6 +181,10 @@ namespace mibase::mix
         temps que sonen juntes. */
     std::vector<Incidencia> conflictes (const std::vector<PistaMescla>& pistes, const std::vector<Tram>& trams = {});
 
+    /** 1.27: com sonen aquestes pistes respecte de totes les altres quan sonen alhora (mediana, dB, amb pes de l'oïda).
+        «segons»: quant de temps sonen juntes (0 = mai). */
+    double nivellRelatiu (const std::vector<PistaMescla>& pistes, const std::vector<std::string>& qui, double* segons = nullptr);
+
     /** Balance Assistant: nivells relatius (veu i resta, bombo i baix, caixa, guitarres…) i panorames. Les xifres són
         orientatives (pop/rock). «proposta» rep el Balanç proposat (mai es posa sol). */
     std::vector<Incidencia> balanc (const std::vector<PistaMescla>& pistes, std::vector<CanviBalanc>& proposta);

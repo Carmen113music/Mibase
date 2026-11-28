@@ -4,6 +4,7 @@
 #include "Controls.h"
 #include "EstatEstudi.h"
 #include "mibase/MixAssistant.h"
+#include "mibase/MixCoach.h"
 #include <set>
 
 /** El que sap el Mix Assistant ara (no es desa al projecte: es torna a analitzar; sí que es desa l'instrument triat). */
@@ -30,6 +31,10 @@ struct ModelMix : public juce::ChangeBroadcaster
     struct Correccio { mibase::mix::LlocCorreccio lloc; bool aplicada = false; };   // 1.26: banda de l'EQ únic (o efecte)
     std::map<std::string, Correccio> correccions;
     inline static const std::string idHistorial { "__historial__" };   // 1.26 (amb «:<pista>», el d'una pista)
+    // 1.27: el Mix Coach (la conversa de la sessió)
+    struct Missatge { bool meu = false; juce::String text; std::vector<mibase::mix::coach::Enllac> enllacos; std::vector<std::string> suggeriments; };
+    std::vector<Missatge> conversa;
+    mibase::mix::coach::Conversa estatCoach;
     std::vector<mibase::mix::Evolucio> seguiment;
     /** Totes les incidències d'ara (per comparar-les amb les de la propera anàlisi). */
     std::vector<mibase::mix::Incidencia> totesCopia() const
@@ -692,6 +697,185 @@ private:
     }
 };
 
+/** 1.27: el Mix Coach: la conversa (bombolles, enllaços a les pistes i preguntes per continuar). */
+class LlistaXat : public juce::Component
+{
+public:
+    explicit LlistaXat (ModelMix& m) : model (m) { setRepaintsOnMouseActivity (true); }
+    std::function<void (const juce::String&)> onPregunta;
+    std::function<void (const mibase::mix::coach::Enllac&)> onEnllac;
+
+    void refes() { setSize (getWidth(), juce::jmax (dibuixa (nullptr, getWidth()), getParentHeight())); repaint(); }
+    void paint (juce::Graphics& g) override { dibuixa (&g, getWidth()); }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const int z = zonaA (e.getPosition());
+        if (z != sobre) { sobre = z; repaint(); }
+        setMouseCursor (z >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+    void mouseExit (const juce::MouseEvent&) override { if (sobre >= 0) { sobre = -1; repaint(); } }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        const int z = zonaA (e.getPosition());
+        if (z < 0) return;
+        const auto zona = zones[(size_t) z];
+        if (zona.enllac.pista.empty()) { if (onPregunta) onPregunta (zona.text); }
+        else if (onEnllac) onEnllac (zona.enllac);
+    }
+
+private:
+    struct Zona { juce::Rectangle<int> r; juce::String text; mibase::mix::coach::Enllac enllac; };
+    ModelMix& model;
+    std::vector<Zona> zones;
+    int sobre = -1;
+    int zonaA (juce::Point<int> p) const { for (size_t i = 0; i < zones.size(); ++i) if (zones[i].r.contains (p)) return (int) i; return -1; }
+
+    int xip (juce::Graphics* g, int x, int y, int maxX, const juce::String& t, bool enllac)
+    {
+        const int w = juce::jmin (mixui::ampleBoto (t) + 4, maxX - x);
+        juce::Rectangle<int> r (x, y, w, 28);
+        if (g != nullptr)
+        {
+            const bool s = sobre == (int) zones.size();
+            auto rf = r.toFloat().reduced (0.5f);
+            g->setColour (enllac ? (s ? tema::accent.brighter (0.15f) : tema::accent.withAlpha (0.85f)) : (s ? tema::sobre.brighter (0.1f) : tema::superficie2));
+            g->fillRoundedRectangle (rf, 14.0f);
+            if (! enllac) { g->setColour (tema::linia2); g->drawRoundedRectangle (rf, 14.0f, 1.0f); }
+            g->setColour (enllac ? juce::Colours::black : tema::text);
+            g->setFont (dibuix::lletra (12.5f, enllac));
+            g->drawFittedText (t, r.reduced (10, 0), juce::Justification::centred, 1, 0.8f);
+        }
+        return w;
+    }
+
+    int dibuixa (juce::Graphics* g, int w)
+    {
+        zones.clear();
+        const int m = 16, W = juce::jmax (200, w - 2 * m), bmax = (int) (W * 0.82f);
+        int y = 14;
+        auto missatges = model.conversa;
+        if (missatges.empty())
+        {
+            ModelMix::Missatge benvinguda;
+            benvinguda.text = model.fet ? "Hola! Soc el Mix Coach. Pregunta'm el que vulguis de la mescla: respondré amb el que he mesurat a l'anàlisi, i si no ho sé, t'ho diré."_ca
+                                        : "Hola! Soc el Mix Coach. Primer he d'analitzar la mescla (botó «Analitza la mescla», a dalt); després pregunta'm el que vulguis i respondré amb el que hagi mesurat."_ca;
+            benvinguda.suggeriments = mibase::mix::coach::preguntesInicials();
+            missatges.push_back (benvinguda);
+        }
+        for (size_t k = 0; k < missatges.size(); ++k)
+        {
+            const auto& mm = missatges[k];
+            const auto l = mixui::disposa (mm.text, dibuix::lletra (13.5f), tema::text, (float) bmax - 24.0f);
+            const int hb = (int) std::ceil (l.getHeight()) + 20;
+            const int wb = juce::jmin (bmax, (int) std::ceil (l.getWidth()) + 26);
+            const int x = mm.meu ? m + W - wb : m;
+            if (g != nullptr)
+            {
+                auto r = juce::Rectangle<float> ((float) x, (float) y, (float) wb, (float) hb);
+                g->setColour (mm.meu ? tema::accent.withAlpha (0.16f) : tema::superficie);
+                g->fillRoundedRectangle (r, 10.0f);
+                g->setColour (mm.meu ? tema::accent.withAlpha (0.5f) : tema::linia);
+                g->drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
+                l.draw (*g, r.reduced (12.0f, 10.0f));
+            }
+            y += hb + 6;
+            // enllaços i preguntes per continuar: només a la darrera resposta
+            const bool darrer = k + 1 == missatges.size();
+            if (! mm.meu && darrer)
+            {
+                int xx = m;
+                for (const auto& e : mm.enllacos)
+                {
+                    const juce::String t = mixui::u (e.text);
+                    const int wx = mixui::ampleBoto (t) + 4;
+                    if (xx + wx > m + W && xx > m) { xx = m; y += 34; }
+                    zones.push_back ({ { xx, y, wx, 28 }, t, e });
+                    xip (g, xx, y, m + W, t, true);
+                    xx += wx + 6;
+                }
+                if (! mm.enllacos.empty()) { y += 36; xx = m; }
+                for (const auto& sg : mm.suggeriments)
+                {
+                    const juce::String t = mixui::u (sg);
+                    const int wx = mixui::ampleBoto (t) + 4;
+                    if (xx + wx > m + W && xx > m) { xx = m; y += 34; }
+                    zones.push_back ({ { xx, y, wx, 28 }, t, {} });
+                    xip (g, xx, y, m + W, t, false);
+                    xx += wx + 6;
+                }
+                if (! mm.suggeriments.empty()) y += 36;
+            }
+            y += 6;
+        }
+        return y + 10;
+    }
+};
+
+class VistaCoach : public juce::Component
+{
+public:
+    explicit VistaCoach (ModelMix& m) : model (m), xat (m)
+    {
+        vista.setViewedComponent (&xat, false);
+        vista.setScrollBarsShown (true, false);
+        vista.setScrollBarThickness (10);
+        addAndMakeVisible (vista);
+        entrada.setTextToShowWhenEmpty ("Pregunta al Mix Coach (per exemple: per què la veu no sobresurt?)"_ca, tema::suau);
+        entrada.setFont (dibuix::lletra (14.0f));
+        entrada.setIndents (10, 8);
+        entrada.setColour (juce::TextEditor::backgroundColourId, tema::fons);
+        entrada.setColour (juce::TextEditor::outlineColourId, tema::linia2);
+        entrada.setColour (juce::TextEditor::focusedOutlineColourId, tema::accent);
+        entrada.setColour (juce::TextEditor::textColourId, tema::text);
+        entrada.onReturnKey = [this] { envia(); };
+        addAndMakeVisible (entrada);
+        btEnvia.onClick = [this] { envia(); };
+        addAndMakeVisible (btEnvia);
+        xat.onPregunta = [this] (const juce::String& t) { if (onPregunta) onPregunta (t); };
+        xat.onEnllac = [this] (const mibase::mix::coach::Enllac& e) { if (onEnllac) onEnllac (e); };
+    }
+    std::function<void (const juce::String&)> onPregunta;
+    std::function<void (const mibase::mix::coach::Enllac&)> onEnllac;
+
+    void actualitza()
+    {
+        xat.setSize (vista.getWidth() - vista.getScrollBarThickness(), xat.getHeight());
+        xat.refes();
+        vista.setViewPosition (0, juce::jmax (0, xat.getHeight() - vista.getHeight()));   // a baix de tot (el més nou)
+    }
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        auto baix = r.removeFromBottom (58).reduced (14, 10);
+        btEnvia.setBounds (baix.removeFromRight (btEnvia.ampladaIdeal()));
+        baix.removeFromRight (8);
+        entrada.setBounds (baix);
+        vista.setBounds (r);
+        actualitza();
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (tema::linia);
+        g.fillRect (0, getHeight() - 58, getWidth(), 1);
+    }
+    void focus() { entrada.grabKeyboardFocus(); }
+
+private:
+    ModelMix& model;
+    juce::Viewport vista;
+    LlistaXat xat;
+    juce::TextEditor entrada;
+    Boto btEnvia { "Pregunta"_ca, std::nullopt, Boto::Estil::Primari };
+
+    void envia()
+    {
+        const auto t = entrada.getText().trim();
+        if (t.isEmpty()) return;
+        entrada.clear();
+        if (onPregunta) onPregunta (t);
+    }
+};
+
 /** La finestra del Mix Assistant (el contingut). */
 class VistaMixAssistant : public juce::Component, private juce::ChangeListener, private juce::ListBoxModel
 {
@@ -718,6 +902,7 @@ public:
         vista.setScrollBarThickness (10);
         addAndMakeVisible (vista);
         detall.onMostraPista = [this] (const std::string& id) { triaPista (id); };
+        addChildComponent (coach);   // 1.27
         model.addChangeListener (this);
         actualitza();
     }
@@ -726,15 +911,16 @@ public:
     std::function<void()> onAnalitza;
     std::function<void (bool creacio)> onMode;   // 1.24
     std::function<void (juce::Component*)> onVersions;   // 1.25
+    inline static const std::string idCoach { "__coach__" };   // 1.27
     LlistaMix& llistaDetall() noexcept { return detall; }
 
     /** Mostra una pista (buit: totes). */
     void triaPista (const std::string& id)
     {
-        int fila = id == ModelMix::idMescla ? 1 : id.rfind (ModelMix::idHistorial, 0) == 0 ? 2 : 0;
+        int fila = id == ModelMix::idMescla ? 2 : id.rfind (ModelMix::idHistorial, 0) == 0 ? 3 : id == idCoach ? 0 : 1;
         for (size_t i = 0; i < model.files.size(); ++i) if (model.files[i].id == id) fila = (int) i + primeraPista;
         llista.selectRow (fila, false, true);
-        detall.mostra (fila == 0 ? std::string() : fila == 1 ? ModelMix::idMescla : id);
+        if (fila != 0) detall.mostra (fila == 1 ? std::string() : fila == 2 ? ModelMix::idMescla : id);
         vista.setViewPosition (0, 0);
     }
 
@@ -783,6 +969,7 @@ public:
         llista.setBounds (r.removeFromLeft (juce::jlimit (200, 290, getWidth() / 4)));
         r.removeFromLeft (1);
         vista.setBounds (r);
+        coach.setBounds (r);
         detall.setSize (r.getWidth() - vista.getScrollBarThickness(), detall.getHeight());
         detall.refes();
     }
@@ -793,14 +980,15 @@ public:
         btAnalitza.setButtonText (model.analitzant ? "Analitzant…"_ca : model.fet ? "Torna a analitzar"_ca : "Analitza la mescla"_ca);
         segMode.setTriat (model.creacio ? 0 : 1);
         llista.updateContent();
-        if (llista.getSelectedRow() < 0) llista.selectRow (0, false, true);
+        if (llista.getSelectedRow() < 0) llista.selectRow (1, false, true);
         detall.refes();
+        coach.actualitza();
         resized();
         repaint();
     }
 
 private:
-    static constexpr int alcadaCap = 92, primeraPista = 3;   // 0 totes, 1 la mescla, 2 l'historial (1.26)
+    static constexpr int alcadaCap = 92, primeraPista = 4;   // 0 Mix Coach (1.27), 1 totes, 2 la mescla, 3 l'historial (1.26)
     ModelMix& model;
     Boto btAnalitza { "Analitza la mescla"_ca, std::nullopt, Boto::Estil::Primari };
     Segmentat segMode { { "Creació"_ca, "Mescla" } };
@@ -808,6 +996,9 @@ private:
     juce::ListBox llista;
     juce::Viewport vista;
     LlistaMix detall;
+public:
+    VistaCoach coach { model };   // 1.27
+private:
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override { actualitza(); }
 
@@ -822,13 +1013,15 @@ private:
         {
             g.setColour (tema::text);
             g.setFont (dibuix::lletra (14.0f, true));
-            g.drawText (fila == 0 ? "Totes les pistes"_ca : fila == 1 ? "La mescla i l'equilibri"_ca : "Historial"_ca, 16, 6, w - 30, 20, juce::Justification::centredLeft);
+            g.drawText (fila == 0 ? "Mix Coach"_ca : fila == 1 ? "Totes les pistes"_ca : fila == 2 ? "La mescla i l'equilibri"_ca : "Historial"_ca, 16, 6, w - 30, 20, juce::Justification::centredLeft);
             g.setColour (tema::suau);
             g.setFont (dibuix::lletra (11.5f));
-            juce::String sota = fila == 2 ? "El que ha fet el Mix Assistant"_ca : ! model.fet ? "Encara sense analitzar"_ca : fila == 0 ? "Per ordre d'importància"_ca : "Conflictes, volums, panorames, to"_ca;
-            if (fila == 1 && model.fet && ! model.balanc.empty() && ! model.creacio) { g.setColour (tema::accent); sota = "Hi ha un Balanç proposat"_ca; }
+            juce::String sota = fila == 0 ? "Pregunta-li el que vulguis"_ca : fila == 3 ? "El que ha fet el Mix Assistant"_ca : ! model.fet ? "Encara sense analitzar"_ca
+                              : fila == 1 ? "Per ordre d'importància"_ca : "Conflictes, volums, panorames, to"_ca;
+            if (fila == 0) g.setColour (tema::accent);
+            if (fila == 2 && model.fet && ! model.balanc.empty() && ! model.creacio) { g.setColour (tema::accent); sota = "Hi ha un Balanç proposat"_ca; }
             g.drawText (sota, 16, 26, w - 30, 16, juce::Justification::centredLeft);
-            if (fila == 2) { g.setColour (tema::linia); g.fillRect (12, h - 2, w - 24, 2); }
+            if (fila == 3 || fila == 0) { g.setColour (tema::linia); g.fillRect (12, h - 2, w - 24, fila == 0 ? 1 : 2); }
             return;
         }
         if (fila - primeraPista >= (int) model.files.size()) return;
@@ -868,8 +1061,11 @@ private:
     void selectedRowsChanged (int fila) override
     {
         if (fila < 0) return;
-        detall.mostra (fila == 1 ? ModelMix::idMescla : fila == 2 ? ModelMix::idHistorial
-                       : fila == 0 || fila - primeraPista >= (int) model.files.size() ? std::string() : model.files[(size_t) (fila - primeraPista)].id);
+        coach.setVisible (fila == 0);   // 1.27
+        vista.setVisible (fila != 0);
+        if (fila == 0) { coach.actualitza(); coach.focus(); return; }
+        detall.mostra (fila == 2 ? ModelMix::idMescla : fila == 3 ? ModelMix::idHistorial
+                       : fila == 1 || fila - primeraPista >= (int) model.files.size() ? std::string() : model.files[(size_t) (fila - primeraPista)].id);
         vista.setViewPosition (0, 0);
     }
 };

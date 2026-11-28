@@ -4889,6 +4889,12 @@ void PantallaEstudi::obreMixAssistant (const std::string& idPista)
         l.estatCorreccio = [this] (const std::string& id) { return estatCorreccioMix (id); };
         l.historial = [this] { return estat.projecte.historialMix; };   // 1.26
         v->onVersions = [this] (juce::Component* on) { menuVersionsMix (on); };
+        v->coach.onPregunta = [this] (const juce::String& t) { preguntaCoach (t); };   // 1.27
+        v->coach.onEnllac = [this] (const mibase::mix::coach::Enllac& e)
+        {
+            if (e.text.rfind ("Prepara", 0) == 0 && ! e.incidencia.empty()) correccioMix ("prepara", e.incidencia);
+            if (vistaMix != nullptr) vistaMix->triaPista (e.pista);
+        };
         l.onTriaInstrument = [this] (const std::string& id) { menuInstrumentMix (id); };
         l.onConfirma = [this] (const std::string& id, mibase::mix::Instrument i) { posaInstrumentMix (id, i); };
         l.onVesAPista = [this] (const std::string& id)
@@ -5462,4 +5468,29 @@ void PantallaEstudi::recuperaVersioMix (int k)
     estat.info = "Recuperada «"_ca + nom + "» ("_ca + juce::String (n) + " pistes). La d'abans s'ha desat com a «Abans de recuperar…»"_ca;
     estat.avisa();
     modelMix.avisa();
+}
+
+// ---------------- 1.27: Mix Coach ----------------
+void PantallaEstudi::preguntaCoach (const juce::String& pregunta)
+{
+    mibase::mix::coach::Context ctx;
+    ctx.analitzat = modelMix.fet;
+    ctx.pistes = pistesMescla();
+    ctx.incidencies = modelMix.totesCopia();
+    ctx.mescla = analisiMescla.get();
+    ctx.balanc = modelMix.balanc;
+    ctx.seguiment = modelMix.seguiment;
+    ctx.creacio = modelMix.creacio;
+    const auto r = mibase::mix::coach::respon (pregunta.toStdString(), ctx, modelMix.estatCoach);
+    ModelMix::Missatge jo;
+    jo.meu = true;
+    jo.text = pregunta;
+    modelMix.conversa.push_back (jo);
+    ModelMix::Missatge ell;
+    ell.text = juce::String::fromUTF8 (r.text.c_str());
+    ell.enllacos = r.enllacos;
+    ell.suggeriments = r.suggeriments;
+    modelMix.conversa.push_back (ell);
+    modelMix.avisa();
+    if (r.accio == "analitza") analitzaMix();
 }

@@ -360,6 +360,7 @@ private:
     // 1.26: un sol efecte de cada mena per pista, historial i Ctrl+Z dels efectes del Mix Assistant
     std::set<std::size_t> passosMix;   // nivells del Desfés que són passos del Mix Assistant
     void apuntaMix (const std::string& pista, const juce::String& text);
+    void preguntaCoach (const juce::String& pregunta);   // 1.27: Mix Coach
     // 1.16: marcadors F1–F4
     void desaMarcador (int m);
     void vesAMarcador (int m);
