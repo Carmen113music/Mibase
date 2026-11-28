@@ -434,6 +434,11 @@ namespace mibase
             }
             const auto& t = p.pistes[(size_t) i];
             if (const int j = busDe (t.sortida); j >= 0 && j != i && posada[(size_t) j]) pp.desti = pla->pistes[(size_t) j].bus;
+            else if (t.sortidaTargeta >= 0 && t.sortidaTargeta < maxSortidesDirectes)   // 1.17: directa a la targeta
+            {
+                pp.sortidaDirecta = t.sortidaTargeta;
+                pp.canalsDirecta = t.canalsTargeta == 1 ? 1 : 2;
+            }
             for (const auto& e : t.enviaments)
             {
                 if (! e.actiu || e.mut) continue;
@@ -471,6 +476,8 @@ namespace mibase
         maxN = (int) pL.size();
         busL.assign ((size_t) maxBusos * (size_t) maxN, 0.0f);
         busR.assign ((size_t) maxBusos * (size_t) maxN, 0.0f);
+        dirBuf.assign ((size_t) maxSortidesDirectes * (size_t) maxN, 0.0f);   // 1.17
+        usatsDir = 0;
         scL.assign ((size_t) maxSidechain * (size_t) maxN, 0.0f);   // 0.56
         scR.assign ((size_t) maxSidechain * (size_t) maxN, 0.0f);
         gEnvia.assign ((size_t) maxSlots * maxEnviaSuau * 2, -1.0f);
@@ -1082,6 +1089,10 @@ namespace mibase
         if (reproduint) margeInici = false;
         n = std::min (n, (int) pL.size());
 
+        // 1.17: les sortides directes també (només les que van sonar el bloc d'abans).
+        for (int c = 0; c < maxSortidesDirectes && usatsDir != 0; ++c)
+            if ((usatsDir >> c) & 1u) std::fill_n (dirBuf.begin() + (std::ptrdiff_t) c * maxN, maxN, 0.0f);
+        usatsDir = 0;
         // 0.33: el que arriba a cada bus en aquest bloc comença en silenci.
         const int nb = std::min (pla.numBusos, maxBusos);
         for (int k = 0; k < nb; ++k)
@@ -1116,11 +1127,16 @@ namespace mibase
         for (const auto& t : pla.pistes)
             if (t.bus >= 0 && t.bus < nb && t.bus < maxBusos) { latBus[(size_t) t.bus] = retardDe (t.inserts, minim, &saltats, &t.encesAmbRM, llindar); destiBus[(size_t) t.bus] = t.desti; }
         std::array<int, maxBusos> latCami {};   // d'un bus fins a la sortida (busos dins de busos)
+        std::array<bool, maxBusos> busDirecte {};   // 1.17: el camí acaba en una sortida directa (no passa pel màster)
+        std::array<bool, maxBusos> directeBus {};
+        for (const auto& t : pla.pistes)
+            if (t.bus >= 0 && t.bus < nb && t.bus < maxBusos) directeBus[(size_t) t.bus] = t.sortidaDirecta >= 0;
         for (int b = 0; b < maxBusos && b < nb; ++b)
         {
-            int l = 0, x = b;
-            for (int k = 0; k < maxBusos && x >= 0 && x < nb; ++k) { l += latBus[(size_t) x]; x = destiBus[(size_t) x]; }
+            int l = 0, x = b, darrer = b;
+            for (int k = 0; k < maxBusos && x >= 0 && x < nb; ++k) { l += latBus[(size_t) x]; darrer = x; x = destiBus[(size_t) x]; }
             latCami[(size_t) b] = l;
+            busDirecte[(size_t) b] = directeBus[(size_t) darrer];
         }
         int pdcMaxim = 0;
         // 1.9: on llegeix cada pista (avançada pel retard del seu camí) i quines fan la feina pesada a part.
@@ -1133,12 +1149,14 @@ namespace mibase
                 for (const auto& e : t.inserts) if (e != nullptr) e->posaDirecte (directeEntrada);
                 const int av = (t.instrument != nullptr ? std::clamp (t.instrument->latencia(), 0, 1 << 20) : 0)
                              + retardDe (t.inserts, minim && enDirecte, &saltats, &t.encesAmbRM, llindar)
-                             + (t.desti >= 0 && t.desti < nb && t.desti < maxBusos ? latCami[(size_t) t.desti] : 0) + latMaster;
+                             + (t.desti >= 0 && t.desti < nb && t.desti < maxBusos ? latCami[(size_t) t.desti] : 0)
+                             + (t.desti >= 0 && t.desti < nb && t.desti < maxBusos ? (busDirecte[(size_t) t.desti] ? 0 : latMaster)
+                                                                                   : (t.sortidaDirecta >= 0 ? 0 : latMaster));   // 1.17
                 pdcMaxim = std::max (pdcMaxim, av);
                 return pos + av;
             }
             if (t.bus < maxBusos)
-                return pos + latCami[(size_t) t.bus] + latMaster;   // l'automatització del bus, també quadrada
+                return pos + latCami[(size_t) t.bus] + (busDirecte[(size_t) t.bus] ? 0 : latMaster);   // 1.17   // l'automatització del bus, també quadrada
             return pos;
         };
         const int nf = (int) std::min (pla.pistes.size(), feines.size());
@@ -1345,6 +1363,32 @@ namespace mibase
             // Cap al bus on va, o a la sortida.
             if (obert0 < 1.0e-6f && obert < 1.0e-6f) continue;
             const bool aBus = t.desti >= 0 && t.desti < nb;
+            if (! aBus && t.sortidaDirecta >= 0 && t.sortidaDirecta < maxSortidesDirectes && ! dirBuf.empty())
+            {
+                // 1.17: directa a la targeta (sense passar pel màster)
+                const float dob = (obert - obert0) / (float) n;
+                const int c0 = t.sortidaDirecta;
+                if (t.canalsDirecta == 1)
+                {
+                    float* const d = dirBuf.data() + (std::ptrdiff_t) c0 * maxN;
+                    for (int i = 0; i < n; ++i) d[i] += 0.5f * (xL[i] + xR[i]) * (obert0 + dob * (float) i);
+                    usatsDir |= (std::uint64_t) 1 << c0;
+                }
+                else
+                {
+                    const int c1 = std::min (c0 + 1, maxSortidesDirectes - 1);
+                    float* const d0 = dirBuf.data() + (std::ptrdiff_t) c0 * maxN;
+                    float* const d1 = dirBuf.data() + (std::ptrdiff_t) c1 * maxN;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float g = obert0 + dob * (float) i;
+                        d0[i] += xL[i] * g;
+                        if (c1 != c0) d1[i] += xR[i] * g;
+                    }
+                    usatsDir |= ((std::uint64_t) 1 << c0) | ((std::uint64_t) 1 << c1);
+                }
+                continue;
+            }
             float* const dL = aBus ? busL.data() + (std::ptrdiff_t) t.desti * maxN : L;
             float* const dR = aBus ? busR.data() + (std::ptrdiff_t) t.desti * maxN : R;
             const float dob = (obert - obert0) / (float) n;
@@ -1507,6 +1551,13 @@ namespace mibase
         mapaEntrades.fill (-1);
         for (size_t i = 0; i < std::min (mapa.size(), mapaEntrades.size()); ++i)
             mapaEntrades[i] = mapa[i];
+    }
+
+    void MotorEstudi::setMapaSortides (const std::vector<int>& mapa)
+    {
+        mapaSortides.fill (-1);
+        for (size_t i = 0; i < std::min (mapa.size(), mapaSortides.size()); ++i)
+            mapaSortides[i] = mapa[i];
     }
 
     void MotorEstudi::publica (std::unique_ptr<Pla> nou)
@@ -1842,6 +1893,17 @@ namespace mibase
 
         vusSortida[0].processa (mixL.data(), m);
         vusSortida[1].processa (mixR.data(), m);
+
+        // 1.17: les sortides directes de les pistes i els busos, cada una pel seu canal de la targeta (si és encès)
+        const auto usats = mesclador.usatsDirecte();
+        for (int c = 0; c < maxSortidesDirectes && usats != 0; ++c)
+        {
+            if (((usats >> c) & 1u) == 0) continue;
+            const int k = mapaSortides[(size_t) c];
+            if (k < 0 || k >= numSortides || sortides[k] == nullptr) continue;
+            const float* d = mesclador.canalDirecte (c);
+            for (int i = 0; i < m; ++i) sortides[k][fet + i] = std::clamp (sortides[k][fet + i] + d[i], -1.0f, 1.0f);
+        }
     }
 
     //==========================================================================
@@ -1851,6 +1913,21 @@ namespace mibase
         {
             return { edicio::iniciBucle (p), edicio::fiBucle (p) };
         }
+        return limitsCanco (p);   // 1.18: amb les banderoles d'inici i final
+    }
+
+    std::pair<double, double> limitsCanco (const Projecte& p)
+    {
+        auto [a0, b0] = limitsClips (p);
+        double a = p.iniciCanco >= 0.0 ? p.iniciCanco : a0;
+        double b = p.fiCanco >= 0.0 ? p.fiCanco : b0;
+        if (p.iniciCanco < 0.0 && p.fiCanco < 0.0 && b0 <= a0) return { 0.0, 0.0 };
+        if (b <= a) b = a + 1.0;   // una banderola posada i res que soni: com a mínim un segon
+        return { std::max (0.0, a), b };
+    }
+
+    std::pair<double, double> limitsClips (const Projecte& p)
+    {
         const auto solo = edicio::estatSolo (p);
         double a = 1.0e18, b = -1.0e18;
         for (size_t it = 0; it < p.pistes.size(); ++it)
@@ -2137,7 +2214,7 @@ namespace mibase
                 if (pt.id == o.part && pt.a > pt.de) tros = { edicio::segonsDeCompas (q, pt.de), edicio::segonsDeCompas (q, pt.a) };
         }
         else
-            tros = trosPerExportar (q);
+            tros = limitsCanco (q);   // 1.18: «Tota la cançó» = de la banderola d'inici a la de final
         return q;
     }
 }

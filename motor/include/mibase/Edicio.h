@@ -126,6 +126,9 @@ namespace mibase::edicio
     bool potSidechain (const Projecte& p, const std::string& origen, const std::string& desti);
     /** Sortida d'una pista: id d'un bus, o buit per a la sortida. Si no es pot (cercle), no canvia res i torna false. */
     bool posaSortida (Projecte& p, int pista, const std::string& bus);
+    /** 1.17: la pista (o el bus) surt directa per la targeta, pel canal «canal» (0 = el primer de la targeta) i, si
+        canals == 2, també pel següent (L, R). No passa pel màster ni per cap bus. Per tornar: posaSortida. */
+    bool posaSortidaTargeta (Projecte& p, int pista, int canal, int canals);
     /** Enviament nou (post-fader, 0 dB, al mig). Torna'n l'índex, o -1 si no es pot. */
     int afegeixEnviament (Projecte& p, int pista, const std::string& bus);
     /** Canvia la destinació d'un enviament (false si no es pot). */
@@ -189,6 +192,9 @@ namespace mibase::edicio
     /** Enganxa el tros amb el començament a «on», a les mateixes pistes. «insereix»: aparta el que hi ha;
         si no, trepitja (el que hi havia sota els clips nous es treu). Retorna els clips nous. */
     std::vector<RefClip> enganxaRetall (Projecte& p, const Retall& r, double on, bool insereix);
+    /** 1.16: el mateix retall, però començant a la pista «primera» (la de més amunt del retall hi va; les altres, a sota
+        en el mateix ordre). Per enganxar on has fet el requadre, com a Pro Tools. */
+    Retall retallAPista (const Retall& r, int primera);
 
     std::vector<RefClip> duplicaTriats (Projecte& p, const std::vector<RefClip>& triats);
     void treuTriats (Projecte& p, const std::vector<RefClip>& triats);
@@ -249,6 +255,16 @@ namespace mibase::edicio
     std::vector<std::vector<std::pair<double, double>>> zonesTakes (const Projecte& p, int pista);
     /** Treu una presa (i el que en sona al comp). Si en queda una o cap, la pista torna a ser normal. */
     void treuTake (Projecte& p, int pista, int take);
+    /** 1.25: Mix Assistant: la mescla d'ara (volum, panorama, mute, efectes amb ajustos, enviaments; màster), amb nom. */
+    VersioMescla fotoMescla (const Projecte& p, const std::string& nom, const std::string& quan);
+    /** 1.25: torna la mescla a com era a la versió (les pistes que ja no hi són no es toquen; les noves, tampoc).
+        Torna quantes pistes s'han recuperat. Els clips i l'àudio no es toquen mai. */
+    int recuperaMescla (Projecte& p, const VersioMescla& v);
+    /** 1.24: treu totes les preses de la pista (el comp que sona es queda; els fitxers no s'esborren). Torna quantes. */
+    int treuTotesLesTakes (Projecte& p, int pista);
+    /** 1.24: les pistes que s'han quedat sense cap clip perden també les preses (abans en quedava l'ona a les subpistes i
+        no hi havia manera de treure-la). Torna quantes preses s'han tret. */
+    int treuTakesSenseComp (Projecte& p);
     /** Consolida el comp: pista nova just a sota de «pista», «Comp - <nom>», amb un sol clip (la presa «idPresa», que
         comença a «pos», sonant de «inici» a «fi» dins el fitxer) i els mateixos efectes, enviaments, sortida, volum,
         panorama i automatització (sense preses). L'original queda silenciada, però no s'esborra ni es desarma.

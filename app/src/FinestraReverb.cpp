@@ -704,7 +704,7 @@ private:
     Boto btModSync { "Sync", std::nullopt, Boto::Estil::Tecla };
     PomR pRate, pDepth;
     Boto btShim { "Shimmer", std::nullopt, Boto::Estil::Tecla };
-    Segmentat segPitch { { "+12", "+7", "+5", "-12" }, true };
+    Segmentat segPitch { { "+12", "+7", "+5", "-12", "+24" }, true };
     PomR pShimAmt;
     Boto btFreeze { "FREEZE", std::nullopt, Boto::Estil::Tecla };
     PomR pFreezeRel;
@@ -1847,7 +1847,7 @@ void PanellReverb::resized()
                 auto z = caixes[4][0].reduced (12, 8);
                 btShim.setBounds (z.removeFromTop (24).removeFromRight (110));
                 z.removeFromTop (8);
-                segPitch.setBounds (z.removeFromTop (30).withSizeKeepingCentre (juce::jmin (z.getWidth(), 220), 30));
+                segPitch.setBounds (z.removeFromTop (30).withSizeKeepingCentre (juce::jmin (z.getWidth(), 260), 30));
                 posaPoms (z.reduced (0, 4), { &pShimAmt }, 120);
             }
             {

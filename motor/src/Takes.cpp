@@ -251,6 +251,23 @@ namespace mibase::edicio
         if (t.takes.size() <= 1) t.takes.clear();   // ja no hi ha alternatives: pista normal (el comp queda com està)
     }
 
+    int treuTotesLesTakes (Projecte& p, int pista)
+    {
+        if (pista < 0 || pista >= (int) p.pistes.size()) return 0;
+        auto& t = p.pistes[(size_t) pista];
+        const int n = (int) t.takes.size();
+        t.takes.clear();
+        return n;
+    }
+
+    int treuTakesSenseComp (Projecte& p)
+    {
+        int n = 0;
+        for (int i = 0; i < (int) p.pistes.size(); ++i)
+            if (! p.pistes[(size_t) i].takes.empty() && p.pistes[(size_t) i].clips.empty()) n += treuTotesLesTakes (p, i);
+        return n;
+    }
+
     int creaPistaComp (Projecte& p, int pista, const std::string& idPresa, double pos, double inici, double fi)
     {
         if (pista < 0 || pista >= (int) p.pistes.size()) return -1;
@@ -317,6 +334,8 @@ namespace mibase::edicio
         q.faderDb = o.faderDb;
         q.pan = o.pan;
         q.sortida = o.sortida;
+        q.sortidaTargeta = o.sortidaTargeta;   // 1.17
+        q.canalsTargeta = o.canalsTargeta;
         q.entrada = o.entrada;
         q.escolta = o.escolta;
         q.enviaments = o.enviaments;
@@ -355,5 +374,48 @@ namespace mibase::edicio
             if (esAudio (c) && ! c.mut) { a = std::min (a, c.iniciVisible()); b = std::max (b, c.fiVisible()); }
         if (b <= a) return { 0.0, 0.0 };
         return { a, b };
+    }
+
+    VersioMescla fotoMescla (const Projecte& p, const std::string& nom, const std::string& quan)
+    {
+        VersioMescla v;
+        v.nom = nom;
+        v.quan = quan;
+        v.masterDb = p.masterDb;
+        v.insertsMaster = p.insertsMaster;
+        for (const auto& t : p.pistes)
+        {
+            VersioMescla::DePista d;
+            d.pista = t.id;
+            d.faderDb = t.faderDb;
+            d.pan = t.pan;
+            d.mut = t.mut;
+            d.inserts = t.inserts;
+            d.enviaments = t.enviaments;
+            v.pistes.push_back (std::move (d));
+        }
+        return v;
+    }
+
+    int recuperaMescla (Projecte& p, const VersioMescla& v)
+    {
+        int n = 0;
+        for (const auto& d : v.pistes)
+            for (auto& t : p.pistes)
+            {
+                if (t.id != d.pista) continue;
+                t.faderDb = d.faderDb;
+                t.pan = d.pan;
+                t.mut = d.mut;
+                t.inserts = d.inserts;
+                // els enviaments a busos que ja no hi són es deixen córrer
+                t.enviaments.clear();
+                for (const auto& e : d.enviaments)
+                    if (std::any_of (p.pistes.begin(), p.pistes.end(), [&] (const Pista& b) { return b.id == e.desti; })) t.enviaments.push_back (e);
+                ++n;
+            }
+        p.masterDb = v.masterDb;
+        p.insertsMaster = v.insertsMaster;
+        return n;
     }
 }

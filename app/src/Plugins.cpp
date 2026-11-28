@@ -1,4 +1,5 @@
 #include "Plugins.h"
+#include "mibase/Estereo.h"
 #include "Tancaments.h"
 #include "EscGlobal.h"
 #include "FinestraDelay.h"
@@ -530,6 +531,19 @@ void GestorPlugins::restauraRacks (const mibase::Projecte& p)
         if (it == reverbs.end() || it->second == nullptr) return;
         if (auto rk = std::dynamic_pointer_cast<mibase::rack::Rack> (it->second))
             if (rk->estat() != x.estat) rk->posaEstat (x.estat);
+    };
+    for (const auto& x : p.insertsMaster) fes (x);
+    for (const auto& t : p.pistes) for (const auto& x : t.inserts) fes (x);
+}
+
+void GestorPlugins::restauraInterns (const mibase::Projecte& p)
+{
+    auto fes = [this] (const mibase::Insert& x)
+    {
+        if (x.plugin != mibase::eq::idPlugin && x.plugin != mibase::dinamica::idPlugin && x.plugin != mibase::estereo::idPlugin) return;
+        auto it = reverbs.find (x.id);
+        if (it == reverbs.end() || it->second == nullptr || x.estat.empty()) return;
+        if (it->second->estat() != x.estat) it->second->posaEstat (x.estat);
     };
     for (const auto& x : p.insertsMaster) fes (x);
     for (const auto& t : p.pistes) for (const auto& x : t.inserts) fes (x);

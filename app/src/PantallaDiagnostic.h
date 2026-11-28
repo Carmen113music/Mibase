@@ -108,6 +108,7 @@ private:
 
     juce::Label etEstat;
     juce::TextButton btNuclis { "Diversos nuclis" };   // 1.10
+    juce::TextButton btFons { juce::String::fromUTF8 ("Allibera-la al darrere") };   // 1.25
     juce::TextEditor historialText;
     juce::TextButton btCopia { "Copia el diagnòstic"_ca };
 
