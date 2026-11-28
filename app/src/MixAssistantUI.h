@@ -269,6 +269,7 @@ private:
                 y = caixaPregunta (g, m, y, W, (n == 1 ? "Hi ha una pista que no sé quin instrument és: "_ca : juce::String (n) + " pistes no sé quin instrument són: "_ca)
                                    + noms + ". Si m'ho dius, el diagnòstic serà més precís."_ca, {});
             }
+            if (! model.creacio && ! model.balanc.empty()) y = caixaBalanc (g, m, y, W);   // 1.24.1: també aquí
             const auto v = model.totes();
             if (v.empty()) y = mixui::escriu (g, "No hi veig res important."_ca, dibuix::lletra (14.0f), tema::textMig, m, y, W);
             for (const auto& [f, i] : v) y = targeta (g, f, *i, m, y, W, true);
@@ -280,6 +281,23 @@ private:
             y = mixui::escriu (g, "Com sonen les pistes juntes: qui tapa qui, l'equilibri de volums i panorames, i el to de la mescla sencera (sense el màster)."_ca,
                                dibuix::lletra (12.5f), tema::suau, m, y, W, 12);
             if (! model.creacio && ! model.balanc.empty()) y = caixaBalanc (g, m, y, W);
+            else if (! model.creacio)
+            {
+                // 1.24.1: dir per què no hi ha Balanç proposat
+                int segures = 0;
+                juce::String dubtoses;
+                for (const auto& f : model.files)
+                {
+                    if (! f.analitzada) continue;
+                    if (f.ident.instrument != mibase::mix::Instrument::Desconegut && f.ident.confianca != mibase::mix::Confianca::Baixa) ++segures;
+                    else dubtoses << (dubtoses.isEmpty() ? "" : ", ") << f.nom;
+                }
+                const juce::String t = segures < 2
+                    ? "Balanç proposat: ara no en puc fer cap. Per proposar volums i panorames he de saber quins instruments són (veu, baix, bombo, guitarres…), i "_ca
+                      + (dubtoses.isEmpty() ? "no n'hi ha prou."_ca : "no sé segur què són: "_ca + dubtoses + ". Tria-ho a cada pista (els que tenen «?») i es recalcula sol."_ca)
+                    : "Balanç proposat: ara no hi ha res a proposar. Els volums i panorames de les pistes que conec estan dins del que és habitual."_ca;
+                y = mixui::escriu (g, t, dibuix::lletra (13.0f), tema::textMig, m, y, W, 14);
+            }
             const auto v = model.deMescla();
             if (v.empty()) y = mixui::escriu (g, model.creacio ? "En mode Creació no es mira la mescla sencera."_ca : "No hi veig res important a la mescla."_ca,
                                               dibuix::lletra (14.0f), tema::textMig, m, y, W);
@@ -491,11 +509,19 @@ private:
                 for (const auto& a : i.altres) yy = mixui::escriu (gg, "· "_ca + u (a), dibuix::lletra (12.5f), tema::suau, tx + 8, yy, iw - 8, 3);
                 yy += 5;
             }
+            const bool deBalanc = (i.proposta.tipus == mibase::mix::Proposta::Fader || i.proposta.tipus == mibase::mix::Proposta::Panorama)
+                                  && ! model.balanc.empty() && ! model.creacio;
             if (gg != nullptr)
             {
                 gg->setColour (tema::suau);
                 gg->setFont (dibuix::lletra (11.5f));
-                gg->drawText ("Confiança: "_ca + mixui::nomConfianca (i.confianca), tx, yy + 6, iw - 140, 16, juce::Justification::centredLeft);
+                gg->drawText ("Confiança: "_ca + mixui::nomConfianca (i.confianca), tx, yy + 6, iw - 140 - (deBalanc ? 230 : 0), 16, juce::Justification::centredLeft);
+            }
+            if (deBalanc)   // 1.24.1: escoltar el Balanç proposat des de la mateixa targeta
+            {
+                const juce::String tb = model.escoltantBalanc ? "Torna al teu balanç (A)"_ca : "Escolta el Balanç proposat (B)"_ca;
+                const int wDet = i.detalls.empty() ? 0 : mixui::ampleBoto (obert ? "Amaga els detalls"_ca : "Detalls"_ca) + 8;
+                boto (gg, x + w - pad - wDet - mixui::ampleBoto (tb), yy, tb, ! model.escoltantBalanc, { Zona::EscoltaBalanc, {}, {} });
             }
             if (! i.detalls.empty())
             {
@@ -595,7 +621,7 @@ public:
         juce::String sub;
         if (model.analitzant) sub = model.progres;
         else if (model.fet) sub = juce::String (model.analitzades()) + " pistes analitzades · "_ca + model.quan + " · Si canvies la mescla, torna a analitzar."_ca;
-        else sub = "Analitza, diagnostica i explica. Fase 1: encara no canvia res de la mescla."_ca;
+        else sub = "Analitza, diagnostica, explica i proposa. No canvia res de la mescla si no ho acceptes tu."_ca;
         g.drawText (sub, t.getX(), 38, t.getWidth(), 18, juce::Justification::centredLeft);
         if (model.analitzant)
         {
